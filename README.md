@@ -2,9 +2,9 @@
 
 **AI駆動タスクグラフ** — An agent-driven procedural task graph.
 
-人間とAIが一緒にタスクを整理し、人間 / AI / スクリプトが分担して処理する汎用ツール。
+人間とAIが一緒にタスクを整理し、人間 / AI / スクリプトが分担して処理する業務ツール。
 名前は Houdini の Wrangle（ノードを直接手なずける場所）と、群れを追い立てて仕事をさせる
-wrangler（牛追い）から — 言うことを聞かないタスクと AI エージェントの群れを取り回す道具。
+wrangler（牛追い）から — 言うことを聞かないタスクと AI エージェントの群れを取り回す。
 [zinsei](https://github.com/tsunosekai/zinsei) の desk をプロトタイプとして一般化する。
 
 **設計の正は [docs/design.md](docs/design.md)。**
