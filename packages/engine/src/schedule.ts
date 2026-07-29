@@ -1,0 +1,80 @@
+// procedure ノードの node.schedule（自由文字列）を解釈し、新しいランを自動生成すべきか
+// 判定する。ネットワークI/Oを一切持たない純粋関数のみを置く（vitest でユニットテストする対象）。
+// docs/design.md 3.8「トリガー: スケジュール・イベントでランを生成」。
+//
+// 対応する書式はこの2つだけ（それ以外は無視して警告ログ。呼び出し側=index.ts の責務）:
+//   - "every <N>m" / "every <N>h" … 最新ランの created から N 経過していたら新ラン
+//   - "daily <HH:MM>"             … 今日その時刻を過ぎていて、今日の分のランがまだ無ければ新ラン
+
+export type ParsedSchedule =
+  | { type: "every"; ms: number; raw: string }
+  | { type: "daily"; hour: number; minute: number; raw: string };
+
+const EVERY_RE = /^every\s+(\d+)\s*(m|h)$/i;
+const DAILY_RE = /^daily\s+(\d{1,2}):(\d{2})$/i;
+
+/** schedule 文字列をパースする。対応外の書式は null（呼び出し側で警告ログを出す） */
+export function parseSchedule(text: string): ParsedSchedule | null {
+  const trimmed = text.trim();
+
+  const everyMatch = EVERY_RE.exec(trimmed);
+  if (everyMatch) {
+    const amount = Number(everyMatch[1]);
+    if (amount <= 0) return null;
+    const unit = everyMatch[2].toLowerCase();
+    const ms = unit === "h" ? amount * 60 * 60 * 1000 : amount * 60 * 1000;
+    return { type: "every", ms, raw: text };
+  }
+
+  const dailyMatch = DAILY_RE.exec(trimmed);
+  if (dailyMatch) {
+    const hour = Number(dailyMatch[1]);
+    const minute = Number(dailyMatch[2]);
+    if (hour > 23 || minute > 59) return null;
+    return { type: "daily", hour, minute, raw: text };
+  }
+
+  return null;
+}
+
+/** 2つの Date がローカル暦で同じ日か */
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/**
+ * スケジュールに基づき、今このタイミングで新しいランを生成すべきか判定する（純粋関数）。
+ *
+ * - hasRunningRun=true（その手順に status=running のランが既にある）なら常に false
+ *   （積み残し防止。前回分がまだ流れている間は積み増さない。README参照）
+ * - "every": 最新ランが無ければ true。あれば now - latestRun.created >= ms で true
+ * - "daily": 今日の目標時刻(hour:minute)を過ぎていない間は false。過ぎていれば、
+ *   最新ランが無いか、最新ランがローカル暦で「今日」でなければ true
+ *   （今日の分は trigger を問わず1本で足りる、という判定）
+ */
+export function shouldCreateScheduledRun(
+  schedule: ParsedSchedule,
+  latestRun: { created: string } | null,
+  now: Date,
+  hasRunningRun: boolean,
+): boolean {
+  if (hasRunningRun) return false;
+
+  if (schedule.type === "every") {
+    if (!latestRun) return true;
+    const last = new Date(latestRun.created);
+    return now.getTime() - last.getTime() >= schedule.ms;
+  }
+
+  // daily
+  const target = new Date(now);
+  target.setHours(schedule.hour, schedule.minute, 0, 0);
+  if (now.getTime() < target.getTime()) return false;
+  if (!latestRun) return true;
+  const last = new Date(latestRun.created);
+  return !isSameLocalDay(last, now);
+}

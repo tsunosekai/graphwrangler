@@ -25,6 +25,7 @@ function node(partial: Partial<Node> = {}): Node {
     selfImprove: partial.selfImprove ?? false,
     pendingRequest: partial.pendingRequest ?? null,
     order: partial.order ?? null,
+    schedule: partial.schedule ?? null,
     created: partial.created ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
     updated: partial.updated ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
   };

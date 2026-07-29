@@ -11,6 +11,12 @@ beforeEach(() => {
 });
 
 describe("GraphStore", () => {
+  it("空タイトルで作成できる（UIの「作って即リネーム」フロー）", () => {
+    const g = new GraphStore(dir);
+    const n = g.addNode({ title: "" });
+    expect(n.title).toBe("");
+  });
+
   it("ノード作成: 既定値が入り、idが採番される", () => {
     const g = new GraphStore(dir);
     const n = g.addNode({ title: "最初の仕事" });

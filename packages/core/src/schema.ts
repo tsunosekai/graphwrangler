@@ -40,7 +40,8 @@ export type NodeImpl = z.infer<typeof NodeImplSchema>;
 
 export const NodeSchema = z.object({
   id: z.string(),
-  title: z.string().min(1),
+  /** 空文字を許す（UIの「作って即リネーム」フローが空タイトルで作成するため。表示側は「（無題）」） */
+  title: z.string(),
   detail: z.string().nullable(),
   /** 実装形態（3.5 硬化ライフサイクル）。null = 会話段 */
   impl: NodeImplSchema.nullable(),
@@ -71,7 +72,7 @@ export type Node = z.infer<typeof NodeSchema>;
 
 /** ノード作成時の入力（id/created/updated はエンジンが振る） */
 export const NodeInputSchema = z.object({
-  title: z.string().min(1),
+  title: z.string().default(""),
   detail: z.string().nullable().default(null),
   impl: NodeImplSchema.nullable().default(null),
   parents: z.array(z.string()).default([]),

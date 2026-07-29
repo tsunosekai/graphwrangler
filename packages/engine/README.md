@@ -1,9 +1,10 @@
 # @graphwrangler/engine
 
-GraphWrangler の常駐実行エンジン（M5）。HTTP API（`packages/server`）をポーリングし、
-実行可能なノード（`executor: ai | script`）を自動で処理する。zinsei desk の
-`desk/engine.py` の一般化にあたる。設計の正は `docs/design.md`（3.4/3.5/3.7）・
-`docs/agent-contracts.md`。
+GraphWrangler の常駐実行エンジン（M5、M6後半で手順ページ=ラン対応を追加）。HTTP API
+（`packages/server`）をポーリングし、実行可能なノード（`executor: ai | script`）を自動で
+処理する。zinsei desk の `desk/engine.py` の一般化にあたる。設計の正は `docs/design.md`
+（3.4/3.5/3.7/3.8）・`docs/agent-contracts.md`。ラン（手順ページ）対応の詳細は本ファイル
+末尾の「手順ページ（ラン）対応（M6後半）」セクション参照。
 
 このパッケージは `packages/mcp` と同じ方針で **`packages/core`/`packages/server` に依存しない
 自己完結パッケージ**にしてある（`src/types.ts` は core のスキーマの手動ミラー）。統合点は
@@ -72,3 +73,64 @@ pnpm --filter @graphwrangler/engine dev
   人間向けの理由文にしている
 - Windows では `claude` が `.cmd` シムのため `spawn` に `shell:true` を付けている
   （POSIX 側は argv をそのまま渡すため付けない）
+
+## 手順ページ（ラン）対応（M6後半）
+
+`docs/design.md` 3.7/3.8 の「手順ページ」実装。既存のプロジェクト側ループ（上記）を毎tick
+1件のまま拡張し、プロジェクトのタスクに候補が無かった周だけラン側のワークアイテムを1件処理する
+（候補: プロジェクト優先→ラン。`src/index.ts` の `tick()`）。
+
+### ワークアイテム実行（`src/pickRun.ts` / `tick()` の `tickRunItem`）
+
+- 対象: `status=running` のラン × アイテム `status=pending` × テンプレート `executor` が
+  `ai|script` × **ラン内依存**（テンプレートの `parents` のうち、そのランの `items` に存在する
+  もの＝同じ手順のメンバーだけ）が全て `done`/`skipped`。手順の外のノードを親に持っていても
+  ランの実行判定には関係しない
+- 選択順序: ラン `created` 昇順（古いランを先に）→ ラン内はテンプレート `created` 昇順。
+  候補選択ロジックは `src/pickRun.ts` の `selectRunAction`（ネットワークI/Oなし・純粋関数・
+  `test/pickRun.test.ts` でユニットテスト）
+- `impact=irreversible` のテンプレートは実行せず、items patch で
+  `{status:"waiting", note:"不可逆のため人間の実行待ち"}` にする（`pick.ts` の承認カード
+  （`POST /request`）とは**未接続**。ランの承認カード連携は将来のスコープ）
+- 実行: claim は `POST /api/runs/:id/items/:nodeId` で `{status:"running"}`。executor は
+  プロジェクト側と同じ `runScript` / `runClaude` をそのまま使う。`ai` executor のプロンプトは
+  `claude.ts` の `buildAiPrompt` を「手順ノード(procedure) = goal」として再利用し、手順ノードの
+  title/detail → テンプレートの title/detail → `impl={type:"doc"}` ならその全文、の順で渡す
+  （プロジェクト側と違い親ノードのスレッド文脈は渡さない）
+- 結果はテンプレートノードのスレッドへ `payload:{runId}` 付きで記録する
+  （成功: `status`要約 + `say`成果 → items patch `done`。失敗: `status` → items patch
+  `{status:"waiting", note:"失敗: <理由の短縮>"}`）。server 側の
+  `POST /api/runs/:id/items/:nodeId` はアイテム更新のたびに `[ラン <id>] <title>: <from> → <to>`
+  という遷移ログも自動でスレッドに積むため、上記の要約メッセージと合わせて2種類のログが並ぶ
+- 全ランを横断する一覧APIは無いため、`kind=procedure` の全ノードについて
+  `GET /api/procedures/:id/runs` を束ねて `status=running` のものを集める
+  （`src/index.ts` の `fetchRunningRuns`）
+
+### スケジュールによるラン自動生成（`src/schedule.ts` / `scheduleTick`）
+
+- `node.schedule` を持つ `kind=procedure` ノードを毎tickチェックする。対応書式は
+  `src/schedule.ts` の `parseSchedule` が正:
+  - `every <N>m` / `every <N>h` — 最新ランの `created` から N 経過していたら新ラン
+    （最新ランが無ければ即座に生成。cron の初回即時実行と同じ発想）
+  - `daily <HH:MM>` — ローカル時刻でその時刻を過ぎていて、最新ランがローカル暦で「今日」の
+    ものでなければ新ラン（trigger を問わず「今日の分」が1本あれば足りる、という判定）
+  - それ以外の書式は**無視して警告ログ**（`未対応のschedule書式のため無視`）を出すだけで、
+    ラン生成は行わない
+- **重複防止**: その手順に `status=running` のランが既にあれば、上記条件を満たしていても
+  新規生成しない（積み残し防止。前のランが全アイテム `done/dropped/skipped` になって
+  `status=done` に変わるまでは次のランを作らない）
+- 生成したランの `trigger` は `schedule:<schedule文字列そのまま>`（例 `schedule:every 15m`）
+- パース・判定はいずれもネットワークI/Oを持たない純粋関数（`test/schedule.test.ts` でユニット
+  テスト）
+
+### E2E確認の実績（2026-07-29）
+
+自分専用サーバ（`GRAPHWRANGLER_PORT=8777`）で手動確認済み:
+手順ノード + script実装のテンプレート2個（直列依存）+ human実装1個 → 手動でラン作成 →
+エンジン起動 → 依存順（A→B）で2個が `done` になり、human のテンプレートは `pending` のまま
+残る → `GET /api/runs/:id/trace` で claim/成功/成果/遷移ログが `payload.runId` 付きで
+時系列に並ぶことを確認。スケジュールは `every 1m` を設定した手順ノードで確認し、
+「最新ランが無ければ即座に生成」の分岐どおり設定直後にラン（`trigger:"schedule:every 1m"`）が
+自動生成されることを確認した（次tickでは実行中ランがあるため重複生成されないことも確認）。
+1分待って2周目の間隔判定まで確認するのは行っていない（`every` の間隔判定自体は
+`test/schedule.test.ts` でユニットテスト済み）。
