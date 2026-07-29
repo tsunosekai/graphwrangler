@@ -64,16 +64,27 @@ function summarizeNodes(graph: GraphStore) {
 }
 
 /** chat_cli.ts（chat.mode="cli"）でも同じ相棒AI人格を使うため export する */
-export function systemPrompt(graph: GraphStore, pageId: string | null): string {
+export function systemPrompt(
+  graph: GraphStore,
+  pageId: string | null,
+  selectedNodeId: string | null = null,
+): string {
   let pageTitle = "(なし)";
   if (pageId && graph.has(pageId)) pageTitle = graph.get(pageId).title;
   else if (pageId) pageTitle = pageId;
+  // ユーザーが今選択しているノードを文脈として渡す（「これ分解して」の「これ」が通じるように）
+  let selectedLine = "";
+  if (selectedNodeId && graph.has(selectedNodeId)) {
+    const sel = graph.get(selectedNodeId);
+    selectedLine = `ユーザーが選択中のノード: 「${sel.title || "（無題）"}」(id: ${sel.id})。「これ」「このタスク」はこのノードを指す。`;
+  }
   return [
     "あなたはタスクグラフ整理の相棒。ユーザーと会話しながらノードを作成・整理する。",
     "勝手に大量のノードを作らず、分解は3〜8個の人間粒度で行うこと。",
     "ユーザーが明示した手順を勝手に変えない。削除は確認してから実行すること。",
     `現在表示中のページ: ${pageTitle}`,
     "新規ノードは原則そのページ（group=現在のページ）に作ること。",
+    ...(selectedLine ? [selectedLine] : []),
     "整理の提案としてノードを作るときは lifecycle:\"draft\"（既定のまま）で作り、" +
       "作り終えたら「下書きとして N 件作りました。よければ画面上部の「下書きを確定」で確定してください」と案内する。" +
       "ユーザーが明示的に確定を頼んだ場合のみ lifecycle:\"committed\" で作る。",
@@ -148,6 +159,8 @@ function buildTools(graph: GraphStore, threads: ThreadStore, pageId: string | nu
 export interface ChatRequestBody {
   messages: UIMessage[];
   pageId?: string | null;
+  /** UI で選択中のノード（「これ」の解決用） */
+  selectedNodeId?: string | null;
 }
 
 /** POST /api/chat のハンドラ本体。呼び出し側（index.ts）が chatKeyMissing() を先に見て 400 を返す */
@@ -162,7 +175,7 @@ export async function handleChat(
 
   const result = streamText({
     model: resolveModel(settings),
-    system: systemPrompt(graph, pageId),
+    system: systemPrompt(graph, pageId, body.selectedNodeId ?? null),
     messages: await convertToModelMessages(body.messages ?? []),
     tools: buildTools(graph, threads, pageId, actor),
     stopWhen: stepCountIs(8),

@@ -69,7 +69,50 @@ app.onError((err, c) => {
 // ---- グラフ ----
 
 app.get("/api/state", (c) => {
-  return c.json({ ...graph.state(), now: nowIso() });
+  // threadMeta: 未読バッジ用にノードごとの最終メッセージ時刻を添える（クライアントが
+  // localStorage の既読時刻と比較する）。スレッドファイルは小さいので毎回読んで良い規模
+  const threadMeta: Record<string, string> = {};
+  for (const n of graph.state().nodes) {
+    const msgs = threads.list(n.id);
+    if (msgs.length > 0) threadMeta[n.id] = msgs[msgs.length - 1].ts;
+  }
+  return c.json({ ...graph.state(), threadMeta, now: nowIso() });
+});
+
+// ---- エクスポート（バックアップ用の一括JSON。APIキーは含まれない） ----
+
+app.get("/api/export", (c) => {
+  const nodes = graph.state().nodes;
+  const threadDump: Record<string, unknown> = {};
+  const runDump: Record<string, unknown> = {};
+  for (const n of nodes) {
+    const msgs = threads.list(n.id);
+    if (msgs.length > 0) threadDump[n.id] = msgs;
+    if (n.kind === "procedure") runDump[n.id] = runs.list(n.id);
+  }
+  c.header("Content-Disposition", `attachment; filename="graphwrangler-export.json"`);
+  return c.json({
+    exportedAt: nowIso(),
+    nodes,
+    threads: threadDump,
+    runs: runDump,
+    settings: settings.publicView(),
+  });
+});
+
+// ---- エンジン稼働ハートビート（UIの稼働インジケータ用。メモリ保持のみ） ----
+
+let engineLastSeen: string | null = null;
+
+app.post("/api/engine/heartbeat", (c) => {
+  engineLastSeen = nowIso();
+  return c.json({ ok: true });
+});
+
+app.get("/api/engine/status", (c) => {
+  const alive =
+    engineLastSeen !== null && Date.now() - new Date(engineLastSeen).getTime() < 20_000;
+  return c.json({ alive, lastSeen: engineLastSeen });
 });
 
 app.post("/api/nodes", async (c) => {

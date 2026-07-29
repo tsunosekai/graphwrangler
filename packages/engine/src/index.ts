@@ -6,6 +6,7 @@ import {
   getSettings,
   getState,
   getThread,
+  heartbeat,
   listProcedureRuns,
   openRequest,
   patchNode,
@@ -411,6 +412,9 @@ async function scheduleTick(nodes: Node[]): Promise<void> {
 
 async function tick(): Promise<void> {
   await refreshEngineConfig(); // 起動時+10分ごと（内部で throttle。M7）
+
+  // UIの稼働インジケータ用ハートビート（失敗しても実行は続ける）
+  void heartbeat().catch(() => {});
 
   const { nodes } = await getState();
 

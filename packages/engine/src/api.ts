@@ -148,3 +148,8 @@ export async function completeAi(prompt: string, maxTokens?: number): Promise<st
   })) as { text: string };
   return res.text;
 }
+
+/** UIの稼働インジケータ用ハートビート（POST /api/engine/heartbeat）。失敗は呼び出し側で握りつぶす */
+export async function heartbeat(): Promise<void> {
+  await request("POST", "/api/engine/heartbeat", {});
+}

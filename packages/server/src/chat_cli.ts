@@ -294,7 +294,7 @@ export function handleChatCli(
   const pageId = body.pageId ?? null;
   const { cliPath, cliModel } = settings.get().chat;
   const system = [
-    systemPrompt(graph, pageId),
+    systemPrompt(graph, pageId, body.selectedNodeId ?? null),
     "グラフの操作（ノード作成・更新・削除・スレッド投稿等）は graphwrangler の MCP ツールで行うこと。",
   ].join("\n");
   const prompt = buildPrompt(body.messages ?? []);
