@@ -106,6 +106,18 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
         />
+        <button
+          type="button"
+          className="icon-btn"
+          title={
+            node.selfImprove
+              ? "アンロック中: AIが実装(impl)を書き換えてよい"
+              : "ロック中: AIは実装(impl)を書き換えない"
+          }
+          onClick={() => patch({ selfImprove: !node.selfImprove })}
+        >
+          <Icon name={node.selfImprove ? "unlock" : "lock"} size={14} />
+        </button>
         <button type="button" className="icon-btn" title="このノードを削除" onClick={handleDelete}>
           <Icon name="trash" size={14} />
         </button>

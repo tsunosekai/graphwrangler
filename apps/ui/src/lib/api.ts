@@ -55,6 +55,29 @@ export interface NodeCreateInput {
 
 export type NodePatchInput = Partial<Omit<Node, "id" | "created" | "updated">>;
 
+// ---- AI設定（初回セットアップ + ⚙。実装は packages/server/src/settings.ts） ----
+
+export interface SettingsView {
+  chat: {
+    provider: "anthropic" | "openai";
+    model: string | null;
+    hasApiKey: boolean;
+    keySource: "settings" | "env" | "none";
+  };
+  engine: {
+    cliPath: string;
+    model: string;
+    extraArgs: string[];
+  };
+  setupDone: boolean;
+}
+
+export interface SettingsPatch {
+  chat?: { provider?: "anthropic" | "openai"; model?: string | null; apiKey?: string | null };
+  engine?: { cliPath?: string; model?: string; extraArgs?: string[] };
+  setupDone?: boolean;
+}
+
 export const api = {
   getState: () => request<{ nodes: Node[]; now: string }>("/state"),
 
@@ -97,6 +120,25 @@ export const api = {
     request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
 
   getRunTrace: (runId: string) => request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`),
+
+  // ---- 元に戻す / やり直す（B-8。操作ログの補償追記） ----
+
+  undo: () => request<{ undone: { id: string; op: string; ts: string } }>("/undo", {
+    method: "POST",
+    body: "{}",
+  }),
+
+  redo: () => request<{ redone: { id: string; op: string; ts: string } }>("/redo", {
+    method: "POST",
+    body: "{}",
+  }),
+
+  // ---- AI設定 ----
+
+  getSettings: () => request<SettingsView>("/settings"),
+
+  updateSettings: (patch: SettingsPatch) =>
+    request<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
 
   /**
    * 内蔵チャット（M4）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側

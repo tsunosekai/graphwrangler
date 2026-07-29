@@ -12,8 +12,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api } from "../lib/api";
+import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import type { Node } from "../types";
+import { Icon } from "./Icon";
 import { LedgerView } from "./LedgerView";
 import { NodeCard, type NodeCardData } from "./NodeCard";
 
@@ -58,7 +60,24 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
     const pageChanged = sig.split("#")[0] !== sigRef.current.split("#")[0];
     if (sig !== sigRef.current) {
       sigRef.current = sig;
-      positionsRef.current = layoutGraph(nodes).positions;
+      if (pageChanged) {
+        // ページ切替時だけ全体を再レイアウト（B-11: それ以外はドラッグ位置を保持する）
+        positionsRef.current = layoutGraph(nodes).positions;
+      } else {
+        // 既存ノードの現在位置は保持し、新規に現れたノードだけレイアウト結果の位置を使う
+        const computed = layoutGraph(nodes).positions;
+        for (const n of nodes) {
+          if (!positionsRef.current.has(n.id)) {
+            const pos = computed.get(n.id);
+            if (pos) positionsRef.current.set(n.id, pos);
+          }
+        }
+        // 消えたノードの位置は掃除する（メモリリーク防止）
+        const ids = new Set(nodes.map((n) => n.id));
+        for (const id of [...positionsRef.current.keys()]) {
+          if (!ids.has(id)) positionsRef.current.delete(id);
+        }
+      }
       // 紐から作ったノードは自動レイアウトより「落とした位置」を優先する
       for (const [id, pos] of overridesRef.current) {
         if (nodes.some((n) => n.id === id)) {
@@ -188,6 +207,83 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
     requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
   }, [nodes, fitView]);
 
+  // ---- B-8: 元に戻す/やり直す（操作ログの補償追記） ----
+  const runUndo = useCallback(async () => {
+    try {
+      await api.undo();
+      pushToast("元に戻しました", "info");
+      onMutated();
+    } catch {
+      // api() 側で既にエラートースト表示済み
+    }
+  }, [onMutated]);
+
+  const runRedo = useCallback(async () => {
+    try {
+      await api.redo();
+      pushToast("やり直しました", "info");
+      onMutated();
+    } catch {
+      // api() 側で既にエラートースト表示済み
+    }
+  }, [onMutated]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isEditable =
+        !!target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (isEditable) return;
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
+      e.preventDefault();
+      if (e.shiftKey) void runRedo();
+      else void runUndo();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [runUndo, runRedo]);
+
+  // ---- A-1: 下書き承認バー（draft ノードを確定/破棄） ----
+  const draftNodes = useMemo(() => nodes.filter((n) => n.lifecycle === "draft"), [nodes]);
+
+  const confirmDrafts = useCallback(async () => {
+    for (const n of draftNodes) {
+      await api.patchNode(n.id, { lifecycle: "committed" });
+    }
+    onMutated();
+  }, [draftNodes, onMutated]);
+
+  const discardDrafts = useCallback(async () => {
+    if (draftNodes.length === 0) return;
+    if (!window.confirm(`下書き ${draftNodes.length} 件を破棄しますか？`)) return;
+    // 依存の葉（子を持たないノード）から順に削除する。子持ちで消せないものはトースト表示済みなので
+    // 次のパスへ回し、1周で1件も消えなくなったら打ち切る（循環や draft 外の子が残っているケース）
+    let remaining = draftNodes.map((n) => n.id);
+    while (remaining.length > 0) {
+      let removedAny = false;
+      const stillRemaining: string[] = [];
+      for (const id of remaining) {
+        try {
+          await api.removeNode(id);
+          removedAny = true;
+        } catch {
+          stillRemaining.push(id);
+        }
+      }
+      remaining = stillRemaining;
+      if (!removedAny) break;
+    }
+    onMutated();
+  }, [draftNodes, onMutated]);
+
+  // ---- A-5: 硬化率チップ（committed メンバーのうち impl=script の割合） ----
+  const hardening = useMemo(() => {
+    const committed = nodes.filter((n) => n.lifecycle === "committed");
+    const hardened = committed.filter((n) => n.impl?.type === "script");
+    return { n: hardened.length, m: committed.length };
+  }, [nodes]);
+
   // 選択中ノードがこのページのタスクなら、その後続として作る
   const selectedInPage = selectedId && nodes.some((n) => n.id === selectedId) ? selectedId : null;
 
@@ -232,9 +328,28 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
             <button type="button" title="dagre で並べ直す" onClick={realign}>
               整列
             </button>
+            <button type="button" className="icon-btn" title="元に戻す (Ctrl+Z)" onClick={runUndo}>
+              <Icon name="undo" size={13} />
+            </button>
+            {hardening.m > 0 && (
+              <span className="hardening-chip" title="確定メンバーのうちスクリプト化済みの割合">
+                硬化 {hardening.n}/{hardening.m}
+              </span>
+            )}
           </>
         )}
       </div>
+      {!showLedger && draftNodes.length > 0 && (
+        <div className="draft-bar">
+          <span className="draft-bar-count">下書き {draftNodes.length}件</span>
+          <button type="button" className="draft-confirm-btn" onClick={confirmDrafts}>
+            すべて確定
+          </button>
+          <button type="button" className="draft-discard-btn" onClick={discardDrafts}>
+            破棄
+          </button>
+        </div>
+      )}
       {showLedger && pageNode ? (
         <LedgerView procedure={pageNode} members={nodes} onMutated={onMutated} />
       ) : (
@@ -255,7 +370,7 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
           proOptions={{ hideAttribution: true }}
           fitView
         >
-          <Controls />
+          <Controls showInteractive={false} />
         </ReactFlow>
       )}
     </div>

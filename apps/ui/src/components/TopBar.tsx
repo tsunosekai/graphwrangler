@@ -2,17 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import type { Node } from "../types";
 import { Icon } from "./Icon";
 
+/** 手順ページのラン待ち項目（B-6: 受信箱への統合）。クリックで onSelect(nodeId) を呼べば
+ *  テンプレートノードの選択 + そのページへの移動は App.selectNode が面倒を見る */
+export interface RunWaitItem {
+  key: string;
+  nodeId: string;
+  label: string;
+}
+
 interface Props {
   nodes: Node[];
+  runWaitItems?: RunWaitItem[];
   onSelect: (id: string) => void;
   chatOpen: boolean;
   onToggleChat: () => void;
+  onOpenSettings: () => void;
 }
 
-export function TopBar({ nodes, onSelect, chatOpen, onToggleChat }: Props) {
+export function TopBar({ nodes, runWaitItems = [], onSelect, chatOpen, onToggleChat, onOpenSettings }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pending = nodes.filter((n) => n.pendingRequest);
+  const totalCount = pending.length + runWaitItems.length;
 
   useEffect(() => {
     if (!open) return;
@@ -30,6 +41,14 @@ export function TopBar({ nodes, onSelect, chatOpen, onToggleChat }: Props) {
       <div className="topbar-spacer" />
       <button
         type="button"
+        className="chat-toggle-btn"
+        onClick={onOpenSettings}
+        title="AI設定"
+      >
+        <Icon name="gear" size={13} />
+      </button>
+      <button
+        type="button"
         className={`chat-toggle-btn${chatOpen ? " is-active" : ""}`}
         onClick={onToggleChat}
         title="相棒AIとチャット"
@@ -39,14 +58,14 @@ export function TopBar({ nodes, onSelect, chatOpen, onToggleChat }: Props) {
       <div className="inbox" ref={ref}>
         <button
           type="button"
-          className={`inbox-btn${pending.length > 0 ? " has-pending" : ""}`}
+          className={`inbox-btn${totalCount > 0 ? " has-pending" : ""}`}
           onClick={() => setOpen((v) => !v)}
         >
-          <Icon name="user" size={12} /> あなたの番 {pending.length}
+          <Icon name="user" size={12} /> あなたの番 {totalCount}
         </button>
         {open && (
           <div className="inbox-dropdown">
-            {pending.length === 0 && <div className="inbox-empty">今はありません</div>}
+            {totalCount === 0 && <div className="inbox-empty">今はありません</div>}
             {pending.map((n) => (
               <button
                 key={n.id}
@@ -58,6 +77,19 @@ export function TopBar({ nodes, onSelect, chatOpen, onToggleChat }: Props) {
                 }}
               >
                 {n.title || "（無題）"}
+              </button>
+            ))}
+            {runWaitItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className="inbox-item"
+                onClick={() => {
+                  onSelect(item.nodeId);
+                  setOpen(false);
+                }}
+              >
+                {item.label}
               </button>
             ))}
           </div>

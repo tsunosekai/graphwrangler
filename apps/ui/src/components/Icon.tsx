@@ -18,6 +18,14 @@ const PATHS: Record<string, string> = {
   // 手順ページ（procedure）用。desk の repeat アイコンと同型
   repeat:
     'M4 12a8 8 0 0 1 13.5-5.5L20 9M20 4v5h-5M20 12a8 8 0 0 1-13.5 5.5L4 15M4 20v-5h5',
+  // Houdini風ロック/アンロック（NodePanel のロックトグル）
+  lock: 'M6 11V8a6 6 0 0 1 12 0v3',
+  unlock: 'M6 11V8a6 6 0 0 1 11.6-2',
+  // 実装形態（impl）バッジ: 手順書（doc）/ スクリプト（code）
+  doc: 'M7 3h7l4 4v14H7z M14 3v4h4 M10 12h5M10 16h5',
+  code: 'm8 9-4 3 4 3 M16 9l4 3-4 3',
+  // グラフツールバーの「元に戻す」ボタン
+  undo: 'M9 13.5 4.5 9 9 4.5 M4.5 9H13a7 7 0 0 1 7 7v3',
 };
 
 // パスだけでは表せない形状（rect/circle）を含むアイコン
@@ -33,6 +41,8 @@ const EXTRA: Record<string, React.ReactNode> = {
   laptop: <rect x="4" y="5" width="16" height="11" rx="1.5" />,
   clock: <circle cx="12" cy="12" r="8.5" />,
   drop: <circle cx="12" cy="12" r="8.5" />,
+  lock: <rect x="4" y="11" width="16" height="9" rx="1.5" />,
+  unlock: <rect x="4" y="11" width="16" height="9" rx="1.5" />,
 };
 
 export function Icon({ name, size = 13 }: { name: keyof typeof PATHS; size?: number }) {

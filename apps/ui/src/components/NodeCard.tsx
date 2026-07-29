@@ -42,6 +42,7 @@ export function NodeCard({ data }: { data: NodeCardData }) {
   const classes = [
     "node-card",
     `kind-${node.kind}`,
+    `exec-${node.executor}`, // アクティブ枠の色（実行者の色）に使う
     isTemplate ? "" : `status-${node.status}`,
     `lifecycle-${node.lifecycle}`,
     data.selected ? "is-selected" : "",
@@ -68,6 +69,14 @@ export function NodeCard({ data }: { data: NodeCardData }) {
         <span className={`exec-badge exec-${node.executor}`}>
           <Icon name={EXEC_ICON[node.executor]} />
         </span>
+        {node.impl && (
+          <span
+            className="impl-badge"
+            title={node.impl.type === "doc" ? "実装: 手順書（文書）" : "実装: スクリプト（決定的）"}
+          >
+            <Icon name={node.impl.type === "doc" ? "doc" : "code"} size={12} />
+          </span>
+        )}
         {data.editing ? (
           <input
             autoFocus

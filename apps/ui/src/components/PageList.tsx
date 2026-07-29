@@ -3,9 +3,9 @@
 // 手順ページ（kind=procedure）は StatusCircle の代わりに repeat アイコンを出し、
 // ドットはメンバーの status ではなく「最新ランのワークアイテム状態内訳」にする
 // （テンプレート自身は status を持たない思想。docs/design.md 3.8）。
-import { useMemo } from "react";
+// 最新ランの取得は App 側でまとめてポーリングする（B-6: 受信箱のラン待ち統合と共有し、
+// procedure 数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
 import { api } from "../lib/api";
-import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import type { Node, Run, RunItemStatus, Status } from "../types";
 import { Icon } from "./Icon";
@@ -15,6 +15,8 @@ interface Props {
   folders: Node[];
   allNodes: Node[];
   pageId: string | null;
+  /** procedure id → 最新ラン（App 側でポーリング済み） */
+  latestRuns: Record<string, Run | null>;
   onSelectPage: (id: string) => void;
   onMutated: () => void;
 }
@@ -39,28 +41,8 @@ const DOT_ORDER: Status[] = ["waiting", "running", "pending", "unplanned", "done
 const RUN_DOT_ORDER: RunItemStatus[] = ["waiting", "running", "pending", "done", "dropped", "skipped"];
 const MAX_DOTS = 16;
 
-export function PageList({ folders, allNodes, pageId, onSelectPage, onMutated }: Props) {
+export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, onMutated }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
-  const procedureIds = useMemo(
-    () => folders.filter((f) => f.kind === "procedure").map((f) => f.id),
-    [folders],
-  );
-
-  // 手順ページの最新ランを5秒毎に取得（無ければ非表示にするための材料）
-  const { data: latestRuns } = usePolling(async (): Promise<Record<string, Run | null>> => {
-    if (procedureIds.length === 0) return {};
-    const entries = await Promise.all(
-      procedureIds.map(async (id) => {
-        try {
-          const { runs } = await api.listRuns(id);
-          return [id, runs[0] ?? null] as const;
-        } catch {
-          return [id, null] as const;
-        }
-      }),
-    );
-    return Object.fromEntries(entries);
-  }, 5000);
 
   const addGoal = async () => {
     const created = await api.addNode({ title: "新しいゴール", kind: "goal" });

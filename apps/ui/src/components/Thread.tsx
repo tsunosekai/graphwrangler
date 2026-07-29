@@ -12,6 +12,18 @@ interface Props {
 
 const AUTHOR_LABEL: Record<string, string> = { human: "人間", agent: "AI", system: "system" };
 
+// B-11: 返信下書きの保持。NodePanel は key={node.id} で再マウントされるため React state は
+// ノード切替のたびに消える。モジュールレベルの Map に退避し、戻ってきたら復元する（送信で消す）
+const replyDrafts = new Map<string, string>();
+
+/** payload が {sources: string[]} の形なら出典配列を返す（B-7: 出典バッジ） */
+function extractSources(payload: unknown): string[] | null {
+  if (!payload || typeof payload !== "object" || !("sources" in payload)) return null;
+  const sources = (payload as { sources?: unknown }).sources;
+  if (!Array.isArray(sources) || !sources.every((s) => typeof s === "string")) return null;
+  return sources as string[];
+}
+
 /**
  * ノードスレッド。Claude Code と同じ構成:
  * 上=流れるメッセージ列（自動で最下部へスクロール）、
@@ -19,9 +31,14 @@ const AUTHOR_LABEL: Record<string, string> = { human: "人間", agent: "AI", sys
  * 入力欄への自由文はそのリクエストへの「聞き返し」（ラリー）になる。
  */
 export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
-  const [reply, setReply] = useState("");
+  const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (reply.trim()) replyDrafts.set(nodeId, reply);
+    else replyDrafts.delete(nodeId);
+  }, [reply, nodeId]);
 
   // open な判断リクエストは流れに埋めず、入力欄の直上へ固定する
   const openRequests = messages.filter(
@@ -67,6 +84,7 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
           }
           const align =
             m.author.kind === "human" ? "align-human" : m.author.kind === "agent" ? "align-agent" : "align-system";
+          const sources = extractSources(m.payload);
           return (
             <div key={m.id} className={`thread-msg ${align}`}>
               <div className="thread-msg-meta">
@@ -78,6 +96,15 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
                 <span className="thread-msg-ts">{new Date(m.ts).toLocaleString("ja-JP")}</span>
               </div>
               <div className="thread-msg-body">{m.body || (m.kind === "decision_answer" ? "(選択のみ)" : "")}</div>
+              {sources && sources.length > 0 && (
+                <div className="src-badges">
+                  {sources.map((s, i) => (
+                    <span key={i} className="src-badge">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

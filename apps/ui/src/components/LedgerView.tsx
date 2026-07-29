@@ -2,7 +2,7 @@
 // 列=テンプレートノード（トポロジカル順）、行=ラン（新しい順）、セル=ワークアイテムの状態。
 // テキスト・グラフ・表は同一データへの3つの投影という位置づけなので、変更はすべて
 // サーバAPI（/api/runs/...）へ委ね、このコンポーネントは表示とトグルだけを持つ。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import type { Node, RunItem, RunItemStatus, RunStatus, Status, TraceEvent } from "../types";
@@ -77,6 +77,10 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
   const columns = useMemo(() => topoOrder(members), [members]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  // B-11: トレース再生（1.1秒間隔でイベント行を順にハイライト+スクロール）
+  const [replayIndex, setReplayIndex] = useState(-1);
+  const [replaying, setReplaying] = useState(false);
+  const traceBodyRef = useRef<HTMLDivElement>(null);
 
   const { data: runsData, refresh: refreshRuns } = usePolling(
     () => api.listRuns(procedure.id),
@@ -98,6 +102,51 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
   useEffect(() => {
     refreshTrace();
   }, [selectedRunId, refreshTrace]);
+
+  // ラン選択が変わったら再生状態をリセットする
+  useEffect(() => {
+    setReplaying(false);
+    setReplayIndex(-1);
+  }, [selectedRunId]);
+
+  // 再生中: 1.1秒間隔で次のイベントへ進む。末尾に達したら止める
+  useEffect(() => {
+    if (!replaying) return;
+    if (events.length === 0) {
+      setReplaying(false);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setReplayIndex((i) => {
+        const next = i + 1;
+        if (next >= events.length) {
+          setReplaying(false);
+          return i;
+        }
+        return next;
+      });
+    }, 1100);
+    return () => window.clearInterval(timer);
+  }, [replaying, events.length]);
+
+  // ハイライトされた行をトレース欄内でスクロール表示する
+  useEffect(() => {
+    if (replayIndex < 0) return;
+    const ev = events[replayIndex];
+    if (!ev) return;
+    const el = traceBodyRef.current?.querySelector(`[data-trace-id="${ev.id}"]`);
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [replayIndex, events]);
+
+  const toggleReplay = useCallback(() => {
+    if (replaying) {
+      setReplaying(false);
+      return;
+    }
+    if (events.length === 0) return;
+    setReplayIndex(0);
+    setReplaying(true);
+  }, [replaying, events.length]);
 
   const startRun = useCallback(async () => {
     setStarting(true);
@@ -202,11 +251,26 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
 
       {selectedRun && (
         <div className="ledger-trace">
-          <div className="ledger-trace-head">トレース: {selectedRun.title}</div>
-          <div className="ledger-trace-body">
+          <div className="ledger-trace-head">
+            <span>トレース: {selectedRun.title}</span>
+            <button
+              type="button"
+              className="trace-replay-btn"
+              disabled={events.length === 0}
+              onClick={toggleReplay}
+              title="1.1秒間隔でイベントを順に再生する"
+            >
+              {replaying ? "⏸" : "▶再生"}
+            </button>
+          </div>
+          <div className="ledger-trace-body" ref={traceBodyRef}>
             {events.length === 0 && <div className="thread-empty">まだありません</div>}
-            {events.map((ev) => (
-              <div key={ev.id} className="trace-event">
+            {events.map((ev, i) => (
+              <div
+                key={ev.id}
+                data-trace-id={ev.id}
+                className={`trace-event${i === replayIndex ? " is-replaying" : ""}`}
+              >
                 <span
                   className={`trace-event-icon exec-badge exec-${
                     ev.author.kind === "human" ? "human" : ev.author.kind === "agent" ? "ai" : "script"

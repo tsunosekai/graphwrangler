@@ -1,12 +1,14 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { GraphView } from "./components/GraphView";
 import { NodePanel } from "./components/NodePanel";
 import { PageList } from "./components/PageList";
+import { SetupModal } from "./components/SetupModal";
 import { ToastHost } from "./components/ToastHost";
-import { TopBar } from "./components/TopBar";
-import { api } from "./lib/api";
+import { TopBar, type RunWaitItem } from "./components/TopBar";
+import { api, type SettingsView } from "./lib/api";
 import { usePolling } from "./hooks/usePolling";
+import type { Run } from "./types";
 
 export default function App() {
   const { data, refresh } = usePolling(() => api.getState(), 3000);
@@ -27,6 +29,58 @@ export default function App() {
 
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
 
+  // ---- 手順ページの最新ラン（PageList の左レールドット + TopBar のラン待ち統合の両方が使う。
+  //      procedure 数ぶんの N+1 取得を1箇所に集約する） ----
+  const procedureIds = useMemo(
+    () => folders.filter((f) => f.kind === "procedure").map((f) => f.id),
+    [folders],
+  );
+  const { data: latestRuns } = usePolling(async (): Promise<Record<string, Run | null>> => {
+    if (procedureIds.length === 0) return {};
+    const entries = await Promise.all(
+      procedureIds.map(async (id) => {
+        try {
+          const { runs } = await api.listRuns(id);
+          return [id, runs[0] ?? null] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      }),
+    );
+    return Object.fromEntries(entries);
+  }, 5000);
+
+  // 実行中ランのワークアイテムで status=waiting のものを受信箱項目として集める（B-6）
+  const runWaitItems = useMemo<RunWaitItem[]>(() => {
+    if (!latestRuns) return [];
+    const items: RunWaitItem[] = [];
+    for (const run of Object.values(latestRuns)) {
+      if (!run || run.status !== "running") continue;
+      for (const [nodeId, item] of Object.entries(run.items)) {
+        if (item.status !== "waiting") continue;
+        const title = nodes.find((n) => n.id === nodeId)?.title || "（無題）";
+        const label = item.note ? `[ラン] ${title}（${item.note}）` : `[ラン] ${title}`;
+        items.push({ key: `${run.id}:${nodeId}`, nodeId, label });
+      }
+    }
+    return items;
+  }, [latestRuns, nodes]);
+
+  // ---- AI設定（初回セットアップ + いつでも開ける⚙） ----
+  const [settings, setSettings] = useState<SettingsView | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((s) => {
+        setSettings(s);
+        if (!s.setupDone) setSettingsOpen(true);
+      })
+      .catch(() => {
+        // トースト表示済み。設定は開かないままにする
+      });
+  }, []);
+
   const handleMutated = useCallback(() => {
     refresh();
   }, [refresh]);
@@ -46,12 +100,20 @@ export default function App() {
 
   return (
     <div className="app">
-      <TopBar nodes={nodes} onSelect={selectNode} chatOpen={chatOpen} onToggleChat={() => setChatOpen((v) => !v)} />
+      <TopBar
+        nodes={nodes}
+        runWaitItems={runWaitItems}
+        onSelect={selectNode}
+        chatOpen={chatOpen}
+        onToggleChat={() => setChatOpen((v) => !v)}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
       <div className="app-main">
         <PageList
           folders={folders}
           allNodes={nodes}
           pageId={pageId}
+          latestRuns={latestRuns ?? {}}
           onSelectPage={(id) => {
             setPageId(id);
             setSelectedId(id);
@@ -82,6 +144,22 @@ export default function App() {
           />
         )}
       </div>
+      {settingsOpen && settings && (
+        <SetupModal
+          settings={settings}
+          forced={!settings.setupDone}
+          onSaved={(next) => {
+            setSettings(next);
+            setSettingsOpen(false);
+          }}
+          onSkip={async () => {
+            const next = await api.updateSettings({ setupDone: true }).catch(() => settings);
+            setSettings(next);
+            setSettingsOpen(false);
+          }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       <ToastHost />
     </div>
   );

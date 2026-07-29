@@ -42,6 +42,11 @@ async function readSse(
   }
 }
 
+// B-7: チャット履歴の永続化。ページ（or グローバル）ごとに localStorage へ保存する
+function storageKey(pageId: string | null): string {
+  return `gw.chat.${pageId ?? "global"}`;
+}
+
 export function ChatDrawer({ pageId, pageTitle, onMutated, onClose }: Props) {
   const [width, startResize] = useResizableWidth("chatW", 360, 300, 640);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -49,10 +54,46 @@ export function ChatDrawer({ pageId, pageTitle, onMutated, onClose }: Props) {
   const [sending, setSending] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  // pageId が変わった直後の1回だけ、永続化effectが読み込み直後の内容を再書き込みするのを許す
+  // （読み込みそのものを無効化するわけではない。二重書き込みは無害）
+  const loadingRef = useRef(false);
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, banner]);
+
+  // ページ切替時に該当ページの履歴を読み込む
+  useEffect(() => {
+    loadingRef.current = true;
+    try {
+      const raw = localStorage.getItem(storageKey(pageId));
+      setMessages(raw ? (JSON.parse(raw) as ChatMessage[]) : []);
+    } catch {
+      setMessages([]);
+    }
+  }, [pageId]);
+
+  // メッセージが変わるたびに保存する
+  useEffect(() => {
+    if (loadingRef.current) {
+      loadingRef.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem(storageKey(pageId), JSON.stringify(messages));
+    } catch {
+      // 容量超過等は無視（履歴の永続化は補助機能）
+    }
+  }, [messages, pageId]);
+
+  const clearHistory = () => {
+    setMessages([]);
+    try {
+      localStorage.removeItem(storageKey(pageId));
+    } catch {
+      // 無視
+    }
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -162,6 +203,14 @@ export function ChatDrawer({ pageId, pageTitle, onMutated, onClose }: Props) {
           <Icon name="chat" size={13} /> 相棒AI
         </span>
         {pageTitle && <span className="chat-drawer-page">{pageTitle}</span>}
+        <button
+          type="button"
+          className="chat-drawer-clear"
+          disabled={messages.length === 0}
+          onClick={clearHistory}
+        >
+          履歴をクリア
+        </button>
         <button type="button" className="chat-drawer-close" onClick={onClose}>
           <Icon name="x" size={13} />
         </button>

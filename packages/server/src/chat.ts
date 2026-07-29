@@ -71,6 +71,9 @@ function systemPrompt(graph: GraphStore, pageId: string | null): string {
     "ユーザーが明示した手順を勝手に変えない。削除は確認してから実行すること。",
     `現在表示中のページ: ${pageTitle}`,
     "新規ノードは原則そのページ（group=現在のページ）に作ること。",
+    "整理の提案としてノードを作るときは lifecycle:\"draft\"（既定のまま）で作り、" +
+      "作り終えたら「下書きとして N 件作りました。よければ画面上部の「下書きを確定」で確定してください」と案内する。" +
+      "ユーザーが明示的に確定を頼んだ場合のみ lifecycle:\"committed\" で作る。",
   ].join("\n");
 }
 
