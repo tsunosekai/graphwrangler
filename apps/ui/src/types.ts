@@ -10,7 +10,10 @@ export interface Actor {
   name?: string;
 }
 
-export type NodeKind = "goal" | "task";
+export type NodeKind = "goal" | "task" | "procedure";
+
+/** ノードの実装形態（硬化3段階の後ろ2つ）。null = 会話段（AIの裁量で実行） */
+export type NodeImpl = { type: "doc"; text: string } | { type: "script"; command: string };
 export type Executor = "human" | "ai" | "script";
 export type Impact = "safe" | "reversible" | "irreversible";
 export type Lifecycle = "draft" | "committed";
@@ -21,6 +24,7 @@ export interface Node {
   id: string;
   title: string;
   detail: string | null;
+  impl: NodeImpl | null;
   parents: string[];
   /** 所属グループ（フォルダ）ノードの id。包含であり依存(parents)とは独立 */
   group: string | null;

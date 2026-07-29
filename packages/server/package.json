@@ -9,8 +9,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.0",
+    "@ai-sdk/anthropic": "^4.0.23",
+    "@ai-sdk/openai": "^4.0.23",
     "@graphwrangler/core": "workspace:*",
+    "@hono/node-server": "^1.13.0",
+    "ai": "^7.0.41",
     "hono": "^4.6.0",
     "zod": "^3.25.76"
   },

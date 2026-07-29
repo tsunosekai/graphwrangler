@@ -14,7 +14,8 @@ export const ViaSchema = z.string().min(1);
 
 // ---- ノード ----
 
-export const NodeKindSchema = z.enum(["goal", "task"]);
+/** goal=プロジェクトページ（一回きりのDAG） / task=作業 / procedure=手順ページ（繰り返し、ランが流れる） */
+export const NodeKindSchema = z.enum(["goal", "task", "procedure"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
 export const ImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
 export const LifecycleSchema = z.enum(["draft", "committed"]);
@@ -28,10 +29,21 @@ export const StatusSchema = z.enum([
   "dropped",
 ]);
 
+/** ノードの実装形態（硬化3段階の後ろ2つ。null=会話段=AIの裁量で実行）
+ *  - doc: 手順書。AI executor がこれを読んで実行する
+ *  - script: 決定的スクリプト（シェルコマンド）。script executor が実行する */
+export const NodeImplSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("doc"), text: z.string().min(1) }),
+  z.object({ type: z.literal("script"), command: z.string().min(1) }),
+]);
+export type NodeImpl = z.infer<typeof NodeImplSchema>;
+
 export const NodeSchema = z.object({
   id: z.string(),
   title: z.string().min(1),
   detail: z.string().nullable(),
+  /** 実装形態（3.5 硬化ライフサイクル）。null = 会話段 */
+  impl: NodeImplSchema.nullable(),
   /** 先行ノードid。DAG。空=ルート。依存（順序）を表す */
   parents: z.array(z.string()),
   /** 所属するグループ（フォルダ）ノードの id。包含を表す。依存(parents)とは独立。
@@ -58,6 +70,7 @@ export type Node = z.infer<typeof NodeSchema>;
 export const NodeInputSchema = z.object({
   title: z.string().min(1),
   detail: z.string().nullable().default(null),
+  impl: NodeImplSchema.nullable().default(null),
   parents: z.array(z.string()).default([]),
   group: z.string().nullable().default(null),
   kind: NodeKindSchema.default("task"),

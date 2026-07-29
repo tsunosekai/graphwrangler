@@ -1,6 +1,6 @@
 # GraphWrangler
 
-**An agent-driven procedural task graph.**
+**AI駆動タスクグラフ** — An agent-driven procedural task graph.
 
 人間とAIが一緒にタスクを整理し、人間 / AI / スクリプトが分担して処理する汎用ツール。
 名前は Houdini の Wrangle（ノードを直接手なずける場所）と、群れを追い立てて仕事をさせる
