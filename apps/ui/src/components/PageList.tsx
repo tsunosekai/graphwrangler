@@ -17,7 +17,7 @@ const DOT_COLOR: Record<Status, string> = {
   pending: "var(--text-lo)",
   running: "var(--ai)",
   waiting: "var(--human)",
-  done: "var(--ok)",
+  done: "var(--done)", // 終わったちょぼは暗く（一覧では未処理が目立つべき）
   dropped: "var(--dropped)",
 };
 
