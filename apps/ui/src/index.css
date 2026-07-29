@@ -224,10 +224,10 @@ body {
    制御できないため、SVG の stroke-dasharray を背景に敷く（枠線自体は透明にして寸法維持） */
 .node-card.lifecycle-draft {
   border-color: transparent !important;
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='4'%20stroke='var(--border-strong-svg,rgba(148,163,184,0.5))'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='8'%20stroke='var(--border-strong-svg,rgba(148,163,184,0.5))'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
 }
 .dark .node-card.lifecycle-draft {
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='4'%20stroke='rgba(255,255,255,0.4)'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='8'%20stroke='rgba(255,255,255,0.4)'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
 }
 
 /* アクティブ（実行中）ノードは実行者の色で囲う（ロゴの3色 = 今誰が動いているか）。パルスも同色 */
