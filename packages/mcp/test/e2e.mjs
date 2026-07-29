@@ -156,6 +156,14 @@ try {
       "message_post",
       "request_open",
       "request_answer",
+      "run_create",
+      "run_list",
+      "run_get",
+      "run_item_patch",
+      "run_cancel",
+      "run_trace",
+      "undo",
+      "redo",
     ];
     for (const name of expected) {
       assert.ok(toolNames.includes(name), `tool missing: ${name}`);
@@ -303,6 +311,121 @@ try {
   await step("tools/call node_get (存在しないid はisError)", async () => {
     const result = await rpc("tools/call", { name: "node_get", arguments: { nodeId: "n-does-not-exist" } });
     assert.equal(result.isError, true);
+  });
+
+  // 12.5 ラン操作系: procedure ノード + committed なメンバーを作ってラン一式を回す
+  let procId, memberId, runId;
+  await step("tools/call node_add (procedure)", async () => {
+    const node = toolResultJson(
+      await rpc("tools/call", {
+        name: "node_add",
+        arguments: { title: "E2Eテスト手順", kind: "procedure" },
+      }),
+    );
+    assert.equal(node.kind, "procedure");
+    procId = node.id;
+  });
+
+  await step("tools/call node_add (procedureメンバー, committed)", async () => {
+    const node = toolResultJson(
+      await rpc("tools/call", {
+        name: "node_add",
+        arguments: { title: "E2Eテスト手順アイテム", group: procId, lifecycle: "committed" },
+      }),
+    );
+    assert.equal(node.group, procId);
+    assert.equal(node.lifecycle, "committed");
+    memberId = node.id;
+  });
+
+  await step("tools/call run_create", async () => {
+    const run = toolResultJson(
+      await rpc("tools/call", { name: "run_create", arguments: { procedureId: procId, title: "E2Eテストラン" } }),
+    );
+    assert.equal(run.procedure, procId);
+    assert.equal(run.status, "running");
+    assert.equal(run.items[memberId].status, "pending");
+    runId = run.id;
+  });
+
+  await step("tools/call run_list (要約形であること)", async () => {
+    const result = toolResultJson(
+      await rpc("tools/call", { name: "run_list", arguments: { procedureId: procId } }),
+    );
+    const summary = result.runs.find((r) => r.id === runId);
+    assert.ok(summary, "作成したランが一覧に出る");
+    assert.equal(summary.title, "E2Eテストラン");
+    assert.equal(summary.itemCounts.pending, 1);
+    assert.equal(summary.items, undefined, "run_list はitems詳細を含まない（要約のみ）");
+  });
+
+  await step("tools/call run_get (詳細形であること)", async () => {
+    const run = toolResultJson(await rpc("tools/call", { name: "run_get", arguments: { runId } }));
+    assert.equal(run.id, runId);
+    assert.ok(run.items[memberId], "run_get はitems詳細を含む");
+  });
+
+  await step("tools/call run_item_patch (全アイテムdoneでラン自動完了)", async () => {
+    const run = toolResultJson(
+      await rpc("tools/call", {
+        name: "run_item_patch",
+        arguments: { runId, nodeId: memberId, status: "done", note: "E2Eで完了扱いにした" },
+      }),
+    );
+    assert.equal(run.items[memberId].status, "done");
+    assert.equal(run.items[memberId].note, "E2Eで完了扱いにした");
+    assert.equal(run.status, "done", "唯一のアイテムがdoneになったのでラン全体もdoneになるはず");
+  });
+
+  await step("tools/call run_trace (紐づくメッセージが時系列で返る)", async () => {
+    const result = toolResultJson(await rpc("tools/call", { name: "run_trace", arguments: { runId } }));
+    assert.ok(Array.isArray(result.events) && result.events.length > 0, "trace にイベントがある");
+    assert.ok(
+      result.events.some((e) => typeof e.body === "string" && e.body.includes(runId)),
+      "イベントにランIDが含まれる",
+    );
+  });
+
+  await step("tools/call run_cancel (2本目のランを中断)", async () => {
+    const secondRun = toolResultJson(
+      await rpc("tools/call", { name: "run_create", arguments: { procedureId: procId } }),
+    );
+    const cancelled = toolResultJson(
+      await rpc("tools/call", { name: "run_cancel", arguments: { runId: secondRun.id } }),
+    );
+    assert.equal(cancelled.status, "cancelled");
+  });
+
+  // 12.6 undo / redo: グラフ本体の操作ログのみが対象（スレッド/ランは対象外）
+  await step("tools/call undo + redo (直近のnode_addを取り消し→やり直す)", async () => {
+    const scratch = toolResultJson(
+      await rpc("tools/call", { name: "node_add", arguments: { title: "undo/redo用の使い捨てノード" } }),
+    );
+    const undone = toolResultJson(await rpc("tools/call", { name: "undo", arguments: {} }));
+    // undo/redo が返す op は「打ち消した対象そのもの」の op（GraphStore.compensate の target。
+    // 内部で追記する補償opそのものではない）。node_add を取り消した → 対象は node.add
+    assert.equal(undone.undone.op, "node.add");
+
+    const afterUndo = await rpc("tools/call", { name: "node_get", arguments: { nodeId: scratch.id } });
+    assert.equal(afterUndo.isError, true, "undo後はノードが消えているはず");
+
+    const redone = toolResultJson(await rpc("tools/call", { name: "redo", arguments: {} }));
+    // redo の対象は「直前の undo が追記した node.remove（補償op）」自身なので op は node.remove
+    assert.equal(redone.redone.op, "node.remove");
+
+    const afterRedo = toolResultJson(
+      await rpc("tools/call", { name: "node_get", arguments: { nodeId: scratch.id } }),
+    );
+    assert.equal(afterRedo.id, scratch.id, "redo後はノードが復活しているはず");
+
+    // 後片付け
+    toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: scratch.id } }));
+  });
+
+  // 12.7 後片付け: procedure まわり
+  await step("tools/call node_remove (procedureメンバー+procedure の後片付け)", async () => {
+    toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: memberId } }));
+    toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: procId } }));
   });
 
   // 13. node_remove

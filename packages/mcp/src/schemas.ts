@@ -1,58 +1,35 @@
-// ツール入力の zod スキーマ。packages/core への依存を持たない自己完結パッケージなので、
-// docs/agent-contracts.md / packages/core/src/schema.ts のノードの形を手動でミラーしている。
-// core のスキーマを変えたらここも追随が必要（apps/ui/src/types.ts と同じ既知の妥協）。
-import { z } from "zod";
+// ツール入力の zod スキーマ。ノードの形は @graphwrangler/core/schema（zod のみで node 依存が無い
+// サブパス）から import することで、手動ミラーを解消した（このパッケージ自体は core の他の実装
+// = GraphStore/RunStore 等には依存せず、HTTP API を叩くだけの自己完結を保つ）。
+// ここに残すのは MCP 固有の形（core 側と定義が微妙に違う NodeImplSchema の null 許容ラップ、
+// NodePatchShape の raw shape 切り出し）だけ。
+import {
+  NodeKindSchema,
+  ExecutorSchema,
+  ImpactSchema,
+  LifecycleSchema,
+  StatusSchema,
+  NodeImplSchema as CoreNodeImplSchema,
+  NodePatchSchema,
+  DecisionRequestSchema,
+  RunItemStatusSchema,
+} from "@graphwrangler/core/schema";
 
-export const NodeKindSchema = z.enum(["goal", "task", "procedure"]);
-export const ExecutorSchema = z.enum(["human", "ai", "script"]);
-export const ImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
-export const LifecycleSchema = z.enum(["draft", "committed"]);
-export const StatusSchema = z.enum([
-  "unplanned",
-  "pending",
-  "running",
-  "waiting",
-  "done",
-  "dropped",
-]);
-
-export const NodeImplSchema = z
-  .discriminatedUnion("type", [
-    z.object({ type: z.literal("doc"), text: z.string().min(1) }),
-    z.object({ type: z.literal("script"), command: z.string().min(1) }),
-  ])
-  .nullable();
-
-export const DecisionOptionSchema = z.object({
-  id: z.string(),
-  label: z.string().min(1),
-  then: z.string().min(1),
-  recommended: z.boolean().optional(),
-});
-
-export const DecisionRequestSchema = z.object({
-  context: z.string().min(1),
-  question: z.string().min(1),
-  options: z.array(DecisionOptionSchema).min(2).max(4),
-  impact: ImpactSchema,
-  undo: z.string().nullable().optional(),
-  expires: z.string().nullable().optional(),
-  on_expire: z.string().nullable().optional(),
-});
-
-/** node_patch の patch フィールド。NodePatchSchema（core）と同じ集合を手動ミラー */
-export const NodePatchShape = {
-  title: z.string().min(1).optional(),
-  detail: z.string().nullable().optional(),
-  impl: NodeImplSchema.optional(),
-  parents: z.array(z.string()).optional(),
-  group: z.string().nullable().optional(),
-  kind: NodeKindSchema.optional(),
-  executor: ExecutorSchema.optional(),
-  impact: ImpactSchema.optional(),
-  lifecycle: LifecycleSchema.optional(),
-  status: StatusSchema.optional(),
-  selfImprove: z.boolean().optional(),
-  pendingRequest: z.string().nullable().optional(),
-  order: z.number().nullable().optional(),
+export {
+  NodeKindSchema,
+  ExecutorSchema,
+  ImpactSchema,
+  LifecycleSchema,
+  StatusSchema,
+  DecisionRequestSchema,
+  RunItemStatusSchema,
 };
+
+/** ノードの impl フィールドは null（会話段）を許す。core 側では NodeImplSchema 自体は
+ *  non-null（discriminatedUnion）で、NodeSchema/NodeInputSchema 側で個別に .nullable() を
+ *  付けている流儀なので、ここで同じラップをして揃える。 */
+export const NodeImplSchema = CoreNodeImplSchema.nullable();
+
+/** node_patch の patch フィールドの raw shape。core の NodePatchSchema
+ *  （NodeSchema.omit({id,created,updated}).partial()）と同じ集合をそのまま再利用する。 */
+export const NodePatchShape = NodePatchSchema.shape;

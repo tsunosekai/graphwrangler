@@ -16,6 +16,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.3.0
         version: 5.3.0
+      '@graphwrangler/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@xyflow/react':
         specifier: ^12.3.5
         version: 12.11.2(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -41,6 +44,9 @@ importers:
       vite:
         specifier: ^6.0.5
         version: 6.4.3(@types/node@22.20.1)(tsx@4.23.1)
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
 
   packages/core:
     dependencies:
@@ -60,6 +66,9 @@ importers:
 
   packages/engine:
     dependencies:
+      '@graphwrangler/core':
+        specifier: workspace:*
+        version: link:../core
       zod:
         specifier: ^3.25.0
         version: 3.25.76
@@ -79,6 +88,9 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@graphwrangler/core':
+        specifier: workspace:*
+        version: link:../core
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.0
         version: 1.30.0(zod@3.25.76)

@@ -6,7 +6,17 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { apiGet, apiPost, ApiError } from "./http.js";
-import { DecisionRequestSchema, NodeImplSchema, NodePatchShape } from "./schemas.js";
+import {
+  DecisionRequestSchema,
+  NodeImplSchema,
+  NodePatchShape,
+  NodeKindSchema,
+  ExecutorSchema,
+  ImpactSchema,
+  LifecycleSchema,
+  StatusSchema,
+  RunItemStatusSchema,
+} from "./schemas.js";
 
 const MCP_ACTOR = { kind: "agent" as const, name: "mcp" };
 const MCP_VIA = "mcp";
@@ -132,23 +142,13 @@ server.registerTool(
     inputSchema: {
       title: z.string().min(1).describe("人間粒度の作業名"),
       detail: z.string().nullable().optional().describe("補足・文脈"),
-      kind: z
-        .enum(["goal", "task", "procedure"])
-        .optional()
-        .describe("goal=プロジェクトページ(ルート意図) / task=作業 / procedure=手順ページ(繰り返し)。既定 task"),
-      executor: z.enum(["human", "ai", "script"]).optional().describe("誰にディスパッチするか。既定 human"),
-      impact: z
-        .enum(["safe", "reversible", "irreversible"])
-        .optional()
-        .describe("不可逆な外部副作用は承認ゲートを通す。既定 safe"),
-      lifecycle: z
-        .enum(["draft", "committed"])
-        .optional()
-        .describe("draft=審議中/committed=実行対象。既定 draft"),
-      status: z
-        .enum(["unplanned", "pending", "running", "waiting", "done", "dropped"])
-        .optional()
-        .describe("既定 pending。unplanned=やり方未定"),
+      kind: NodeKindSchema.optional().describe(
+        "goal=プロジェクトページ(ルート意図) / task=作業 / procedure=手順ページ(繰り返し)。既定 task",
+      ),
+      executor: ExecutorSchema.optional().describe("誰にディスパッチするか。既定 human"),
+      impact: ImpactSchema.optional().describe("不可逆な外部副作用は承認ゲートを通す。既定 safe"),
+      lifecycle: LifecycleSchema.optional().describe("draft=審議中/committed=実行対象。既定 draft"),
+      status: StatusSchema.optional().describe("既定 pending。unplanned=やり方未定"),
       parents: z.array(z.string()).optional().describe("先行ノードid配列。空=ルート"),
       group: z.string().nullable().optional().describe("所属ページ(ゴール)のノードid。ページ直下に作るならそのidを渡す"),
       impl: NodeImplSchema.optional().describe(
@@ -262,6 +262,158 @@ server.registerTool(
   safe(async ({ nodeId, ...rest }: { nodeId: string; [key: string]: unknown }) =>
     apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/answer`, withMeta(rest)),
   ),
+);
+
+// ---- 10. run_create ----
+// procedure=手順ページ(kind=procedure のノード、繰り返し実行される作業のテンプレート集)。
+// run=そのテンプレートから生成される1回分の実行インスタンス（ワークアイテムごとに進捗状態を持つ）。
+
+server.registerTool(
+  "run_create",
+  {
+    description:
+      "procedure（手順ページ、繰り返し実行のテンプレート集）から新しいラン（実行インスタンス）を開始する。" +
+      "procedure に所属するメンバーノード（group=procedureId）のうち lifecycle=committed のものだけが" +
+      "ワークアイテムとして組み込まれる（draft は素通りしない）。その中で status=unplanned（やり方未定）の" +
+      "テンプレートは items で status:skipped として作られる。title 省略時はサーバ既定" +
+      "（「MM/DD HH:mm のラン」）、trigger 省略時は \"manual\"。procedureId でないノード（kind!=procedure）" +
+      "を指定すると失敗する。作成されたランを返す。",
+    inputSchema: {
+      procedureId: z.string().describe("ラン元の procedure ノードid（state_get の pages から kind=procedure のものを選ぶ）"),
+      title: z.string().min(1).optional().describe("ランのタイトル。省略時はサーバ既定"),
+      trigger: z.string().min(1).optional().describe("起動理由の自由文字列。省略時は \"manual\"（schedule実行なら\"schedule:...\"等）"),
+    },
+  },
+  safe(async ({ procedureId, ...rest }: { procedureId: string; [key: string]: unknown }) =>
+    apiPost(`/api/procedures/${encodeURIComponent(procedureId)}/runs`, withMeta(rest)),
+  ),
+);
+
+// ---- 11. run_list ----
+
+type RunItemLike = { status: string };
+type RunSummaryLike = {
+  id: unknown;
+  title: unknown;
+  status: unknown;
+  trigger: unknown;
+  created: unknown;
+  items: Record<string, RunItemLike>;
+};
+
+server.registerTool(
+  "run_list",
+  {
+    description:
+      "指定した procedure（手順ページ）の過去のラン一覧を要約で取得する（新しい順）。各ランは" +
+      "{id,title,status,trigger,created} と itemCounts（ワークアイテムの状態別件数。" +
+      "pending/running/waiting/done/dropped/skipped ごとの内訳のみ）を返す。個々のワークアイテムが" +
+      "どのノードで今どの状態かの詳細が必要なら run_get を使うこと。",
+    inputSchema: { procedureId: z.string().describe("対象の procedure ノードid") },
+  },
+  safe(async ({ procedureId }: { procedureId: string }) => {
+    const result = (await apiGet(`/api/procedures/${encodeURIComponent(procedureId)}/runs`)) as {
+      runs: RunSummaryLike[];
+    };
+    return {
+      runs: (result.runs ?? []).map((r) => {
+        const itemCounts: Record<string, number> = {};
+        for (const item of Object.values(r.items ?? {})) {
+          itemCounts[item.status] = (itemCounts[item.status] ?? 0) + 1;
+        }
+        return { id: r.id, title: r.title, status: r.status, trigger: r.trigger, created: r.created, itemCounts };
+      }),
+    };
+  }),
+);
+
+// ---- 12. run_get ----
+
+server.registerTool(
+  "run_get",
+  {
+    description:
+      "ラン1件の全フィールドを取得する: procedure(元のノードid)・title・trigger・status(running/done/cancelled)・" +
+      "items（テンプレートノードid→{status,note,updated}の全件）・created・updated。runId は run_list / run_create から得る。",
+    inputSchema: { runId: z.string().describe("取得したいランid") },
+  },
+  safe(async ({ runId }: { runId: string }) => apiGet(`/api/runs/${encodeURIComponent(runId)}`)),
+);
+
+// ---- 13. run_item_patch ----
+
+server.registerTool(
+  "run_item_patch",
+  {
+    description:
+      "ラン内の1ワークアイテム（procedureのメンバーノード1件について、このランでの実行状態）を更新する。" +
+      "status は pending/running/waiting/done/dropped/skipped のいずれか（省略可、note のみの更新も可）。" +
+      "全アイテムが done/dropped/skipped のどれかに揃うとラン全体のstatusが自動的に done になる" +
+      "（cancelled のランは覆らない）。対象ノードのスレッドに状態遷移が記録される。更新後のラン全体を返す。",
+    inputSchema: {
+      runId: z.string().describe("対象のランid"),
+      nodeId: z.string().describe("更新するワークアイテムのノードid（procedureのメンバー）"),
+      status: RunItemStatusSchema.optional().describe("新しい状態"),
+      note: z.string().nullable().optional().describe("補足メモ"),
+    },
+  },
+  safe(async ({ runId, nodeId, ...rest }: { runId: string; nodeId: string; [key: string]: unknown }) =>
+    apiPost(`/api/runs/${encodeURIComponent(runId)}/items/${encodeURIComponent(nodeId)}`, withMeta(rest)),
+  ),
+);
+
+// ---- 14. run_cancel ----
+
+server.registerTool(
+  "run_cancel",
+  {
+    description:
+      "実行中のランを中断する（status を cancelled にする）。中断後はワークアイテムが全部揃っても" +
+      "自動では done に戻らない。取り消し操作はない（undo/redo の対象外＝ラン専用の操作ログには乗らない）。",
+    inputSchema: { runId: z.string().describe("中断するランid") },
+  },
+  safe(async ({ runId }: { runId: string }) => apiPost(`/api/runs/${encodeURIComponent(runId)}/cancel`, withMeta({}))),
+);
+
+// ---- 15. run_trace ----
+
+server.registerTool(
+  "run_trace",
+  {
+    description:
+      "ランのトレースを再生する。procedureノード本体と全ワークアイテムのノードのスレッドから、そのラン" +
+      "（payload.runId が一致）に紐づくメッセージだけを集め、時系列(ts昇順)で返す。各イベントに元メッセージの" +
+      "全フィールド（kind/body/author/via/ts等）+ nodeTitle が付く。「このランで何が起きたか」を後から追うのに使う。",
+    inputSchema: { runId: z.string().describe("対象のランid") },
+  },
+  safe(async ({ runId }: { runId: string }) => apiGet(`/api/runs/${encodeURIComponent(runId)}/trace`)),
+);
+
+// ---- 16. undo ----
+
+server.registerTool(
+  "undo",
+  {
+    description:
+      "直前のグラフ操作（node_add/node_patch/node_remove のいずれか1件）を取り消す。操作ログの過去行は" +
+      "書き換えず、逆操作を追記することで実現する（補償）。戻せる操作が無い場合はエラーになる。ノードの" +
+      "スレッド（message_post等）やラン(run_*)の操作は対象外＝グラフ本体の操作ログのみが対象。",
+    inputSchema: {},
+  },
+  safe(async () => apiPost("/api/undo", withMeta({}))),
+);
+
+// ---- 17. redo ----
+
+server.registerTool(
+  "redo",
+  {
+    description:
+      "直前に undo した操作を1件やり直す。undo していない場合や、undo後に別の操作を行っていた場合は" +
+      "やり直せる操作が無くエラーになる。",
+    inputSchema: {},
+  },
+  safe(async () => apiPost("/api/redo", withMeta({}))),
 );
 
 const transport = new StdioServerTransport();
