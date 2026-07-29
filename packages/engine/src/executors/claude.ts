@@ -106,9 +106,11 @@ export function runClaude(
   timeoutMs: number = CLAUDE_TIMEOUT_MS,
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
+    // プロンプトは argv ではなく **stdin** で渡す。Windows の shell:true は cmd.exe を経由し、
+    // cmd.exe は改行を含む引数を黙って切り捨てる（2026-07-29 に chat_cli 側で実測）。
+    // buildAiPrompt は常に複数行なので、argv 渡しだと Windows で先頭行しか届かない。
     const args = [
       "-p",
-      prompt,
       "--model",
       config.model,
       ...sanitizeExtraArgs(config.extraArgs),
@@ -120,8 +122,7 @@ export function runClaude(
     let timedOut = false;
 
     // Windows では claude が .cmd シム（cmd.exe 経由でないと直接起動できない）のため、
-    // その場合だけ shell:true にする。POSIX 側は argv をそのまま execve するので
-    // シェルクォート事故が起きない（zinsei desk/engine.py の subprocess.run(list) と同型）
+    // その場合だけ shell:true にする。POSIX 側は argv をそのまま execve する
     const isWindows = process.platform === "win32";
     let child;
     try {
@@ -130,6 +131,8 @@ export function runClaude(
       resolve({ success: false, output: "", error: `${config.cliPath} -p 起動失敗: ${String(err)}` });
       return;
     }
+    child.stdin?.write(prompt);
+    child.stdin?.end();
 
     const timer = setTimeout(() => {
       timedOut = true;

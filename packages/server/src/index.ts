@@ -21,7 +21,8 @@ import {
   type Actor,
 } from "@graphwrangler/core";
 import { z } from "zod";
-import { chatKeyMissing, handleChat } from "./chat.js";
+import { chatKeyMissing, completeText, handleChat } from "./chat.js";
+import { handleChatCli } from "./chat_cli.js";
 import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema } from "./settings.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -300,13 +301,36 @@ app.post("/api/settings", async (c) => {
   return c.json(settings.publicView());
 });
 
-// ---- チャット（M4: グラフ整理の相棒AI。実装は chat.ts） ----
+// ---- チャット（M4: グラフ整理の相棒AI。実装は chat.ts / chat_cli.ts） ----
+// chat.mode="cli" ならヘッドレスCLI（chat_cli.ts、MCP経由でグラフ操作）へ、
+// "api" なら従来どおりプロバイダAPIキー方式（chat.ts）へ分岐する。
+// APIキー未設定の400判定は api モードのときだけ行う（cliモードにAPIキーは無関係）。
 
 app.post("/api/chat", async (c) => {
+  const body = await c.req.json();
+  if (settings.get().chat.mode === "cli") {
+    return handleChatCli(graph, settings, body, port);
+  }
   const missing = chatKeyMissing(settings);
   if (missing) return c.json({ error: missing }, 400);
-  const body = await c.req.json();
   return handleChat(graph, threads, settings, body);
+});
+
+// ---- エンジンの API 方式（engine.mode="api"）向け: ツールなしの単発テキスト生成 ----
+// engine executor（packages/engine/src/executors/api.ts）がこれを叩く。
+// プロバイダ/キーはチャット設定を間借りするため、キー未設定の判定もチャット側で行う。
+
+const AiCompleteSchema = z.object({
+  prompt: z.string().min(1),
+  maxTokens: z.number().int().positive().optional(),
+});
+
+app.post("/api/ai/complete", async (c) => {
+  const missing = chatKeyMissing(settings);
+  if (missing) return c.json({ error: missing }, 400);
+  const body = AiCompleteSchema.parse(await c.req.json());
+  const text = await completeText(settings, body.prompt, body.maxTokens);
+  return c.json({ text });
 });
 
 // ---- UI 配信（ビルド済みがあれば） ----

@@ -29,14 +29,26 @@ pnpm --filter @graphwrangler/engine dev
 | `GW_ENGINE_INTERVAL_MS` | `5000` | ポーリング間隔（ミリ秒） |
 | `GW_ENGINE_CLAUDE_MODEL` | `sonnet` | `claude -p` に渡す `--model`。**設定(下記)より常に優先**（設定を跨いだ確実な上書き手段） |
 
-## エンジンAI設定（サーバ設定との連動。M7）
+## エンジンAI設定（サーバ設定との連動。M7 / 接続方式選択）
 
-起動時と以後10分ごとに `GET /api/settings` を取得し、claude executor の CLI パス
-（`cliPath`）・モデル（`model`）・追加引数（`extraArgs`）に反映する（`src/index.ts` の
-`refreshEngineConfig`）。`GW_ENGINE_CLAUDE_MODEL` が設定されていれば、取得した
+起動時と以後10分ごとに `GET /api/settings` を取得し、`engine.mode`（`"cli"` / `"api"`）と
+claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加引数（`extraArgs`）に反映する
+（`src/index.ts` の `refreshEngineConfig`）。`GW_ENGINE_CLAUDE_MODEL` が設定されていれば、取得した
 `settings.engine.model` より常にそちらを優先する（環境変数はデプロイ側の確実な上書き手段として
-残す）。設定の取得に失敗した場合は前回値（初回は既定値 `cliPath="claude"` / `model="sonnet"` /
-`extraArgs=[]`）のまま継続する。
+残す）。設定の取得に失敗した場合は前回値（初回は既定値 `mode="cli"` / `cliPath="claude"` /
+`model="sonnet"` / `extraArgs=[]`）のまま継続する。
+
+**接続方式**（`ai` executor ノード実行時に分岐。`src/index.ts` の `executeNode`/`executeRunItem`）:
+
+- `mode="cli"`（既定）: 従来どおり `claude -p` 等のヘッドレスCLIを子プロセス起動する
+  （`executors/claude.ts` の `runClaude`）。実行結果の actor は `executor:claude`
+- `mode="api"`: サーバの `POST /api/ai/complete`（チャット設定のプロバイダ/APIキーで
+  `generateText`、ツールなし）を呼ぶだけの薄い実行者（`executors/api.ts` の `runApi`）。
+  プロンプト組み立て（`buildAiPrompt`）は両モード共通で、`claude.ts` のものをそのまま使う。
+  モデルは `engine.apiModel`（null ならチャット既定モデル）で、サーバ側
+  （`packages/server/src/chat.ts` の `completeText`）が解決する。実行結果の actor は
+  `executor:api`。キー未設定・プロバイダエラーは `ApiError` として投げられ、通常の失敗
+  リカバリ（`POST /request` の承認カード）にそのまま乗る
 
 `extraArgs` に `--dangerously-skip-permissions` や `--allowedTools` 系のフラグが含まれていても
 `executors/claude.ts` の `sanitizeExtraArgs` が取り除く（設定はサーバ管理者が触れる値だが、

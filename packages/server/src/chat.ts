@@ -3,7 +3,7 @@
 // （GraphStore/ThreadStore を直接呼ぶ）でグラフを変更する。帰属は docs/agent-contracts.md の
 // 規約どおり via:"chat" / actor:{kind:"agent", name:"chat:<model>"} に統一する。
 // 会話履歴はステートレス（クライアントが毎回全履歴を送る。永続化はしない、design.md M4）。
-import { streamText, stepCountIs, convertToModelMessages, tool, type UIMessage } from "ai";
+import { streamText, generateText, stepCountIs, convertToModelMessages, tool, type UIMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
@@ -40,12 +40,14 @@ export function chatKeyMissing(settings: SettingsStore): string | null {
   return "チャットAIが未設定です。右上の⚙（設定）からプロバイダとAPIキーを設定してください";
 }
 
-function resolveModel(settings: SettingsStore) {
+/** modelIdOverride があればそれを使う（/api/ai/complete が engine.apiModel を渡すため） */
+function resolveModel(settings: SettingsStore, modelIdOverride?: string) {
   const { key } = settings.resolveChatKey();
+  const mid = modelIdOverride ?? modelId(settings);
   if (provider(settings) === "openai") {
-    return createOpenAI({ apiKey: key ?? undefined })(modelId(settings));
+    return createOpenAI({ apiKey: key ?? undefined })(mid);
   }
-  return createAnthropic({ apiKey: key ?? undefined })(modelId(settings));
+  return createAnthropic({ apiKey: key ?? undefined })(mid);
 }
 
 /** ノード要約（get_state ツール用）。フルノードでなく整理判断に要る最小フィールドだけ渡す */
@@ -61,7 +63,8 @@ function summarizeNodes(graph: GraphStore) {
   }));
 }
 
-function systemPrompt(graph: GraphStore, pageId: string | null): string {
+/** chat_cli.ts（chat.mode="cli"）でも同じ相棒AI人格を使うため export する */
+export function systemPrompt(graph: GraphStore, pageId: string | null): string {
   let pageTitle = "(なし)";
   if (pageId && graph.has(pageId)) pageTitle = graph.get(pageId).title;
   else if (pageId) pageTitle = pageId;
@@ -166,4 +169,24 @@ export async function handleChat(
   });
 
   return result.toUIMessageStreamResponse();
+}
+
+/**
+ * POST /api/ai/complete のハンドラ本体（エンジンの engine.mode="api" 用: ツールなしの
+ * 単発テキスト生成）。プロバイダ/キーはチャット設定を間借りする。モデルは
+ * engine.apiModel（設定されていれば）→ チャット既定、の順（呼び出し側=index.ts が
+ * chatKeyMissing() を先に見て 400 を返す）。
+ */
+export async function completeText(
+  settings: SettingsStore,
+  prompt: string,
+  maxTokens?: number,
+): Promise<string> {
+  const overrideModelId = settings.get().engine.apiModel ?? undefined;
+  const result = await generateText({
+    model: resolveModel(settings, overrideModelId),
+    prompt,
+    ...(maxTokens ? { maxOutputTokens: maxTokens } : {}),
+  });
+  return result.text;
 }

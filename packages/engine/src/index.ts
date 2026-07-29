@@ -26,6 +26,7 @@ import {
 import { parseSchedule, shouldCreateScheduledRun } from "./schedule.js";
 import { runScript } from "./executors/script.js";
 import { buildAiPrompt, runClaude, type ClaudeExecutorConfig } from "./executors/claude.js";
+import { runApi } from "./executors/api.js";
 import type { Actor, Message, Node, Run } from "./types.js";
 
 const INTERVAL_MS = Number(process.env.GW_ENGINE_INTERVAL_MS ?? 5000);
@@ -47,9 +48,12 @@ const DEFAULT_ENGINE_CONFIG: ClaudeExecutorConfig = {
 };
 
 let engineConfig: ClaudeExecutorConfig = DEFAULT_ENGINE_CONFIG;
+// engine.mode（"cli"=claude -p 等のヘッドレスCLI起動 / "api"=サーバの /api/ai/complete を呼ぶ）。
+// 取得失敗時は前回値のまま継続する（既定は安全側の "cli"）
+let engineMode: "cli" | "api" = "cli";
 let lastSettingsFetchAt = 0;
 
-/** GET /api/settings から claude executor の設定を反映する。10分未満は何もしない
+/** GET /api/settings から engine executor の設定を反映する。10分未満は何もしない
  *  （force=true なら起動時など強制的に取得する）。取得失敗時は既定値のまま継続する */
 async function refreshEngineConfig(force = false): Promise<void> {
   const now = Date.now();
@@ -58,13 +62,14 @@ async function refreshEngineConfig(force = false): Promise<void> {
   try {
     const settings = await getSettings();
     const modelFromEnv = process.env.GW_ENGINE_CLAUDE_MODEL;
+    engineMode = settings.engine.mode === "api" ? "api" : "cli";
     engineConfig = {
       cliPath: settings.engine.cliPath || DEFAULT_ENGINE_CONFIG.cliPath,
       model: modelFromEnv ?? settings.engine.model ?? DEFAULT_ENGINE_CONFIG.model,
       extraArgs: Array.isArray(settings.engine.extraArgs) ? settings.engine.extraArgs : [],
     };
     log(
-      `エンジン設定を反映: cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)}`,
+      `エンジン設定を反映: mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)}`,
     );
   } catch (err) {
     log(`設定取得に失敗（既定値のまま継続）: ${String(err)}`);
@@ -140,12 +145,17 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
       result = await runScript(node.impl.command);
     }
   } else {
-    executorName = "executor:claude";
     const goal = node.group ? (nodes.find((n) => n.id === node.group) ?? null) : null;
     const parentSayMessages = await parentSayContext(node, nodes);
     const built = buildAiPrompt({ node, goal, parentSayMessages });
     aiSources = built.sources;
-    result = await runClaude(built.prompt, engineConfig);
+    if (engineMode === "api") {
+      executorName = "executor:api";
+      result = await runApi(built.prompt);
+    } else {
+      executorName = "executor:claude";
+      result = await runClaude(built.prompt, engineConfig);
+    }
   }
 
   const actor: Actor = { kind: "agent", name: executorName };
@@ -199,11 +209,16 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
       result = await runScript(node.impl.command);
     }
   } else {
-    executorName = "executor:claude";
     const procedureNode = nodes.find((n) => n.id === run.procedure) ?? null;
     const built = buildAiPrompt({ node, goal: procedureNode, parentSayMessages: [] });
     aiSources = built.sources;
-    result = await runClaude(built.prompt, engineConfig);
+    if (engineMode === "api") {
+      executorName = "executor:api";
+      result = await runApi(built.prompt);
+    } else {
+      executorName = "executor:claude";
+      result = await runClaude(built.prompt, engineConfig);
+    }
   }
 
   const actor: Actor = { kind: "agent", name: executorName };
@@ -432,7 +447,7 @@ async function main(): Promise<void> {
   const url = process.env.GRAPHWRANGLER_URL ?? "http://localhost:8770";
   await refreshEngineConfig(true); // 起動時は必ず一度取得する
   log(
-    `graphwrangler engine 起動: url=${url} interval=${INTERVAL_MS}ms cliPath=${engineConfig.cliPath} model=${engineConfig.model}`,
+    `graphwrangler engine 起動: url=${url} interval=${INTERVAL_MS}ms mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model}`,
   );
   for (;;) {
     try {

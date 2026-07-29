@@ -136,3 +136,15 @@ export async function patchRunItem(
 export async function getSettings(): Promise<{ engine: EngineSettings }> {
   return (await request("GET", "/api/settings")) as { engine: EngineSettings };
 }
+
+// ---- engine.mode="api" 用（executors/api.ts） ----
+
+/** POST /api/ai/complete を呼ぶ（チャット設定のプロバイダ/キーでツールなしのテキスト生成）。
+ *  キー未設定・プロバイダ側エラー等は ApiError として投げる（呼び出し側が ExecResult に変換する） */
+export async function completeAi(prompt: string, maxTokens?: number): Promise<string> {
+  const res = (await request("POST", "/api/ai/complete", {
+    prompt,
+    ...(maxTokens ? { maxTokens } : {}),
+  })) as { text: string };
+  return res.text;
+}

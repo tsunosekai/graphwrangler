@@ -59,22 +59,36 @@ export type NodePatchInput = Partial<Omit<Node, "id" | "created" | "updated">>;
 
 export interface SettingsView {
   chat: {
+    /** api = プロバイダのAPIキーで直接呼ぶ / cli = claude 等のヘッドレスCLIを使う */
+    mode: "api" | "cli";
     provider: "anthropic" | "openai";
     model: string | null;
     hasApiKey: boolean;
     keySource: "settings" | "env" | "none";
+    cliPath: string;
+    cliModel: string;
   };
   engine: {
+    /** cli = ヘッドレスCLI(claude -p 等)を起動する / api = チャット側のAPIキーで直接呼ぶ */
+    mode: "cli" | "api";
     cliPath: string;
     model: string;
     extraArgs: string[];
+    apiModel: string | null;
   };
   setupDone: boolean;
 }
 
 export interface SettingsPatch {
-  chat?: { provider?: "anthropic" | "openai"; model?: string | null; apiKey?: string | null };
-  engine?: { cliPath?: string; model?: string; extraArgs?: string[] };
+  chat?: {
+    mode?: "api" | "cli";
+    provider?: "anthropic" | "openai";
+    model?: string | null;
+    apiKey?: string | null;
+    cliPath?: string;
+    cliModel?: string;
+  };
+  engine?: { mode?: "cli" | "api"; cliPath?: string; model?: string; extraArgs?: string[]; apiModel?: string | null };
   setupDone?: boolean;
 }
 

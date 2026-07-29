@@ -568,12 +568,11 @@ select:focus {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
-/* 下書き（未確定）は荒い破線ではっきり分かるように（2px にすると破線の目も粗くなる） */
+/* 下書き（未確定）は太さ1pxのまま「目の粗い」破線に。CSS の dashed は目の間隔を
+   制御できないため、SVG の stroke-dasharray を背景に敷く（枠線自体は透明にして寸法維持） */
 .node-card.lifecycle-draft {
-  border-style: dashed;
-  border-width: 2px;
-  border-color: rgba(255, 255, 255, 0.32);
-  padding: 7px 9px; /* 枠が1px太る分を内側で吸収してカード寸法を揃える */
+  border: 1px solid transparent;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='4'%20stroke='rgba(255,255,255,0.4)'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
 }
 
 .node-card.lifecycle-committed {
@@ -1560,6 +1559,12 @@ select:focus {
 }
 
 .setup-desc {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-lo);
+}
+
+.setup-mode-desc {
   margin: 0;
   font-size: 11px;
   color: var(--text-lo);

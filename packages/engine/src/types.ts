@@ -45,10 +45,14 @@ export type { MaterializedMessage as Message } from "@graphwrangler/core";
 
 // ---- engine 固有の型（core には存在しない） ----
 
-/** server settings.ts の EngineSettingsSchema の手動ミラー（cliPath/model/extraArgs のみ使用。
- *  GET /api/settings の公開ビューのうち engine executor に関係する部分だけ型を持つ） */
+/** server settings.ts の EngineSettingsSchema の手動ミラー。
+ *  GET /api/settings の公開ビューのうち engine executor に関係する部分だけ型を持つ。
+ *  mode="cli" なら cliPath/model/extraArgs で claude -p 等を起動、mode="api" なら
+ *  apiModel（null=チャット既定）でサーバの /api/ai/complete を呼ぶ */
 export interface EngineSettings {
+  mode: "cli" | "api";
   cliPath: string;
   model: string;
   extraArgs: string[];
+  apiModel: string | null;
 }
