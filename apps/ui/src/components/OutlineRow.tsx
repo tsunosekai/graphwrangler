@@ -3,8 +3,14 @@ import { api } from "../lib/api";
 import type { OutlineEntry } from "../lib/tree";
 import { siblingsOf } from "../lib/tree";
 import type { Node } from "../types";
+import { Icon } from "./Icon";
+import { StatusCircle } from "./StatusCircle";
 
-const EXEC_EMOJI: Record<Node["executor"], string> = { human: "🧑", ai: "🤖", script: "⚙" };
+const EXEC_ICON: Record<Node["executor"], "user" | "cpu" | "gear"> = {
+  human: "user",
+  ai: "cpu",
+  script: "gear",
+};
 
 interface Props {
   entry: OutlineEntry;
@@ -49,15 +55,21 @@ export function OutlineRow({
     onMutated();
   };
 
+  // このノードがフォルダ（グループ）か: メンバーがいる、または kind=goal
+  const isFolder = node.kind === "goal" || allNodes.some((n) => n.group === node.id);
+
   const addSibling = async () => {
-    const created = await api.addNode({ title: "", parents: node.parents });
+    const created = await api.addNode({ title: "", parents: node.parents, group: node.group });
     onMutated();
     onSelect(created.id);
     onStartEdit(created.id);
   };
 
   const addChild = async () => {
-    const created = await api.addNode({ title: "", parents: [node.id] });
+    // フォルダへの「＋子」はメンバー追加（包含）、タスクへの「＋子」は依存の後続
+    const created = isFolder
+      ? await api.addNode({ title: "", group: node.id })
+      : await api.addNode({ title: "", parents: [node.id], group: node.group });
     onMutated();
     onSelect(created.id);
     onStartEdit(created.id);
@@ -103,13 +115,22 @@ export function OutlineRow({
         onDoubleClick={() => onStartEdit(node.id)}
         onKeyDown={handleRowKeyDown}
       >
-        <input
-          type="checkbox"
-          checked={node.status === "done"}
-          onClick={(e) => e.stopPropagation()}
-          onChange={() => toggleDone()}
-        />
-        <span className="exec-emoji">{EXEC_EMOJI[node.executor]}</span>
+        <button
+          type="button"
+          className="status-circle-btn"
+          title={`状態: ${node.status}（クリックで完了⇔待機）`}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleDone();
+          }}
+        >
+          <StatusCircle status={node.status} />
+        </button>
+        {!isFolder && (
+          <span className={`exec-badge exec-${node.executor}`}>
+            <Icon name={EXEC_ICON[node.executor]} />
+          </span>
+        )}
         {editing ? (
           <input
             autoFocus

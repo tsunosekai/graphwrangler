@@ -22,9 +22,11 @@ const curry = await post("/api/nodes", {
   lifecycle: "committed",
 });
 
+// ゴールは「先頭ノード」ではなく「ノード群のフォルダ」。メンバーは group で所属し、
+// 依存(parents)はメンバー同士の順序だけを表す。
 const research = await post("/api/nodes", {
   title: "世界のカレーレシピを調査する",
-  parents: [curry.id],
+  group: curry.id,
   executor: "ai",
   status: "done",
   lifecycle: "committed",
@@ -34,6 +36,7 @@ const research = await post("/api/nodes", {
 
 const blend = await post("/api/nodes", {
   title: "スパイス配合を決める",
+  group: curry.id,
   parents: [research.id],
   executor: "ai",
   status: "running",
@@ -42,6 +45,7 @@ const blend = await post("/api/nodes", {
 
 const shopping = await post("/api/nodes", {
   title: "スパイスを買い出しに行く",
+  group: curry.id,
   parents: [blend.id],
   executor: "human",
   detail: "大津屋かカルダモンの量り売りがある店。ガラムマサラは自作するので単品で。",
@@ -50,6 +54,7 @@ const shopping = await post("/api/nodes", {
 
 const scorer = await post("/api/nodes", {
   title: "味見スコアを記録するスクリプト",
+  group: curry.id,
   parents: [research.id],
   executor: "script",
   detail: "試作ごとに辛さ・コク・香りを5段階で記録して回帰を検出する",
@@ -58,6 +63,7 @@ const scorer = await post("/api/nodes", {
 
 const cook = await post("/api/nodes", {
   title: "試作1号を仕込む",
+  group: curry.id,
   parents: [shopping.id, scorer.id],
   executor: "human",
   lifecycle: "draft",
@@ -65,6 +71,7 @@ const cook = await post("/api/nodes", {
 
 await post("/api/nodes", {
   title: "近所に振る舞う",
+  group: curry.id,
   parents: [cook.id],
   executor: "human",
   impact: "irreversible",
@@ -134,7 +141,7 @@ const garden = await post("/api/nodes", {
 
 const watering = await post("/api/nodes", {
   title: "水やりリマインダーを自動化する",
-  parents: [garden.id],
+  group: garden.id,
   executor: "script",
   status: "done",
   lifecycle: "committed",
@@ -142,6 +149,7 @@ const watering = await post("/api/nodes", {
 
 await post("/api/nodes", {
   title: "バジルの徒長を診断してもらう",
+  group: garden.id,
   parents: [watering.id],
   executor: "ai",
   detail: "写真を撮って原因(日照不足?水のやりすぎ?)を切り分ける",

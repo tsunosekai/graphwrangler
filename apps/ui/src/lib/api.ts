@@ -43,6 +43,7 @@ export interface NodeCreateInput {
   title: string;
   detail?: string | null;
   parents?: string[];
+  group?: string | null;
   kind?: Node["kind"];
   executor?: Node["executor"];
   impact?: Node["impact"];

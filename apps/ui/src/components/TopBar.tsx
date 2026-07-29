@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Node } from "../types";
+import { Icon } from "./Icon";
 
 interface Props {
   nodes: Node[];
@@ -31,7 +32,7 @@ export function TopBar({ nodes, onSelect }: Props) {
           className={`inbox-btn${pending.length > 0 ? " has-pending" : ""}`}
           onClick={() => setOpen((v) => !v)}
         >
-          🟠 あなたの番 {pending.length}
+          <Icon name="user" size={12} /> あなたの番 {pending.length}
         </button>
         {open && (
           <div className="inbox-dropdown">

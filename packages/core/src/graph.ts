@@ -103,6 +103,7 @@ export class GraphStore {
   addNode(input: NodeInput, meta: OpMeta = {}): Node {
     const parsed = NodeInputSchema.parse(input);
     this.validateParents(null, parsed.parents);
+    this.validateGroup(null, parsed.group);
     const ts = nowIso();
     const node: Node = {
       ...parsed,
@@ -119,11 +120,12 @@ export class GraphStore {
     this.get(id);
     const parsed = NodePatchSchema.parse(patch);
     if (parsed.parents) this.validateParents(id, parsed.parents);
+    if (parsed.group !== undefined) this.validateGroup(id, parsed.group ?? null);
     this.commit({ op: "node.patch", payload: { nodeId: id, patch: parsed } }, meta);
     return this.get(id);
   }
 
-  /** MVP: 子を持つノードは消せない（先に子を消すか繋ぎ替える） */
+  /** MVP: 子（依存の後続）またはメンバー（group で自分を指すノード）を持つノードは消せない */
   removeNode(id: string, meta: OpMeta = {}): void {
     this.get(id);
     const children = [...this.nodes.values()].filter((n) => n.parents.includes(id));
@@ -132,10 +134,34 @@ export class GraphStore {
         `node ${id} has ${children.length} children; remove or reparent them first`,
       );
     }
+    const members = [...this.nodes.values()].filter((n) => n.group === id);
+    if (members.length > 0) {
+      throw new GraphError(
+        `node ${id} has ${members.length} members; ungroup or remove them first`,
+      );
+    }
     this.commit({ op: "node.remove", payload: { nodeId: id } }, meta);
   }
 
   // ---- 内部 ----
+
+  /** group の検証: 実在すること・包含の循環（自分自身/自分のメンバー子孫）を作らないこと */
+  private validateGroup(selfId: string | null, group: string | null): void {
+    if (group === null) return;
+    if (!this.nodes.has(group)) throw new GraphError(`group not found: ${group}`);
+    if (selfId) {
+      let cur: string | null = group;
+      const seen = new Set<string>();
+      while (cur !== null) {
+        if (cur === selfId) {
+          throw new GraphError(`containment cycle: ${group} is inside ${selfId}`);
+        }
+        if (seen.has(cur)) break;
+        seen.add(cur);
+        cur = this.nodes.get(cur)?.group ?? null;
+      }
+    }
+  }
 
   private validateParents(selfId: string | null, parents: string[]): void {
     for (const p of parents) {

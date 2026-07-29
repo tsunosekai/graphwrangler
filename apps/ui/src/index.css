@@ -3,6 +3,8 @@
   --card-bg: #10141a;
   --panel-bg: #0e1116;
   --card-border: rgba(255, 255, 255, 0.14);
+  --card-border-hover: rgba(255, 255, 255, 0.28);
+  --card-border-strong: rgba(255, 255, 255, 0.45);
   --text-hi: #e3eaf2;
   --text-mid: #8fa0b3;
   --text-lo: #556372;
@@ -10,6 +12,7 @@
   --ai: #7ec3e8;
   --human: #d3a95c;
   --script: #8fc8b8;
+  --ok: #93c98b; /* PDG風の完了チェック */
   --done: #46525f;
   --dropped: #333c46;
   --danger: #ff5d5d;
@@ -29,14 +32,34 @@ body,
 body {
   background: var(--bg);
   color: var(--text-hi);
+  /* Linear 風: Inter を主、日本語はシステムゴシックへフォールバック */
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Yu Gothic UI",
-    system-ui, sans-serif;
-  font-size: 14px;
+    "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic UI", system-ui, sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+  /* zinsei desk と同一の格子: 点線グリッド + 交点だけ実線の十字（小セル36px・大セル180px） */
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 36px 36px;
+    url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='36'%20height='36'%3E%3Cpath%20d='M18.5%200V36M0%2018.5H36'%20stroke='rgba(255,255,255,0.04)'%20stroke-width='1'%20stroke-dasharray='2%204'/%3E%3Cpath%20d='M18.5%2014.5V22.5M14.5%2018.5H22.5'%20stroke='rgba(255,255,255,0.11)'%20stroke-width='1'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='180'%3E%3Cpath%20d='M90.5%200V180M0%2090.5H180'%20stroke='rgba(255,255,255,0.05)'%20stroke-width='1'%20stroke-dasharray='2%204'/%3E%3Cpath%20d='M90.5%2082.5V98.5M82.5%2090.5H98.5'%20stroke='rgba(255,255,255,0.17)'%20stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 36px 36px, 180px 180px;
+}
+
+/* zinsei desk のアイコン基底（モノクロ・ストローク） */
+.ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.ic svg {
+  display: block;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .mono {
@@ -46,15 +69,19 @@ body {
 button {
   font: inherit;
   color: var(--text-hi);
-  background: var(--card-bg);
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--card-border);
-  border-radius: 6px;
-  padding: 4px 10px;
+  border-radius: 4px;
+  padding: 3px 10px;
   cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
 }
 
 button:hover:not(:disabled) {
-  border-color: var(--text-mid);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--card-border-hover);
 }
 
 button:disabled {
@@ -69,14 +96,15 @@ select {
   color: var(--text-hi);
   background: var(--panel-bg);
   border: 1px solid var(--card-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 4px 8px;
 }
 
 input:focus,
 textarea:focus,
 select:focus {
-  outline: 1px solid var(--ai);
+  outline: none;
+  border-color: var(--card-border-strong);
 }
 
 /* ---- レイアウト ---- */
@@ -107,17 +135,18 @@ select:focus {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
+  gap: 10px;
+  height: 42px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--card-border);
   background: var(--panel-bg);
   flex-shrink: 0;
 }
 
 .topbar-logo {
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.02em;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
 }
 
 .topbar-chip {
@@ -137,9 +166,16 @@ select:focus {
   position: relative;
 }
 
+.inbox-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-mid);
+}
+
 .inbox-btn.has-pending {
-  border-color: #ff9f43;
-  color: #ffb066;
+  border-color: rgba(211, 169, 92, 0.5);
+  color: var(--human);
 }
 
 .inbox-dropdown {
@@ -149,10 +185,12 @@ select:focus {
   min-width: 240px;
   max-height: 320px;
   overflow-y: auto;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  background: #14171c;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.3),
+    0 12px 32px rgba(0, 0, 0, 0.5);
   z-index: 50;
   display: flex;
   flex-direction: column;
@@ -164,7 +202,7 @@ select:focus {
   text-align: left;
   background: transparent;
   border: none;
-  border-radius: 6px;
+  border-radius: 3px;
 }
 
 .inbox-item:hover {
@@ -206,22 +244,43 @@ select:focus {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: 3px;
   cursor: pointer;
   position: relative;
 }
 
 .outline-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .outline-row.is-selected {
-  background: rgba(126, 195, 232, 0.12);
-  outline: 1px solid var(--ai);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.outline-row:focus {
+  outline: none;
 }
 
 .outline-row.kind-goal .outline-title {
-  font-weight: 700;
+  font-weight: 600;
+}
+
+.status-circle-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.status-circle-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+}
+
+.group-done {
+  color: var(--ok);
+  display: inline-flex;
 }
 
 .outline-title {
@@ -247,8 +306,18 @@ select:focus {
   padding: 1px 4px;
 }
 
-.exec-emoji {
+.exec-badge {
   flex-shrink: 0;
+  display: inline-flex;
+}
+.exec-badge.exec-human {
+  color: var(--human);
+}
+.exec-badge.exec-ai {
+  color: var(--ai);
+}
+.exec-badge.exec-script {
+  color: var(--script);
 }
 
 .dot-pending {
@@ -300,26 +369,22 @@ select:focus {
   width: 220px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 8px 10px;
   position: relative;
-  transition: box-shadow 0.15s ease;
+  transition:
+    box-shadow 0.25s ease,
+    border-color 0.3s ease,
+    opacity 0.3s ease;
 }
 
-.node-card.kind-goal {
-  padding: 12px 14px;
-  border-width: 2px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(126, 195, 232, 0.08), var(--card-bg));
-}
-
-.node-card.kind-goal .node-title {
-  font-weight: 700;
-  font-size: 15px;
+.node-card:hover {
+  border-color: var(--card-border-hover);
 }
 
 .node-card.is-selected {
-  box-shadow: 0 0 0 2px var(--ai);
+  border-color: var(--card-border-strong);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
 .node-card.lifecycle-draft {
@@ -331,7 +396,13 @@ select:focus {
 }
 
 .node-card.status-done {
-  opacity: 0.55;
+  opacity: 0.5;
+  filter: saturate(0.5) brightness(0.9);
+}
+
+.node-card.status-dropped {
+  opacity: 0.45;
+  filter: grayscale(1);
 }
 
 .node-card.status-dropped .node-title {
@@ -340,8 +411,68 @@ select:focus {
 }
 
 .node-card.status-waiting {
-  border-color: #ff9f43;
-  box-shadow: 0 0 0 1px rgba(255, 159, 67, 0.5);
+  border-left: 2px solid var(--human);
+}
+
+/* PDG風の完了/中止マーク: カード左外側の丸バッジ */
+.pdg-badge {
+  position: absolute;
+  left: -30px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.pdg-badge.pdg-done {
+  color: var(--ok);
+}
+
+.pdg-badge.pdg-dropped {
+  color: var(--text-lo);
+}
+
+/* グループ（ゴール=ノード群のフォルダ。Houdiniのネットワークボックス風） */
+.group-box {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  position: relative;
+  transition: border-color 0.3s ease;
+}
+
+.group-box:hover {
+  border-color: var(--card-border-hover);
+}
+
+.group-box.is-selected {
+  border-color: var(--card-border-strong);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.group-box-title {
+  position: absolute;
+  top: -24px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-hi);
+  white-space: nowrap;
+}
+
+.group-box-title .ic {
+  color: var(--text-mid);
 }
 
 .node-card.status-running {
@@ -512,7 +643,7 @@ select:focus {
 .thread-msg {
   max-width: 88%;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
 }
@@ -562,7 +693,7 @@ select:focus {
 
 .decision-card {
   border: 1px solid var(--ai);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 10px;
   background: rgba(126, 195, 232, 0.06);
   display: flex;
@@ -663,7 +794,7 @@ select:focus {
   border: 1px solid var(--danger);
   color: var(--text-hi);
   padding: 8px 14px;
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   font-size: 13px;
 }

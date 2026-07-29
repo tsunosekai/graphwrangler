@@ -38,6 +38,21 @@ describe("GraphStore", () => {
     expect(() => g.patchNode(a.id, { parents: [c.id] })).toThrow(/cycle/);
   });
 
+  it("group: 存在検証・包含循環の禁止・メンバー持ちの削除禁止", () => {
+    const g = new GraphStore(dir);
+    const goal = g.addNode({ title: "ゴール", kind: "goal" });
+    const a = g.addNode({ title: "a", group: goal.id });
+    expect(a.group).toBe(goal.id);
+    expect(() => g.addNode({ title: "x", group: "n-99999999-0001" })).toThrow(
+      /group not found/,
+    );
+    expect(() => g.patchNode(goal.id, { group: goal.id })).toThrow(/containment cycle/);
+    expect(() => g.patchNode(goal.id, { group: a.id })).toThrow(/containment cycle/);
+    expect(() => g.removeNode(goal.id)).toThrow(/members/);
+    g.patchNode(a.id, { group: null });
+    g.removeNode(goal.id);
+  });
+
   it("子を持つノードは消せない", () => {
     const g = new GraphStore(dir);
     const a = g.addNode({ title: "a" });

@@ -24,8 +24,12 @@ export const NodeSchema = z.object({
   id: z.string(),
   title: z.string().min(1),
   detail: z.string().nullable(),
-  /** 先行ノードid。DAG。空=ルート */
+  /** 先行ノードid。DAG。空=ルート。依存（順序）を表す */
   parents: z.array(z.string()),
+  /** 所属するグループ（フォルダ）ノードの id。包含を表す。依存(parents)とは独立。
+   *  ゴールはグラフの先頭ノードではなく「ノード群のフォルダ」（Houdiniのネットワーク
+   *  ボックス、将来の入れ子ノード=HDAの土台） */
+  group: z.string().nullable(),
   kind: NodeKindSchema,
   executor: ExecutorSchema,
   impact: ImpactSchema,
@@ -47,6 +51,7 @@ export const NodeInputSchema = z.object({
   title: z.string().min(1),
   detail: z.string().nullable().default(null),
   parents: z.array(z.string()).default([]),
+  group: z.string().nullable().default(null),
   kind: NodeKindSchema.default("task"),
   executor: ExecutorSchema.default("human"),
   impact: ImpactSchema.default("safe"),

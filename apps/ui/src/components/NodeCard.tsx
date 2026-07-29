@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { Node } from "../types";
+import { Icon } from "./Icon";
 
-const EXEC_EMOJI: Record<Node["executor"], string> = { human: "🧑", ai: "🤖", script: "⚙" };
-const EXEC_VAR: Record<Node["executor"], string> = {
-  human: "var(--human)",
-  ai: "var(--ai)",
-  script: "var(--script)",
+const EXEC_ICON: Record<Node["executor"], "user" | "cpu" | "gear"> = {
+  human: "user",
+  ai: "cpu",
+  script: "gear",
 };
 const STATUS_LABEL: Record<Node["status"], string> = {
   pending: "待機",
   running: "実行中",
   waiting: "回答待ち",
-  done: "完了 ✓",
+  done: "完了",
   dropped: "中止",
 };
 
@@ -48,10 +48,21 @@ export function NodeCard({ data }: { data: NodeCardData }) {
   return (
     <div className={classes} onClick={() => data.onSelect(node.id)} onDoubleClick={() => data.onDoubleClick(node.id)}>
       <Handle type="target" position={Position.Top} />
+      {/* PDG風の完了/中止マーク（カード左外側の丸バッジ） */}
+      {node.status === "done" && (
+        <span className="pdg-badge pdg-done" title="完了">
+          <Icon name="check" size={14} />
+        </span>
+      )}
+      {node.status === "dropped" && (
+        <span className="pdg-badge pdg-dropped" title="中止">
+          <Icon name="x" size={13} />
+        </span>
+      )}
       {node.pendingRequest && <span className="dot-pending" title="あなたの番" />}
       <div className="node-card-head">
-        <span className="exec-badge" style={{ color: EXEC_VAR[node.executor] }}>
-          {EXEC_EMOJI[node.executor]}
+        <span className={`exec-badge exec-${node.executor}`}>
+          <Icon name={EXEC_ICON[node.executor]} />
         </span>
         {data.editing ? (
           <input
@@ -76,13 +87,15 @@ export function NodeCard({ data }: { data: NodeCardData }) {
         )}
         {node.impact === "irreversible" && (
           <span className="badge-warn" title="不可逆">
-            ⚠
+            <Icon name="alert" size={12} />
           </span>
         )}
       </div>
-      <div className="node-card-foot">
-        <span className={`status-chip status-${node.status}`}>{STATUS_LABEL[node.status]}</span>
-      </div>
+      {node.status !== "done" && node.status !== "dropped" && (
+        <div className="node-card-foot">
+          <span className={`status-chip status-${node.status}`}>{STATUS_LABEL[node.status]}</span>
+        </div>
+      )}
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

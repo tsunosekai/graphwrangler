@@ -21,6 +21,8 @@ export interface Node {
   title: string;
   detail: string | null;
   parents: string[];
+  /** 所属グループ（フォルダ）ノードの id。包含であり依存(parents)とは独立 */
+  group: string | null;
   kind: NodeKind;
   executor: Executor;
   impact: Impact;

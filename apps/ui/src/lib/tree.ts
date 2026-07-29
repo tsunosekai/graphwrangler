@@ -22,11 +22,14 @@ export function buildOutline(nodes: Node[]): OutlineEntry[] {
   const roots: Node[] = [];
 
   for (const n of nodes) {
+    // 主親（依存）があればその下、無ければ所属グループ（フォルダ）の下、どちらも無ければルート
     const primary = n.parents[0];
-    if (primary && byId.has(primary)) {
-      const list = childrenOfPrimary.get(primary) ?? [];
+    const holder =
+      primary && byId.has(primary) ? primary : n.group && byId.has(n.group) ? n.group : null;
+    if (holder) {
+      const list = childrenOfPrimary.get(holder) ?? [];
       list.push(n);
-      childrenOfPrimary.set(primary, list);
+      childrenOfPrimary.set(holder, list);
     } else {
       roots.push(n);
     }
