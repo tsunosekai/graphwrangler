@@ -271,6 +271,19 @@ select:focus {
   color: var(--text-hi);
 }
 
+.page-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.page-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .page-row-title {
   flex: 1;
   min-width: 0;
@@ -279,8 +292,24 @@ select:focus {
   white-space: nowrap;
 }
 
-.page-row-count {
-  font-size: 11px;
+/* メンバーの状態内訳ドット（desk の ball 内訳ドットの継承） */
+.page-row-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding-left: 20px;
+  flex-wrap: wrap;
+}
+
+.goal-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.goal-dot-more {
+  font-size: 10px;
   color: var(--text-lo);
   font-family: ui-monospace, monospace;
 }
@@ -476,12 +505,23 @@ select:focus {
   border-style: solid;
 }
 
+/* 完了カード: 中身は静かに退くが、チェックマーク（pdg-badge）は明るいまま
+   （「終わっている」は気持ちいいこと。カード全体に opacity をかけない） */
 .node-card.status-done {
-  opacity: 0.5;
-  filter: saturate(0.5) brightness(0.9);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.node-card.status-done .node-card-head,
+.node-card.status-done .node-card-foot {
+  opacity: 0.55;
 }
 
 .node-card.status-dropped {
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.node-card.status-dropped .node-card-head,
+.node-card.status-dropped .node-card-foot {
   opacity: 0.45;
   filter: grayscale(1);
 }
@@ -608,6 +648,56 @@ select:focus {
   position: absolute;
   top: -4px;
   right: -4px;
+}
+
+/* React Flow の Controls（左下）をダークテーマへ（既定は白くて見えない） */
+.react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: var(--card-bg);
+  border: none;
+  border-bottom: 1px solid var(--card-border);
+  color: var(--text-mid);
+  fill: var(--text-mid);
+  width: 24px;
+  height: 24px;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-hi);
+  fill: var(--text-hi);
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 11px;
+  max-height: 11px;
+}
+
+/* 小さな通常色のアイコンボタン（削除等。仰々しくしない） */
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-lo);
+  padding: 2px 5px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  border: none;
+  color: var(--text-mid);
 }
 
 /* ---- ノードパネル ---- */
@@ -756,6 +846,11 @@ select:focus {
 .thread-msg-body {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* open な判断リクエストの固定表示（入力欄の直上。Claude Code の質問と同じ位置） */
+.thread-pinned {
+  flex-shrink: 0;
 }
 
 .thread-reply {

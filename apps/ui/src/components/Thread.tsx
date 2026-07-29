@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { MaterializedMessage } from "../types";
 import { DecisionCard } from "./DecisionCard";
@@ -12,16 +12,41 @@ interface Props {
 
 const AUTHOR_LABEL: Record<string, string> = { human: "人間", agent: "AI", system: "system" };
 
+/**
+ * ノードスレッド。Claude Code と同じ構成:
+ * 上=流れるメッセージ列（自動で最下部へスクロール）、
+ * 下=入力欄。open な判断リクエストは入力欄の直上に固定表示され、
+ * 入力欄への自由文はそのリクエストへの「聞き返し」（ラリー）になる。
+ */
 export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // open な判断リクエストは流れに埋めず、入力欄の直上へ固定する
+  const openRequests = messages.filter(
+    (m) => m.kind === "decision_request" && m.requestStatus === "open",
+  );
+  const flow = messages.filter(
+    (m) => !(m.kind === "decision_request" && m.requestStatus === "open"),
+  );
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length]);
 
   const sendReply = async () => {
     const body = reply.trim();
     if (!body) return;
     setSending(true);
     try {
-      await api.postMessage(nodeId, body);
+      if (openRequests.length > 0) {
+        // 質問が開いているときの自由文は「聞き返し」= option なしの回答
+        await api.answer(nodeId, openRequests[openRequests.length - 1].id, null, body);
+      } else {
+        await api.postMessage(nodeId, body);
+      }
       setReply("");
       onMutated();
     } finally {
@@ -31,10 +56,13 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
 
   return (
     <div className="thread">
-      <div className="thread-body">
-        {messages.length === 0 && <div className="thread-empty">まだありません</div>}
-        {messages.map((m) => {
+      <div className="thread-body" ref={bodyRef}>
+        {flow.length === 0 && openRequests.length === 0 && (
+          <div className="thread-empty">まだありません</div>
+        )}
+        {flow.map((m) => {
           if (m.kind === "decision_request") {
+            // answered なリクエストは流れの中に折りたたみ表示
             return <DecisionCard key={m.id} message={m} nodeId={nodeId} onMutated={onMutated} />;
           }
           const align =
@@ -54,12 +82,19 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
           );
         })}
       </div>
+      {openRequests.map((m) => (
+        <div key={m.id} className="thread-pinned">
+          <DecisionCard message={m} nodeId={nodeId} onMutated={onMutated} />
+        </div>
+      ))}
       {showReplyBox && (
         <div className="thread-reply">
           <textarea
             value={reply}
             onChange={(e) => setReply(e.target.value)}
-            placeholder="返信... (Ctrl/Cmd+Enter で送信)"
+            placeholder={
+              openRequests.length > 0 ? "聞き返す・相談する... (Ctrl/Cmd+Enter)" : "返信... (Ctrl/Cmd+Enter で送信)"
+            }
             rows={2}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {

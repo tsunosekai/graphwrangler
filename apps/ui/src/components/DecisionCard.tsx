@@ -8,8 +8,8 @@ interface Props {
   onMutated: () => void;
 }
 
+// 聞き返し（ラリー）の入力は Thread 側の共通入力欄が担う（Claude Code と同じ構成）
 export function DecisionCard({ message, nodeId, onMutated }: Props) {
-  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const payload = message.payload as { request: DecisionRequest } | null;
   const request = payload?.request;
@@ -21,19 +21,6 @@ export function DecisionCard({ message, nodeId, onMutated }: Props) {
     setBusy(true);
     try {
       await api.answer(nodeId, message.id, optionId);
-      onMutated();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const rally = async () => {
-    const text = note.trim();
-    if (!text) return;
-    setBusy(true);
-    try {
-      await api.answer(nodeId, message.id, null, text);
-      setNote("");
       onMutated();
     } finally {
       setBusy(false);
@@ -68,24 +55,6 @@ export function DecisionCard({ message, nodeId, onMutated }: Props) {
         {request.expires && <span>期限: {new Date(request.expires).toLocaleString("ja-JP")}</span>}
         {!open && <span className="decision-answered-tag">回答済み</span>}
       </div>
-      {open && (
-        <div className="decision-rally">
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="聞き返す..."
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                rally();
-              }
-            }}
-          />
-          <button type="button" disabled={busy || !note.trim()} onClick={rally}>
-            聞き返す
-          </button>
-        </div>
-      )}
     </div>
   );
 }

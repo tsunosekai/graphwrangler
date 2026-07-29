@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type NodePatchInput } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import type { Node } from "../types";
+import { Icon } from "./Icon";
 import { Thread } from "./Thread";
 
 interface Props {
@@ -88,6 +89,9 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
         />
+        <button type="button" className="icon-btn" title="このノードを削除" onClick={handleDelete}>
+          <Icon name="trash" size={14} />
+        </button>
         <button type="button" className="node-panel-close" onClick={onClose} aria-label="閉じる">
           ×
         </button>
@@ -155,10 +159,6 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
           </select>
         </label>
       </div>
-
-      <button type="button" className="node-delete-btn" onClick={handleDelete}>
-        このノードを削除
-      </button>
 
       <div className="node-panel-tabs">
         <button type="button" className={tab === "talk" ? "is-active" : ""} onClick={() => setTab("talk")}>
