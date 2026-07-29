@@ -119,6 +119,9 @@ export const OpRecordSchema = z
     ts: z.string(),
     actor: ActorSchema,
     via: ViaSchema,
+    /** この操作が打ち消した操作の id（undo の補償操作にだけ付く）。
+     *  undo は過去行を書き換えず、逆操作を追記することで実現する */
+    undoes: z.string().optional(),
   })
   .and(OpSchema);
 export type OpRecord = z.infer<typeof OpRecordSchema>;

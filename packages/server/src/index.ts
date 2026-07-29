@@ -22,6 +22,7 @@ import {
 } from "@graphwrangler/core";
 import { z } from "zod";
 import { chatKeyMissing, handleChat } from "./chat.js";
+import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema } from "./settings.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -31,6 +32,7 @@ const port = Number(process.env.GRAPHWRANGLER_PORT ?? 8770);
 const graph = new GraphStore(dataDir);
 const threads = new ThreadStore(dataDir);
 const runs = new RunStore(dataDir);
+const settings = new SettingsStore(dataDir);
 
 /** ラン既定タイトル「MM/DD HH:mm のラン」（docs/design.md 3.8） */
 function defaultRunTitle(): string {
@@ -266,13 +268,45 @@ app.get("/api/runs/:id/trace", (c) => {
   return c.json({ events });
 });
 
+// ---- 元に戻す / やり直す（操作ログの補償追記。core の undoLast/redoLast） ----
+
+app.post("/api/undo", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const undone = graph.undoLast(meta(body));
+  if (!undone) return c.json({ error: "戻せる操作がありません" }, 400);
+  return c.json({ undone: { id: undone.id, op: undone.op, ts: undone.ts } });
+});
+
+app.post("/api/redo", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const redone = graph.redoLast(meta(body));
+  if (!redone) return c.json({ error: "やり直せる操作がありません" }, 400);
+  return c.json({ redone: { id: redone.id, op: redone.op, ts: redone.ts } });
+});
+
+// ---- AI設定（初回セットアップ + ⚙。実装は settings.ts。キーの値は返さない） ----
+
+const SettingsPatchSchema = z.object({
+  chat: ChatSettingsSchema.partial().optional(),
+  engine: EngineSettingsSchema.partial().optional(),
+  setupDone: z.boolean().optional(),
+});
+
+app.get("/api/settings", (c) => c.json(settings.publicView()));
+
+app.post("/api/settings", async (c) => {
+  const body = SettingsPatchSchema.parse(await c.req.json());
+  settings.update(body);
+  return c.json(settings.publicView());
+});
+
 // ---- チャット（M4: グラフ整理の相棒AI。実装は chat.ts） ----
 
 app.post("/api/chat", async (c) => {
-  const missing = chatKeyMissing();
+  const missing = chatKeyMissing(settings);
   if (missing) return c.json({ error: missing }, 400);
   const body = await c.req.json();
-  return handleChat(graph, threads, body);
+  return handleChat(graph, threads, settings, body);
 });
 
 // ---- UI 配信（ビルド済みがあれば） ----

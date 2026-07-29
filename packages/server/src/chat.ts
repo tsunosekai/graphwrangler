@@ -4,9 +4,10 @@
 // 規約どおり via:"chat" / actor:{kind:"agent", name:"chat:<model>"} に統一する。
 // 会話履歴はステートレス（クライアントが毎回全履歴を送る。永続化はしない、design.md M4）。
 import { streamText, stepCountIs, convertToModelMessages, tool, type UIMessage } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
-import { openai } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
+import type { SettingsStore } from "./settings.js";
 import {
   GraphStore,
   ThreadStore,
@@ -20,24 +21,31 @@ import {
 
 const VIA = "chat";
 
-function provider(): "anthropic" | "openai" {
+// 設定（settings.json）→ 環境変数（GW_CHAT_PROVIDER / GW_CHAT_MODEL / 各APIキー）の順で解決
+function provider(settings: SettingsStore): "anthropic" | "openai" {
+  if (settings.get().chat.provider) return settings.get().chat.provider;
   return process.env.GW_CHAT_PROVIDER === "openai" ? "openai" : "anthropic";
 }
 
-function modelId(): string {
+function modelId(settings: SettingsStore): string {
+  const configured = settings.get().chat.model;
+  if (configured) return configured;
   if (process.env.GW_CHAT_MODEL) return process.env.GW_CHAT_MODEL;
-  return provider() === "openai" ? "gpt-5" : "claude-sonnet-5";
+  return provider(settings) === "openai" ? "gpt-5" : "claude-sonnet-5";
 }
 
 /** APIキー未設定なら案内文を返す（ある場合は null）。index.ts のルートが 400 に変換する */
-export function chatKeyMissing(): string | null {
-  const hasKey = provider() === "openai" ? !!process.env.OPENAI_API_KEY : !!process.env.ANTHROPIC_API_KEY;
-  if (hasKey) return null;
-  return "チャットには ANTHROPIC_API_KEY（または OPENAI_API_KEY + GW_CHAT_PROVIDER=openai）を設定してください";
+export function chatKeyMissing(settings: SettingsStore): string | null {
+  if (settings.resolveChatKey().key) return null;
+  return "チャットAIが未設定です。右上の⚙（設定）からプロバイダとAPIキーを設定してください";
 }
 
-function resolveModel() {
-  return provider() === "openai" ? openai(modelId()) : anthropic(modelId());
+function resolveModel(settings: SettingsStore) {
+  const { key } = settings.resolveChatKey();
+  if (provider(settings) === "openai") {
+    return createOpenAI({ apiKey: key ?? undefined })(modelId(settings));
+  }
+  return createAnthropic({ apiKey: key ?? undefined })(modelId(settings));
 }
 
 /** ノード要約（get_state ツール用）。フルノードでなく整理判断に要る最小フィールドだけ渡す */
@@ -140,13 +148,14 @@ export interface ChatRequestBody {
 export async function handleChat(
   graph: GraphStore,
   threads: ThreadStore,
+  settings: SettingsStore,
   body: ChatRequestBody,
 ): Promise<Response> {
   const pageId = body.pageId ?? null;
-  const actor: Actor = { kind: "agent", name: `chat:${modelId()}` };
+  const actor: Actor = { kind: "agent", name: `chat:${modelId(settings)}` };
 
   const result = streamText({
-    model: resolveModel(),
+    model: resolveModel(settings),
     system: systemPrompt(graph, pageId),
     messages: await convertToModelMessages(body.messages ?? []),
     tools: buildTools(graph, threads, pageId, actor),

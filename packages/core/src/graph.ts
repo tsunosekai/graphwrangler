@@ -180,12 +180,17 @@ export class GraphStore {
     }
   }
 
-  private commit(op: Omit<OpRecord, "id" | "ts" | "actor" | "via">, meta: OpMeta): void {
+  private commit(
+    op: Omit<OpRecord, "id" | "ts" | "actor" | "via">,
+    meta: OpMeta,
+    undoes?: string,
+  ): void {
     const record: OpRecord = OpRecordSchema.parse({
       id: nextId("op", []) + "-" + Math.random().toString(36).slice(2, 8),
       ts: nowIso(),
       actor: ActorSchema.parse(meta.actor ?? { kind: "human" }),
       via: meta.via ?? "ui",
+      ...(undoes ? { undoes } : {}),
       ...op,
     });
     this.apply(record);
@@ -214,12 +219,115 @@ export class GraphStore {
 
   /** ops.jsonl だけから状態を再構築する（snapshot 消失時の復元・整合性テスト用） */
   static replay(dataDir: string): Map<string, Node> {
+    const records = readJsonl<OpRecord>(path.join(dataDir, "ops.jsonl"));
+    return GraphStore.replayRecords(records);
+  }
+
+  private static replayRecords(records: OpRecord[]): Map<string, Node> {
     const store = Object.create(GraphStore.prototype) as GraphStore;
     (store as unknown as { nodes: Map<string, Node> }).nodes = new Map();
-    const records = readJsonl<OpRecord>(path.join(dataDir, "ops.jsonl"));
     for (const raw of records) {
       store.apply(OpRecordSchema.parse(raw));
     }
     return (store as unknown as { nodes: Map<string, Node> }).nodes;
+  }
+
+  /**
+   * 直近の操作を1つ元に戻す。過去行は書き換えず、**逆操作を追記**する
+   * （undoes に対象 op の id を刻む）。補償操作（undoes 付き）は undo の対象から
+   * 外すので、連続 undo は時系列を遡る。取り消しの取り消しは redoLast。
+   */
+  undoLast(meta: OpMeta = {}): OpRecord | null {
+    return this.compensate(meta, (r, isUndone) => !r.undoes && !isUndone(r.id));
+  }
+
+  /** 直近の undo を1つやり直す（有効な補償操作を打ち消す = redo） */
+  redoLast(meta: OpMeta = {}): OpRecord | null {
+    return this.compensate(meta, (r, isUndone) => Boolean(r.undoes) && !isUndone(r.id));
+  }
+
+  private compensate(
+    meta: OpMeta,
+    pick: (r: OpRecord, isUndone: (id: string) => boolean) => boolean,
+  ): OpRecord | null {
+    const records = readJsonl<OpRecord>(this.opsPath);
+    // 「効果的に打ち消されているか」= 自分への補償のうち、それ自身が打ち消されて
+    // いないものが1つでもあるか（undo→redo→undo… のチェーンの偶奇を正しく見る）
+    const compsOf = new Map<string, OpRecord[]>();
+    for (const r of records) {
+      const t = (r as { undoes?: string }).undoes;
+      if (t) {
+        const list = compsOf.get(t) ?? [];
+        list.push(r);
+        compsOf.set(t, list);
+      }
+    }
+    const memo = new Map<string, boolean>();
+    const isUndone = (id: string): boolean => {
+      const cached = memo.get(id);
+      if (cached !== undefined) return cached;
+      const result = (compsOf.get(id) ?? []).some((c) => !isUndone(c.id));
+      memo.set(id, result);
+      return result;
+    };
+    let targetIndex = -1;
+    for (let i = records.length - 1; i >= 0; i--) {
+      if (pick(records[i], isUndone)) {
+        targetIndex = i;
+        break;
+      }
+    }
+    if (targetIndex < 0) return null;
+    const target = records[targetIndex];
+    const before = GraphStore.replayRecords(records.slice(0, targetIndex));
+
+    switch (target.op) {
+      case "node.add": {
+        const id = target.payload.node.id;
+        const children = [...this.nodes.values()].filter((n) => n.parents.includes(id));
+        const members = [...this.nodes.values()].filter((n) => n.group === id);
+        if (children.length || members.length) {
+          throw new GraphError(
+            `undo できません: ${id} には後続ノードやメンバーが追加されています`,
+            409,
+          );
+        }
+        if (!this.nodes.has(id)) {
+          throw new GraphError(`undo できません: ${id} は既に存在しません`, 409);
+        }
+        this.commit({ op: "node.remove", payload: { nodeId: id } }, meta, target.id);
+        break;
+      }
+      case "node.patch": {
+        const id = target.payload.nodeId;
+        const prev = before.get(id);
+        const cur = this.nodes.get(id);
+        if (!prev || !cur) {
+          throw new GraphError(`undo できません: ${id} が現存しません`, 409);
+        }
+        // patch されたキーだけを、patch 前の値へ戻す
+        const inverse: Record<string, unknown> = {};
+        for (const key of Object.keys(target.payload.patch)) {
+          inverse[key] = (prev as unknown as Record<string, unknown>)[key];
+        }
+        this.commit(
+          { op: "node.patch", payload: { nodeId: id, patch: NodePatchSchema.parse(inverse) } },
+          meta,
+          target.id,
+        );
+        break;
+      }
+      case "node.remove": {
+        const id = target.payload.nodeId;
+        const prev = before.get(id);
+        if (!prev) throw new GraphError(`undo できません: ${id} の削除前の状態が不明です`, 409);
+        if (this.nodes.has(id)) {
+          throw new GraphError(`undo できません: ${id} は既に再作成されています`, 409);
+        }
+        this.commit({ op: "node.add", payload: { node: prev } }, meta, target.id);
+        break;
+      }
+    }
+    return target;
   }
 }

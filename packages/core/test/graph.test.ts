@@ -96,6 +96,44 @@ describe("GraphStore", () => {
     expect(replayed).toEqual(live);
   });
 
+  it("undo: add→消える / patch→値が戻る / remove→復活 / undoのundo=redo", () => {
+    const g = new GraphStore(dir);
+    const a = g.addNode({ title: "a" });
+    // patch を undo
+    g.patchNode(a.id, { status: "done", detail: "済" });
+    g.undoLast();
+    expect(g.get(a.id).status).toBe("pending");
+    expect(g.get(a.id).detail).toBeNull();
+    // redo で戻る → もう一度 undo
+    g.redoLast();
+    expect(g.get(a.id).status).toBe("done");
+    g.undoLast();
+    expect(g.get(a.id).status).toBe("pending");
+    // remove を undo → 復活（フィールドも戻る）
+    const b = g.addNode({ title: "b", detail: "メモ" });
+    g.removeNode(b.id);
+    g.undoLast();
+    expect(g.get(b.id).detail).toBe("メモ");
+    // add を undo → 消える
+    const c = g.addNode({ title: "c" });
+    g.undoLast();
+    expect(g.has(c.id)).toBe(false);
+    // リプレイ整合
+    expect(GraphStore.replay(dir)).toEqual(new Map(g.state().nodes.map((n) => [n.id, n])));
+  });
+
+  it("undo: 後続が生えた add は409、空なら null", () => {
+    const g = new GraphStore(dir);
+    expect(g.undoLast()).toBeNull();
+    const a = g.addNode({ title: "a" });
+    g.addNode({ title: "b", parents: [a.id] });
+    // 直近は b の add → undo で b が消えるのは OK。その次の undo（a の add）は子が…もう居ない
+    g.undoLast(); // b を打ち消す
+    expect(g.state().nodes).toHaveLength(1);
+    g.undoLast(); // a の add を打ち消す
+    expect(g.state().nodes).toHaveLength(0);
+  });
+
   it("スナップショットから再ロードできる", () => {
     const g1 = new GraphStore(dir);
     const a = g1.addNode({ title: "a" });
