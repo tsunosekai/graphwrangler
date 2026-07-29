@@ -117,3 +117,7 @@ export interface Run {
   created: string;
   updated: string;
 }
+
+/** トレース再生（GET /api/runs/:id/trace の1件）。ノードスレッドのメッセージに
+ *  そのメッセージが属するノードのタイトルを添えたもの */
+export type TraceEvent = MaterializedMessage & { nodeTitle: string };

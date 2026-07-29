@@ -1,0 +1,227 @@
+// 手順ページの第3の投影: 台帳ビュー（docs/design.md 3.8）。
+// 列=テンプレートノード（トポロジカル順）、行=ラン（新しい順）、セル=ワークアイテムの状態。
+// テキスト・グラフ・表は同一データへの3つの投影という位置づけなので、変更はすべて
+// サーバAPI（/api/runs/...）へ委ね、このコンポーネントは表示とトグルだけを持つ。
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "../lib/api";
+import { usePolling } from "../hooks/usePolling";
+import type { Node, RunItem, RunItemStatus, RunStatus, Status, TraceEvent } from "../types";
+import { Icon } from "./Icon";
+import { StatusCircle } from "./StatusCircle";
+
+interface Props {
+  procedure: Node;
+  /** この手順ページの全メンバー（テンプレートノード。draft含む） */
+  members: Node[];
+  onMutated: () => void;
+}
+
+// ラン自体の status は Status に無い値("cancelled")を持つので StatusCircle 用に変換する
+const RUN_STATUS_TO_DISPLAY: Record<RunStatus, Status> = {
+  running: "running",
+  done: "done",
+  cancelled: "dropped",
+};
+
+const AUTHOR_ICON: Record<string, "user" | "cpu" | "gear"> = {
+  human: "user",
+  agent: "cpu",
+  system: "gear",
+};
+
+function truncateTitle(title: string): string {
+  const t = title || "（無題）";
+  return t.length > 8 ? `${t.slice(0, 8)}…` : t;
+}
+
+/** parents を辿った層順（トポロジカル順）。同層は order → created */
+function topoOrder(members: Node[]): Node[] {
+  const idSet = new Set(members.map((n) => n.id));
+  const byId = new Map(members.map((n) => [n.id, n] as const));
+  const layer = new Map<string, number>();
+  const visiting = new Set<string>();
+
+  const calc = (id: string): number => {
+    const cached = layer.get(id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(id)) return 0; // 循環防御（本来エンジンが禁止しているはず）
+    visiting.add(id);
+    const n = byId.get(id);
+    const parentLayers = (n?.parents ?? []).filter((p) => idSet.has(p)).map(calc);
+    const l = parentLayers.length > 0 ? Math.max(...parentLayers) + 1 : 0;
+    layer.set(id, l);
+    visiting.delete(id);
+    return l;
+  };
+  for (const n of members) calc(n.id);
+
+  return members.slice().sort((a, b) => {
+    const la = layer.get(a.id) ?? 0;
+    const lb = layer.get(b.id) ?? 0;
+    if (la !== lb) return la - lb;
+    const oa = a.order ?? Number.MAX_SAFE_INTEGER;
+    const ob = b.order ?? Number.MAX_SAFE_INTEGER;
+    if (oa !== ob) return oa - ob;
+    return a.created < b.created ? -1 : a.created > b.created ? 1 : 0;
+  });
+}
+
+function renderCell(item: RunItem | undefined) {
+  if (!item || item.status === "skipped") {
+    return <span className="ledger-cell-empty">—</span>;
+  }
+  return <StatusCircle status={item.status} size={13} />;
+}
+
+export function LedgerView({ procedure, members, onMutated }: Props) {
+  const columns = useMemo(() => topoOrder(members), [members]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+
+  const { data: runsData, refresh: refreshRuns } = usePolling(
+    () => api.listRuns(procedure.id),
+    5000,
+  );
+  const runs = runsData?.runs ?? [];
+  const selectedRun = runs.find((r) => r.id === selectedRunId) ?? null;
+
+  const { data: traceData, refresh: refreshTrace } = usePolling(
+    () =>
+      selectedRunId
+        ? api.getRunTrace(selectedRunId)
+        : Promise.resolve<{ events: TraceEvent[] }>({ events: [] }),
+    5000,
+  );
+  const events = traceData?.events ?? [];
+
+  // ラン選択が変わったら即座にトレースを取り直す（次の5秒ポーリングを待たない）
+  useEffect(() => {
+    refreshTrace();
+  }, [selectedRunId, refreshTrace]);
+
+  const startRun = useCallback(async () => {
+    setStarting(true);
+    try {
+      const run = await api.createRun(procedure.id, {});
+      await refreshRuns();
+      setSelectedRunId(run.id);
+      onMutated();
+    } finally {
+      setStarting(false);
+    }
+  }, [procedure.id, refreshRuns, onMutated]);
+
+  const cancelSelected = useCallback(async () => {
+    if (!selectedRunId) return;
+    await api.cancelRun(selectedRunId);
+    await refreshRuns();
+    onMutated();
+  }, [selectedRunId, refreshRuns, onMutated]);
+
+  const toggleCell = useCallback(
+    async (runId: string, nodeId: string, current: RunItemStatus) => {
+      if (current !== "pending" && current !== "done") return;
+      const next: RunItemStatus = current === "pending" ? "done" : "pending";
+      await api.patchRunItem(runId, nodeId, { status: next });
+      await refreshRuns();
+      if (runId === selectedRunId) refreshTrace();
+      onMutated();
+    },
+    [refreshRuns, refreshTrace, selectedRunId, onMutated],
+  );
+
+  return (
+    <div className="ledger-view">
+      <div className="ledger-header">
+        <span className="ledger-count">{runs.length} 件のラン</span>
+        <div className="ledger-header-actions">
+          {selectedRun?.status === "running" && (
+            <button type="button" className="ledger-cancel-btn" onClick={cancelSelected}>
+              キャンセル
+            </button>
+          )}
+          <button type="button" className="ledger-start-btn" disabled={starting} onClick={startRun}>
+            ▶ ラン開始
+          </button>
+        </div>
+      </div>
+
+      <div className="ledger-table-wrap">
+        <table className="ledger-table">
+          <thead>
+            <tr>
+              <th className="ledger-th-run">ラン</th>
+              {columns.map((col) => (
+                <th key={col.id} title={col.title || "（無題）"}>
+                  {truncateTitle(col.title)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {runs.length === 0 && (
+              <tr>
+                <td className="ledger-empty" colSpan={columns.length + 1}>
+                  まだランがありません
+                </td>
+              </tr>
+            )}
+            {runs.map((run) => (
+              <tr
+                key={run.id}
+                className={`ledger-row${run.id === selectedRunId ? " is-selected" : ""}`}
+                onClick={() => setSelectedRunId(run.id)}
+              >
+                <td className="ledger-td-run">
+                  <StatusCircle status={RUN_STATUS_TO_DISPLAY[run.status]} size={12} />
+                  <span className="ledger-run-title" title={run.title}>
+                    {run.title}
+                  </span>
+                </td>
+                {columns.map((col) => {
+                  const item = run.items[col.id];
+                  return (
+                    <td
+                      key={col.id}
+                      className="ledger-cell"
+                      onClick={(e) => {
+                        if (!item || (item.status !== "pending" && item.status !== "done")) return;
+                        e.stopPropagation();
+                        toggleCell(run.id, col.id, item.status);
+                      }}
+                    >
+                      {renderCell(item)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedRun && (
+        <div className="ledger-trace">
+          <div className="ledger-trace-head">トレース: {selectedRun.title}</div>
+          <div className="ledger-trace-body">
+            {events.length === 0 && <div className="thread-empty">まだありません</div>}
+            {events.map((ev) => (
+              <div key={ev.id} className="trace-event">
+                <span
+                  className={`trace-event-icon exec-badge exec-${
+                    ev.author.kind === "human" ? "human" : ev.author.kind === "agent" ? "ai" : "script"
+                  }`}
+                >
+                  <Icon name={AUTHOR_ICON[ev.author.kind] ?? "gear"} size={12} />
+                </span>
+                <span className="trace-event-ts">{new Date(ev.ts).toLocaleString("ja-JP")}</span>
+                <span className="trace-event-node">{ev.nodeTitle}</span>
+                <span className="trace-event-body">{ev.body}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

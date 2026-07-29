@@ -14,6 +14,7 @@ import "@xyflow/react/dist/style.css";
 import { api } from "../lib/api";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import type { Node } from "../types";
+import { LedgerView } from "./LedgerView";
 import { NodeCard, type NodeCardData } from "./NodeCard";
 
 const nodeTypes = { task: NodeCard };
@@ -36,6 +37,10 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rfNodes, setRfNodes] = useState<RFNode<NodeCardData>[]>([]);
   const { fitView, screenToFlowPosition } = useReactFlow();
+
+  // 手順ページ（kind=procedure）だけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8）
+  const isProcedure = pageNode?.kind === "procedure";
+  const [viewMode, setViewMode] = useState<"graph" | "ledger">("graph");
 
   const commitTitle = useCallback(
     async (id: string, title: string) => {
@@ -76,6 +81,7 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
           node: n,
           selected: n.id === selectedId,
           editing: n.id === editingId,
+          isTemplate: isProcedure,
           onSelect: (id: string) => onSelect(id),
           onDoubleClick: (id: string) => setEditingId(id),
           onCommitTitle: commitTitle,
@@ -83,7 +89,7 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
         } satisfies NodeCardData,
       })),
     );
-  }, [nodes, pageNode, selectedId, editingId, onSelect, commitTitle, fitView]);
+  }, [nodes, pageNode, selectedId, editingId, isProcedure, onSelect, commitTitle, fitView]);
 
   const rfEdges: RFEdge[] = useMemo(() => {
     const ids = new Set(nodes.map((n) => n.id));
@@ -185,6 +191,8 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
   // 選択中ノードがこのページのタスクなら、その後続として作る
   const selectedInPage = selectedId && nodes.some((n) => n.id === selectedId) ? selectedId : null;
 
+  const showLedger = isProcedure && viewMode === "ledger";
+
   return (
     <div className="graph-pane">
       <div className="graph-toolbar">
@@ -198,32 +206,58 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
             {pageNode.title || "（無題）"}
           </button>
         )}
-        <button type="button" onClick={() => createNode(selectedInPage)}>
-          + ノード
-        </button>
-        <button type="button" title="dagre で並べ直す" onClick={realign}>
-          整列
-        </button>
+        {isProcedure && (
+          <div className="view-tabs">
+            <button
+              type="button"
+              className={viewMode === "graph" ? "is-active" : ""}
+              onClick={() => setViewMode("graph")}
+            >
+              グラフ
+            </button>
+            <button
+              type="button"
+              className={viewMode === "ledger" ? "is-active" : ""}
+              onClick={() => setViewMode("ledger")}
+            >
+              台帳
+            </button>
+          </div>
+        )}
+        {!showLedger && (
+          <>
+            <button type="button" onClick={() => createNode(selectedInPage)}>
+              + ノード
+            </button>
+            <button type="button" title="dagre で並べ直す" onClick={realign}>
+              整列
+            </button>
+          </>
+        )}
       </div>
-      <ReactFlow
-        nodes={rfNodes}
-        edges={rfEdges}
-        nodeTypes={nodeTypes}
-        onNodesChange={handleNodesChange}
-        onConnect={handleConnect}
-        onConnectEnd={handleConnectEnd}
-        onNodeClick={(_, n) => onSelect(n.id)}
-        onPaneClick={() => onSelect(null)}
-        nodeDragThreshold={4}
-        onPaneContextMenu={(e) => {
-          e.preventDefault();
-          createNode(null);
-        }}
-        proOptions={{ hideAttribution: true }}
-        fitView
-      >
-        <Controls />
-      </ReactFlow>
+      {showLedger && pageNode ? (
+        <LedgerView procedure={pageNode} members={nodes} onMutated={onMutated} />
+      ) : (
+        <ReactFlow
+          nodes={rfNodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          onNodesChange={handleNodesChange}
+          onConnect={handleConnect}
+          onConnectEnd={handleConnectEnd}
+          onNodeClick={(_, n) => onSelect(n.id)}
+          onPaneClick={() => onSelect(null)}
+          nodeDragThreshold={4}
+          onPaneContextMenu={(e) => {
+            e.preventDefault();
+            createNode(null);
+          }}
+          proOptions={{ hideAttribution: true }}
+          fitView
+        >
+          <Controls />
+        </ReactFlow>
+      )}
     </div>
   );
 }

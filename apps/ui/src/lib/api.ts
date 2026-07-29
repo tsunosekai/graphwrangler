@@ -1,6 +1,6 @@
 // graphwrangler サーバ API の薄いクライアント。エラーは {error:"..."} + 4xx/5xx を前提に、
 // 拾ってトースト表示してから re-throw する（呼び出し側は catch して個別UIを止めるだけでよい）。
-import type { Message, MaterializedMessage, Node } from "../types";
+import type { Message, MaterializedMessage, Node, Run, RunItemStatus, TraceEvent } from "../types";
 import { pushToast } from "./toast";
 
 export class ApiError extends Error {}
@@ -80,6 +80,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ requestId, option, note }),
     }),
+
+  // ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.8） ----
+
+  createRun: (procedureId: string, input: { title?: string; trigger?: string } = {}) =>
+    request<Run>(`/procedures/${procedureId}/runs`, { method: "POST", body: JSON.stringify(input) }),
+
+  listRuns: (procedureId: string) => request<{ runs: Run[] }>(`/procedures/${procedureId}/runs`),
+
+  getRun: (runId: string) => request<Run>(`/runs/${runId}`),
+
+  patchRunItem: (runId: string, nodeId: string, input: { status?: RunItemStatus; note?: string | null }) =>
+    request<Run>(`/runs/${runId}/items/${nodeId}`, { method: "POST", body: JSON.stringify(input) }),
+
+  cancelRun: (runId: string) =>
+    request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
+
+  getRunTrace: (runId: string) => request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`),
 
   /**
    * 内蔵チャット（M4）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側

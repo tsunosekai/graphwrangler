@@ -11,7 +11,7 @@ interface Props {
   onClose: () => void;
 }
 
-const KIND_OPTIONS: Node["kind"][] = ["goal", "task"];
+const KIND_OPTIONS: Node["kind"][] = ["goal", "task", "procedure"];
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
 const IMPACT_OPTIONS: Node["impact"][] = ["safe", "reversible", "irreversible"];
 const LIFECYCLE_OPTIONS: Node["lifecycle"][] = ["draft", "committed"];
@@ -42,6 +42,13 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
     if (!detailFocused) setDetailDraft(node.detail ?? "");
   }, [node.detail, detailFocused]);
 
+  // kind=procedure 専用: 定期トリガーの記述（v1では自由文字列。解釈はしない）
+  const [scheduleDraft, setScheduleDraft] = useState(node.schedule ?? "");
+  const [scheduleFocused, setScheduleFocused] = useState(false);
+  useEffect(() => {
+    if (!scheduleFocused) setScheduleDraft(node.schedule ?? "");
+  }, [node.schedule, scheduleFocused]);
+
   const patch = async (fields: NodePatchInput) => {
     await api.patchNode(node.id, fields);
     onMutated();
@@ -56,6 +63,11 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
   const saveDetail = async () => {
     setDetailFocused(false);
     if (detailDraft !== (node.detail ?? "")) await patch({ detail: detailDraft || null });
+  };
+
+  const saveSchedule = async () => {
+    setScheduleFocused(false);
+    if (scheduleDraft !== (node.schedule ?? "")) await patch({ schedule: scheduleDraft || null });
   };
 
   const handleDelete = async () => {
@@ -106,6 +118,20 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
         onBlur={saveDetail}
         rows={3}
       />
+
+      {node.kind === "procedure" && (
+        <input
+          className="node-schedule-field"
+          placeholder="例: daily 09:00（v1は記録のみ）"
+          value={scheduleDraft}
+          onFocus={() => setScheduleFocused(true)}
+          onChange={(e) => setScheduleDraft(e.target.value)}
+          onBlur={saveSchedule}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+        />
+      )}
 
       <div className="node-meta-grid">
         <label>

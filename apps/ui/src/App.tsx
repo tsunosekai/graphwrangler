@@ -15,10 +15,10 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
 
-  // ページ = フォルダ（kind=goal、またはメンバーを持つノード）。zinsei desk の左レール方式
+  // ページ = フォルダ（kind=goal/procedure、またはメンバーを持つノード）。zinsei desk の左レール方式
   const folders = useMemo(() => {
     const hasMembers = new Set(nodes.map((n) => n.group).filter(Boolean) as string[]);
-    return nodes.filter((n) => n.kind === "goal" || hasMembers.has(n.id));
+    return nodes.filter((n) => n.kind === "goal" || n.kind === "procedure" || hasMembers.has(n.id));
   }, [nodes]);
 
   const pageId = pageIdRaw ?? folders[0]?.id ?? null;

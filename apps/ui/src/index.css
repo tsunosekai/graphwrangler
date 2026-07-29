@@ -292,6 +292,15 @@ select:focus {
   white-space: nowrap;
 }
 
+/* 手順ページ（procedure）の目印アイコン。StatusCircle と同じ位置に収まるよう幅を揃える */
+.page-row-procedure-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  color: var(--text-mid);
+}
+
 /* メンバーの状態内訳ドット（desk の ball 内訳ドットの継承） */
 .page-row-dots {
   display: flex;
@@ -473,6 +482,38 @@ select:focus {
   top: 10px;
   left: 10px;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 手順ページの表示切替（グラフ/台帳）。セグメントコントロール風 */
+.view-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.view-tabs button {
+  border: none;
+  background: transparent;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-mid);
+  border-radius: 3px;
+}
+
+.view-tabs button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+}
+
+.view-tabs button.is-active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-hi);
 }
 
 .node-card {
@@ -763,6 +804,11 @@ select:focus {
   resize: vertical;
 }
 
+/* kind=procedure 専用: 定期トリガーの記述欄 */
+.node-schedule-field {
+  width: 100%;
+}
+
 .node-meta-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -967,6 +1013,205 @@ select:focus {
 
 .decision-rally input {
   flex: 1;
+}
+
+/* ---- 手順ページ: 台帳ビュー（docs/design.md 3.8 第3の投影） ---- */
+
+.ledger-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ledger-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+
+.ledger-count {
+  font-size: 12px;
+  color: var(--text-mid);
+}
+
+.ledger-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ledger-start-btn {
+  color: var(--ai);
+  border-color: rgba(126, 195, 232, 0.4);
+}
+
+.ledger-cancel-btn {
+  color: var(--danger);
+  border-color: rgba(255, 93, 93, 0.4);
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.ledger-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 14px;
+}
+
+.ledger-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+}
+
+.ledger-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel-bg);
+  color: var(--text-mid);
+  font-weight: 600;
+  font-size: 11px;
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--card-border);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.ledger-th-run {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--panel-bg);
+  min-width: 160px;
+}
+
+.ledger-row {
+  cursor: pointer;
+}
+
+.ledger-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ledger-row.is-selected {
+  background: rgba(126, 195, 232, 0.08);
+}
+
+.ledger-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--card-border);
+  vertical-align: middle;
+}
+
+.ledger-td-run {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel-bg);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.ledger-row.is-selected .ledger-td-run {
+  background: #131a22;
+}
+
+.ledger-run-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.ledger-cell {
+  text-align: center;
+  cursor: pointer;
+}
+
+.ledger-cell-empty {
+  color: var(--text-lo);
+}
+
+.ledger-empty {
+  color: var(--text-lo);
+  text-align: center;
+  padding: 16px !important;
+}
+
+.ledger-trace {
+  flex-shrink: 0;
+  max-height: 34%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--card-border);
+  background: var(--panel-bg);
+}
+
+.ledger-trace-head {
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-mid);
+  border-bottom: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+
+.ledger-trace-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trace-event {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.trace-event-icon {
+  flex-shrink: 0;
+}
+
+.trace-event-ts {
+  flex-shrink: 0;
+  color: var(--text-lo);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+}
+
+.trace-event-node {
+  flex-shrink: 0;
+  color: var(--text-mid);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-event-body {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-hi);
 }
 
 /* ---- 内蔵チャット（M4: グラフ整理の相棒AI） ---- */

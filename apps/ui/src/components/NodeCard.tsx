@@ -21,6 +21,9 @@ export interface NodeCardData {
   node: Node;
   selected: boolean;
   editing: boolean;
+  /** 手順ページ（テンプレートの編集）で描かれているカードか。テンプレートは status を
+   *  持たない思想（docs/design.md 3.8）なので、status 由来の見た目は出さない */
+  isTemplate?: boolean;
   onSelect: (id: string) => void;
   onDoubleClick: (id: string) => void;
   onCommitTitle: (id: string, title: string) => void;
@@ -29,7 +32,7 @@ export interface NodeCardData {
 }
 
 export function NodeCard({ data }: { data: NodeCardData }) {
-  const { node } = data;
+  const { node, isTemplate } = data;
   const [draft, setDraft] = useState(node.title);
 
   useEffect(() => {
@@ -39,7 +42,7 @@ export function NodeCard({ data }: { data: NodeCardData }) {
   const classes = [
     "node-card",
     `kind-${node.kind}`,
-    `status-${node.status}`,
+    isTemplate ? "" : `status-${node.status}`,
     `lifecycle-${node.lifecycle}`,
     data.selected ? "is-selected" : "",
   ]
@@ -49,13 +52,13 @@ export function NodeCard({ data }: { data: NodeCardData }) {
   return (
     <div className={classes} onClick={() => data.onSelect(node.id)} onDoubleClick={() => data.onDoubleClick(node.id)}>
       <Handle type="target" position={Position.Top} />
-      {/* PDG風の完了/中止マーク（カード左外側の丸バッジ） */}
-      {node.status === "done" && (
+      {/* PDG風の完了/中止マーク（カード左外側の丸バッジ）。テンプレートには出さない */}
+      {!isTemplate && node.status === "done" && (
         <span className="pdg-badge pdg-done" title="完了">
           <Icon name="check" size={14} />
         </span>
       )}
-      {node.status === "dropped" && (
+      {!isTemplate && node.status === "dropped" && (
         <span className="pdg-badge pdg-dropped" title="中止">
           <Icon name="x" size={13} />
         </span>
@@ -92,7 +95,7 @@ export function NodeCard({ data }: { data: NodeCardData }) {
           </span>
         )}
       </div>
-      {node.status !== "done" && node.status !== "dropped" && (
+      {!isTemplate && node.status !== "done" && node.status !== "dropped" && (
         <div className="node-card-foot">
           <span className={`status-chip status-${node.status}`}>{STATUS_LABEL[node.status]}</span>
         </div>
