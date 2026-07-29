@@ -51,18 +51,18 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
   const { fitView, screenToFlowPosition } = useReactFlow();
   const paneRef = useRef<HTMLDivElement>(null);
 
-  // ビューの幅が変わったとき（パネル開閉・リサイズ）も即座に fit する（本人指定「パチッと」）。
-  // 初回発火は fit 済みなのでスキップし、以後は 80ms デバウンスで追従する
+  // ビューの幅が**狭くなったとき**だけ即座に fit する（本人指定。広がるときは fit しない
+  // — ノードが見切れる方向だけ救済すればよく、広がったときに視点が飛ぶのは煩わしい）
   useEffect(() => {
     const el = paneRef.current;
     if (!el) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let first = true;
-    const ro = new ResizeObserver(() => {
-      if (first) {
-        first = false;
-        return;
-      }
+    let prevWidth = el.getBoundingClientRect().width;
+    const ro = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? prevWidth;
+      const shrank = width < prevWidth - 1;
+      prevWidth = width;
+      if (!shrank) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => fitView({ padding: 0.2, duration: 0 }), 80);
     });
