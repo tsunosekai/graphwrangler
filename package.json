@@ -1,0 +1,10 @@
+{
+  "name": "infra-tools",
+  "private": true,
+  "scripts": {
+    "test": "pnpm --filter @infra/core test",
+    "dev": "pnpm --parallel --filter @infra/server --filter ui dev",
+    "build": "pnpm -r build"
+  },
+  "packageManager": "pnpm@10.22.0"
+}
