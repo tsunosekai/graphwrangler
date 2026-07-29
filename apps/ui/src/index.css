@@ -568,8 +568,12 @@ select:focus {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
+/* 下書き（未確定）は荒い破線ではっきり分かるように（2px にすると破線の目も粗くなる） */
 .node-card.lifecycle-draft {
   border-style: dashed;
+  border-width: 2px;
+  border-color: rgba(255, 255, 255, 0.32);
+  padding: 7px 9px; /* 枠が1px太る分を内側で吸収してカード寸法を揃える */
 }
 
 .node-card.lifecycle-committed {
