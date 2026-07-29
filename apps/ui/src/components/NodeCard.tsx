@@ -60,7 +60,7 @@ export function NodeCard({ data }: { data: NodeCardData }) {
         `lifecycle-${node.lifecycle}`,
         !isTemplate && `status-${node.status}`,
         !isTemplate && (node.status === "done" || node.status === "dropped") && "opacity-90",
-        data.selected && "border-border-strong shadow-[0_0_0_1px_var(--border-strong)]",
+        data.selected && "is-selected border-border-strong shadow-[0_0_0_1px_var(--border-strong)]",
       )}
       onClick={() => data.onSelect(node.id)}
       onDoubleClick={() => data.onDoubleClick(node.id)}

@@ -349,3 +349,8 @@ body {
   background-image: none;
   box-shadow: none;
 }
+
+/* 下書きでも選択リングは出す（上の box-shadow:none が詳細度で勝ってしまうため例外） */
+.node-card.lifecycle-draft.is-selected {
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
