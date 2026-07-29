@@ -36,6 +36,8 @@ export interface Node {
   selfImprove: boolean;
   pendingRequest: string | null;
   order: number | null;
+  /** kind=procedure 用の定期トリガー記述（自由文字列。v1では解釈しない） */
+  schedule: string | null;
   created: string;
   updated: string;
 }
@@ -81,3 +83,37 @@ export type MaterializedMessage = Message & {
   requestStatus?: "open" | "answered";
   answeredBy?: string;
 };
+
+// ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
+// テンプレート（procedure のメンバーノード）自身は status を持たず、
+// 実行のたびに生成する Run 側のワークアイテムが status を持つ。
+
+export type RunItemStatus =
+  | "pending"
+  | "running"
+  | "waiting"
+  | "done"
+  | "dropped"
+  | "skipped";
+
+export interface RunItem {
+  status: RunItemStatus;
+  note: string | null;
+  updated: string;
+}
+
+export type RunStatus = "running" | "done" | "cancelled";
+
+export interface Run {
+  id: string;
+  /** kind=procedure のノード id */
+  procedure: string;
+  title: string;
+  /** "manual" ほか自由文字列（"schedule:daily 09:00" 等） */
+  trigger: string;
+  status: RunStatus;
+  /** テンプレートノード id → ワークアイテム */
+  items: Record<string, RunItem>;
+  created: string;
+  updated: string;
+}

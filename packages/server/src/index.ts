@@ -10,11 +10,13 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import {
   GraphStore,
   ThreadStore,
+  RunStore,
   GraphError,
   DecisionRequestSchema,
   NodeInputSchema,
   NodePatchSchema,
   ActorSchema,
+  RunItemStatusSchema,
   nowIso,
   type Actor,
 } from "@graphwrangler/core";
@@ -28,6 +30,17 @@ const port = Number(process.env.GRAPHWRANGLER_PORT ?? 8770);
 
 const graph = new GraphStore(dataDir);
 const threads = new ThreadStore(dataDir);
+const runs = new RunStore(dataDir);
+
+/** ラン既定タイトル「MM/DD HH:mm のラン」（docs/design.md 3.8） */
+function defaultRunTitle(): string {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}/${dd} ${hh}:${mi} のラン`;
+}
 
 const app = new Hono();
 app.use("/api/*", cors());
@@ -143,6 +156,114 @@ app.post("/api/nodes/:id/answer", async (c) => {
     );
   }
   return c.json({ message, resolved, node: graph.get(id) });
+});
+
+// ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
+
+const CreateRunSchema = z.object({
+  title: z.string().min(1).optional(),
+  trigger: z.string().min(1).optional(),
+});
+
+/** ラン作成。procedure のメンバー（group=:id）からワークアイテムを組み立てる */
+app.post("/api/procedures/:id/runs", async (c) => {
+  const id = c.req.param("id");
+  const node = graph.get(id);
+  if (node.kind !== "procedure") {
+    throw new GraphError(`node ${id} is not a procedure (kind=${node.kind})`, 400);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  const input = CreateRunSchema.parse(body);
+  const members = graph.state().nodes.filter((n) => n.group === id);
+  const run = runs.create(id, members, {
+    title: input.title ?? defaultRunTitle(),
+    trigger: input.trigger ?? "manual",
+  });
+  const m = meta(body);
+  threads.post(id, {
+    kind: "status",
+    body: `ラン開始: ${run.title}`,
+    payload: { runId: run.id },
+    author: m.actor,
+    via: m.via,
+  });
+  return c.json(run);
+});
+
+app.get("/api/procedures/:id/runs", (c) => {
+  const id = c.req.param("id");
+  graph.get(id);
+  return c.json({ runs: runs.list(id) });
+});
+
+app.get("/api/runs/:id", (c) => {
+  return c.json(runs.get(c.req.param("id")));
+});
+
+const PatchRunItemSchema = z.object({
+  status: RunItemStatusSchema.optional(),
+  note: z.string().nullable().optional(),
+});
+
+/** ワークアイテム更新。テンプレートノードのスレッドへ状態遷移を記録し、
+ *  ラン全体が done に転じたら procedure ノードのスレッドにも記録する */
+app.post("/api/runs/:id/items/:nodeId", async (c) => {
+  const runId = c.req.param("id");
+  const nodeId = c.req.param("nodeId");
+  const before = runs.get(runId);
+  const beforeItem = before.items[nodeId];
+  if (!beforeItem) {
+    throw new GraphError(`run ${runId} has no work item for node ${nodeId}`, 404);
+  }
+  const body = await c.req.json();
+  const input = PatchRunItemSchema.parse(body);
+  const run = runs.patchItem(runId, nodeId, { status: input.status, note: input.note });
+  const m = meta(body);
+  const node = graph.get(nodeId);
+  const fromStatus = beforeItem.status;
+  const toStatus = run.items[nodeId].status;
+  threads.post(nodeId, {
+    kind: "status",
+    body: `[ラン ${runId}] ${node.title}: ${fromStatus} → ${toStatus}`,
+    payload: { runId },
+    author: m.actor,
+    via: m.via,
+  });
+  if (before.status !== "done" && run.status === "done") {
+    threads.post(run.procedure, {
+      kind: "status",
+      body: `ラン完了: ${run.title}`,
+      payload: { runId },
+      author: { kind: "system" },
+      via: m.via,
+    });
+  }
+  return c.json(run);
+});
+
+app.post("/api/runs/:id/cancel", (c) => {
+  return c.json(runs.cancel(c.req.param("id")));
+});
+
+/** トレース再生: procedure ノード+全メンバーのスレッドから payload.runId が一致する
+ *  メッセージを集め、ts 昇順で返す（docs/design.md 3.8「トレース」） */
+app.get("/api/runs/:id/trace", (c) => {
+  const runId = c.req.param("id");
+  const run = runs.get(runId);
+  const nodeIds = [run.procedure, ...Object.keys(run.items)];
+  const events: Array<ReturnType<typeof threads.list>[number] & { nodeTitle: string }> = [];
+  for (const nodeId of nodeIds) {
+    if (!graph.has(nodeId)) continue;
+    const node = graph.get(nodeId);
+    for (const msg of threads.list(nodeId)) {
+      const payload = msg.payload as { runId?: string } | null;
+      if (payload && payload.runId === runId) {
+        events.push({ ...msg, nodeTitle: node.title });
+      }
+    }
+  }
+  events.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+  return c.json({ events });
 });
 
 // ---- チャット（M4: グラフ整理の相棒AI。実装は chat.ts） ----

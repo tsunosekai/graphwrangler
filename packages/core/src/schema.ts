@@ -61,6 +61,9 @@ export const NodeSchema = z.object({
   pendingRequest: z.string().nullable(),
   /** 兄弟内の表示順（小さいほど上）。null は末尾扱い */
   order: z.number().nullable(),
+  /** kind=procedure 用の定期トリガー記述（"schedule:daily 09:00" 等）。
+   *  書式は自由文字列で、v1 では解釈しない（ラン生成のトリガー文字列に転記されるだけ） */
+  schedule: z.string().nullable(),
   created: z.string(),
   updated: z.string(),
 });
@@ -80,6 +83,7 @@ export const NodeInputSchema = z.object({
   status: StatusSchema.default("pending"),
   selfImprove: z.boolean().default(false),
   order: z.number().nullable().default(null),
+  schedule: z.string().nullable().default(null),
 });
 export type NodeInput = z.input<typeof NodeInputSchema>;
 
@@ -183,3 +187,43 @@ export type MaterializedMessage = Message & {
   /** kind=decision_request で answered のとき、対応する decision_answer の id */
   answeredBy?: string;
 };
+
+// ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
+// テンプレート（procedure のメンバーノード）自身は status を持たない。
+// 実行のたびに生成する Run 側のワークアイテムが status を持つ。
+
+/** ワークアイテムの状態。skipped = unplanned テンプレート等、その回は対象外だったもの */
+export const RunItemStatusSchema = z.enum([
+  "pending",
+  "running",
+  "waiting",
+  "done",
+  "dropped",
+  "skipped",
+]);
+export type RunItemStatus = z.infer<typeof RunItemStatusSchema>;
+
+export const RunItemSchema = z.object({
+  status: RunItemStatusSchema,
+  note: z.string().nullable(),
+  updated: z.string(),
+});
+export type RunItem = z.infer<typeof RunItemSchema>;
+
+export const RunStatusSchema = z.enum(["running", "done", "cancelled"]);
+export type RunStatus = z.infer<typeof RunStatusSchema>;
+
+export const RunSchema = z.object({
+  id: z.string(),
+  /** kind=procedure のノード id */
+  procedure: z.string(),
+  title: z.string().min(1),
+  /** "manual" ほか自由文字列（"schedule:daily 09:00" 等） */
+  trigger: z.string().min(1),
+  status: RunStatusSchema,
+  /** テンプレートノード id → ワークアイテム */
+  items: z.record(z.string(), RunItemSchema),
+  created: z.string(),
+  updated: z.string(),
+});
+export type Run = z.infer<typeof RunSchema>;
