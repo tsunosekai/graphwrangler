@@ -3,6 +3,7 @@
 // docs/design.md 3.4/3.5/3.7、docs/agent-contracts.md が設計の正。
 import {
   createRun,
+  getSettings,
   getState,
   getThread,
   listProcedureRuns,
@@ -13,18 +14,61 @@ import {
 } from "./api.js";
 import { buildFailureRecoveryRequest, buildIrreversibleGateRequest, selectAction } from "./pick.js";
 import { selectRunAction } from "./pickRun.js";
+import {
+  APPROVAL_WAITING_NOTE,
+  buildRunApprovalRequest,
+  collectPendingApprovalItems,
+  findRunGate,
+  gateKey,
+  selectRunApprovalAction,
+  type RunGateState,
+} from "./approval.js";
 import { parseSchedule, shouldCreateScheduledRun } from "./schedule.js";
 import { runScript } from "./executors/script.js";
-import { buildAiPrompt, runClaude } from "./executors/claude.js";
+import { buildAiPrompt, runClaude, type ClaudeExecutorConfig } from "./executors/claude.js";
 import type { Actor, Message, Node, Run } from "./types.js";
 
 const INTERVAL_MS = Number(process.env.GW_ENGINE_INTERVAL_MS ?? 5000);
-const MODEL = process.env.GW_ENGINE_CLAUDE_MODEL ?? "sonnet";
 const VIA = "engine";
 const ENGINE_ACTOR: Actor = { kind: "agent", name: "engine" };
 
 function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] ${msg}`);
+}
+
+// ---- エンジンAI設定（M7: サーバ設定を起動時+10分ごとに読む） ----
+// env GW_ENGINE_CLAUDE_MODEL があれば model はそれを優先する（取得失敗時は既定値で継続）。
+const SETTINGS_REFRESH_MS = 10 * 60 * 1000; // 10分
+
+const DEFAULT_ENGINE_CONFIG: ClaudeExecutorConfig = {
+  cliPath: "claude",
+  model: process.env.GW_ENGINE_CLAUDE_MODEL ?? "sonnet",
+  extraArgs: [],
+};
+
+let engineConfig: ClaudeExecutorConfig = DEFAULT_ENGINE_CONFIG;
+let lastSettingsFetchAt = 0;
+
+/** GET /api/settings から claude executor の設定を反映する。10分未満は何もしない
+ *  （force=true なら起動時など強制的に取得する）。取得失敗時は既定値のまま継続する */
+async function refreshEngineConfig(force = false): Promise<void> {
+  const now = Date.now();
+  if (!force && now - lastSettingsFetchAt < SETTINGS_REFRESH_MS) return;
+  lastSettingsFetchAt = now;
+  try {
+    const settings = await getSettings();
+    const modelFromEnv = process.env.GW_ENGINE_CLAUDE_MODEL;
+    engineConfig = {
+      cliPath: settings.engine.cliPath || DEFAULT_ENGINE_CONFIG.cliPath,
+      model: modelFromEnv ?? settings.engine.model ?? DEFAULT_ENGINE_CONFIG.model,
+      extraArgs: Array.isArray(settings.engine.extraArgs) ? settings.engine.extraArgs : [],
+    };
+    log(
+      `エンジン設定を反映: cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)}`,
+    );
+  } catch (err) {
+    log(`設定取得に失敗（既定値のまま継続）: ${String(err)}`);
+  }
 }
 
 function truncate(text: string, limit: number): string {
@@ -86,6 +130,7 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
 
   let result: { success: boolean; output: string; error?: string };
   let executorName: string;
+  let aiSources: string[] = [];
 
   if (node.executor === "script") {
     executorName = "executor:script";
@@ -98,8 +143,9 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     executorName = "executor:claude";
     const goal = node.group ? (nodes.find((n) => n.id === node.group) ?? null) : null;
     const parentSayMessages = await parentSayContext(node, nodes);
-    const prompt = buildAiPrompt({ node, goal, parentSayMessages });
-    result = await runClaude(prompt, MODEL);
+    const built = buildAiPrompt({ node, goal, parentSayMessages });
+    aiSources = built.sources;
+    result = await runClaude(built.prompt, engineConfig);
   }
 
   const actor: Actor = { kind: "agent", name: executorName };
@@ -107,7 +153,14 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
   if (result.success) {
     const summary = truncate(result.output || "(出力なし)", 500);
     await postMessage(node.id, { kind: "status", body: `実行成功: ${summary}` }, actor, VIA);
-    await postMessage(node.id, { kind: "say", body: result.output.trim() || "(結果なし)" }, actor, VIA);
+    // AI発言の出典バッジ用データ（docs/design.md 3.8）。script executor には該当する文脈が無いので付けない
+    const sayPayload = node.executor === "ai" ? { sources: aiSources } : undefined;
+    await postMessage(
+      node.id,
+      { kind: "say", body: result.output.trim() || "(結果なし)", payload: sayPayload },
+      actor,
+      VIA,
+    );
     await patchNode(node.id, { status: "done" }, ENGINE_ACTOR, VIA);
     log(`実行成功: id=${node.id}`);
     return;
@@ -136,6 +189,7 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
 
   let result: { success: boolean; output: string; error?: string };
   let executorName: string;
+  let aiSources: string[] = [];
 
   if (node.executor === "script") {
     executorName = "executor:script";
@@ -147,8 +201,9 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
   } else {
     executorName = "executor:claude";
     const procedureNode = nodes.find((n) => n.id === run.procedure) ?? null;
-    const prompt = buildAiPrompt({ node, goal: procedureNode, parentSayMessages: [] });
-    result = await runClaude(prompt, MODEL);
+    const built = buildAiPrompt({ node, goal: procedureNode, parentSayMessages: [] });
+    aiSources = built.sources;
+    result = await runClaude(built.prompt, engineConfig);
   }
 
   const actor: Actor = { kind: "agent", name: executorName };
@@ -157,9 +212,11 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
   if (result.success) {
     const summary = truncate(result.output || "(出力なし)", 500);
     await postMessage(node.id, { kind: "status", body: `実行成功: ${summary}`, payload }, actor, VIA);
+    // AI発言の出典バッジ用データ（docs/design.md 3.8）。script executor には該当する文脈が無いので付けない
+    const sayPayload = node.executor === "ai" ? { ...payload, sources: aiSources } : payload;
     await postMessage(
       node.id,
-      { kind: "say", body: result.output.trim() || "(結果なし)", payload },
+      { kind: "say", body: result.output.trim() || "(結果なし)", payload: sayPayload },
       actor,
       VIA,
     );
@@ -202,25 +259,96 @@ async function fetchRunningRuns(nodes: Node[]): Promise<Run[]> {
   return runsByProcedure.flat().filter((r) => r.status === "running");
 }
 
-/** プロジェクト側に実行候補が無かったとき、ランのワークアイテムを1件処理する */
+// ---- 手順ページ: 不可逆ランアイテムの承認連携（docs/agent-contracts.md 1.） ----
+
+/** 承認待ち（waiting/note=APPROVAL_WAITING_NOTE）のランアイテムについて、テンプレートノードの
+ *  スレッドから承認ゲートの状態を集める（対象があるものだけスレッドを取得する） */
+async function fetchGateStates(
+  pending: Array<{ run: Run; node: Node }>,
+): Promise<Record<string, RunGateState>> {
+  const gateStates: Record<string, RunGateState> = {};
+  for (const { run, node } of pending) {
+    try {
+      const { messages } = await getThread(node.id);
+      gateStates[gateKey(run.id, node.id)] = findRunGate(messages, run.id);
+    } catch (err) {
+      log(`承認ゲートのスレッド取得に失敗（この周は保留）: run=${run.id} node=${node.id} ${String(err)}`);
+    }
+  }
+  return gateStates;
+}
+
+/** 不可逆ランアイテムの承認状態を1件処理する。処理した(=何かアクションを起こした)ら true を返す */
+async function tickRunApprovals(nodes: Node[], runs: Run[]): Promise<boolean> {
+  const pending = collectPendingApprovalItems(nodes, runs);
+  if (pending.length === 0) return false;
+
+  const gateStates = await fetchGateStates(pending);
+  const action = selectRunApprovalAction(nodes, runs, gateStates);
+
+  switch (action.type) {
+    case "none":
+      return false;
+    case "open-gate":
+      try {
+        await openRequest(
+          action.node.id,
+          buildRunApprovalRequest(action.node, action.run),
+          ENGINE_ACTOR,
+          VIA,
+        );
+        log(
+          `不可逆のため承認カードを開いた: run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
+        );
+      } catch (err) {
+        // node に既に別のリクエストが開いている等。次周に再試行する
+        log(
+          `承認カードを開けなかった（次周に持ち越し）: run=${action.run.id} node=${action.node.id} ${String(err)}`,
+        );
+      }
+      return true;
+    case "execute":
+      await executeRunItem(nodes, action.run, action.node);
+      return true;
+    case "skip":
+      await patchRunItem(
+        action.run.id,
+        action.node.id,
+        { status: "skipped", note: "承認で見送り" },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      log(
+        `承認により見送り(skipped): run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
+      );
+      return true;
+  }
+}
+
+/** プロジェクト側に実行候補が無かったとき、ランのワークアイテムを1件処理する。
+ *  承認待ちアイテムの回答チェックをランの通常実行候補選択より先に行う */
 async function tickRunItem(nodes: Node[]): Promise<void> {
   const runningRuns = await fetchRunningRuns(nodes);
   if (runningRuns.length === 0) return;
+
+  if (await tickRunApprovals(nodes, runningRuns)) return;
 
   const action = selectRunAction(nodes, runningRuns);
   switch (action.type) {
     case "none":
       return;
     case "waiting-irreversible":
+      // ここではカードを開かず waiting へ倒すだけ。承認カードの発行/再試行は
+      // tickRunApprovals（次周）が一元的に担当する（開けなかった場合の再試行もそちら任せにできる）
       await patchRunItem(
         action.run.id,
         action.node.id,
-        { status: "waiting", note: "不可逆のため人間の実行待ち" },
+        { status: "waiting", note: APPROVAL_WAITING_NOTE },
         ENGINE_ACTOR,
         VIA,
       );
       log(
-        `不可逆のためラン待ち: run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
+        `不可逆のため承認待ちへ: run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
       );
       return;
     case "execute":
@@ -267,6 +395,8 @@ async function scheduleTick(nodes: Node[]): Promise<void> {
 }
 
 async function tick(): Promise<void> {
+  await refreshEngineConfig(); // 起動時+10分ごと（内部で throttle。M7）
+
   const { nodes } = await getState();
 
   await scheduleTick(nodes);
@@ -300,7 +430,10 @@ function sleep(ms: number): Promise<void> {
 
 async function main(): Promise<void> {
   const url = process.env.GRAPHWRANGLER_URL ?? "http://localhost:8770";
-  log(`graphwrangler engine 起動: url=${url} interval=${INTERVAL_MS}ms model=${MODEL}`);
+  await refreshEngineConfig(true); // 起動時は必ず一度取得する
+  log(
+    `graphwrangler engine 起動: url=${url} interval=${INTERVAL_MS}ms cliPath=${engineConfig.cliPath} model=${engineConfig.model}`,
+  );
   for (;;) {
     try {
       await tick();

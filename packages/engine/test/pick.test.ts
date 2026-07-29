@@ -175,3 +175,24 @@ describe("buildIrreversibleGateRequest / buildFailureRecoveryRequest", () => {
     expect(req.context).toContain("timeout");
   });
 });
+
+// 手順テンプレートの二重実行防止（2026-07-29 発見の不具合の回帰テスト）
+import { describe as d2, expect as e2, it as i2 } from "vitest";
+import { selectAction as sa } from "../src/pick.js";
+
+d2("手順テンプレートの除外", () => {
+  i2("kind=procedure のメンバーはプロジェクト側エンジンに拾われない", () => {
+    const proc = {
+      id: "p1", title: "手順", detail: null, impl: null, parents: [], group: null,
+      kind: "procedure", executor: "human", impact: "safe", lifecycle: "committed",
+      status: "pending", selfImprove: false, pendingRequest: null, order: null,
+      schedule: null, created: "2026-01-01T00:00:00Z", updated: "2026-01-01T00:00:00Z",
+    } as never;
+    const tmpl = {
+      ...(proc as object),
+      id: "t1", title: "テンプレ", kind: "task", executor: "script", group: "p1",
+      impl: { type: "script", command: "echo x" },
+    } as never;
+    e2(sa([proc, tmpl]).type).toBe("none");
+  });
+});

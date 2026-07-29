@@ -6,9 +6,12 @@ GraphWrangler の常駐実行エンジン（M5、M6後半で手順ページ=ラ�
 （3.4/3.5/3.7/3.8）・`docs/agent-contracts.md`。ラン（手順ページ）対応の詳細は本ファイル
 末尾の「手順ページ（ラン）対応（M6後半）」セクション参照。
 
-このパッケージは `packages/mcp` と同じ方針で **`packages/core`/`packages/server` に依存しない
-自己完結パッケージ**にしてある（`src/types.ts` は core のスキーマの手動ミラー）。統合点は
-HTTP API のみ。
+このパッケージは `packages/mcp` と同じ方針で **`packages/server` の実装には依存しない
+自己完結パッケージ**にしてある。統合点は HTTP API のみ（`packages/server` のコードは
+一切importしない）。`packages/core` に対しては型のみの workspace 依存を持つ
+（`src/types.ts` が `export type {...} from "@graphwrangler/core"` で型を re-export するだけで、
+core の実装（GraphStore 等）はランタイムにimportしない。以前は core スキーマの手動ミラーだった
+が、core を変えるたびに手で追随する二重管理だったため切り替えた）。
 
 ## 起動方法
 
@@ -24,7 +27,20 @@ pnpm --filter @graphwrangler/engine dev
 |---|---|---|
 | `GRAPHWRANGLER_URL` | `http://localhost:8770` | `packages/server` の HTTP API のベースURL |
 | `GW_ENGINE_INTERVAL_MS` | `5000` | ポーリング間隔（ミリ秒） |
-| `GW_ENGINE_CLAUDE_MODEL` | `sonnet` | `claude -p` に渡す `--model` |
+| `GW_ENGINE_CLAUDE_MODEL` | `sonnet` | `claude -p` に渡す `--model`。**設定(下記)より常に優先**（設定を跨いだ確実な上書き手段） |
+
+## エンジンAI設定（サーバ設定との連動。M7）
+
+起動時と以後10分ごとに `GET /api/settings` を取得し、claude executor の CLI パス
+（`cliPath`）・モデル（`model`）・追加引数（`extraArgs`）に反映する（`src/index.ts` の
+`refreshEngineConfig`）。`GW_ENGINE_CLAUDE_MODEL` が設定されていれば、取得した
+`settings.engine.model` より常にそちらを優先する（環境変数はデプロイ側の確実な上書き手段として
+残す）。設定の取得に失敗した場合は前回値（初回は既定値 `cliPath="claude"` / `model="sonnet"` /
+`extraArgs=[]`）のまま継続する。
+
+`extraArgs` に `--dangerously-skip-permissions` や `--allowedTools` 系のフラグが含まれていても
+`executors/claude.ts` の `sanitizeExtraArgs` が取り除く（設定はサーバ管理者が触れる値だが、
+下記の安全設計を設定経由で無効化できないようにするための最終防御）。
 
 ## やること（1周のループ）
 
@@ -39,13 +55,18 @@ pnpm --filter @graphwrangler/engine dev
    - **script**: `node.impl={type:"script",command}` を `shell:true` の子プロセスで実行
      （cwd はリポジトリ外の `os.tmpdir()`、タイムアウト5分）。`impl` が script でない script
      ノードは「実装がない」として失敗扱い
-   - **ai**: `claude -p <prompt> --model <model> --allowedTools Read Grep Glob WebSearch WebFetch`
-     を子プロセスで起動（タイムアウト10分）。プロンプトはゴール(group先ノード)の title/detail、
-     親ノードのスレッド末尾の say メッセージ、自ノードの title/detail、`impl={type:"doc"}` なら
-     その全文を含む（`src/executors/claude.ts` の `buildAiPrompt`）
+   - **ai**: `<cliPath> -p <prompt> --model <model> [...extraArgs] --allowedTools Read Grep Glob WebSearch WebFetch`
+     を子プロセスで起動（タイムアウト10分。cliPath/model/extraArgs は上記「エンジンAI設定」参照）。
+     プロンプトはゴール(group先ノード)の title/detail、親ノードのスレッド末尾の say メッセージ、
+     自ノードの title/detail、`impl={type:"doc"}` ならその全文を含む（`src/executors/claude.ts` の
+     `buildAiPrompt`。実際に組み込んだ文脈名は `sources: string[]` としても返す）
 4. 結果の記録: 成功なら `status`+`say` メッセージを投稿して `status=done`。失敗/タイムアウトなら
    `status` メッセージを投稿して `status=waiting` にし、`POST /request` で
-   もう一度/内容を変える/中止 の判断カードを開く
+   もう一度/内容を変える/中止 の判断カードを開く。ai executor が投稿する `say` メッセージの
+   `payload` には `{ sources: string[] }`（ラン実行時はさらに `runId` も）を含める。sources は
+   `buildAiPrompt` が返した「プロンプトに実際に含めた文脈名」（例:
+   `["ゴール文脈", "親ノードの成果", "手順書"]`）で、UI側の出典バッジ表示に使う想定
+   （docs/design.md 3.8）
 
 ## 安全設計
 
@@ -90,8 +111,8 @@ pnpm --filter @graphwrangler/engine dev
   候補選択ロジックは `src/pickRun.ts` の `selectRunAction`（ネットワークI/Oなし・純粋関数・
   `test/pickRun.test.ts` でユニットテスト）
 - `impact=irreversible` のテンプレートは実行せず、items patch で
-  `{status:"waiting", note:"不可逆のため人間の実行待ち"}` にする（`pick.ts` の承認カード
-  （`POST /request`）とは**未接続**。ランの承認カード連携は将来のスコープ）
+  `{status:"waiting", note:"承認待ち"}` にする（承認カード連携は下記「不可逆ランアイテムの
+  承認連携」参照）
 - 実行: claim は `POST /api/runs/:id/items/:nodeId` で `{status:"running"}`。executor は
   プロジェクト側と同じ `runScript` / `runClaude` をそのまま使う。`ai` executor のプロンプトは
   `claude.ts` の `buildAiPrompt` を「手順ノード(procedure) = goal」として再利用し、手順ノードの
@@ -106,14 +127,43 @@ pnpm --filter @graphwrangler/engine dev
   `GET /api/procedures/:id/runs` を束ねて `status=running` のものを集める
   （`src/index.ts` の `fetchRunningRuns`）
 
+### 不可逆ランアイテムの承認連携（`src/approval.ts`）
+
+`pick.ts`（プロジェクト側）と同じ発想の承認ゲートを、ラン（手順ページ）のワークアイテムにも
+接続する。テンプレートノードの `pendingRequest`/`status` が承認カードの発行/解消の副作用で
+動く（`waiting`→回答で`pending`に戻る）が、**テンプレート自身は status を持たない思想**なので
+この副作用は無視してよい（UIはテンプレートの status を表示しない）。
+
+- 初回発見時（`tickRunItem` の `waiting-irreversible`）: items patch
+  `{status:"waiting", note:"承認待ち"}` にするだけ（この時点ではカードを開かない）
+- 次tick以降（`tickRunApprovals`）: `status=waiting` かつ `note="承認待ち"` のアイテムを
+  `collectPendingApprovalItems` で集め、テンプレートノードのスレッドを見て承認ゲートの状態を
+  `findRunGate` で判定する。判断リクエストの `payload` は呼び出し側が指定できないため、
+  question 文中に `[ラン <runId>]` というマーカーを埋め込んでランと紐付ける
+  （`buildRunApprovalRequest` / `runGateMarker`。テンプレートノードは複数のランに同時に
+  登場しうるため、ノードidだけでは束ねられない）
+  - ゲートが未発行 → `POST /request` で `go`(実行して)/`skip`(このランでは飛ばす) の2択
+    （`impact=irreversible`）を開く
+  - ゲートが発行済み・未回答 → 何もしない（**二重にカードを開かない**）
+  - 回答が `go` → その1回だけ実行（`executeRunItem`。実行後は item.status が
+    waiting/承認待ち から外れるため再実行されない）
+  - 回答が `skip` → items patch `{status:"skipped", note:"承認で見送り"}`
+- 判定本体（`selectRunApprovalAction`）はネットワークI/Oを持たない純粋関数
+  （`test/approval.test.ts` でユニットテスト。gateStates は呼び出し側が
+  `${runId}:${nodeId}` キーで渡す）
+
 ### スケジュールによるラン自動生成（`src/schedule.ts` / `scheduleTick`）
 
 - `node.schedule` を持つ `kind=procedure` ノードを毎tickチェックする。対応書式は
   `src/schedule.ts` の `parseSchedule` が正:
-  - `every <N>m` / `every <N>h` — 最新ランの `created` から N 経過していたら新ラン
-    （最新ランが無ければ即座に生成。cron の初回即時実行と同じ発想）
+  - `every <N>m` / `every <N>h` / `every <N>d` — 最新ランの `created` から N 経過していたら
+    新ラン（最新ランが無ければ即座に生成。cron の初回即時実行と同じ発想）
   - `daily <HH:MM>` — ローカル時刻でその時刻を過ぎていて、最新ランがローカル暦で「今日」の
     ものでなければ新ラン（trigger を問わず「今日の分」が1本あれば足りる、という判定）
+  - `weekly <mon|tue|wed|thu|fri|sat|sun> <HH:MM>` — 対象曜日で、かつローカル時刻でその
+    時刻を過ぎていない間は生成しない（dailyと同じ理由。無ければ即座に生成、にはしない）。
+    それ以外は直近の対象曜日・時刻（必ず現在時刻以前になるよう計算）を求め、最新ランがそれより
+    前なら新ラン（trigger を問わず「今週の分」が1本あれば足りる、という判定）
   - それ以外の書式は**無視して警告ログ**（`未対応のschedule書式のため無視`）を出すだけで、
     ラン生成は行わない
 - **重複防止**: その手順に `status=running` のランが既にあれば、上記条件を満たしていても

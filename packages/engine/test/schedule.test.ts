@@ -14,6 +14,24 @@ describe("parseSchedule", () => {
     expect(parseSchedule("daily 09:00")).toEqual({ type: "daily", hour: 9, minute: 0, raw: "daily 09:00" });
   });
 
+  it("'every 3d' を3日間隔としてパースする", () => {
+    expect(parseSchedule("every 3d")).toEqual({
+      type: "every",
+      ms: 3 * 24 * 60 * 60 * 1000,
+      raw: "every 3d",
+    });
+  });
+
+  it("'weekly mon 09:00' を毎週月曜9:00としてパースする", () => {
+    expect(parseSchedule("weekly mon 09:00")).toEqual({
+      type: "weekly",
+      weekday: "mon",
+      hour: 9,
+      minute: 0,
+      raw: "weekly mon 09:00",
+    });
+  });
+
   it("前後の空白は無視する", () => {
     expect(parseSchedule("  every 5m  ")).toEqual({ type: "every", ms: 5 * 60 * 1000, raw: "  every 5m  " });
   });
@@ -22,7 +40,8 @@ describe("parseSchedule", () => {
     expect(parseSchedule("every 15")).toBeNull();
     expect(parseSchedule("daily 25:00")).toBeNull();
     expect(parseSchedule("daily 09:60")).toBeNull();
-    expect(parseSchedule("weekly mon 09:00")).toBeNull();
+    expect(parseSchedule("weekly xyz 09:00")).toBeNull(); // 未対応の曜日表記
+    expect(parseSchedule("weekly mon 25:00")).toBeNull(); // 範囲外時刻
     expect(parseSchedule("every 0m")).toBeNull();
   });
 });
@@ -49,6 +68,58 @@ describe("shouldCreateScheduledRun: every", () => {
   });
 });
 
+describe("shouldCreateScheduledRun: every (日単位)", () => {
+  it("経過日数がN未満ならfalse", () => {
+    const schedule = parseSchedule("every 2d")!;
+    const latestRun = { created: "2026-01-01T00:00:00Z" };
+    const now = new Date("2026-01-02T12:00:00Z"); // 1.5日経過 < 2日
+    expect(shouldCreateScheduledRun(schedule, latestRun, now, false)).toBe(false);
+  });
+
+  it("経過日数がN以上ならtrue", () => {
+    const schedule = parseSchedule("every 2d")!;
+    const latestRun = { created: "2026-01-01T00:00:00Z" };
+    const now = new Date("2026-01-03T00:00:00Z"); // ちょうど2日経過
+    expect(shouldCreateScheduledRun(schedule, latestRun, now, false)).toBe(true);
+  });
+});
+
+describe("shouldCreateScheduledRun: weekly", () => {
+  // 2026-01-05 は月曜, 2026-01-07 は水曜, 2026-01-12 は次の月曜（node -e で確認済み）
+  it("対象曜日で目標時刻より前ならfalse", () => {
+    const schedule = parseSchedule("weekly mon 09:00")!;
+    const now = new Date(2026, 0, 5, 8, 59); // 月曜 08:59
+    expect(shouldCreateScheduledRun(schedule, null, now, false)).toBe(false);
+  });
+
+  it("対象曜日で目標時刻を過ぎていて、最新ランが無ければtrue", () => {
+    const schedule = parseSchedule("weekly mon 09:00")!;
+    const now = new Date(2026, 0, 5, 9, 5); // 月曜 09:05
+    expect(shouldCreateScheduledRun(schedule, null, now, false)).toBe(true);
+  });
+
+  it("今週の分が既にあればfalse", () => {
+    const schedule = parseSchedule("weekly mon 09:00")!;
+    const now = new Date(2026, 0, 5, 9, 30); // 月曜 09:30
+    const latestRun = { created: new Date(2026, 0, 5, 9, 1).toISOString() }; // 同じ月曜09:01に生成済み
+    expect(shouldCreateScheduledRun(schedule, latestRun, now, false)).toBe(false);
+  });
+
+  it("対象曜日でない日でも、今週分の対象曜日を過ぎていて未生成ならtrue", () => {
+    const schedule = parseSchedule("weekly mon 09:00")!;
+    const now = new Date(2026, 0, 7, 10, 0); // 水曜（今週の月曜09:00は既に過ぎている）
+    const latestRun = { created: new Date(2025, 11, 29, 9, 5).toISOString() }; // 前週の月曜
+    expect(shouldCreateScheduledRun(schedule, latestRun, now, false)).toBe(true);
+  });
+
+  it("対象曜日でない日で、今週分が既にあればfalse", () => {
+    const schedule = parseSchedule("weekly mon 09:00")!;
+    const now = new Date(2026, 0, 7, 10, 0); // 水曜
+    const latestRun = { created: new Date(2026, 0, 5, 9, 5).toISOString() }; // 今週の月曜
+    expect(shouldCreateScheduledRun(schedule, latestRun, now, false)).toBe(false);
+  });
+});
+
 describe("shouldCreateScheduledRun: daily", () => {
   it("目標時刻より前ならfalse", () => {
     const schedule = parseSchedule("daily 09:00")!;
@@ -72,11 +143,13 @@ describe("shouldCreateScheduledRun: daily", () => {
 });
 
 describe("shouldCreateScheduledRun: 重複防止", () => {
-  it("hasRunningRun=trueなら every/daily どちらの条件を満たしていても常にfalse", () => {
+  it("hasRunningRun=trueなら every/daily/weekly どの条件を満たしていても常にfalse", () => {
     const every = parseSchedule("every 15m")!;
     const daily = parseSchedule("daily 09:00")!;
-    const now = new Date(2026, 0, 1, 10, 0);
+    const weekly = parseSchedule("weekly mon 09:00")!;
+    const now = new Date(2026, 0, 5, 10, 0); // 月曜 10:00（weeklyの目標時刻も過ぎている）
     expect(shouldCreateScheduledRun(every, null, now, true)).toBe(false);
     expect(shouldCreateScheduledRun(daily, null, now, true)).toBe(false);
+    expect(shouldCreateScheduledRun(weekly, null, now, true)).toBe(false);
   });
 });

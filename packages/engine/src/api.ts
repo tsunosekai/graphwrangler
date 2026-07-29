@@ -4,6 +4,7 @@
 import type {
   Actor,
   DecisionRequest,
+  EngineSettings,
   Message,
   Node,
   NodePatch,
@@ -126,4 +127,12 @@ export async function patchRunItem(
     actor,
     via,
   })) as Run;
+}
+
+// ---- AI設定（M7: エンジンAI設定を server 設定から読む） ----
+
+/** GET /api/settings の公開ビュー。engine executor に必要な部分だけ型を持つ
+ *  （chat/setupDone 等の他フィールドは無視する。取得失敗時の既定値継続は呼び出し側の責務） */
+export async function getSettings(): Promise<{ engine: EngineSettings }> {
+  return (await request("GET", "/api/settings")) as { engine: EngineSettings };
 }

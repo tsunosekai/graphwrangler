@@ -3,8 +3,12 @@
 // packages/engine 内で完結させる）。
 import type { DecisionRequest, Node, Message } from "./types.js";
 
-/** スケジューラの対象になりうる基本条件（frontier/status/メッセージ判定は別途 selectAction が見る） */
-function isSchedulableKind(node: Node): boolean {
+/** スケジューラの対象になりうる基本条件（frontier/status/メッセージ判定は別途 selectAction が見る）。
+ *  手順（kind=procedure）のメンバー＝テンプレートは対象外: テンプレートは status を持たない思想で、
+ *  実行はラン側のワークアイテムが担う。ここで除外しないとプロジェクト側エンジンにも拾われて
+ *  二重実行になる（2026-07-29 に実際に発生した不具合） */
+function isSchedulableKind(node: Node, byId: Map<string, Node>): boolean {
+  if (node.group && byId.get(node.group)?.kind === "procedure") return false;
   return (
     node.lifecycle === "committed" &&
     node.kind === "task" &&
@@ -55,7 +59,7 @@ export function selectAction(
   const sorted = [...nodes].sort((a, b) => a.created.localeCompare(b.created));
 
   for (const node of sorted) {
-    if (!isSchedulableKind(node)) continue;
+    if (!isSchedulableKind(node, byId)) continue;
     if (node.status !== "pending") continue; // unplanned/running/waiting/done/dropped は除外
     if (node.pendingRequest) continue; // open request があるなら人間待ち（本来 pending とは両立しない想定だが念のため）
     if (!isFrontier(node, byId)) continue;
