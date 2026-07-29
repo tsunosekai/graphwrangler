@@ -1,4 +1,4 @@
-// tasuki API サーバ。コアの GraphStore / ThreadStore を HTTP で公開する。
+// graphwrangler API サーバ。コアの GraphStore / ThreadStore を HTTP で公開する。
 // UI も MCP も将来の executor も、全員がこの API（＝操作ログ）を通る。
 import path from "node:path";
 import fs from "node:fs";
@@ -17,13 +17,13 @@ import {
   ActorSchema,
   nowIso,
   type Actor,
-} from "@tasuki/core";
+} from "@graphwrangler/core";
 import { z } from "zod";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
-const dataDir = process.env.TASUKI_DATA ?? path.join(repoRoot, "data");
-const port = Number(process.env.TASUKI_PORT ?? 8770);
+const dataDir = process.env.GRAPHWRANGLER_DATA ?? path.join(repoRoot, "data");
+const port = Number(process.env.GRAPHWRANGLER_PORT ?? 8770);
 
 const graph = new GraphStore(dataDir);
 const threads = new ThreadStore(dataDir);
@@ -154,5 +154,5 @@ if (fs.existsSync(uiDist)) {
 }
 
 serve({ fetch: app.fetch, port }, () => {
-  console.log(`tasuki server: http://localhost:${port} (data: ${dataDir})`);
+  console.log(`graphwrangler server: http://localhost:${port} (data: ${dataDir})`);
 });

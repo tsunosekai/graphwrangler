@@ -1,4 +1,4 @@
-# 設計文書 — AIとのタスク処理ツール tasuki（襷）
+# 設計文書 — GraphWrangler（agent-driven procedural task graph）
 
 zinsei/desk をプロトタイプとする、配布可能な汎用ツール。
 この文書が設計の正。会話や実装で設計が変わったらここを更新する。

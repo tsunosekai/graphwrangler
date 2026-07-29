@@ -1,9 +1,9 @@
 {
-  "name": "infra-tools",
+  "name": "graphwrangler",
   "private": true,
   "scripts": {
-    "test": "pnpm --filter @tasuki/core test",
-    "dev": "pnpm --parallel --filter @tasuki/server --filter ui dev",
+    "test": "pnpm --filter @graphwrangler/core test",
+    "dev": "pnpm --parallel --filter @graphwrangler/server --filter ui dev",
     "build": "pnpm -r build"
   },
   "packageManager": "pnpm@10.22.0"

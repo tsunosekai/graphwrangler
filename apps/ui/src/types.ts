@@ -1,5 +1,5 @@
 // データモデルの正は packages/core/src/schema.ts（docs/design.md セクション5 と対応）。
-// ここではその形を UI 側で複製する（workspace の @tasuki/core を tsc の project reference
+// ここではその形を UI 側で複製する（workspace の @graphwrangler/core を tsc の project reference
 // なしに直接 import すると、core 側の tsconfig（"types":["node"]）が適用されず
 // ui 側の compilerOptions（DOM のみ）で core の .ts が型チェックされてしまい、
 // "node:path" 等が解決できず壊れるため。値は常にサーバ経由でしか来ないので、

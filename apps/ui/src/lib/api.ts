@@ -1,4 +1,4 @@
-// tasuki サーバ API の薄いクライアント。エラーは {error:"..."} + 4xx/5xx を前提に、
+// graphwrangler サーバ API の薄いクライアント。エラーは {error:"..."} + 4xx/5xx を前提に、
 // 拾ってトースト表示してから re-throw する（呼び出し側は catch して個別UIを止めるだけでよい）。
 import type { Message, MaterializedMessage, Node } from "../types";
 import { pushToast } from "./toast";

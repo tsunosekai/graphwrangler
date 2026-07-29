@@ -1,5 +1,5 @@
 {
-  "name": "@tasuki/core",
+  "name": "@graphwrangler/core",
   "version": "0.1.0",
   "private": true,
   "type": "module",

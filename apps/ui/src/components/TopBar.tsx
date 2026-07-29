@@ -22,7 +22,7 @@ export function TopBar({ nodes, onSelect }: Props) {
 
   return (
     <header className="topbar">
-      <div className="topbar-logo">tasuki</div>
+      <div className="topbar-logo">GraphWrangler</div>
       <div className="topbar-chip">{nodes.length} ノード</div>
       <div className="topbar-spacer" />
       <div className="inbox" ref={ref}>

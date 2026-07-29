@@ -7,7 +7,7 @@ import { readJsonl } from "../src/storage.js";
 
 let dir: string;
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasuki-graph-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "graphwrangler-graph-"));
 });
 
 describe("GraphStore", () => {

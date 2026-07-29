@@ -7,7 +7,7 @@ import { ThreadStore, type DecisionRequest } from "../src/index.js";
 let dir: string;
 let t: ThreadStore;
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasuki-thread-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "graphwrangler-thread-"));
   t = new ThreadStore(dir);
 });
 

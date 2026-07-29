@@ -57,12 +57,12 @@ importers:
 
   packages/server:
     dependencies:
+      '@graphwrangler/core':
+        specifier: workspace:*
+        version: link:../core
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.17(hono@4.12.32)
-      '@tasuki/core':
-        specifier: workspace:*
-        version: link:../core
       hono:
         specifier: ^4.6.0
         version: 4.12.32
