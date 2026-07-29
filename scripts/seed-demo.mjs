@@ -66,6 +66,8 @@ const cook = await post("/api/nodes", {
   group: curry.id,
   parents: [shopping.id, scorer.id],
   executor: "human",
+  status: "unplanned", // やり方未定（「ここだけまだ考えてない」）の例
+  detail: "圧力鍋か土鍋か、仕込み方をまだ決めていない",
   lifecycle: "draft",
 });
 

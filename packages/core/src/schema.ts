@@ -18,7 +18,15 @@ export const NodeKindSchema = z.enum(["goal", "task"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
 export const ImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
 export const LifecycleSchema = z.enum(["draft", "committed"]);
-export const StatusSchema = z.enum(["pending", "running", "waiting", "done", "dropped"]);
+/** unplanned = やり方未定（「ここだけまだ考えてない」）。依存が揃っていても実行エンジンは拾わない */
+export const StatusSchema = z.enum([
+  "unplanned",
+  "pending",
+  "running",
+  "waiting",
+  "done",
+  "dropped",
+]);
 
 export const NodeSchema = z.object({
   id: z.string(),

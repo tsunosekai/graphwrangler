@@ -4,6 +4,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   applyNodeChanges,
+  useReactFlow,
   type Connection,
   type Edge as RFEdge,
   type Node as RFNode,
@@ -11,26 +12,28 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api } from "../lib/api";
-import { layoutGraph, structureSignature, type Pos, type Size } from "../lib/layout";
+import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import type { Node } from "../types";
 import { NodeCard, type NodeCardData } from "./NodeCard";
-import { GroupBox, type GroupBoxData } from "./GroupBox";
 
-const nodeTypes = { task: NodeCard, group: GroupBox };
+const nodeTypes = { task: NodeCard };
 
 interface Props {
+  /** 表示するページ（フォルダ）のメンバーだけが渡される */
   nodes: Node[];
+  /** ページ自身のノード（パンくず表示・新規ノードの所属先） */
+  pageNode: Node | null;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMutated: () => void;
 }
 
-function GraphViewInner({ nodes, selectedId, onSelect, onMutated }: Props) {
+function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Props) {
   const positionsRef = useRef<Map<string, Pos>>(new Map());
-  const groupSizesRef = useRef<Map<string, Size>>(new Map());
   const sigRef = useRef<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [rfNodes, setRfNodes] = useState<RFNode<NodeCardData | GroupBoxData>[]>([]);
+  const [rfNodes, setRfNodes] = useState<RFNode<NodeCardData>[]>([]);
+  const { fitView } = useReactFlow();
 
   const commitTitle = useCallback(
     async (id: string, title: string) => {
@@ -44,55 +47,34 @@ function GraphViewInner({ nodes, selectedId, onSelect, onMutated }: Props) {
   );
 
   useEffect(() => {
-    const sig = structureSignature(nodes);
+    const sig = `${pageNode?.id ?? ""}#${structureSignature(nodes)}`;
+    const pageChanged = sig.split("#")[0] !== sigRef.current.split("#")[0];
     if (sig !== sigRef.current) {
       sigRef.current = sig;
-      const { positions, groupSizes } = layoutGraph(nodes);
-      positionsRef.current = positions;
-      groupSizesRef.current = groupSizes;
+      positionsRef.current = layoutGraph(nodes).positions;
+      if (pageChanged) {
+        // ページ切替時は全体が見える位置へ
+        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }));
+      }
     }
-    const byId = new Map(nodes.map((n) => [n.id, n] as const));
-    const isGroup = (id: string) => groupSizesRef.current.has(id);
-    // React Flow は親（グループ）ノードが子より先に並んでいる必要がある
-    const sorted = [...nodes].sort((a, b) => Number(isGroup(b.id)) - Number(isGroup(a.id)));
     setRfNodes(
-      sorted.map((n) => {
-        const size = groupSizesRef.current.get(n.id);
-        const common = {
-          id: n.id,
-          position: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
-          ...(n.group && byId.has(n.group) ? { parentId: n.group } : {}),
-        };
-        if (size) {
-          return {
-            ...common,
-            type: "group" as const,
-            style: { width: size.width, height: size.height },
-            draggable: true,
-            data: {
-              node: n,
-              selected: n.id === selectedId,
-              onSelect: (id: string) => onSelect(id),
-            } satisfies GroupBoxData,
-          };
-        }
-        return {
-          ...common,
-          type: "task" as const,
-          draggable: true,
-          data: {
-            node: n,
-            selected: n.id === selectedId,
-            editing: n.id === editingId,
-            onSelect: (id: string) => onSelect(id),
-            onDoubleClick: (id: string) => setEditingId(id),
-            onCommitTitle: commitTitle,
-            onCancelEdit: () => setEditingId(null),
-          } satisfies NodeCardData,
-        };
-      }),
+      nodes.map((n) => ({
+        id: n.id,
+        type: "task" as const,
+        position: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
+        draggable: true,
+        data: {
+          node: n,
+          selected: n.id === selectedId,
+          editing: n.id === editingId,
+          onSelect: (id: string) => onSelect(id),
+          onDoubleClick: (id: string) => setEditingId(id),
+          onCommitTitle: commitTitle,
+          onCancelEdit: () => setEditingId(null),
+        } satisfies NodeCardData,
+      })),
     );
-  }, [nodes, selectedId, editingId, onSelect, commitTitle]);
+  }, [nodes, pageNode, selectedId, editingId, onSelect, commitTitle, fitView]);
 
   const rfEdges: RFEdge[] = useMemo(() => {
     const ids = new Set(nodes.map((n) => n.id));
@@ -103,17 +85,14 @@ function GraphViewInner({ nodes, selectedId, onSelect, onMutated }: Props) {
     );
   }, [nodes]);
 
-  const handleNodesChange = useCallback(
-    (changes: NodeChange<RFNode<NodeCardData | GroupBoxData>>[]) => {
-      for (const c of changes) {
-        if (c.type === "position" && c.position) {
-          positionsRef.current.set(c.id, c.position);
-        }
+  const handleNodesChange = useCallback((changes: NodeChange<RFNode<NodeCardData>>[]) => {
+    for (const c of changes) {
+      if (c.type === "position" && c.position) {
+        positionsRef.current.set(c.id, c.position);
       }
-      setRfNodes((nds) => applyNodeChanges(changes, nds));
-    },
-    [],
-  );
+    }
+    setRfNodes((nds) => applyNodeChanges(changes, nds));
+  }, []);
 
   const handleConnect = useCallback(
     async (conn: Connection) => {
@@ -127,26 +106,36 @@ function GraphViewInner({ nodes, selectedId, onSelect, onMutated }: Props) {
   );
 
   const createNode = useCallback(
-    async (contextId: string | null) => {
-      // 選択中がグループならその中に、タスクなら同じグループ内の子として作る
-      const ctx = contextId ? nodes.find((n) => n.id === contextId) : null;
-      const isGroup = ctx ? nodes.some((n) => n.group === ctx.id) || ctx.kind === "goal" : false;
+    async (parentId: string | null) => {
       const created = await api.addNode({
         title: "",
-        parents: ctx && !isGroup ? [ctx.id] : [],
-        group: ctx ? (isGroup ? ctx.id : (ctx.group ?? null)) : null,
+        parents: parentId ? [parentId] : [],
+        group: pageNode?.id ?? null,
       });
       onMutated();
       onSelect(created.id);
       setEditingId(created.id);
     },
-    [nodes, onMutated, onSelect],
+    [pageNode, onMutated, onSelect],
   );
+
+  // 選択中ノードがこのページのタスクなら、その後続として作る
+  const selectedInPage = selectedId && nodes.some((n) => n.id === selectedId) ? selectedId : null;
 
   return (
     <div className="graph-pane">
       <div className="graph-toolbar">
-        <button type="button" onClick={() => createNode(selectedId)}>
+        {pageNode && (
+          <button
+            type="button"
+            className="page-crumb"
+            title="ゴールの詳細を開く"
+            onClick={() => onSelect(pageNode.id)}
+          >
+            {pageNode.title || "（無題）"}
+          </button>
+        )}
+        <button type="button" onClick={() => createNode(selectedInPage)}>
           + ノード
         </button>
       </div>

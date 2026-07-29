@@ -14,7 +14,14 @@ const KIND_OPTIONS: Node["kind"][] = ["goal", "task"];
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
 const IMPACT_OPTIONS: Node["impact"][] = ["safe", "reversible", "irreversible"];
 const LIFECYCLE_OPTIONS: Node["lifecycle"][] = ["draft", "committed"];
-const STATUS_OPTIONS: Node["status"][] = ["pending", "running", "waiting", "done", "dropped"];
+const STATUS_OPTIONS: Node["status"][] = [
+  "unplanned",
+  "pending",
+  "running",
+  "waiting",
+  "done",
+  "dropped",
+];
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。

@@ -14,7 +14,8 @@ export type NodeKind = "goal" | "task";
 export type Executor = "human" | "ai" | "script";
 export type Impact = "safe" | "reversible" | "irreversible";
 export type Lifecycle = "draft" | "committed";
-export type Status = "pending" | "running" | "waiting" | "done" | "dropped";
+/** unplanned = やり方未定（実行エンジンは拾わない） */
+export type Status = "unplanned" | "pending" | "running" | "waiting" | "done" | "dropped";
 
 export interface Node {
   id: string;

@@ -3,6 +3,7 @@
 import type { Status } from "../types";
 
 const COLOR: Record<Status, string> = {
+  unplanned: "var(--text-lo)",
   pending: "var(--text-lo)",
   running: "var(--ai)",
   waiting: "var(--human)",
@@ -43,6 +44,17 @@ export function StatusCircle({ status, size = 14 }: { status: Status; size?: num
           {/* 半分だけ埋まったパイ（進行中） */}
           <path d="M7 3.4 A3.6 3.6 0 0 1 7 10.6 Z" fill={c} />
         </>
+      ) : status === "unplanned" ? (
+        // Linear の Backlog と同じ破線円（やり方未定）
+        <circle
+          cx="7"
+          cy="7"
+          r="5.4"
+          fill="none"
+          stroke={c}
+          strokeWidth="1.4"
+          strokeDasharray="2.2 2.2"
+        />
       ) : status === "waiting" ? (
         <>
           <circle cx="7" cy="7" r="5.4" fill="none" stroke={c} strokeWidth="1.4" />
