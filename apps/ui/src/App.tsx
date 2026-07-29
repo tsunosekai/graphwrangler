@@ -127,7 +127,8 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-full flex-col bg-background text-foreground">
+    // 背景色は body が持つ（格子と一体）。ここに不透明背景を敷くと格子が隠れる
+    <div className="flex h-full flex-col text-foreground">
       <TopBar
         nodes={nodes}
         runWaitItems={runWaitItems}

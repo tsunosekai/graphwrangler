@@ -22,7 +22,8 @@ export function applyTheme(mode: ThemeMode): void {
 
 export function loadThemeMode(): ThemeMode {
   const saved = localStorage.getItem(STORAGE_KEY);
-  return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+  // 既定は dark（本人の基本環境。system 追従にしたい場合はテーマ切替から選べる）
+  return saved === "light" || saved === "dark" || saved === "system" ? saved : "dark";
 }
 
 /** TopBar のテーマ切替メニューが使うフック。mode 変更は即座に反映+永続化する */
