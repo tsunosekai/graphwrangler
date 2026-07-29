@@ -48,7 +48,19 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
   const [rfNodes, setRfNodes] = useState<RFNode<NodeCardData>[]>([]);
   // QOL-2: 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const { fitView, screenToFlowPosition } = useReactFlow();
+  const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
+
+  // 実測ノードサイズ（React Flow の measured）。整列時に渡すと、ノードの縦幅に
+  // 関わらずノード間の間隔が一定になる（本人指定）
+  const measuredSizes = useCallback(() => {
+    const m = new Map<string, { width: number; height: number }>();
+    for (const rn of getNodes()) {
+      if (rn.measured?.width && rn.measured?.height) {
+        m.set(rn.id, { width: rn.measured.width, height: rn.measured.height });
+      }
+    }
+    return m;
+  }, [getNodes]);
   const paneRef = useRef<HTMLDivElement>(null);
 
   // ビューの幅が**狭くなったとき**だけ即座に fit する（本人指定。広がるときは fit しない
@@ -95,10 +107,10 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
       sigRef.current = sig;
       if (pageChanged) {
         // ページ切替時だけ全体を再レイアウト（B-11: それ以外はドラッグ位置を保持する）
-        positionsRef.current = layoutGraph(nodes).positions;
+        positionsRef.current = layoutGraph(nodes, measuredSizes()).positions;
       } else {
         // 既存ノードの現在位置は保持し、新規に現れたノードだけレイアウト結果の位置を使う
-        const computed = layoutGraph(nodes).positions;
+        const computed = layoutGraph(nodes, measuredSizes()).positions;
         for (const n of nodes) {
           if (!positionsRef.current.has(n.id)) {
             const pos = computed.get(n.id);
@@ -292,7 +304,7 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
     setRealigning(true);
     // クラスが付いた次フレームで位置を更新しないと transition が効かない
     requestAnimationFrame(() => {
-      positionsRef.current = layoutGraph(nodes).positions;
+      positionsRef.current = layoutGraph(nodes, measuredSizes()).positions;
       setRfNodes((prev) =>
         prev.map((rn) => ({ ...rn, position: positionsRef.current.get(rn.id) ?? rn.position })),
       );

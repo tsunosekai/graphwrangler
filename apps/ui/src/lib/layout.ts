@@ -40,7 +40,12 @@ function runDagre(
   return g;
 }
 
-export function layoutGraph(nodes: Node[]): LayoutResult {
+/** measured: 実測サイズ（React Flow の measured）。渡すとノードの縦幅に関わらず
+ *  間隔が一定になる（dagre の ranksep は宣言サイズ基準なので、実寸を渡さないと
+ *  高さの差ぶん見かけの間隔がばらつく）。無いノードは既定値で計算 */
+export function layoutGraph(nodes: Node[], measured?: Map<string, Size>): LayoutResult {
+  const sizeOf = (id: string): Size =>
+    measured?.get(id) ?? { width: NODE_WIDTH, height: NODE_HEIGHT };
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
   const members = new Map<string, Node[]>();
   for (const n of nodes) {
@@ -62,18 +67,19 @@ export function layoutGraph(nodes: Node[]): LayoutResult {
       for (const p of n.parents) if (idSet.has(p)) edges.push([p, n.id]);
     }
     const g = runDagre(
-      list.map((n) => ({ id: n.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
+      list.map((n) => ({ id: n.id, ...sizeOf(n.id) })),
       edges,
     );
     let maxX = 0;
     let maxY = 0;
     for (const n of list) {
       const pos = g.node(n.id);
-      const x = pos.x - NODE_WIDTH / 2 + GROUP_PAD;
-      const y = pos.y - NODE_HEIGHT / 2 + GROUP_PAD + GROUP_TITLE_H;
+      const sz = sizeOf(n.id);
+      const x = pos.x - sz.width / 2 + GROUP_PAD;
+      const y = pos.y - sz.height / 2 + GROUP_PAD + GROUP_TITLE_H;
       positions.set(n.id, { x, y });
-      maxX = Math.max(maxX, x + NODE_WIDTH);
-      maxY = Math.max(maxY, y + NODE_HEIGHT);
+      maxX = Math.max(maxX, x + sz.width);
+      maxY = Math.max(maxY, y + sz.height);
     }
     groupSizes.set(groupId, { width: maxX + GROUP_PAD, height: maxY + GROUP_PAD });
   }
@@ -106,8 +112,8 @@ export function layoutGraph(nodes: Node[]): LayoutResult {
       const size = groupSizes.get(n.id);
       return {
         id: n.id,
-        width: size ? size.width : NODE_WIDTH,
-        height: size ? size.height + GROUP_TITLE_H : NODE_HEIGHT,
+        width: size ? size.width : sizeOf(n.id).width,
+        height: size ? size.height + GROUP_TITLE_H : sizeOf(n.id).height,
       };
     }),
     topEdgeList,
@@ -115,8 +121,8 @@ export function layoutGraph(nodes: Node[]): LayoutResult {
   for (const n of topNodes) {
     const pos = g.node(n.id);
     const size = groupSizes.get(n.id);
-    const w = size ? size.width : NODE_WIDTH;
-    const h = size ? size.height : NODE_HEIGHT;
+    const w = size ? size.width : sizeOf(n.id).width;
+    const h = size ? size.height : sizeOf(n.id).height;
     positions.set(n.id, { x: pos.x - w / 2, y: pos.y - h / 2 });
   }
 
