@@ -24,6 +24,8 @@ export interface NodeCardData {
   /** 手順ページ（テンプレートの編集）で描かれているカードか。テンプレートは status を
    *  持たない思想（docs/design.md 3.8）なので、status 由来の見た目は出さない */
   isTemplate?: boolean;
+  /** QOL-7: 既読ts(localStorage gw.read.<id>)より新しいメッセージがあるか */
+  unread?: boolean;
   onSelect: (id: string) => void;
   onDoubleClick: (id: string) => void;
   onCommitTitle: (id: string, title: string) => void;
@@ -65,6 +67,7 @@ export function NodeCard({ data }: { data: NodeCardData }) {
         </span>
       )}
       {node.pendingRequest && <span className="dot-pending" title="あなたの番" />}
+      {data.unread && <span className="dot-unread" title="未読メッセージあり" />}
       <div className="node-card-head">
         <span className={`exec-badge exec-${node.executor}`}>
           <Icon name={EXEC_ICON[node.executor]} />

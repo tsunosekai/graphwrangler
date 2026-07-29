@@ -26,6 +26,10 @@ const PATHS: Record<string, string> = {
   code: 'm8 9-4 3 4 3 M16 9l4 3-4 3',
   // グラフツールバーの「元に戻す」ボタン
   undo: 'M9 13.5 4.5 9 9 4.5 M4.5 9H13a7 7 0 0 1 7 7v3',
+  // Ctrl+K 全ノード検索（TopBar の🔍ボタン）
+  search: 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15z M16 16l5 5',
+  // ノード複製（NodePanel ヘッダ）
+  copy: 'M9 9h11v11H9z M5 15H4V4h11v1',
 };
 
 // パスだけでは表せない形状（rect/circle）を含むアイコン

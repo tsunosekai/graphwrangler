@@ -10,6 +10,8 @@ interface Props {
   node: Node;
   onMutated: () => void;
   onClose: () => void;
+  /** ノード複製後に新規ノードを選択するため（QOL-8）。ページ切替も面倒を見る App.selectNode を渡す */
+  onSelect: (id: string) => void;
 }
 
 const KIND_OPTIONS: Node["kind"][] = ["goal", "task", "procedure"];
@@ -27,12 +29,23 @@ const STATUS_OPTIONS: Node["status"][] = [
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
-export function NodePanel({ node, onMutated, onClose }: Props) {
+export function NodePanel({ node, onMutated, onClose, onSelect }: Props) {
   const [tab, setTab] = useState<"talk" | "history">("talk");
   // 会話に縦幅を使うため、メタ情報（detail/種別/担当…）は既定で折りたたむ
   const [metaOpen, setMetaOpen] = useState(false);
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
   const { data: thread, refresh: refreshThread } = usePolling(() => api.getThread(node.id), 10000);
+
+  // QOL-7: スレッドを表示したら既読ts(localStorage)を更新する（thread取得のたびに更新=
+  // 開いたまま新着が来ても「読んだ」扱いを追随させる）
+  useEffect(() => {
+    if (!thread) return;
+    try {
+      localStorage.setItem(`gw.read.${node.id}`, new Date().toISOString());
+    } catch {
+      // 容量超過等は無視（未読バッジは補助機能）
+    }
+  }, [thread, node.id]);
 
   const [titleDraft, setTitleDraft] = useState(node.title);
   const [titleFocused, setTitleFocused] = useState(false);
@@ -72,6 +85,28 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
   const saveSchedule = async () => {
     setScheduleFocused(false);
     if (scheduleDraft !== (node.schedule ?? "")) await patch({ schedule: scheduleDraft || null });
+  };
+
+  // QOL-8: ノード複製。作成後は新規ノードを選択する
+  const handleDuplicate = async () => {
+    try {
+      const created = await api.addNode({
+        title: node.title ? `${node.title}のコピー` : "のコピー",
+        detail: node.detail,
+        impl: node.impl,
+        parents: node.parents,
+        group: node.group,
+        kind: node.kind,
+        executor: node.executor,
+        impact: node.impact,
+        status: "pending",
+        lifecycle: "draft",
+      });
+      onMutated();
+      onSelect(created.id);
+    } catch {
+      // api() 側でトースト表示済み
+    }
   };
 
   const handleDelete = async () => {
@@ -117,6 +152,9 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
           onClick={() => patch({ selfImprove: !node.selfImprove })}
         >
           <Icon name={node.selfImprove ? "unlock" : "lock"} size={14} />
+        </button>
+        <button type="button" className="icon-btn" title="このノードを複製" onClick={handleDuplicate}>
+          <Icon name="copy" size={14} />
         </button>
         <button type="button" className="icon-btn" title="このノードを削除" onClick={handleDelete}>
           <Icon name="trash" size={14} />

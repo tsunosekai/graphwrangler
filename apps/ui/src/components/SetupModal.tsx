@@ -50,6 +50,18 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
 
   const [saving, setSaving] = useState(false);
 
+  // QOL-6: あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際の発火は App 側）
+  const [notifyEnabled, setNotifyEnabled] = useState(() => localStorage.getItem("gw.notify") === "1");
+
+  const toggleNotify = async () => {
+    const next = !notifyEnabled;
+    if (next && typeof Notification !== "undefined" && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+    setNotifyEnabled(next);
+    localStorage.setItem("gw.notify", next ? "1" : "0");
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -223,6 +235,20 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
               />
             </label>
           )}
+        </section>
+
+        <section className="setup-section">
+          <h3>通知</h3>
+          <label className="setup-notify-row">
+            <input type="checkbox" checked={notifyEnabled} onChange={toggleNotify} />
+            <span>あなたの番が来たらデスクトップ通知</span>
+          </label>
+        </section>
+
+        <section className="setup-section">
+          <button type="button" className="setup-export-btn" onClick={() => window.open("/api/export")}>
+            データをエクスポート
+          </button>
         </section>
 
         <div className="modal-actions">

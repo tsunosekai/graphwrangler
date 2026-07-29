@@ -42,6 +42,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface NodeCreateInput {
   title: string;
   detail?: string | null;
+  impl?: Node["impl"];
   parents?: string[];
   group?: string | null;
   kind?: Node["kind"];
@@ -93,7 +94,8 @@ export interface SettingsPatch {
 }
 
 export const api = {
-  getState: () => request<{ nodes: Node[]; now: string }>("/state"),
+  // threadMeta: ノードごとの最終メッセージ時刻（未読バッジの判定に使う。QOL-7）
+  getState: () => request<{ nodes: Node[]; threadMeta: Record<string, string>; now: string }>("/state"),
 
   addNode: (input: NodeCreateInput) =>
     request<Node>("/nodes", { method: "POST", body: JSON.stringify(input) }),
@@ -147,6 +149,10 @@ export const api = {
     body: "{}",
   }),
 
+  // ---- エンジン稼働インジケータ（QOL-5） ----
+
+  getEngineStatus: () => request<{ alive: boolean; lastSeen: string | null }>("/engine/status"),
+
   // ---- AI設定 ----
 
   getSettings: () => request<SettingsView>("/settings"),
@@ -161,6 +167,7 @@ export const api = {
   chatStream: async (
     messages: unknown[],
     pageId: string | null,
+    selectedNodeId?: string | null,
     signal?: AbortSignal,
   ): Promise<ReadableStream<Uint8Array>> => {
     let res: Response;
@@ -168,7 +175,7 @@ export const api = {
       res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, pageId }),
+        body: JSON.stringify({ messages, pageId, selectedNodeId: selectedNodeId ?? null }),
         signal,
       });
     } catch {

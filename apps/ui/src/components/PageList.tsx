@@ -5,6 +5,7 @@
 // （テンプレート自身は status を持たない思想。docs/design.md 3.8）。
 // 最新ランの取得は App 側でまとめてポーリングする（B-6: 受信箱のラン待ち統合と共有し、
 // procedure 数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
+import { useState } from "react";
 import { api } from "../lib/api";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import type { Node, Run, RunItemStatus, Status } from "../types";
@@ -43,11 +44,76 @@ const MAX_DOTS = 16;
 
 export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, onMutated }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
+  // QOL-3: アーカイブ節（done/dropped なゴール）は既定で閉じておく
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const addGoal = async () => {
     const created = await api.addNode({ title: "新しいゴール", kind: "goal" });
     onMutated();
     onSelectPage(created.id);
+  };
+
+  // procedure は対象外。goal 等の status が done|dropped のものだけアーカイブへ回す
+  const activeFolders = folders.filter(
+    (f) => f.kind === "procedure" || (f.status !== "done" && f.status !== "dropped"),
+  );
+  const archivedFolders = folders.filter(
+    (f) => f.kind !== "procedure" && (f.status === "done" || f.status === "dropped"),
+  );
+
+  const renderRow = (f: Node, archived: boolean) => {
+    const isProcedure = f.kind === "procedure";
+    const latestRun = latestRuns?.[f.id] ?? null;
+
+    const memberDots = !isProcedure
+      ? allNodes
+          .filter((n) => n.group === f.id)
+          .sort((a, b) => DOT_ORDER.indexOf(a.status) - DOT_ORDER.indexOf(b.status))
+          .map((m) => ({ key: m.id, title: `${m.title || "（無題）"} — ${m.status}`, color: DOT_COLOR[m.status] }))
+      : [];
+
+    const runDots =
+      isProcedure && latestRun
+        ? Object.entries(latestRun.items)
+            .sort(([, a], [, b]) => RUN_DOT_ORDER.indexOf(a.status) - RUN_DOT_ORDER.indexOf(b.status))
+            .map(([nodeId, item]) => ({
+              key: nodeId,
+              title: `${item.status}`,
+              color: RUN_DOT_COLOR[item.status],
+            }))
+        : [];
+
+    const dots = isProcedure ? runDots : memberDots;
+    const shown = dots.slice(0, MAX_DOTS);
+    const rest = dots.length - shown.length;
+
+    return (
+      <button
+        key={f.id}
+        type="button"
+        className={`page-row${pageId === f.id ? " is-active" : ""}${archived ? " page-row-archived" : ""}`}
+        onClick={() => onSelectPage(f.id)}
+      >
+        <span className="page-row-main">
+          {isProcedure ? (
+            <span className="page-row-procedure-icon" title="手順ページ">
+              <Icon name="repeat" size={12} />
+            </span>
+          ) : (
+            <StatusCircle status={f.status} size={12} />
+          )}
+          <span className="page-row-title">{f.title || "（無題）"}</span>
+        </span>
+        {dots.length > 0 && (
+          <span className="page-row-dots">
+            {shown.map((d) => (
+              <i key={d.key} className="goal-dot" title={d.title} style={{ background: d.color }} />
+            ))}
+            {rest > 0 && <span className="goal-dot-more">+{rest}</span>}
+          </span>
+        )}
+      </button>
+    );
   };
 
   return (
@@ -62,60 +128,22 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
           ＋
         </button>
       </div>
-      {folders.map((f) => {
-        const isProcedure = f.kind === "procedure";
-        const latestRun = latestRuns?.[f.id] ?? null;
-
-        const memberDots = !isProcedure
-          ? allNodes
-              .filter((n) => n.group === f.id)
-              .sort((a, b) => DOT_ORDER.indexOf(a.status) - DOT_ORDER.indexOf(b.status))
-              .map((m) => ({ key: m.id, title: `${m.title || "（無題）"} — ${m.status}`, color: DOT_COLOR[m.status] }))
-          : [];
-
-        const runDots =
-          isProcedure && latestRun
-            ? Object.entries(latestRun.items)
-                .sort(([, a], [, b]) => RUN_DOT_ORDER.indexOf(a.status) - RUN_DOT_ORDER.indexOf(b.status))
-                .map(([nodeId, item]) => ({
-                  key: nodeId,
-                  title: `${item.status}`,
-                  color: RUN_DOT_COLOR[item.status],
-                }))
-            : [];
-
-        const dots = isProcedure ? runDots : memberDots;
-        const shown = dots.slice(0, MAX_DOTS);
-        const rest = dots.length - shown.length;
-
-        return (
+      {activeFolders.map((f) => renderRow(f, false))}
+      {archivedFolders.length > 0 && (
+        <>
           <button
-            key={f.id}
             type="button"
-            className={`page-row${pageId === f.id ? " is-active" : ""}`}
-            onClick={() => onSelectPage(f.id)}
+            className="page-list-archive-toggle"
+            onClick={() => setArchiveOpen((v) => !v)}
           >
-            <span className="page-row-main">
-              {isProcedure ? (
-                <span className="page-row-procedure-icon" title="手順ページ">
-                  <Icon name="repeat" size={12} />
-                </span>
-              ) : (
-                <StatusCircle status={f.status} size={12} />
-              )}
-              <span className="page-row-title">{f.title || "（無題）"}</span>
-            </span>
-            {dots.length > 0 && (
-              <span className="page-row-dots">
-                {shown.map((d) => (
-                  <i key={d.key} className="goal-dot" title={d.title} style={{ background: d.color }} />
-                ))}
-                {rest > 0 && <span className="goal-dot-more">+{rest}</span>}
-              </span>
-            )}
+            <span>{archiveOpen ? "▾" : "▸"}</span>
+            <span>アーカイブ {archivedFolders.length}</span>
           </button>
-        );
-      })}
+          {archiveOpen && (
+            <div className="page-list-archive">{archivedFolders.map((f) => renderRow(f, true))}</div>
+          )}
+        </>
+      )}
     </div>
   );
 }

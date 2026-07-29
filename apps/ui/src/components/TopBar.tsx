@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { api } from "../lib/api";
+import { usePolling } from "../hooks/usePolling";
+import { openPalette } from "../lib/palette";
 import type { Node } from "../types";
 import { Icon } from "./Icon";
 
@@ -25,6 +28,13 @@ export function TopBar({ nodes, runWaitItems = [], onSelect, chatOpen, onToggleC
   const pending = nodes.filter((n) => n.pendingRequest);
   const totalCount = pending.length + runWaitItems.length;
 
+  // QOL-5: エンジン稼働インジケータ（5秒毎ポーリング）
+  const { data: engineStatus } = usePolling(() => api.getEngineStatus(), 5000);
+  const engineAlive = engineStatus?.alive ?? false;
+  const engineTitle = engineAlive
+    ? `最終確認: ${engineStatus?.lastSeen ?? "-"}`
+    : `最終確認: ${engineStatus?.lastSeen ?? "-"}\n起動: pnpm --filter @graphwrangler/engine start`;
+
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
@@ -38,7 +48,19 @@ export function TopBar({ nodes, runWaitItems = [], onSelect, chatOpen, onToggleC
     <header className="topbar">
       <div className="topbar-logo">GraphWrangler</div>
       <div className="topbar-chip">{nodes.length} ノード</div>
+      <span className={`engine-status${engineAlive ? " is-alive" : ""}`} title={engineTitle}>
+        <i className="engine-dot" />
+        {engineAlive ? "エンジン稼働中" : "エンジン停止中"}
+      </span>
       <div className="topbar-spacer" />
+      <button
+        type="button"
+        className="chat-toggle-btn"
+        onClick={() => openPalette()}
+        title="全ノード検索 (Ctrl+K)"
+      >
+        <Icon name="search" size={13} />
+      </button>
       <button
         type="button"
         className="chat-toggle-btn"

@@ -1701,3 +1701,210 @@ select:focus {
   background: rgba(0, 127, 255, 0.12);
   border-radius: 3px;
 }
+
+/* ---- QOL-1: Ctrl+K 全ノード検索 ---- */
+
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 7, 10, 0.6);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 96px;
+  z-index: 300;
+}
+
+.palette-card {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 140px);
+  background: var(--panel-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.palette-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--card-border);
+  border-radius: 0;
+  padding: 12px 14px;
+  font-size: 14px;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.palette-input:focus {
+  outline: none;
+  border-color: var(--card-border);
+}
+
+.palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text-hi);
+}
+
+.palette-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+}
+
+.palette-item.is-active {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.palette-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-item-page {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-lo);
+}
+
+.palette-empty {
+  padding: 14px;
+  color: var(--text-lo);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ---- QOL-2: エッジ切断ボタン（エッジ中点） ---- */
+
+.edge-cut-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-strong);
+  color: var(--text-hi);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edge-cut-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--card-border-strong);
+}
+
+/* ---- QOL-3: 左レールのアーカイブ節 ---- */
+
+.page-list-archive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-lo);
+  border-top: 1px solid var(--card-border);
+}
+
+.page-list-archive-toggle:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  border-top: 1px solid var(--card-border);
+  color: var(--text-mid);
+}
+
+.page-list-archive {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.page-row.page-row-archived {
+  color: var(--text-lo);
+  opacity: 0.75;
+}
+
+/* ---- QOL-5: エンジン稼働インジケータ ---- */
+
+.engine-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-mid);
+}
+
+.engine-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-lo);
+  flex-shrink: 0;
+}
+
+.engine-status.is-alive .engine-dot {
+  background: var(--ok);
+}
+
+/* ---- QOL-6: 通知トグル（⚙モーダル） ---- */
+
+.setup-notify-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-hi);
+}
+
+.setup-notify-row input {
+  width: auto;
+}
+
+/* ---- QOL-4: エクスポートボタン（⚙モーダル） ---- */
+
+.setup-export-btn {
+  align-self: flex-start;
+}
+
+/* ---- QOL-7: 未読バッジ（ノードカード） ---- */
+
+.node-card .dot-unread {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ai);
+}

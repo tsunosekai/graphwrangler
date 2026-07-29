@@ -10,6 +10,8 @@ import { Icon } from "./Icon";
 interface Props {
   pageId: string | null;
   pageTitle: string | null;
+  /** 選択中ノード（あれば）。チャットへ渡し「これ」で通じるようにする */
+  selectedNodeId: string | null;
   onMutated: () => void;
   onClose: () => void;
 }
@@ -47,7 +49,7 @@ function storageKey(pageId: string | null): string {
   return `gw.chat.${pageId ?? "global"}`;
 }
 
-export function ChatDrawer({ pageId, pageTitle, onMutated, onClose }: Props) {
+export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClose }: Props) {
   const [width, startResize] = useResizableWidth("chatW", 360, 300, 640);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -182,7 +184,7 @@ export function ChatDrawer({ pageId, pageTitle, onMutated, onClose }: Props) {
     };
 
     try {
-      const body = await api.chatStream(history, pageId);
+      const body = await api.chatStream(history, pageId, selectedNodeId);
       await readSse(body, (chunk) => {
         applyChunk(chunk);
         flush();

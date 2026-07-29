@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatDrawer } from "./components/ChatDrawer";
+import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
 import { NodePanel } from "./components/NodePanel";
 import { PageList } from "./components/PageList";
@@ -16,6 +17,8 @@ export default function App() {
   const [pageIdRaw, setPageId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
+  // QOL-7: 未読バッジ用のノードごとの最終メッセージ時刻
+  const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
 
   // ページ = フォルダ（kind=goal/procedure、またはメンバーを持つノード）。zinsei desk の左レール方式
   const folders = useMemo(() => {
@@ -65,6 +68,31 @@ export default function App() {
     }
     return items;
   }, [latestRuns, nodes]);
+
+  // QOL-6: 受信箱件数が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）
+  const inboxItemsRef = useRef<{ id: string; title: string }[] | null>(null);
+  useEffect(() => {
+    const combined: { id: string; title: string }[] = [
+      ...nodes.filter((n) => n.pendingRequest).map((n) => ({ id: n.id, title: n.title || "（無題）" })),
+      ...runWaitItems.map((item) => ({ id: item.key, title: item.label })),
+    ];
+    const prev = inboxItemsRef.current;
+    if (prev) {
+      const prevIds = new Set(prev.map((i) => i.id));
+      const added = combined.filter((i) => !prevIds.has(i.id));
+      if (
+        added.length > 0 &&
+        localStorage.getItem("gw.notify") === "1" &&
+        document.visibilityState !== "visible" &&
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted"
+      ) {
+        const latest = added[added.length - 1];
+        new Notification("GraphWrangler", { body: `あなたの番: ${latest.title}` });
+      }
+    }
+    inboxItemsRef.current = combined;
+  }, [nodes, runWaitItems]);
 
   // ---- AI設定（初回セットアップ + いつでも開ける⚙） ----
   const [settings, setSettings] = useState<SettingsView | null>(null);
@@ -124,6 +152,7 @@ export default function App() {
           nodes={pageNodes}
           pageNode={pageNode}
           selectedId={selectedId}
+          threadMeta={threadMeta}
           onSelect={selectNode}
           onMutated={handleMutated}
         />
@@ -133,17 +162,20 @@ export default function App() {
             node={selectedNode}
             onMutated={handleMutated}
             onClose={() => setSelectedId(null)}
+            onSelect={selectNode}
           />
         )}
         {chatOpen && (
           <ChatDrawer
             pageId={pageId}
             pageTitle={pageNode?.title ?? null}
+            selectedNodeId={selectedId}
             onMutated={handleMutated}
             onClose={() => setChatOpen(false)}
           />
         )}
       </div>
+      <CommandPalette nodes={nodes} folders={folders} onSelect={selectNode} />
       {settingsOpen && settings && (
         <SetupModal
           settings={settings}

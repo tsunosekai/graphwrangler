@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Controls,
   ReactFlow,
@@ -15,11 +15,13 @@ import { api } from "../lib/api";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import type { Node } from "../types";
+import { CutEdge, type CutEdgeData } from "./CutEdge";
 import { Icon } from "./Icon";
 import { LedgerView } from "./LedgerView";
 import { NodeCard, type NodeCardData } from "./NodeCard";
 
 const nodeTypes = { task: NodeCard };
+const edgeTypes = { cut: CutEdge };
 
 interface Props {
   /** 表示するページ（フォルダ）のメンバーだけが渡される */
@@ -27,17 +29,21 @@ interface Props {
   /** ページ自身のノード（パンくず表示・新規ノードの所属先） */
   pageNode: Node | null;
   selectedId: string | null;
+  /** ノードid → 最終メッセージ時刻。未読ドット(QOL-7)の判定に使う */
+  threadMeta: Record<string, string>;
   onSelect: (id: string | null) => void;
   onMutated: () => void;
 }
 
-function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Props) {
+function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onMutated }: Props) {
   const positionsRef = useRef<Map<string, Pos>>(new Map());
   // 紐を空中に放して作ったノードの「落とした位置」。次のレイアウト再計算時に適用して消す
   const overridesRef = useRef<Map<string, Pos>>(new Map());
   const sigRef = useRef<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rfNodes, setRfNodes] = useState<RFNode<NodeCardData>[]>([]);
+  // QOL-2: 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const { fitView, screenToFlowPosition } = useReactFlow();
 
   // 手順ページ（kind=procedure）だけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8）
@@ -91,33 +97,65 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
       }
     }
     setRfNodes(
-      nodes.map((n) => ({
-        id: n.id,
-        type: "task" as const,
-        position: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
-        draggable: true,
-        data: {
-          node: n,
-          selected: n.id === selectedId,
-          editing: n.id === editingId,
-          isTemplate: isProcedure,
-          onSelect: (id: string) => onSelect(id),
-          onDoubleClick: (id: string) => setEditingId(id),
-          onCommitTitle: commitTitle,
-          onCancelEdit: () => setEditingId(null),
-        } satisfies NodeCardData,
-      })),
+      nodes.map((n) => {
+        // QOL-7: 未読バッジ。既読tsは NodePanel がスレッド表示のたびに書き込む
+        const lastMsgTs = threadMeta[n.id];
+        const readTs = lastMsgTs ? localStorage.getItem(`gw.read.${n.id}`) : null;
+        const unread = !!lastMsgTs && (!readTs || lastMsgTs > readTs);
+        return {
+          id: n.id,
+          type: "task" as const,
+          position: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
+          draggable: true,
+          data: {
+            node: n,
+            selected: n.id === selectedId,
+            editing: n.id === editingId,
+            isTemplate: isProcedure,
+            unread,
+            onSelect: (id: string) => onSelect(id),
+            onDoubleClick: (id: string) => setEditingId(id),
+            onCommitTitle: commitTitle,
+            onCancelEdit: () => setEditingId(null),
+          } satisfies NodeCardData,
+        };
+      }),
     );
-  }, [nodes, pageNode, selectedId, editingId, isProcedure, onSelect, commitTitle, fitView]);
+  }, [nodes, pageNode, selectedId, editingId, isProcedure, threadMeta, onSelect, commitTitle, fitView]);
+
+  // QOL-2: 依存の切断。子ノードの parents から source を除く（Ctrl+Zで戻せる: undo は既存の操作ログ経由）
+  const cutEdge = useCallback(
+    async (source: string, target: string) => {
+      const child = nodes.find((n) => n.id === target);
+      if (!child) return;
+      await api.patchNode(child.id, { parents: child.parents.filter((p) => p !== source) });
+      setSelectedEdgeId(null);
+      onMutated();
+      pushToast("依存を切りました（Ctrl+Zで戻せます）", "info");
+    },
+    [nodes, onMutated],
+  );
 
   const rfEdges: RFEdge[] = useMemo(() => {
     const ids = new Set(nodes.map((n) => n.id));
     return nodes.flatMap((n) =>
       n.parents
         .filter((p) => ids.has(p))
-        .map((p) => ({ id: `${p}->${n.id}`, source: p, target: n.id })),
+        .map((p) => {
+          const id = `${p}->${n.id}`;
+          return {
+            id,
+            source: p,
+            target: n.id,
+            type: "cut",
+            data: {
+              selected: id === selectedEdgeId,
+              onCut: () => cutEdge(p, n.id),
+            } satisfies CutEdgeData,
+          };
+        }),
     );
-  }, [nodes]);
+  }, [nodes, selectedEdgeId, cutEdge]);
 
   const handleNodesChange = useCallback((changes: NodeChange<RFNode<NodeCardData>>[]) => {
     for (const c of changes) {
@@ -198,6 +236,27 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
     [nodes, pageNode, onMutated, onSelect, screenToFlowPosition],
   );
 
+  // QOL-9: ペイン空白部のダブルクリックでその位置にノードを作成+リネームモードへ
+  // （React Flow の onPaneClick とは別に、ラッパー div へ渡る素の onDoubleClick を使う。
+  //  ノード/エッジ/コントロール上のダブルクリックはここでは無視する）
+  const handlePaneDoubleClick = useCallback(
+    (e: ReactMouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".react-flow__node, .react-flow__edge, .react-flow__controls, .react-flow__panel")) {
+        return;
+      }
+      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      void (async () => {
+        const created = await api.addNode({ title: "", group: pageNode?.id ?? null });
+        overridesRef.current.set(created.id, { x: pos.x - 110, y: pos.y - 16 });
+        onMutated();
+        onSelect(created.id);
+        setEditingId(created.id);
+      })();
+    },
+    [pageNode, onMutated, onSelect, screenToFlowPosition],
+  );
+
   // 自動整列: 手動ドラッグ位置を破棄して dagre レイアウトへ戻す
   const realign = useCallback(() => {
     positionsRef.current = layoutGraph(nodes).positions;
@@ -243,6 +302,24 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [runUndo, runRedo]);
+
+  // QOL-2: 選択中の依存エッジを Delete/Backspace で切断（入力欄フォーカス時は無効）
+  useEffect(() => {
+    if (!selectedEdgeId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isEditable =
+        !!target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (isEditable) return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      e.preventDefault();
+      const [source, target_] = selectedEdgeId.split("->");
+      void cutEdge(source, target_);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedEdgeId, cutEdge]);
 
   // ---- A-1: 下書き承認バー（draft ノードを確定/破棄） ----
   const draftNodes = useMemo(() => nodes.filter((n) => n.lifecycle === "draft"), [nodes]);
@@ -357,11 +434,18 @@ function GraphViewInner({ nodes, pageNode, selectedId, onSelect, onMutated }: Pr
           nodes={rfNodes}
           edges={rfEdges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={handleNodesChange}
           onConnect={handleConnect}
           onConnectEnd={handleConnectEnd}
           onNodeClick={(_, n) => onSelect(n.id)}
-          onPaneClick={() => onSelect(null)}
+          onEdgeClick={(_, edge) => setSelectedEdgeId(edge.id)}
+          onPaneClick={() => {
+            onSelect(null);
+            setSelectedEdgeId(null);
+          }}
+          onDoubleClick={handlePaneDoubleClick}
+          zoomOnDoubleClick={false}
           nodeDragThreshold={4}
           onPaneContextMenu={(e) => {
             e.preventDefault();
