@@ -4,6 +4,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../lib/api";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
 import { ChatMessageView, type ChatMessage, type ChatPart, type ChatToolPart } from "./ChatMessage";
 import { Icon } from "./Icon";
 
@@ -198,36 +200,48 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   };
 
   return (
-    <div className="chat-drawer" style={{ width }}>
+    <div
+      className="relative flex flex-shrink-0 flex-col overflow-hidden border-l bg-background"
+      style={{ width }}
+    >
       <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
-      <div className="chat-drawer-head">
-        <span className="chat-drawer-title">
-          <Icon name="chat" size={13} /> 相棒AI
+      <div className="flex flex-shrink-0 items-center gap-2 border-b px-4 py-3">
+        <span className="inline-flex items-center gap-2 font-semibold">
+          <Icon name="chat" size={15} /> 相棒AI
         </span>
-        {pageTitle && <span className="chat-drawer-page">{pageTitle}</span>}
-        <button
+        {pageTitle && (
+          <span className="min-w-0 flex-1 truncate text-right text-sm text-muted-foreground">{pageTitle}</span>
+        )}
+        <Button
           type="button"
-          className="chat-drawer-clear"
+          variant="ghost"
+          size="sm"
+          className="flex-shrink-0 text-muted-foreground"
           disabled={messages.length === 0}
           onClick={clearHistory}
         >
           履歴をクリア
-        </button>
-        <button type="button" className="chat-drawer-close" onClick={onClose}>
-          <Icon name="x" size={13} />
-        </button>
+        </Button>
+        <Button type="button" variant="ghost" size="icon" onClick={onClose}>
+          <Icon name="x" size={15} />
+        </Button>
       </div>
-      <div className="chat-drawer-body" ref={bodyRef}>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4" ref={bodyRef}>
         {messages.length === 0 && !banner && (
-          <div className="chat-drawer-empty">グラフの整理を話しかけてみてください</div>
+          <div className="py-2 text-sm text-muted-foreground">グラフの整理を話しかけてみてください</div>
         )}
         {messages.map((m) => (
           <ChatMessageView key={m.id} message={m} />
         ))}
-        {banner && <div className="chat-drawer-banner">{banner}</div>}
+        {banner && (
+          <div className="self-stretch whitespace-pre-wrap rounded-md border border-destructive/35 bg-destructive/[0.08] px-3 py-2 text-sm text-destructive">
+            {banner}
+          </div>
+        )}
       </div>
-      <div className="chat-drawer-input">
-        <textarea
+      <div className="flex flex-shrink-0 items-end gap-2 border-t p-4">
+        <Textarea
+          className="flex-1 resize-y"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="メッセージを入力... (Ctrl/Cmd+Enter で送信)"
@@ -240,9 +254,9 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
             }
           }}
         />
-        <button type="button" disabled={sending || !input.trim()} onClick={send}>
-          <Icon name="send" size={13} />
-        </button>
+        <Button type="button" size="icon" disabled={sending || !input.trim()} onClick={send}>
+          <Icon name="send" size={15} />
+        </Button>
       </div>
     </div>
   );

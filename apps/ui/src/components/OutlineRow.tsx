@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { api } from "../lib/api";
+import { cn } from "../lib/utils";
 import type { OutlineEntry } from "../lib/tree";
 import { siblingsOf } from "../lib/tree";
 import type { Node } from "../types";
@@ -10,6 +11,11 @@ const EXEC_ICON: Record<Node["executor"], "user" | "cpu" | "gear"> = {
   human: "user",
   ai: "cpu",
   script: "gear",
+};
+const EXEC_TEXT: Record<Node["executor"], string> = {
+  human: "text-human",
+  ai: "text-ai",
+  script: "text-script",
 };
 
 interface Props {
@@ -106,10 +112,13 @@ export function OutlineRow({
   };
 
   return (
-    <div className="outline-node">
+    <div>
       <div
-        className={`outline-row kind-${node.kind}${selectedId === node.id ? " is-selected" : ""}`}
-        style={{ paddingLeft: depth * 16 }}
+        className={cn(
+          "group relative flex items-center gap-1.5 rounded-sm px-2 py-1 outline-none hover:bg-accent/60",
+          selectedId === node.id && "bg-accent",
+        )}
+        style={{ paddingLeft: depth * 16 + 8 }}
         tabIndex={0}
         onClick={() => onSelect(node.id)}
         onDoubleClick={() => onStartEdit(node.id)}
@@ -117,7 +126,7 @@ export function OutlineRow({
       >
         <button
           type="button"
-          className="status-circle-btn"
+          className="inline-flex flex-shrink-0 rounded-sm p-0.5 hover:bg-accent"
           title={`状態: ${node.status}（クリックで完了⇔待機）`}
           onClick={(e) => {
             e.stopPropagation();
@@ -127,14 +136,14 @@ export function OutlineRow({
           <StatusCircle status={node.status} />
         </button>
         {!isFolder && (
-          <span className={`exec-badge exec-${node.executor}`}>
+          <span className={cn("inline-flex flex-shrink-0", EXEC_TEXT[node.executor])}>
             <Icon name={EXEC_ICON[node.executor]} />
           </span>
         )}
         {editing ? (
           <input
             autoFocus
-            className="outline-title-input"
+            className="min-w-0 flex-1 rounded-sm border border-border bg-transparent px-1 py-px text-sm outline-none focus:border-border-strong"
             value={draft}
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => setDraft(e.target.value)}
@@ -152,19 +161,23 @@ export function OutlineRow({
           />
         ) : (
           <span
-            className={`outline-title${node.status === "dropped" ? " is-dropped" : ""}${
-              node.status === "done" ? " is-done" : ""
-            }`}
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm",
+              node.status === "dropped" && "text-text-lo line-through",
+              node.status === "done" && "text-text-lo",
+            )}
           >
             {node.title || "（無題）"}
           </span>
         )}
-        {node.pendingRequest && <span className="dot-pending" title="あなたの番" />}
+        {node.pendingRequest && (
+          <span className="size-2 flex-shrink-0 rounded-full bg-[#ff9f43]" title="あなたの番" />
+        )}
         {extraParents.map((p) => (
           <button
             key={p.id}
             type="button"
-            className="parent-chip"
+            className="flex-shrink-0 rounded-sm px-1.5 text-xs text-muted-foreground hover:bg-accent"
             onClick={(e) => {
               e.stopPropagation();
               onSelect(p.id);
@@ -175,7 +188,7 @@ export function OutlineRow({
         ))}
         <button
           type="button"
-          className="add-child-btn"
+          className="invisible flex-shrink-0 rounded-sm px-1.5 text-xs text-muted-foreground hover:bg-accent group-hover:visible"
           title="子ノードを追加"
           onClick={(e) => {
             e.stopPropagation();
@@ -186,7 +199,7 @@ export function OutlineRow({
         </button>
       </div>
       {children.length > 0 && (
-        <div className="outline-children">
+        <div>
           {children.map((c) => (
             <OutlineRow
               key={c.node.id}

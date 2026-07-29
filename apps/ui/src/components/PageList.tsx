@@ -8,7 +8,9 @@
 import { useState } from "react";
 import { api } from "../lib/api";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { cn } from "../lib/utils";
 import type { Node, Run, RunItemStatus, Status } from "../types";
+import { Button } from "./ui/button";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 
@@ -91,25 +93,34 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
       <button
         key={f.id}
         type="button"
-        className={`page-row${pageId === f.id ? " is-active" : ""}${archived ? " page-row-archived" : ""}`}
+        className={cn(
+          "flex w-full flex-col items-stretch gap-0.5 rounded-sm px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/60",
+          pageId === f.id && "bg-accent text-foreground",
+          archived && "opacity-70",
+        )}
         onClick={() => onSelectPage(f.id)}
       >
-        <span className="page-row-main">
+        <span className="flex min-w-0 items-center gap-2">
           {isProcedure ? (
-            <span className="page-row-procedure-icon" title="手順ページ">
+            <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground" title="手順ページ">
               <Icon name="repeat" size={12} />
             </span>
           ) : (
             <StatusCircle status={f.status} size={12} />
           )}
-          <span className="page-row-title">{f.title || "（無題）"}</span>
+          <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
         </span>
         {dots.length > 0 && (
-          <span className="page-row-dots">
+          <span className="flex flex-wrap items-center gap-[3px] pl-5">
             {shown.map((d) => (
-              <i key={d.key} className="goal-dot" title={d.title} style={{ background: d.color }} />
+              <i
+                key={d.key}
+                className="size-[5px] flex-shrink-0 rounded-full"
+                title={d.title}
+                style={{ background: d.color }}
+              />
             ))}
-            {rest > 0 && <span className="goal-dot-more">+{rest}</span>}
+            {rest > 0 && <span className="font-mono text-xs text-text-lo">+{rest}</span>}
           </span>
         )}
       </button>
@@ -117,30 +128,37 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
   };
 
   return (
-    <div className="page-list" style={{ width }}>
-      <div
-        className="resize-handle resize-handle-right"
-        onPointerDown={(e) => startResize(e, 1)}
-      />
-      <div className="page-list-head">
+    <div
+      className="relative flex flex-shrink-0 flex-col gap-px overflow-y-auto border-r border-border bg-muted p-1.5"
+      style={{ width }}
+    >
+      <div className="resize-handle resize-handle-right" onPointerDown={(e) => startResize(e, 1)} />
+      <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
         <span>ゴール</span>
-        <button type="button" className="page-add-btn" title="ゴールを追加" onClick={addGoal}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-6 text-muted-foreground"
+          title="ゴールを追加"
+          onClick={addGoal}
+        >
           ＋
-        </button>
+        </Button>
       </div>
       {activeFolders.map((f) => renderRow(f, false))}
       {archivedFolders.length > 0 && (
         <>
           <button
             type="button"
-            className="page-list-archive-toggle"
+            className="mt-1 flex items-center gap-1.5 border-t border-border px-2 py-1.5 text-left text-xs text-text-lo hover:bg-accent/40 hover:text-muted-foreground"
             onClick={() => setArchiveOpen((v) => !v)}
           >
             <span>{archiveOpen ? "▾" : "▸"}</span>
             <span>アーカイブ {archivedFolders.length}</span>
           </button>
           {archiveOpen && (
-            <div className="page-list-archive">{archivedFolders.map((f) => renderRow(f, true))}</div>
+            <div className="flex flex-col gap-px">{archivedFolders.map((f) => renderRow(f, true))}</div>
           )}
         </>
       )}

@@ -38,7 +38,7 @@ export function CutEdge({
         path={edgePath}
         markerEnd={markerEnd}
         style={{
-          stroke: selected ? "var(--card-border-strong)" : "var(--edge)",
+          stroke: selected ? "var(--border-strong)" : "var(--edge)",
           strokeWidth: selected ? 2 : 1,
         }}
       />
@@ -46,7 +46,7 @@ export function CutEdge({
         <EdgeLabelRenderer>
           <button
             type="button"
-            className="edge-cut-btn nodrag nopan"
+            className="nodrag nopan flex size-5 items-center justify-center rounded-full border border-border-strong bg-card text-xs leading-none text-foreground hover:bg-accent"
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,

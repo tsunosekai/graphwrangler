@@ -5,6 +5,11 @@
 // 「エージェントごと差し替え」。2026-07-29 本人フィードバック「どっちを使う設定か分からない」対応）。
 import { useState } from "react";
 import { api, type SettingsPatch, type SettingsView } from "../lib/api";
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Switch } from "./ui/switch";
 
 interface Props {
   settings: SettingsView;
@@ -104,84 +109,100 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
     }
   };
 
-  return (
-    <div className="modal-overlay">
-      <div className="modal-card setup-modal">
-        <div className="modal-head">
-          <h2>AI設定</h2>
-          {!forced && (
-            <button type="button" className="modal-close" onClick={onClose} aria-label="閉じる">
-              ×
-            </button>
-          )}
-        </div>
+  const section = "flex flex-col gap-2 border-t border-border pt-2.5 first:border-t-0 first:pt-0";
+  const heading = "text-xs font-semibold tracking-wide text-muted-foreground";
+  const desc = "text-xs text-text-lo";
+  const field = "flex flex-col gap-1 text-xs text-muted-foreground";
 
-        <section className="setup-section">
-          <h3>チャットAI（相棒AI）</h3>
-          <label className="setup-field">
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !forced) onClose();
+        // forced 中は Escape/外側クリックでは閉じない（「あとで設定」か「保存」だけが抜け道）
+      }}
+    >
+      <DialogContent
+        showCloseButton={!forced}
+        // 元の実装は背景クリック/Escapeでは閉じず、×ボタン（または保存/あとで設定）だけが
+        // 閉じる導線だった。挙動を変えないためどちらも無効化する
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        className="max-h-[calc(100vh-48px)] max-w-[420px] overflow-y-auto gap-3.5"
+      >
+        <DialogHeader>
+          <DialogTitle>AI設定</DialogTitle>
+        </DialogHeader>
+
+        <section className={section}>
+          <h3 className={heading}>チャットAI（相棒AI）</h3>
+          <label className={field}>
             <span>接続方式</span>
-            <select value={chatMode} onChange={(e) => setChatMode(e.target.value as ChatMode)}>
-              <option value="api">APIキー（Anthropic / OpenAI）</option>
-              <option value="cli">ヘッドレスエージェント（claude 等のCLI）</option>
-            </select>
+            <Select value={chatMode} onValueChange={(v) => setChatMode(v as ChatMode)}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="api">APIキー（Anthropic / OpenAI）</SelectItem>
+                <SelectItem value="cli">ヘッドレスエージェント（claude 等のCLI）</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
-          <p className="setup-mode-desc">{CHAT_MODE_DESC[chatMode]}</p>
+          <p className={desc}>{CHAT_MODE_DESC[chatMode]}</p>
 
           {chatMode === "api" ? (
             <>
-              <label className="setup-field">
+              <label className={field}>
                 <span>プロバイダ</span>
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value as "anthropic" | "openai")}
-                >
-                  <option value="anthropic">anthropic</option>
-                  <option value="openai">openai</option>
-                </select>
+                <Select value={provider} onValueChange={(v) => setProvider(v as "anthropic" | "openai")}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="anthropic">anthropic</SelectItem>
+                    <SelectItem value="openai">openai</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
-              <label className="setup-field">
+              <label className={field}>
                 <span>モデル</span>
-                <input
+                <Input
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                   placeholder={CHAT_DEFAULT_MODEL[provider]}
                 />
               </label>
-              <label className="setup-field">
+              <label className={field}>
                 <span>APIキー</span>
                 {editingKey ? (
-                  <input
+                  <Input
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder="sk-..."
                   />
                 ) : (
-                  <span className="setup-key-set">
+                  <span className="flex items-center gap-2 text-sm text-foreground">
                     設定済み（●●●）
-                    <button type="button" onClick={() => setEditingKey(true)}>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setEditingKey(true)}>
                       変更
-                    </button>
-                    <button type="button" onClick={removeKey}>
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={removeKey}>
                       削除
-                    </button>
+                    </Button>
                   </span>
                 )}
               </label>
             </>
           ) : (
             <>
-              <label className="setup-field">
+              <label className={field}>
                 <span>CLIパス</span>
-                <input
+                <Input
                   value={chatCliPath}
                   onChange={(e) => setChatCliPath(e.target.value)}
                   placeholder="claude"
                 />
               </label>
-              <label className="setup-field">
+              <label className={field}>
                 <span>モデル</span>
-                <input
+                <Input
                   value={chatCliModel}
                   onChange={(e) => setChatCliModel(e.target.value)}
                   placeholder="sonnet"
@@ -191,34 +212,37 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           )}
         </section>
 
-        <section className="setup-section">
-          <h3>実行AI（エンジン）</h3>
-          <label className="setup-field">
+        <section className={section}>
+          <h3 className={heading}>実行AI（エンジン）</h3>
+          <label className={field}>
             <span>接続方式</span>
-            <select value={engineMode} onChange={(e) => setEngineMode(e.target.value as EngineMode)}>
-              <option value="cli">ヘッドレスエージェント（CLI）</option>
-              <option value="api">APIキー（チャットと同じキーを使用）</option>
-            </select>
+            <Select value={engineMode} onValueChange={(v) => setEngineMode(v as EngineMode)}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cli">ヘッドレスエージェント（CLI）</SelectItem>
+                <SelectItem value="api">APIキー（チャットと同じキーを使用）</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
-          <p className="setup-mode-desc">{ENGINE_MODE_DESC[engineMode]}</p>
+          <p className={desc}>{ENGINE_MODE_DESC[engineMode]}</p>
 
           {engineMode === "cli" ? (
             <>
-              <label className="setup-field">
+              <label className={field}>
                 <span>CLIパス</span>
-                <input value={cliPath} onChange={(e) => setCliPath(e.target.value)} placeholder="claude" />
+                <Input value={cliPath} onChange={(e) => setCliPath(e.target.value)} placeholder="claude" />
               </label>
-              <label className="setup-field">
+              <label className={field}>
                 <span>モデル</span>
-                <input
+                <Input
                   value={engineModel}
                   onChange={(e) => setEngineModel(e.target.value)}
                   placeholder="sonnet"
                 />
               </label>
-              <label className="setup-field">
+              <label className={field}>
                 <span>追加引数</span>
-                <input
+                <Input
                   value={extraArgs}
                   onChange={(e) => setExtraArgs(e.target.value)}
                   placeholder="--flag value"
@@ -226,9 +250,9 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
               </label>
             </>
           ) : (
-            <label className="setup-field">
+            <label className={field}>
               <span>モデル（任意）</span>
-              <input
+              <Input
                 value={engineApiModel}
                 onChange={(e) => setEngineApiModel(e.target.value)}
                 placeholder="空欄=チャットAIと同じ既定モデル"
@@ -237,31 +261,37 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           )}
         </section>
 
-        <section className="setup-section">
-          <h3>通知</h3>
-          <label className="setup-notify-row">
-            <input type="checkbox" checked={notifyEnabled} onChange={toggleNotify} />
+        <section className={section}>
+          <h3 className={heading}>通知</h3>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch checked={notifyEnabled} onCheckedChange={toggleNotify} />
             <span>あなたの番が来たらデスクトップ通知</span>
           </label>
         </section>
 
-        <section className="setup-section">
-          <button type="button" className="setup-export-btn" onClick={() => window.open("/api/export")}>
+        <section className={section}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => window.open("/api/export")}
+          >
             データをエクスポート
-          </button>
+          </Button>
         </section>
 
-        <div className="modal-actions">
+        <div className="flex justify-end gap-2 pt-1.5">
           {forced && (
-            <button type="button" onClick={onSkip} disabled={saving}>
+            <Button type="button" variant="outline" onClick={onSkip} disabled={saving}>
               あとで設定
-            </button>
+            </Button>
           )}
-          <button type="button" className="setup-save-btn" onClick={save} disabled={saving}>
+          <Button type="button" className="text-primary-foreground" onClick={save} disabled={saving}>
             保存
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

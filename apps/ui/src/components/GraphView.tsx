@@ -11,12 +11,16 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { Undo2 } from "lucide-react";
 import { api } from "../lib/api";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import type { Node } from "../types";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { CutEdge, type CutEdgeData } from "./CutEdge";
-import { Icon } from "./Icon";
 import { LedgerView } from "./LedgerView";
 import { NodeCard, type NodeCardData } from "./NodeCard";
 
@@ -45,6 +49,29 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
   // QOL-2: 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const { fitView, screenToFlowPosition } = useReactFlow();
+  const paneRef = useRef<HTMLDivElement>(null);
+
+  // ビューの幅が変わったとき（パネル開閉・リサイズ）も即座に fit する（本人指定「パチッと」）。
+  // 初回発火は fit 済みなのでスキップし、以後は 80ms デバウンスで追従する
+  useEffect(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let first = true;
+    const ro = new ResizeObserver(() => {
+      if (first) {
+        first = false;
+        return;
+      }
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => fitView({ padding: 0.2, duration: 0 }), 80);
+    });
+    ro.observe(el);
+    return () => {
+      if (timer) clearTimeout(timer);
+      ro.disconnect();
+    };
+  }, [fitView]);
 
   // 手順ページ（kind=procedure）だけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8）
   const isProcedure = pageNode?.kind === "procedure";
@@ -92,8 +119,8 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
         }
       }
       if (pageChanged) {
-        // ページ切替時は全体が見える位置へ
-        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }));
+        // ページ切替時は全体が見える位置へ。「にゅっ」と動かさず即座に（本人指定）
+        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 0 }));
       }
     }
     setRfNodes(
@@ -367,64 +394,66 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
   const showLedger = isProcedure && viewMode === "ledger";
 
   return (
-    <div className="graph-pane">
-      <div className="graph-toolbar">
+    <div ref={paneRef} className="graph-pane relative min-w-0 flex-1">
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
         {pageNode && (
-          <button
+          <Button
             type="button"
-            className="page-crumb"
+            variant="ghost"
+            className="font-semibold text-muted-foreground hover:text-foreground"
             title="ゴールの詳細を開く"
             onClick={() => onSelect(pageNode.id)}
           >
             {pageNode.title || "（無題）"}
-          </button>
+          </Button>
         )}
         {isProcedure && (
-          <div className="view-tabs">
-            <button
-              type="button"
-              className={viewMode === "graph" ? "is-active" : ""}
-              onClick={() => setViewMode("graph")}
-            >
-              グラフ
-            </button>
-            <button
-              type="button"
-              className={viewMode === "ledger" ? "is-active" : ""}
-              onClick={() => setViewMode("ledger")}
-            >
-              台帳
-            </button>
-          </div>
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "graph" | "ledger")}>
+            <TabsList>
+              <TabsTrigger value="graph">グラフ</TabsTrigger>
+              <TabsTrigger value="ledger">台帳</TabsTrigger>
+            </TabsList>
+          </Tabs>
         )}
         {!showLedger && (
           <>
-            <button type="button" onClick={() => createNode(selectedInPage)}>
+            <Button type="button" onClick={() => createNode(selectedInPage)}>
               + ノード
-            </button>
-            <button type="button" title="dagre で並べ直す" onClick={realign}>
+            </Button>
+            <Button type="button" variant="outline" title="dagre で並べ直す" onClick={realign}>
               整列
-            </button>
-            <button type="button" className="icon-btn" title="元に戻す (Ctrl+Z)" onClick={runUndo}>
-              <Icon name="undo" size={13} />
-            </button>
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" onClick={runUndo}>
+                  <Undo2 />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>元に戻す (Ctrl+Z)</TooltipContent>
+            </Tooltip>
             {hardening.m > 0 && (
-              <span className="hardening-chip" title="確定メンバーのうちスクリプト化済みの割合">
+              <Badge variant="secondary" title="確定メンバーのうちスクリプト化済みの割合">
                 硬化 {hardening.n}/{hardening.m}
-              </span>
+              </Badge>
             )}
           </>
         )}
       </div>
       {!showLedger && draftNodes.length > 0 && (
-        <div className="draft-bar">
-          <span className="draft-bar-count">下書き {draftNodes.length}件</span>
-          <button type="button" className="draft-confirm-btn" onClick={confirmDrafts}>
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-md border border-dashed border-border-strong bg-card px-3 py-2 text-sm">
+          <span className="text-muted-foreground">下書き {draftNodes.length}件</span>
+          <Button type="button" size="sm" className="border-ok/40 text-ok" variant="outline" onClick={confirmDrafts}>
             すべて確定
-          </button>
-          <button type="button" className="draft-discard-btn" onClick={discardDrafts}>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="border-destructive/40 text-destructive"
+            variant="outline"
+            onClick={discardDrafts}
+          >
             破棄
-          </button>
+          </Button>
         </div>
       )}
       {showLedger && pageNode ? (

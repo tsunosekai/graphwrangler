@@ -1,21 +1,125 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* class="dark" が付いた祖先の下でだけ dark: バリアントを効かせる（system 追従は JS 側で
+   ThemeProvider が html へ .dark を付け外しする。src/lib/theme.ts 参照） */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* ---- 独自セマンティック変数（実行者3色 + 状態色 + グラフの縁）。
+     dark は現行の値を維持、light は今回新規に設計する ---- */
+  --color-ai: var(--ai);
+  --color-human: var(--human);
+  --color-script: var(--script);
+  --color-ok: var(--ok);
+  --color-done: var(--done);
+  --color-dropped: var(--dropped);
+  --color-edge: var(--edge);
+  --color-text-lo: var(--text-lo);
+  --color-border-hover: var(--border-hover);
+  --color-border-strong: var(--border-strong);
+
+  --font-sans:
+    "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic UI", system-ui, sans-serif;
+}
+
 :root {
-  --bg: #0b0d10;
-  --card-bg: #10141a;
-  --panel-bg: #0e1116;
-  --card-border: rgba(255, 255, 255, 0.14);
-  --card-border-hover: rgba(255, 255, 255, 0.28);
-  --card-border-strong: rgba(255, 255, 255, 0.45);
-  --text-hi: #e3eaf2;
-  --text-mid: #8fa0b3;
-  --text-lo: #556372;
-  --edge: rgba(155, 170, 185, 0.3);
-  --ai: #2e8fff; /* ロゴの青 #007FFF を暗背景向けに少し明るく */
-  --human: #adb600; /* ロゴの黄緑。あなたの番 */
-  --script: #cfd6de; /* ロゴの白ノード=決定的で無機質 */
-  --ok: #93c98b; /* PDG風の完了チェック */
+  /* 角丸・文字サイズ・余白は shadcn/Origin UI の既定のまま（本人方針: 素の状態を使う） */
+  --radius: 0.625rem;
+
+  /* ---- ライトモード（新規設計） ---- */
+  --background: #f7f8fa;
+  --foreground: #171b21;
+  --card: #ffffff;
+  --card-foreground: #171b21;
+  --popover: #ffffff;
+  --popover-foreground: #171b21;
+  --primary: #0066dd;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f3;
+  --secondary-foreground: #171b21;
+  --muted: #eef0f3;
+  --muted-foreground: #5b6472;
+  --accent: #e7eaef;
+  --accent-foreground: #171b21;
+  --destructive: #d0342c;
+  --destructive-foreground: #ffffff;
+  --border: rgba(15, 23, 42, 0.12);
+  --input: rgba(15, 23, 42, 0.18);
+  --ring: rgba(15, 23, 42, 0.38);
+
+  --ai: #0066dd;
+  --human: #7a8500;
+  --script: #57606b;
+  --ok: #2f7a3d;
+  --done: #9aa3ad;
+  --dropped: #c7ccd1;
+  --danger: #d0342c;
+  --edge: rgba(23, 27, 33, 0.22);
+  --text-lo: #8790a0;
+  --border-hover: rgba(15, 23, 42, 0.22);
+  --border-strong: rgba(15, 23, 42, 0.4);
+}
+
+.dark {
+  /* ---- ダークモード: 現行の値をそのまま維持（本人指示。zinc系への置換禁止） ---- */
+  --background: #0b0d10;
+  --foreground: #e3eaf2;
+  --card: #10141a;
+  --card-foreground: #e3eaf2;
+  --popover: #14171c;
+  --popover-foreground: #e3eaf2;
+  --primary: #2e8fff;
+  --primary-foreground: #ffffff;
+  --secondary: rgba(255, 255, 255, 0.04);
+  --secondary-foreground: #e3eaf2;
+  --muted: #0e1116;
+  --muted-foreground: #8fa0b3;
+  --accent: rgba(255, 255, 255, 0.07);
+  --accent-foreground: #e3eaf2;
+  --destructive: #ff5d5d;
+  --destructive-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.14);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: rgba(255, 255, 255, 0.45);
+
+  --ai: #2e8fff;
+  --human: #adb600;
+  --script: #cfd6de;
+  --ok: #93c98b;
   --done: #46525f;
   --dropped: #333c46;
   --danger: #ff5d5d;
+  --edge: rgba(155, 170, 185, 0.3);
+  --text-lo: #556372;
+  --border-hover: rgba(255, 255, 255, 0.28);
+  --border-strong: rgba(255, 255, 255, 0.45);
 }
 
 * {
@@ -30,84 +134,44 @@ body,
 }
 
 body {
-  background: var(--bg);
-  color: var(--text-hi);
-  /* Linear 風: Inter を主、日本語はシステムゴシックへフォールバック */
-  font-family:
-    "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
-    "Yu Gothic UI", system-ui, sans-serif;
-  font-size: 13px;
-  letter-spacing: 0.01em;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  /* 文字サイズ・余白・角丸は shadcn/Origin UI の既定のまま（本人方針） */
   -webkit-font-smoothing: antialiased;
-  /* zinsei desk と同一の格子: 点線グリッド + 交点だけ実線の十字（小セル36px・大セル180px） */
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+/* zinsei desk と同一の格子: 点線グリッド + 交点だけ実線の十字（小セル36px・大セル180px）。
+   ダークは現行の白alpha版を維持、ライトは黒alpha版を新規に用意する（本人指示: 格子だけは残す） */
+.dark body,
+.dark {
   background-image:
     url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='36'%20height='36'%3E%3Cpath%20d='M18.5%200V36M0%2018.5H36'%20stroke='rgba(255,255,255,0.04)'%20stroke-width='1'%20stroke-dasharray='2%204'/%3E%3Cpath%20d='M18.5%2014.5V22.5M14.5%2018.5H22.5'%20stroke='rgba(255,255,255,0.11)'%20stroke-width='1'/%3E%3C/svg%3E"),
     url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='180'%3E%3Cpath%20d='M90.5%200V180M0%2090.5H180'%20stroke='rgba(255,255,255,0.05)'%20stroke-width='1'%20stroke-dasharray='2%204'/%3E%3Cpath%20d='M90.5%2082.5V98.5M82.5%2090.5H98.5'%20stroke='rgba(255,255,255,0.17)'%20stroke-width='1'/%3E%3C/svg%3E");
   background-size: 36px 36px, 180px 180px;
 }
 
-/* zinsei desk のアイコン基底（モノクロ・ストローク） */
-.ic {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
+body {
+  background-image:
+    url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='36'%20height='36'%3E%3Cpath%20d='M18.5%200V36M0%2018.5H36'%20stroke='rgba(15,23,42,0.05)'%20stroke-width='1'%20stroke-dasharray='2%204'/%3E%3Cpath%20d='M18.5%2014.5V22.5M14.5%2018.5H22.5'%20stroke='rgba(15,23,42,0.14)'%20stroke-width='1'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='180'%3E%3Cpath%20d='M90.5%200V180M0%2090.5H180'%20stroke='rgba(15,23,42,0.06)'%20stroke-width='1'%20stroke-dasharray='2%204'/%3E%3Cpath%20d='M90.5%2082.5V98.5M82.5%2090.5H98.5'%20stroke='rgba(15,23,42,0.2)'%20stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 36px 36px, 180px 180px;
 }
-.ic svg {
-  display: block;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 }
 
 .mono {
   font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
-button {
-  font: inherit;
-  color: var(--text-hi);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
-  padding: 3px 10px;
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease;
-}
-
-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: var(--card-border-hover);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-input,
-textarea,
-select {
-  font: inherit;
-  color: var(--text-hi);
-  background: var(--panel-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
-  padding: 4px 8px;
-}
-
-input:focus,
-textarea:focus,
-select:focus {
-  outline: none;
-  border-color: var(--card-border-strong);
-}
-
-/* パネル幅のリサイズハンドル（desk と同じ控えめな6px。hover時のみ線が浮く） */
+/* ---- パネル幅のリサイズハンドル（desk と同じ控えめな6px。hover時のみ線が浮く） ---- */
 .resize-handle {
   position: absolute;
   top: 0;
@@ -133,7 +197,7 @@ select:focus {
   bottom: 0;
   left: 2.5px;
   width: 1px;
-  background: var(--card-border-strong);
+  background: var(--border-strong);
 }
 
 /* ---- レイアウト ---- */
@@ -150,463 +214,46 @@ select:focus {
   display: flex;
 }
 
-.pane-header {
-  padding: 10px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-mid);
-  letter-spacing: 0.04em;
-  border-bottom: 1px solid var(--card-border);
-}
-
-/* ---- トップバー ---- */
-
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 42px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--card-border);
-  background: var(--panel-bg);
-  flex-shrink: 0;
-}
-
-.topbar-logo {
-  font-weight: 600;
-  font-size: 13px;
-  letter-spacing: 0.01em;
-}
-
-.topbar-chip {
-  font-size: 12px;
-  color: var(--text-mid);
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 999px;
-  padding: 2px 10px;
-}
-
-.topbar-spacer {
-  flex: 1;
-}
-
-.inbox {
-  position: relative;
-}
-
-.inbox-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-mid);
-}
-
-.inbox-btn.has-pending {
-  border-color: rgba(173, 182, 0, 0.5);
-  color: var(--human);
-}
-
-.inbox-dropdown {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  min-width: 240px;
-  max-height: 320px;
-  overflow-y: auto;
-  background: #14171c;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.3),
-    0 12px 32px rgba(0, 0, 0, 0.5);
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
-  gap: 2px;
-}
-
-.inbox-item {
-  text-align: left;
-  background: transparent;
-  border: none;
-  border-radius: 3px;
-}
-
-.inbox-item:hover {
-  background: var(--panel-bg);
-}
-
-.inbox-empty {
-  padding: 8px;
-  color: var(--text-lo);
-  font-size: 12px;
-}
-
-/* ---- 左レール: ページ（ゴール）一覧。zinsei desk の左レール方式 ---- */
-
-.page-list {
-  width: 224px; /* 実際の幅は useResizableWidth の inline style が優先 */
-  flex-shrink: 0;
-  border-right: 1px solid var(--card-border);
-  background: var(--panel-bg);
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  padding: 8px 6px;
-  gap: 1px;
-  position: relative;
-}
-
-.page-list-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 2px 8px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  color: var(--text-lo);
-}
-
-.page-add-btn {
-  background: none;
-  border: none;
-  color: var(--text-mid);
-  padding: 0 4px;
-  font-size: 13px;
-}
-
-.page-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  padding: 5px 8px;
-  color: var(--text-mid);
-}
-
-.page-row:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
-  border: none;
-}
-
-.page-row.is-active {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--text-hi);
-}
-
-.page-row {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 3px;
-}
-
-.page-row-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.page-row-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 手順ページ（procedure）の目印アイコン。StatusCircle と同じ位置に収まるよう幅を揃える */
-.page-row-procedure-icon {
-  display: inline-flex;
-  flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  color: var(--text-mid);
-}
-
-/* メンバーの状態内訳ドット（desk の ball 内訳ドットの継承） */
-.page-row-dots {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding-left: 20px;
-  flex-wrap: wrap;
-}
-
-.goal-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-}
-
-.goal-dot-more {
-  font-size: 10px;
-  color: var(--text-lo);
-  font-family: ui-monospace, monospace;
-}
-
-.page-crumb {
-  color: var(--text-mid);
-  background: none;
-  border-color: transparent;
-  font-weight: 600;
-}
-
-.page-crumb:hover:not(:disabled) {
-  color: var(--text-hi);
-}
-
-/* ---- アウトラインビュー ---- */
-
-.outline-pane {
-  width: 280px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--card-border);
-  background: var(--panel-bg);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.outline-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 6px 4px;
-}
-
-.outline-empty {
-  padding: 12px;
-  color: var(--text-lo);
-  font-size: 12px;
-}
-
-.outline-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 3px;
-  cursor: pointer;
-  position: relative;
-}
-
-.outline-row:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.outline-row.is-selected {
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.outline-row:focus {
-  outline: none;
-}
-
-.outline-row.kind-goal .outline-title {
-  font-weight: 600;
-}
-
-.status-circle-btn {
-  background: none;
-  border: none;
-  padding: 2px;
-  display: inline-flex;
-  flex-shrink: 0;
-}
-
-.status-circle-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-}
-
-.group-done {
-  color: var(--ok);
-  display: inline-flex;
-}
-
-.outline-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.outline-title.is-done {
-  color: var(--text-lo);
-}
-
-.outline-title.is-dropped {
-  color: var(--text-lo);
-  text-decoration: line-through;
-}
-
-.outline-title-input {
-  flex: 1;
-  min-width: 0;
-  padding: 1px 4px;
-}
-
-.exec-badge {
-  flex-shrink: 0;
-  display: inline-flex;
-}
-.exec-badge.exec-human {
-  color: var(--human);
-}
-.exec-badge.exec-ai {
-  color: var(--ai);
-}
-.exec-badge.exec-script {
-  color: var(--script);
-}
-
-.dot-pending {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ff9f43;
-}
-
-.parent-chip {
-  flex-shrink: 0;
-  font-size: 11px;
-  padding: 1px 6px;
-  color: var(--text-mid);
-}
-
-.add-child-btn {
-  flex-shrink: 0;
-  visibility: hidden;
-  font-size: 11px;
-  padding: 1px 6px;
-}
-
-.outline-row:hover .add-child-btn {
-  visibility: visible;
-}
-
-/* ---- グラフビュー ---- */
-
-.graph-pane {
-  flex: 1;
-  min-width: 0;
-  position: relative;
-}
+/* ---- グラフビュー: React Flow 連携 ---- */
 
 .graph-pane .react-flow {
   background: transparent;
 }
 
-.graph-toolbar {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 手順ページの表示切替（グラフ/台帳）。セグメントコントロール風 */
-.view-tabs {
-  display: flex;
-  gap: 2px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
-  padding: 2px;
-}
-
-.view-tabs button {
-  border: none;
-  background: transparent;
-  padding: 3px 10px;
-  font-size: 12px;
-  color: var(--text-mid);
-  border-radius: 3px;
-}
-
-.view-tabs button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
-  border: none;
-}
-
-.view-tabs button.is-active {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-hi);
-}
-
-.node-card {
-  width: 220px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
-  padding: 8px 10px;
-  position: relative;
-  transition:
-    box-shadow 0.25s ease,
-    border-color 0.3s ease,
-    opacity 0.3s ease;
-}
-
-.node-card:hover {
-  border-color: var(--card-border-hover);
-}
-
-.node-card.is-selected {
-  border-color: var(--card-border-strong);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
-}
-
 /* 下書き（未確定）は太さ1pxのまま「目の粗い」破線に。CSS の dashed は目の間隔を
    制御できないため、SVG の stroke-dasharray を背景に敷く（枠線自体は透明にして寸法維持） */
 .node-card.lifecycle-draft {
-  border: 1px solid transparent;
+  border-color: transparent !important;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='4'%20stroke='var(--border-strong-svg,rgba(148,163,184,0.5))'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
+}
+.dark .node-card.lifecycle-draft {
   background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='4'%20stroke='rgba(255,255,255,0.4)'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
 }
 
-.node-card.lifecycle-committed {
-  border-style: solid;
+/* アクティブ（実行中）ノードは実行者の色で囲う（ロゴの3色 = 今誰が動いているか）。パルスも同色 */
+.node-card.exec-ai {
+  --active-color: var(--ai);
+}
+.node-card.exec-human {
+  --active-color: var(--human);
+}
+.node-card.exec-script {
+  --active-color: var(--script);
 }
 
-/* 完了カード: 中身は静かに退くが、チェックマーク（pdg-badge）は明るいまま
-   （「終わっている」は気持ちいいこと。カード全体に opacity をかけない） */
-.node-card.status-done {
-  border-color: rgba(255, 255, 255, 0.09);
+.node-card.status-running {
+  border-color: var(--active-color) !important;
+  animation: node-pulse 1.6s ease-in-out infinite;
 }
 
-.node-card.status-done .node-card-head,
-.node-card.status-done .node-card-foot {
-  opacity: 0.55;
-}
-
-.node-card.status-dropped {
-  border-color: rgba(255, 255, 255, 0.09);
-}
-
-.node-card.status-dropped .node-card-head,
-.node-card.status-dropped .node-card-foot {
-  opacity: 0.45;
-  filter: grayscale(1);
-}
-
-.node-card.status-dropped .node-title {
-  text-decoration: line-through;
-  color: var(--text-lo);
-}
-
-.node-card.status-waiting {
-  border-left: 2px solid var(--human);
+@keyframes node-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--active-color) 50%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
 }
 
 /* PDG風の完了/中止マーク: カード左外側の丸バッジ */
@@ -622,133 +269,19 @@ select:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg);
+  background: var(--background);
 }
 
-.pdg-badge.pdg-done {
-  color: var(--ok);
-}
-
-.pdg-badge.pdg-dropped {
-  color: var(--text-lo);
-}
-
-/* グループ（ゴール=ノード群のフォルダ。Houdiniのネットワークボックス風） */
-.group-box {
-  width: 100%;
-  height: 100%;
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.02);
-  position: relative;
-  transition: border-color 0.3s ease;
-}
-
-.group-box:hover {
-  border-color: var(--card-border-hover);
-}
-
-.group-box.is-selected {
-  border-color: var(--card-border-strong);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
-}
-
-.group-box-title {
-  position: absolute;
-  top: -24px;
-  left: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-hi);
-  white-space: nowrap;
-}
-
-.group-box-title .ic {
-  color: var(--text-mid);
-}
-
-/* アクティブ（実行中）ノードは実行者の色で囲う（ロゴの3色 = 今誰が動いているか）。
-   パルスも同色。--active-color は exec-* クラスで決まる */
-.node-card.exec-ai {
-  --active-color: var(--ai);
-}
-
-.node-card.exec-human {
-  --active-color: var(--human);
-}
-
-.node-card.exec-script {
-  --active-color: var(--script);
-}
-
-.node-card.status-running {
-  border-color: var(--active-color);
-  animation: node-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes node-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--active-color) 50%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 6px transparent;
-  }
-}
-
-.node-card-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.node-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-title-input {
-  flex: 1;
-  min-width: 0;
-  padding: 1px 4px;
-}
-
-.badge-warn {
-  color: var(--danger);
-  flex-shrink: 0;
-}
-
-.node-card-foot {
-  margin-top: 6px;
-}
-
-.status-chip {
-  font-size: 10px;
-  color: var(--text-mid);
-}
-
-.node-card .dot-pending {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-}
-
-/* 接続ハンドル（ノード上下のちょぼ）。完了/中止ノードでは暗く沈める */
+/* 接続ハンドル（ノード上下のちょぼ） */
 .react-flow__handle {
   width: 7px;
   height: 7px;
   background: var(--text-lo);
-  border: 1px solid var(--bg);
+  border: 1px solid var(--background);
 }
 
 .node-card:hover .react-flow__handle {
-  background: var(--text-mid);
+  background: var(--muted-foreground);
 }
 
 .node-card.status-done .react-flow__handle,
@@ -756,20 +289,20 @@ select:focus {
   background: var(--done);
 }
 
-/* React Flow の Controls（左下）をダークテーマへ（既定は白くて見えない） */
+/* React Flow の Controls（左下）をテーマへ */
 .react-flow__controls {
   box-shadow: none;
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
 .react-flow__controls-button {
-  background: var(--card-bg);
+  background: var(--card);
   border: none;
-  border-bottom: 1px solid var(--card-border);
-  color: var(--text-mid);
-  fill: var(--text-mid);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  fill: var(--muted-foreground);
   width: 24px;
   height: 24px;
 }
@@ -779,9 +312,9 @@ select:focus {
 }
 
 .react-flow__controls-button:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--text-hi);
-  fill: var(--text-hi);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  fill: var(--accent-foreground);
 }
 
 .react-flow__controls-button svg {
@@ -790,1121 +323,18 @@ select:focus {
   max-height: 11px;
 }
 
-/* 小さな通常色のアイコンボタン（削除等。仰々しくしない） */
-.icon-btn {
-  background: none;
-  border: none;
-  color: var(--text-lo);
-  padding: 2px 5px;
-  display: inline-flex;
-  align-items: center;
-}
-
-.icon-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
-  border: none;
-  color: var(--text-mid);
-}
-
-/* ---- ノードパネル ---- */
-
-.node-panel {
-  width: 380px; /* 実際の幅は useResizableWidth の inline style が優先 */
-  flex-shrink: 0;
-  border-left: 1px solid var(--card-border);
-  background: var(--panel-bg);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 12px;
-  gap: 8px;
-  position: relative;
-}
-
-/* 折りたたみ時のメタ情報サマリ（会話に縦幅を譲る） */
-.node-meta-summary {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  background: none;
-  border: none;
-  text-align: left;
-  padding: 2px 0;
-  color: var(--text-mid);
-}
-
-.node-meta-summary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.03);
-  border: none;
-}
-
-.node-meta-chips {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.meta-chip {
-  font-size: 10px;
-  padding: 1px 6px;
-  border: 1px solid var(--card-border);
-  border-radius: 3px;
-  color: var(--text-mid);
-  font-family: ui-monospace, monospace;
-}
-
-.node-detail-preview {
-  font-size: 11px;
-  color: var(--text-lo);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.meta-expand-hint {
-  font-size: 10px;
-  color: var(--text-lo);
-}
-
-.node-panel-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.node-title-field {
-  flex: 1;
-  font-size: 15px;
-  font-weight: 700;
-  background: transparent;
-  border-color: transparent;
-}
-
-.node-title-field:hover,
-.node-title-field:focus {
-  border-color: var(--card-border);
-}
-
-.node-panel-close {
-  border: none;
-  background: transparent;
-  font-size: 16px;
-  line-height: 1;
-  padding: 2px 6px;
-}
-
-.node-detail-field {
-  width: 100%;
-  resize: vertical;
-}
-
-/* kind=procedure 専用: 定期トリガーの記述欄 */
-.node-schedule-field {
-  width: 100%;
-}
-
-.node-meta-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.node-meta-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  color: var(--text-mid);
-}
-
-.node-delete-btn {
-  border-color: var(--danger);
-  color: var(--danger);
-  background: transparent;
-}
-
-.node-panel-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--card-border);
-  padding-bottom: 6px;
-}
-
-.node-panel-tabs button {
-  background: transparent;
-  border: none;
-  color: var(--text-mid);
-  padding: 4px 8px;
-}
-
-.node-panel-tabs button.is-active {
-  color: var(--text-hi);
-  border-bottom: 2px solid var(--ai);
-  border-radius: 0;
-}
-
-/* ---- スレッド ---- */
-
-.thread {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.thread-body {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-right: 2px;
-}
-
-.thread-empty {
-  color: var(--text-lo);
-  font-size: 12px;
-  padding: 8px 0;
-}
-
-.thread-msg {
-  max-width: 88%;
-  padding: 6px 10px;
-  border-radius: 4px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-}
-
-.thread-msg.align-human {
-  align-self: flex-end;
-  border-color: rgba(173, 182, 0, 0.4);
-}
-
-.thread-msg.align-agent {
-  align-self: flex-start;
-  border-color: rgba(0, 127, 255, 0.4);
-}
-
-.thread-msg.align-system {
-  align-self: center;
-  opacity: 0.7;
-  font-size: 12px;
-}
-
-.thread-msg-meta {
-  display: flex;
-  gap: 6px;
-  font-size: 10px;
-  color: var(--text-lo);
-  margin-bottom: 2px;
-}
-
-.thread-msg-body {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* open な判断リクエストの固定表示（入力欄の直上。Claude Code の質問と同じ位置） */
-.thread-pinned {
-  flex-shrink: 0;
-}
-
-.thread-reply {
-  display: flex;
-  gap: 6px;
-  align-items: flex-end;
-  flex-shrink: 0;
-}
-
-.thread-reply textarea {
-  flex: 1;
-  resize: vertical;
-}
-
-/* ---- 判断リクエストカード ---- */
-
-.decision-card {
-  border: 1px solid var(--ai);
-  border-radius: 4px;
-  padding: 10px;
-  background: rgba(0, 127, 255, 0.06);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.decision-card.is-answered {
-  border-color: var(--card-border);
-  background: var(--card-bg);
-  opacity: 0.75;
-}
-
-.decision-context {
-  color: var(--text-mid);
-  font-size: 12px;
-  white-space: pre-wrap;
-}
-
-.decision-question {
-  font-weight: 700;
-}
-
-.decision-options {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.decision-option {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  text-align: left;
-}
-
-.decision-option.is-recommended {
-  border-color: var(--ai);
-}
-
-.decision-option-label {
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.decision-recommend-tag {
-  font-size: 10px;
-  color: var(--ai);
-  border: 1px solid var(--ai);
-  border-radius: 999px;
-  padding: 0 6px;
-}
-
-.decision-option-then {
-  font-size: 11px;
-  color: var(--text-mid);
-}
-
-.decision-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  font-size: 11px;
-  color: var(--text-lo);
-}
-
-.decision-answered-tag {
-  color: var(--done);
-}
-
-.decision-rally {
-  display: flex;
-  gap: 6px;
-}
-
-.decision-rally input {
-  flex: 1;
-}
-
-/* ---- 手順ページ: 台帳ビュー（docs/design.md 3.8 第3の投影） ---- */
-
-.ledger-view {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.ledger-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--card-border);
-  flex-shrink: 0;
-}
-
-.ledger-count {
-  font-size: 12px;
-  color: var(--text-mid);
-}
-
-.ledger-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ledger-start-btn {
-  color: var(--ai);
-  border-color: rgba(0, 127, 255, 0.4);
-}
-
-.ledger-cancel-btn {
-  color: var(--danger);
-  border-color: rgba(255, 93, 93, 0.4);
-  font-size: 11px;
-  padding: 2px 8px;
-}
-
-.ledger-table-wrap {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 0 14px;
-}
-
-.ledger-table {
-  border-collapse: collapse;
-  font-size: 12px;
-  min-width: 100%;
-}
-
-.ledger-table th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--panel-bg);
-  color: var(--text-mid);
-  font-weight: 600;
-  font-size: 11px;
-  text-align: left;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--card-border);
-  white-space: nowrap;
-  cursor: default;
-}
-
-.ledger-th-run {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  background: var(--panel-bg);
-  min-width: 160px;
-}
-
-.ledger-row {
-  cursor: pointer;
-}
-
-.ledger-row:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.ledger-row.is-selected {
-  background: rgba(0, 127, 255, 0.08);
-}
-
-.ledger-table td {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--card-border);
-  vertical-align: middle;
-}
-
-.ledger-td-run {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  background: var(--panel-bg);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 160px;
-}
-
-.ledger-row.is-selected .ledger-td-run {
-  background: #131a22;
-}
-
-.ledger-run-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 220px;
-}
-
-.ledger-cell {
-  text-align: center;
-  cursor: pointer;
-}
-
-.ledger-cell-empty {
-  color: var(--text-lo);
-}
-
-.ledger-empty {
-  color: var(--text-lo);
-  text-align: center;
-  padding: 16px !important;
-}
-
-.ledger-trace {
-  flex-shrink: 0;
-  max-height: 34%;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--card-border);
-  background: var(--panel-bg);
-}
-
-.ledger-trace-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 14px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-mid);
-  border-bottom: 1px solid var(--card-border);
-  flex-shrink: 0;
-}
-
-.ledger-trace-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 6px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.trace-event {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  padding: 3px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.trace-event-icon {
-  flex-shrink: 0;
-}
-
-.trace-event-ts {
-  flex-shrink: 0;
-  color: var(--text-lo);
-  font-family: ui-monospace, monospace;
-  font-size: 10px;
-}
-
-.trace-event-node {
-  flex-shrink: 0;
-  color: var(--text-mid);
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.trace-event-body {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-hi);
-}
-
-/* ---- 内蔵チャット（M4: グラフ整理の相棒AI） ---- */
-
-.chat-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-mid);
-}
-
-.chat-toggle-btn.is-active {
-  border-color: rgba(0, 127, 255, 0.5);
-  color: var(--ai);
-}
-
-.chat-drawer {
-  width: 360px; /* 実際の幅は useResizableWidth の inline style が優先 */
-  flex-shrink: 0;
-  border-left: 1px solid var(--card-border);
-  background: var(--panel-bg);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-}
-
-.chat-drawer-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--card-border);
-  flex-shrink: 0;
-}
-
-.chat-drawer-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.chat-drawer-page {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--text-lo);
-  text-align: right;
-}
-
-.chat-drawer-close {
-  border: none;
-  background: transparent;
-  font-size: 16px;
-  line-height: 1;
-  padding: 2px 6px;
-  flex-shrink: 0;
-}
-
-.chat-drawer-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-}
-
-.chat-drawer-empty {
-  color: var(--text-lo);
-  font-size: 12px;
-  padding: 8px 0;
-}
-
-.chat-msg {
-  max-width: 90%;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.chat-msg-user {
-  align-self: flex-end;
-}
-
-.chat-msg-assistant {
-  align-self: flex-start;
-}
-
-.chat-msg-text {
-  padding: 6px 10px;
-  border-radius: 4px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.chat-msg-user .chat-msg-text {
-  border-color: rgba(173, 182, 0, 0.4);
-}
-
-.chat-msg-assistant .chat-msg-text {
-  border-color: rgba(0, 127, 255, 0.4);
-}
-
-.chat-tool-line {
-  font-size: 11px;
-  color: var(--text-mid);
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: rgba(0, 127, 255, 0.08);
-  border: 1px solid rgba(0, 127, 255, 0.25);
-  align-self: flex-start;
-}
-
-.chat-tool-line.is-error {
-  color: var(--danger);
-  background: rgba(255, 93, 93, 0.08);
-  border-color: rgba(255, 93, 93, 0.35);
-}
-
-.chat-drawer-banner {
-  align-self: stretch;
-  font-size: 12px;
-  color: var(--danger);
-  background: rgba(255, 93, 93, 0.08);
-  border: 1px solid rgba(255, 93, 93, 0.35);
-  border-radius: 4px;
-  padding: 8px 10px;
-  white-space: pre-wrap;
-}
-
-.chat-drawer-input {
-  display: flex;
-  gap: 6px;
-  align-items: flex-end;
-  padding: 10px 12px;
-  border-top: 1px solid var(--card-border);
-  flex-shrink: 0;
-}
-
-.chat-drawer-input textarea {
-  flex: 1;
-  resize: vertical;
-}
-
-/* ---- トースト ---- */
-
-.toast-host {
-  position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  z-index: 1000;
-}
-
-.toast {
-  background: var(--card-bg);
-  border: 1px solid var(--danger);
-  color: var(--text-hi);
-  padding: 8px 14px;
-  border-radius: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  font-size: 13px;
-}
-
-/* undo/redo 成功など、エラーでない知らせ（B-8） */
-.toast-info {
-  border-color: rgba(0, 127, 255, 0.5);
-}
-
-/* ---- 初回セットアップ / ⚙ AI設定モーダル ---- */
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(5, 7, 10, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-}
-
-.modal-card {
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 48px);
-  overflow-y: auto;
-  background: var(--panel-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 18px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.modal-head h2 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.modal-close {
-  border: none;
-  background: transparent;
-  font-size: 16px;
-  line-height: 1;
-  padding: 2px 6px;
-  color: var(--text-mid);
-}
-
-.setup-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--card-border);
-}
-
-.setup-section:first-of-type {
-  padding-top: 0;
-  border-top: none;
-}
-
-.setup-section h3 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-mid);
-  letter-spacing: 0.03em;
-}
-
-.setup-desc {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-lo);
-}
-
-.setup-mode-desc {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-lo);
-}
-
-.setup-field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--text-mid);
-}
-
-.setup-field input,
-.setup-field select {
-  width: 100%;
-}
-
-.setup-key-set {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-hi);
-  font-size: 12px;
-}
-
-.setup-key-set button {
-  font-size: 11px;
-  padding: 2px 8px;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 6px;
-}
-
-.setup-save-btn {
-  color: var(--ai);
-  border-color: rgba(0, 127, 255, 0.4);
-}
-
-/* ---- A-1: 下書き承認バー ---- */
-
-.draft-bar {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--card-bg);
-  border: 1px dashed var(--card-border-strong);
-  border-radius: 4px;
-  padding: 5px 10px;
-  font-size: 12px;
-}
-
-.draft-bar-count {
-  color: var(--text-mid);
-}
-
-.draft-confirm-btn {
-  color: var(--ok);
-  border-color: rgba(147, 201, 139, 0.4);
-  font-size: 11px;
-  padding: 2px 8px;
-}
-
-.draft-discard-btn {
-  color: var(--danger);
-  border-color: rgba(255, 93, 93, 0.4);
-  font-size: 11px;
-  padding: 2px 8px;
-}
-
-/* ---- A-5: 実装バッジ・硬化率チップ ---- */
-
-.impl-badge {
-  flex-shrink: 0;
-  display: inline-flex;
-  color: var(--script);
-  opacity: 0.75;
-}
-
-.hardening-chip {
-  font-size: 11px;
-  color: var(--text-mid);
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 999px;
-  padding: 3px 10px;
-}
-
-/* ---- B-7: 出典バッジ ---- */
-
-.src-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.src-badge {
-  font-size: 10px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--card-border);
-  color: var(--text-mid);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-/* ---- B-7: チャット履歴クリアボタン ---- */
-
-.chat-drawer-clear {
-  flex-shrink: 0;
-  font-size: 11px;
-  padding: 2px 8px;
-  color: var(--text-lo);
-}
-
-/* ---- B-11: トレース再生 ---- */
-
-.trace-replay-btn {
-  font-size: 11px;
-  padding: 2px 8px;
-  color: var(--ai);
-  border-color: rgba(0, 127, 255, 0.4);
-}
-
-.trace-event.is-replaying {
-  background: rgba(0, 127, 255, 0.12);
-  border-radius: 3px;
-}
-
-/* ---- QOL-1: Ctrl+K 全ノード検索 ---- */
-
-.palette-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(5, 7, 10, 0.6);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 96px;
-  z-index: 300;
-}
-
-.palette-card {
-  width: 480px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 140px);
-  background: var(--panel-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.palette-input {
-  width: 100%;
-  border: none;
-  border-bottom: 1px solid var(--card-border);
-  border-radius: 0;
-  padding: 12px 14px;
-  font-size: 14px;
-  background: transparent;
-  flex-shrink: 0;
-}
-
-.palette-input:focus {
-  outline: none;
-  border-color: var(--card-border);
-}
-
-.palette-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.palette-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  padding: 6px 10px;
-  color: var(--text-hi);
-}
-
-.palette-item:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
-  border: none;
-}
-
-.palette-item.is-active {
-  background: rgba(255, 255, 255, 0.09);
-}
-
-.palette-item-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.palette-item-page {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--text-lo);
-}
-
-.palette-empty {
-  padding: 14px;
-  color: var(--text-lo);
-  font-size: 12px;
-  text-align: center;
-}
-
-/* ---- QOL-2: エッジ切断ボタン（エッジ中点） ---- */
-
-.edge-cut-btn {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border-strong);
-  color: var(--text-hi);
-  font-size: 11px;
-  line-height: 1;
-  padding: 0;
+/* zinsei desk のアイコン基底（モノクロ・ストローク） */
+.ic {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
 }
-
-.edge-cut-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--card-border-strong);
-}
-
-/* ---- QOL-3: 左レールのアーカイブ節 ---- */
-
-.page-list-archive-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 6px 8px;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--text-lo);
-  border-top: 1px solid var(--card-border);
-}
-
-.page-list-archive-toggle:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.03);
-  border: none;
-  border-top: 1px solid var(--card-border);
-  color: var(--text-mid);
-}
-
-.page-list-archive {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.page-row.page-row-archived {
-  color: var(--text-lo);
-  opacity: 0.75;
-}
-
-/* ---- QOL-5: エンジン稼働インジケータ ---- */
-
-.engine-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--text-mid);
-}
-
-.engine-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-lo);
-  flex-shrink: 0;
-}
-
-.engine-status.is-alive .engine-dot {
-  background: var(--ok);
-}
-
-/* ---- QOL-6: 通知トグル（⚙モーダル） ---- */
-
-.setup-notify-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-hi);
-}
-
-.setup-notify-row input {
-  width: auto;
-}
-
-/* ---- QOL-4: エクスポートボタン（⚙モーダル） ---- */
-
-.setup-export-btn {
-  align-self: flex-start;
-}
-
-/* ---- QOL-7: 未読バッジ（ノードカード） ---- */
-
-.node-card .dot-unread {
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ai);
+.ic svg {
+  display: block;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }

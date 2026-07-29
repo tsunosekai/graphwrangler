@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { cn } from "../lib/utils";
 import type { MaterializedMessage } from "../types";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
 import { DecisionCard } from "./DecisionCard";
 
 interface Props {
@@ -72,36 +76,52 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
   };
 
   return (
-    <div className="thread">
-      <div className="thread-body" ref={bodyRef}>
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1" ref={bodyRef}>
         {flow.length === 0 && openRequests.length === 0 && (
-          <div className="thread-empty">まだありません</div>
+          <div className="py-2 text-sm text-muted-foreground">まだありません</div>
         )}
         {flow.map((m) => {
           if (m.kind === "decision_request") {
             // answered なリクエストは流れの中に折りたたみ表示
             return <DecisionCard key={m.id} message={m} nodeId={nodeId} onMutated={onMutated} />;
           }
-          const align =
-            m.author.kind === "human" ? "align-human" : m.author.kind === "agent" ? "align-agent" : "align-system";
+          const alignSelf =
+            m.author.kind === "human" ? "self-end" : m.author.kind === "agent" ? "self-start" : "self-center";
+          const borderColor =
+            m.author.kind === "human"
+              ? "border-human/40"
+              : m.author.kind === "agent"
+                ? "border-ai/40"
+                : "border-border";
           const sources = extractSources(m.payload);
           return (
-            <div key={m.id} className={`thread-msg ${align}`}>
-              <div className="thread-msg-meta">
-                <span className="thread-msg-author">
+            <div
+              key={m.id}
+              className={cn(
+                "max-w-[88%] rounded-md border bg-card px-3 py-2",
+                alignSelf,
+                borderColor,
+                m.author.kind === "system" && "text-sm opacity-70",
+              )}
+            >
+              <div className="mb-1 flex gap-2 text-xs text-muted-foreground">
+                <span>
                   {AUTHOR_LABEL[m.author.kind] ?? m.author.kind}
                   {m.author.name ? `:${m.author.name}` : ""}
                 </span>
-                <span className="thread-msg-via">{m.via}</span>
-                <span className="thread-msg-ts">{new Date(m.ts).toLocaleString("ja-JP")}</span>
+                <span>{m.via}</span>
+                <span>{new Date(m.ts).toLocaleString("ja-JP")}</span>
               </div>
-              <div className="thread-msg-body">{m.body || (m.kind === "decision_answer" ? "(選択のみ)" : "")}</div>
+              <div className="whitespace-pre-wrap break-words text-sm">
+                {m.body || (m.kind === "decision_answer" ? "(選択のみ)" : "")}
+              </div>
               {sources && sources.length > 0 && (
-                <div className="src-badges">
+                <div className="mt-1.5 flex flex-wrap gap-1">
                   {sources.map((s, i) => (
-                    <span key={i} className="src-badge">
+                    <Badge key={i} variant="outline">
                       {s}
-                    </span>
+                    </Badge>
                   ))}
                 </div>
               )}
@@ -110,13 +130,14 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
         })}
       </div>
       {openRequests.map((m) => (
-        <div key={m.id} className="thread-pinned">
+        <div key={m.id} className="flex-shrink-0">
           <DecisionCard message={m} nodeId={nodeId} onMutated={onMutated} />
         </div>
       ))}
       {showReplyBox && (
-        <div className="thread-reply">
-          <textarea
+        <div className="flex flex-shrink-0 items-end gap-2">
+          <Textarea
+            className="flex-1 resize-y"
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder={
@@ -130,9 +151,9 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
               }
             }}
           />
-          <button type="button" disabled={sending || !reply.trim()} onClick={sendReply}>
+          <Button type="button" disabled={sending || !reply.trim()} onClick={sendReply}>
             送信
-          </button>
+          </Button>
         </div>
       )}
     </div>

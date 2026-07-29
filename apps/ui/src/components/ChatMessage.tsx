@@ -1,6 +1,8 @@
 // 内蔵チャット（M4）のメッセージ型 + 1メッセージ分の表示。
 // UIMessage(AI SDK v5系)の最小形（id/role/parts）を手で再現している。
 // ai パッケージは apps/ui の依存に無い（pnpm add 禁止）ため、SSE パースも含め自前実装。
+import { cn } from "../lib/utils";
+import { Badge } from "./ui/badge";
 
 export type ChatTextPart = { type: "text"; text: string; state?: "streaming" | "done" };
 
@@ -69,25 +71,37 @@ function toolSummary(part: ChatToolPart): string {
 }
 
 export function ChatMessageView({ message }: { message: ChatMessage }) {
-  const align = message.role === "user" ? "chat-msg-user" : "chat-msg-assistant";
+  const isUser = message.role === "user";
   return (
-    <div className={`chat-msg ${align}`}>
+    <div className={cn("flex max-w-[90%] flex-col gap-1.5", isUser ? "self-end" : "self-start")}>
       {message.parts.map((part, i) => {
         if (part.type === "text") {
           if (!part.text) return null;
           return (
-            <div key={i} className="chat-msg-text">
+            <div
+              key={i}
+              className={cn(
+                "whitespace-pre-wrap break-words rounded-md border bg-card px-3 py-2 text-sm",
+                isUser ? "border-human/40" : "border-ai/40",
+              )}
+            >
               {part.text}
             </div>
           );
         }
         return (
-          <div
+          <Badge
             key={part.toolCallId}
-            className={`chat-tool-line${part.state === "output-error" ? " is-error" : ""}`}
+            variant="outline"
+            className={cn(
+              "self-start",
+              part.state === "output-error"
+                ? "border-destructive/35 bg-destructive/[0.08] text-destructive"
+                : "border-ai/25 bg-ai/[0.08] text-muted-foreground",
+            )}
           >
             ⚙ {toolSummary(part)}
-          </div>
+          </Badge>
         );
       })}
     </div>

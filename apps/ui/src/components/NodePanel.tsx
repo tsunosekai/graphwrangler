@@ -1,9 +1,16 @@
 import { useEffect, useState } from "react";
+import { ChevronDown, ChevronUp, Copy, Lock, Trash2, Unlock, X } from "lucide-react";
 import { api, type NodePatchInput } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import type { Node } from "../types";
-import { Icon } from "./Icon";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { Textarea } from "./ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { Thread } from "./Thread";
 
 interface Props {
@@ -128,11 +135,14 @@ export function NodePanel({ node, onMutated, onClose, onSelect }: Props) {
   );
 
   return (
-    <aside className="node-panel" style={{ width }}>
+    <aside
+      className="relative flex flex-shrink-0 flex-col gap-3 overflow-hidden border-l bg-background p-4"
+      style={{ width }}
+    >
       <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
-      <div className="node-panel-head">
-        <input
-          className="node-title-field"
+      <div className="flex items-center gap-2">
+        <Input
+          className="flex-1 border-transparent bg-transparent text-lg font-semibold hover:border-input focus-visible:border-input"
           value={titleDraft}
           onFocus={() => setTitleFocused(true)}
           onChange={(e) => setTitleDraft(e.target.value)}
@@ -141,50 +151,72 @@ export function NodePanel({ node, onMutated, onClose, onSelect }: Props) {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
         />
-        <button
-          type="button"
-          className="icon-btn"
-          title={
-            node.selfImprove
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => patch({ selfImprove: !node.selfImprove })}
+            >
+              {node.selfImprove ? <Unlock /> : <Lock />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {node.selfImprove
               ? "アンロック中: AIが実装(impl)を書き換えてよい"
-              : "ロック中: AIは実装(impl)を書き換えない"
-          }
-          onClick={() => patch({ selfImprove: !node.selfImprove })}
-        >
-          <Icon name={node.selfImprove ? "unlock" : "lock"} size={14} />
-        </button>
-        <button type="button" className="icon-btn" title="このノードを複製" onClick={handleDuplicate}>
-          <Icon name="copy" size={14} />
-        </button>
-        <button type="button" className="icon-btn" title="このノードを削除" onClick={handleDelete}>
-          <Icon name="trash" size={14} />
-        </button>
-        <button type="button" className="node-panel-close" onClick={onClose} aria-label="閉じる">
-          ×
-        </button>
+              : "ロック中: AIは実装(impl)を書き換えない"}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="ghost" size="icon" onClick={handleDuplicate}>
+              <Copy />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>このノードを複製</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="ghost" size="icon" onClick={handleDelete}>
+              <Trash2 />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>このノードを削除</TooltipContent>
+        </Tooltip>
+        <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="閉じる">
+          <X />
+        </Button>
       </div>
 
       {!metaOpen && (
-        <button type="button" className="node-meta-summary" onClick={() => setMetaOpen(true)}>
-          <span className="node-meta-chips">
-            <span className="meta-chip">{node.kind}</span>
-            <span className="meta-chip">{node.executor}</span>
-            <span className="meta-chip">{node.impact}</span>
-            <span className="meta-chip">{node.lifecycle}</span>
-            <span className="meta-chip">{node.status}</span>
+        <button
+          type="button"
+          className="flex flex-col items-stretch gap-1.5 rounded-md text-left text-muted-foreground hover:bg-accent/40"
+          onClick={() => setMetaOpen(true)}
+        >
+          <span className="flex flex-wrap items-center gap-1">
+            {[node.kind, node.executor, node.impact, node.lifecycle, node.status].map((v) => (
+              <Badge key={v} variant="outline" className="font-mono">
+                {v}
+              </Badge>
+            ))}
           </span>
-          {node.detail && <span className="node-detail-preview">{node.detail}</span>}
-          <span className="meta-expand-hint">▾</span>
+          {node.detail && <span className="truncate text-sm text-muted-foreground">{node.detail}</span>}
+          <ChevronDown className="size-3.5 text-muted-foreground" />
         </button>
       )}
 
       {metaOpen && (
         <>
-          <button type="button" className="node-meta-summary" onClick={() => setMetaOpen(false)}>
-            <span className="meta-expand-hint">▴ たたむ</span>
+          <button
+            type="button"
+            className="flex items-center gap-1 text-left text-sm text-muted-foreground hover:text-foreground"
+            onClick={() => setMetaOpen(false)}
+          >
+            <ChevronUp className="size-3.5" /> たたむ
           </button>
-          <textarea
-            className="node-detail-field"
+          <Textarea
             placeholder="detail / 補足"
             value={detailDraft}
             onFocus={() => setDetailFocused(true)}
@@ -194,8 +226,7 @@ export function NodePanel({ node, onMutated, onClose, onSelect }: Props) {
           />
 
           {node.kind === "procedure" && (
-            <input
-              className="node-schedule-field"
+            <Input
               placeholder="例: daily 09:00（v1は記録のみ）"
               value={scheduleDraft}
               onFocus={() => setScheduleFocused(true)}
@@ -207,69 +238,82 @@ export function NodePanel({ node, onMutated, onClose, onSelect }: Props) {
             />
           )}
 
-          <div className="node-meta-grid">
-        <label>
-          種別
-          <select value={node.kind} onChange={(e) => patch({ kind: e.target.value as Node["kind"] })}>
-            {KIND_OPTIONS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          担当
-          <select value={node.executor} onChange={(e) => patch({ executor: e.target.value as Node["executor"] })}>
-            {EXECUTOR_OPTIONS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          影響
-          <select value={node.impact} onChange={(e) => patch({ impact: e.target.value as Node["impact"] })}>
-            {IMPACT_OPTIONS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          確定
-          <select value={node.lifecycle} onChange={(e) => patch({ lifecycle: e.target.value as Node["lifecycle"] })}>
-            {LIFECYCLE_OPTIONS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          進捗
-          <select value={node.status} onChange={(e) => patch({ status: e.target.value as Node["status"] })}>
-            {STATUS_OPTIONS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+              種別
+              <Select value={node.kind} onValueChange={(v) => patch({ kind: v as Node["kind"] })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {KIND_OPTIONS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {k}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+              担当
+              <Select value={node.executor} onValueChange={(v) => patch({ executor: v as Node["executor"] })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {EXECUTOR_OPTIONS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {k}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+              影響
+              <Select value={node.impact} onValueChange={(v) => patch({ impact: v as Node["impact"] })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {IMPACT_OPTIONS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {k}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+              確定
+              <Select value={node.lifecycle} onValueChange={(v) => patch({ lifecycle: v as Node["lifecycle"] })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {LIFECYCLE_OPTIONS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {k}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+              進捗
+              <Select value={node.status} onValueChange={(v) => patch({ status: v as Node["status"] })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {k}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
           </div>
         </>
       )}
 
-      <div className="node-panel-tabs">
-        <button type="button" className={tab === "talk" ? "is-active" : ""} onClick={() => setTab("talk")}>
-          💬 会話
-        </button>
-        <button type="button" className={tab === "history" ? "is-active" : ""} onClick={() => setTab("history")}>
-          📜 履歴
-        </button>
-      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history")} className="gap-3">
+        <TabsList>
+          <TabsTrigger value="talk">💬 会話</TabsTrigger>
+          <TabsTrigger value="history">📜 履歴</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <Thread
         nodeId={node.id}

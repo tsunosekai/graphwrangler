@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { subscribeToast } from "../lib/toast";
+import { cn } from "../lib/utils";
 
 interface ToastItem {
   id: number;
@@ -25,9 +26,15 @@ export function ToastHost() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="toast-host">
+    <div className="fixed left-1/2 top-3 z-[1000] flex -translate-x-1/2 flex-col gap-1.5">
       {toasts.map((t) => (
-        <div key={t.id} className={`toast toast-${t.kind}`}>
+        <div
+          key={t.id}
+          className={cn(
+            "rounded-md border bg-card px-3.5 py-2 text-sm text-foreground shadow-lg",
+            t.kind === "error" ? "border-destructive" : "border-ai/50",
+          )}
+        >
           {t.message}
         </div>
       ))}

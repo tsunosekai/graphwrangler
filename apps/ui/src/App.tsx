@@ -127,7 +127,7 @@ export default function App() {
   );
 
   return (
-    <div className="app">
+    <div className="flex h-full flex-col bg-background text-foreground">
       <TopBar
         nodes={nodes}
         runWaitItems={runWaitItems}
@@ -136,7 +136,7 @@ export default function App() {
         onToggleChat={() => setChatOpen((v) => !v)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
-      <div className="app-main">
+      <div className="flex min-h-0 flex-1">
         <PageList
           folders={folders}
           allNodes={nodes}

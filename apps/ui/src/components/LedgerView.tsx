@@ -5,7 +5,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
+import { cn } from "../lib/utils";
 import type { Node, RunItem, RunItemStatus, RunStatus, Status, TraceEvent } from "../types";
+import { Button } from "./ui/button";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 
@@ -68,7 +70,7 @@ function topoOrder(members: Node[]): Node[] {
 
 function renderCell(item: RunItem | undefined) {
   if (!item || item.status === "skipped") {
-    return <span className="ledger-cell-empty">—</span>;
+    return <span className="text-text-lo">—</span>;
   }
   return <StatusCircle status={item.status} size={13} />;
 }
@@ -179,29 +181,50 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
     [refreshRuns, refreshTrace, selectedRunId, onMutated],
   );
 
+  const EXEC_TEXT: Record<string, string> = { human: "text-human", agent: "text-ai", system: "text-script" };
+
   return (
-    <div className="ledger-view">
-      <div className="ledger-header">
-        <span className="ledger-count">{runs.length} 件のラン</span>
-        <div className="ledger-header-actions">
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-3.5 py-2.5">
+        <span className="text-xs text-muted-foreground">{runs.length} 件のラン</span>
+        <div className="flex items-center gap-2">
           {selectedRun?.status === "running" && (
-            <button type="button" className="ledger-cancel-btn" onClick={cancelSelected}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-destructive/40 text-destructive"
+              onClick={cancelSelected}
+            >
               キャンセル
-            </button>
+            </Button>
           )}
-          <button type="button" className="ledger-start-btn" disabled={starting} onClick={startRun}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-ai/40 text-ai"
+            disabled={starting}
+            onClick={startRun}
+          >
             ▶ ラン開始
-          </button>
+          </Button>
         </div>
       </div>
 
-      <div className="ledger-table-wrap">
-        <table className="ledger-table">
+      <div className="min-h-0 flex-1 overflow-auto px-3.5">
+        <table className="w-full min-w-full border-collapse text-xs">
           <thead>
             <tr>
-              <th className="ledger-th-run">ラン</th>
+              <th className="sticky left-0 top-0 z-[3] min-w-40 whitespace-nowrap border-b border-border bg-muted px-2.5 py-1.5 text-left text-xs font-semibold text-muted-foreground">
+                ラン
+              </th>
               {columns.map((col) => (
-                <th key={col.id} title={col.title || "（無題）"}>
+                <th
+                  key={col.id}
+                  title={col.title || "（無題）"}
+                  className="sticky top-0 z-[2] whitespace-nowrap border-b border-border bg-muted px-2.5 py-1.5 text-left text-xs font-semibold text-muted-foreground"
+                >
                   {truncateTitle(col.title)}
                 </th>
               ))}
@@ -210,7 +233,7 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
           <tbody>
             {runs.length === 0 && (
               <tr>
-                <td className="ledger-empty" colSpan={columns.length + 1}>
+                <td className="p-4 text-center text-text-lo" colSpan={columns.length + 1}>
                   まだランがありません
                 </td>
               </tr>
@@ -218,12 +241,17 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
             {runs.map((run) => (
               <tr
                 key={run.id}
-                className={`ledger-row${run.id === selectedRunId ? " is-selected" : ""}`}
+                className={cn("cursor-pointer hover:bg-accent/40", run.id === selectedRunId && "bg-ai/[0.08]")}
                 onClick={() => setSelectedRunId(run.id)}
               >
-                <td className="ledger-td-run">
+                <td
+                  className={cn(
+                    "sticky left-0 z-[1] flex min-w-40 items-center gap-1.5 border-b border-border bg-muted px-2.5 py-1.5",
+                    run.id === selectedRunId && "bg-[#131a22]",
+                  )}
+                >
                   <StatusCircle status={RUN_STATUS_TO_DISPLAY[run.status]} size={12} />
-                  <span className="ledger-run-title" title={run.title}>
+                  <span className="max-w-[220px] truncate" title={run.title}>
                     {run.title}
                   </span>
                 </td>
@@ -232,7 +260,7 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
                   return (
                     <td
                       key={col.id}
-                      className="ledger-cell"
+                      className="cursor-pointer border-b border-border px-2.5 py-1.5 text-center align-middle"
                       onClick={(e) => {
                         if (!item || (item.status !== "pending" && item.status !== "done")) return;
                         e.stopPropagation();
@@ -250,37 +278,45 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
       </div>
 
       {selectedRun && (
-        <div className="ledger-trace">
-          <div className="ledger-trace-head">
+        <div className="flex max-h-[34%] flex-shrink-0 flex-col border-t border-border bg-muted">
+          <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-3.5 py-2 text-xs font-semibold text-muted-foreground">
             <span>トレース: {selectedRun.title}</span>
-            <button
+            <Button
               type="button"
-              className="trace-replay-btn"
+              variant="outline"
+              size="sm"
+              className="border-ai/40 text-ai"
               disabled={events.length === 0}
               onClick={toggleReplay}
               title="1.1秒間隔でイベントを順に再生する"
             >
               {replaying ? "⏸" : "▶再生"}
-            </button>
+            </Button>
           </div>
-          <div className="ledger-trace-body" ref={traceBodyRef}>
-            {events.length === 0 && <div className="thread-empty">まだありません</div>}
+          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3.5 py-1.5" ref={traceBodyRef}>
+            {events.length === 0 && <div className="py-2 text-xs text-text-lo">まだありません</div>}
             {events.map((ev, i) => (
               <div
                 key={ev.id}
                 data-trace-id={ev.id}
-                className={`trace-event${i === replayIndex ? " is-replaying" : ""}`}
+                className={cn(
+                  "flex items-center gap-2 rounded-sm border-b border-white/5 px-0 py-0.5 text-xs",
+                  i === replayIndex && "rounded-sm bg-ai/[0.12]",
+                )}
               >
                 <span
-                  className={`trace-event-icon exec-badge exec-${
-                    ev.author.kind === "human" ? "human" : ev.author.kind === "agent" ? "ai" : "script"
-                  }`}
+                  className={cn(
+                    "flex-shrink-0",
+                    EXEC_TEXT[ev.author.kind === "human" ? "human" : ev.author.kind === "agent" ? "agent" : "system"],
+                  )}
                 >
                   <Icon name={AUTHOR_ICON[ev.author.kind] ?? "gear"} size={12} />
                 </span>
-                <span className="trace-event-ts">{new Date(ev.ts).toLocaleString("ja-JP")}</span>
-                <span className="trace-event-node">{ev.nodeTitle}</span>
-                <span className="trace-event-body">{ev.body}</span>
+                <span className="flex-shrink-0 font-mono text-xs text-text-lo">
+                  {new Date(ev.ts).toLocaleString("ja-JP")}
+                </span>
+                <span className="max-w-[140px] flex-shrink-0 truncate text-muted-foreground">{ev.nodeTitle}</span>
+                <span className="min-w-0 flex-1 truncate">{ev.body}</span>
               </div>
             ))}
           </div>

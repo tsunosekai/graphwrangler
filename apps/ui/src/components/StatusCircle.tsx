@@ -26,7 +26,7 @@ export function StatusCircle({ status, size = 14 }: { status: Status; size?: num
           <circle cx="7" cy="7" r="6" fill={c} />
           <path
             d="M4.2 7.2 6.2 9.2 9.9 4.9"
-            stroke="var(--bg)"
+            stroke="var(--background)"
             strokeWidth="1.6"
             fill="none"
             strokeLinecap="round"
