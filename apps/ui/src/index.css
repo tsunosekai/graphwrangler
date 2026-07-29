@@ -338,3 +338,13 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* 「整列」実行中だけノード移動を transition させる（本人指定「にゅっ」）。
+   ドラッグ中のノードには効かせない */
+.realigning .react-flow__node {
+  transition: transform 300ms ease;
+}
+
+.realigning .react-flow__node.dragging {
+  transition: none;
+}

@@ -254,7 +254,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
             }
           }}
         />
-        <Button type="button" size="icon" disabled={sending || !input.trim()} onClick={send}>
+        <Button type="button" variant="secondary" size="icon" disabled={sending || !input.trim()} onClick={send}>
           <Icon name="send" size={15} />
         </Button>
       </div>

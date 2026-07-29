@@ -151,7 +151,7 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
               }
             }}
           />
-          <Button type="button" disabled={sending || !reply.trim()} onClick={sendReply}>
+          <Button type="button" variant="secondary" disabled={sending || !reply.trim()} onClick={sendReply}>
             送信
           </Button>
         </div>

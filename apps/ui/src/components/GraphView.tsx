@@ -284,13 +284,21 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
     [pageNode, onMutated, onSelect, screenToFlowPosition],
   );
 
-  // 自動整列: 手動ドラッグ位置を破棄して dagre レイアウトへ戻す
+  // 自動整列: 手動ドラッグ位置を破棄して dagre レイアウトへ戻す。
+  // このときだけノード移動に transition を効かせて「にゅっ」と動かす（本人指定。
+  // .realigning クラス経由で CSS が .react-flow__node に transform 遷移を付ける）
+  const [realigning, setRealigning] = useState(false);
   const realign = useCallback(() => {
-    positionsRef.current = layoutGraph(nodes).positions;
-    setRfNodes((prev) =>
-      prev.map((rn) => ({ ...rn, position: positionsRef.current.get(rn.id) ?? rn.position })),
-    );
-    requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
+    setRealigning(true);
+    // クラスが付いた次フレームで位置を更新しないと transition が効かない
+    requestAnimationFrame(() => {
+      positionsRef.current = layoutGraph(nodes).positions;
+      setRfNodes((prev) =>
+        prev.map((rn) => ({ ...rn, position: positionsRef.current.get(rn.id) ?? rn.position })),
+      );
+      fitView({ padding: 0.2, duration: 300 });
+      setTimeout(() => setRealigning(false), 400);
+    });
   }, [nodes, fitView]);
 
   // ---- B-8: 元に戻す/やり直す（操作ログの補償追記） ----
@@ -394,7 +402,7 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
   const showLedger = isProcedure && viewMode === "ledger";
 
   return (
-    <div ref={paneRef} className="graph-pane relative min-w-0 flex-1">
+    <div ref={paneRef} className={`graph-pane relative min-w-0 flex-1${realigning ? " realigning" : ""}`}>
       <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
         {pageNode && (
           <Button
@@ -417,7 +425,7 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
         )}
         {!showLedger && (
           <>
-            <Button type="button" onClick={() => createNode(selectedInPage)}>
+            <Button type="button" variant="outline" onClick={() => createNode(selectedInPage)}>
               + ノード
             </Button>
             <Button type="button" variant="outline" title="dagre で並べ直す" onClick={realign}>
