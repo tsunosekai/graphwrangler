@@ -650,6 +650,23 @@ select:focus {
   right: -4px;
 }
 
+/* 接続ハンドル（ノード上下のちょぼ）。完了/中止ノードでは暗く沈める */
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  background: var(--text-lo);
+  border: 1px solid var(--bg);
+}
+
+.node-card:hover .react-flow__handle {
+  background: var(--text-mid);
+}
+
+.node-card.status-done .react-flow__handle,
+.node-card.status-dropped .react-flow__handle {
+  background: var(--done);
+}
+
 /* React Flow の Controls（左下）をダークテーマへ（既定は白くて見えない） */
 .react-flow__controls {
   box-shadow: none;
