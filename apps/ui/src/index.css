@@ -857,6 +857,154 @@ select:focus {
   flex: 1;
 }
 
+/* ---- 内蔵チャット（M4: グラフ整理の相棒AI） ---- */
+
+.chat-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-mid);
+}
+
+.chat-toggle-btn.is-active {
+  border-color: rgba(126, 195, 232, 0.5);
+  color: var(--ai);
+}
+
+.chat-drawer {
+  width: 360px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--card-border);
+  background: var(--panel-bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+
+.chat-drawer-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.chat-drawer-page {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-lo);
+  text-align: right;
+}
+
+.chat-drawer-close {
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+.chat-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.chat-drawer-empty {
+  color: var(--text-lo);
+  font-size: 12px;
+  padding: 8px 0;
+}
+
+.chat-msg {
+  max-width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-msg-user {
+  align-self: flex-end;
+}
+
+.chat-msg-assistant {
+  align-self: flex-start;
+}
+
+.chat-msg-text {
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-msg-user .chat-msg-text {
+  border-color: rgba(211, 169, 92, 0.4);
+}
+
+.chat-msg-assistant .chat-msg-text {
+  border-color: rgba(126, 195, 232, 0.4);
+}
+
+.chat-tool-line {
+  font-size: 11px;
+  color: var(--text-mid);
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(126, 195, 232, 0.08);
+  border: 1px solid rgba(126, 195, 232, 0.25);
+  align-self: flex-start;
+}
+
+.chat-tool-line.is-error {
+  color: var(--danger);
+  background: rgba(255, 93, 93, 0.08);
+  border-color: rgba(255, 93, 93, 0.35);
+}
+
+.chat-drawer-banner {
+  align-self: stretch;
+  font-size: 12px;
+  color: var(--danger);
+  background: rgba(255, 93, 93, 0.08);
+  border: 1px solid rgba(255, 93, 93, 0.35);
+  border-radius: 4px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+
+.chat-drawer-input {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  padding: 10px 12px;
+  border-top: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+
+.chat-drawer-input textarea {
+  flex: 1;
+  resize: vertical;
+}
+
 /* ---- トースト ---- */
 
 .toast-host {

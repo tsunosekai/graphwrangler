@@ -19,6 +19,7 @@ import {
   type Actor,
 } from "@graphwrangler/core";
 import { z } from "zod";
+import { chatKeyMissing, handleChat } from "./chat.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -142,6 +143,15 @@ app.post("/api/nodes/:id/answer", async (c) => {
     );
   }
   return c.json({ message, resolved, node: graph.get(id) });
+});
+
+// ---- チャット（M4: グラフ整理の相棒AI。実装は chat.ts） ----
+
+app.post("/api/chat", async (c) => {
+  const missing = chatKeyMissing();
+  if (missing) return c.json({ error: missing }, 400);
+  const body = await c.req.json();
+  return handleChat(graph, threads, body);
 });
 
 // ---- UI 配信（ビルド済みがあれば） ----

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { ChatDrawer } from "./components/ChatDrawer";
 import { GraphView } from "./components/GraphView";
 import { NodePanel } from "./components/NodePanel";
 import { PageList } from "./components/PageList";
@@ -11,6 +12,7 @@ export default function App() {
   const { data, refresh } = usePolling(() => api.getState(), 3000);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pageIdRaw, setPageId] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
 
   // ページ = フォルダ（kind=goal、またはメンバーを持つノード）。zinsei desk の左レール方式
@@ -44,7 +46,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TopBar nodes={nodes} onSelect={selectNode} />
+      <TopBar nodes={nodes} onSelect={selectNode} chatOpen={chatOpen} onToggleChat={() => setChatOpen((v) => !v)} />
       <div className="app-main">
         <PageList
           folders={folders}
@@ -69,6 +71,14 @@ export default function App() {
             node={selectedNode}
             onMutated={handleMutated}
             onClose={() => setSelectedId(null)}
+          />
+        )}
+        {chatOpen && (
+          <ChatDrawer
+            pageId={pageId}
+            pageTitle={pageNode?.title ?? null}
+            onMutated={handleMutated}
+            onClose={() => setChatOpen(false)}
           />
         )}
       </div>

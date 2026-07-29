@@ -1,0 +1,176 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildFailureRecoveryRequest,
+  buildIrreversibleGateRequest,
+  isFrontier,
+  selectAction,
+} from "../src/pick.js";
+import type { Message, Node } from "../src/types.js";
+
+let seq = 0;
+function node(partial: Partial<Node> = {}): Node {
+  seq += 1;
+  return {
+    id: partial.id ?? `n-${seq}`,
+    title: partial.title ?? `node ${seq}`,
+    detail: partial.detail ?? null,
+    impl: partial.impl ?? null,
+    parents: partial.parents ?? [],
+    group: partial.group ?? null,
+    kind: partial.kind ?? "task",
+    executor: partial.executor ?? "script",
+    impact: partial.impact ?? "safe",
+    lifecycle: partial.lifecycle ?? "committed",
+    status: partial.status ?? "pending",
+    selfImprove: partial.selfImprove ?? false,
+    pendingRequest: partial.pendingRequest ?? null,
+    order: partial.order ?? null,
+    created: partial.created ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
+    updated: partial.updated ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
+  };
+}
+
+function decisionAnswer(option: string | null, requestId = "m-req"): Message {
+  return {
+    id: "m-ans",
+    node: "n-x",
+    ts: "2026-01-01T00:01:00Z",
+    author: { kind: "human" },
+    via: "ui",
+    kind: "decision_answer",
+    body: "",
+    payload: { requestId, option, note: null },
+  };
+}
+
+describe("isFrontier", () => {
+  it("親が全てdoneなら真（parents空も真）", () => {
+    const parent = node({ id: "p1", status: "done" });
+    const child = node({ id: "c1", parents: ["p1"] });
+    const byId = new Map([parent, child].map((n) => [n.id, n]));
+    expect(isFrontier(child, byId)).toBe(true);
+    expect(isFrontier(parent, byId)).toBe(true); // parents=[] は空なので真
+  });
+
+  it("親が未完了なら偽", () => {
+    const parent = node({ id: "p1", status: "pending" });
+    const child = node({ id: "c1", parents: ["p1"] });
+    const byId = new Map([parent, child].map((n) => [n.id, n]));
+    expect(isFrontier(child, byId)).toBe(false);
+  });
+});
+
+describe("selectAction: frontier判定", () => {
+  it("親がdoneのfrontierノードはexecute", () => {
+    const parent = node({ status: "done" });
+    const child = node({ parents: [parent.id] });
+    const action = selectAction([parent, child]);
+    expect(action).toEqual({ type: "execute", node: child });
+  });
+
+  it("親が未完了のノードは候補から除外される", () => {
+    const parent = node({ status: "pending" });
+    const child = node({ parents: [parent.id] });
+    const action = selectAction([parent, child]);
+    // parent 自身は frontier(親なし)なので parent が選ばれ、child は選ばれない
+    expect(action).toEqual({ type: "execute", node: parent });
+  });
+});
+
+describe("selectAction: draft除外", () => {
+  it("lifecycle=draft のノードは実行候補にならない", () => {
+    const n = node({ lifecycle: "draft" });
+    expect(selectAction([n])).toEqual({ type: "none" });
+  });
+});
+
+describe("selectAction: unplanned除外", () => {
+  it("status=unplanned のノードは frontier でも候補にならない", () => {
+    const n = node({ status: "unplanned" });
+    expect(selectAction([n])).toEqual({ type: "none" });
+  });
+});
+
+describe("selectAction: kind/executor 除外", () => {
+  it("kind=goal は候補にならない", () => {
+    const n = node({ kind: "goal" });
+    expect(selectAction([n])).toEqual({ type: "none" });
+  });
+
+  it("executor=human は候補にならない", () => {
+    const n = node({ executor: "human" });
+    expect(selectAction([n])).toEqual({ type: "none" });
+  });
+});
+
+describe("selectAction: irreversible除外と承認後許可", () => {
+  it("impact=irreversibleは承認なしでは実行されずopen-gateになる", () => {
+    const n = node({ impact: "irreversible" });
+    expect(selectAction([n])).toEqual({ type: "open-gate", node: n });
+  });
+
+  it("直近のdecision_answerがoption=goならこの1回だけexecuteを許可する", () => {
+    const n = node({ impact: "irreversible" });
+    const action = selectAction([n], { [n.id]: decisionAnswer("go") });
+    expect(action).toEqual({ type: "execute", node: n });
+  });
+
+  it("直近のdecision_answerがoption=skipならdropになる", () => {
+    const n = node({ impact: "irreversible" });
+    const action = selectAction([n], { [n.id]: decisionAnswer("skip") });
+    expect(action).toEqual({ type: "drop", node: n });
+  });
+
+  it("goでない回答(retry等)は再度open-gateで確認を求める", () => {
+    const n = node({ impact: "irreversible" });
+    const action = selectAction([n], { [n.id]: decisionAnswer("retry") });
+    expect(action).toEqual({ type: "open-gate", node: n });
+  });
+});
+
+describe("selectAction: waiting復帰判定", () => {
+  it("status=waiting のノードは（pendingRequestの有無に関わらず）候補にならない", () => {
+    const n = node({ status: "waiting", pendingRequest: "m-1" });
+    expect(selectAction([n])).toEqual({ type: "none" });
+  });
+
+  it("失敗リカバリでretryが返り status=pending に戻ったノードは通常どおりexecuteされる", () => {
+    // server 側は option!=null の回答で status を pending に戻す（answerRequest の仕様）。
+    // その状態を模した入力で、通常の実行候補として扱われることを確認する
+    const n = node({ impact: "safe", status: "pending", pendingRequest: null });
+    const action = selectAction([n], { [n.id]: decisionAnswer("retry") });
+    expect(action).toEqual({ type: "execute", node: n });
+  });
+
+  it("失敗リカバリでabortが返ったノードはdropになる", () => {
+    const n = node({ impact: "safe", status: "pending", pendingRequest: null });
+    const action = selectAction([n], { [n.id]: decisionAnswer("abort") });
+    expect(action).toEqual({ type: "drop", node: n });
+  });
+});
+
+describe("selectAction: 選択順序", () => {
+  it("createdが古い順に最初の1件だけを返す", () => {
+    const older = node({ created: "2026-01-01T00:00:00Z" });
+    const newer = node({ created: "2026-01-02T00:00:00Z" });
+    const action = selectAction([newer, older]);
+    expect(action).toEqual({ type: "execute", node: older });
+  });
+});
+
+describe("buildIrreversibleGateRequest / buildFailureRecoveryRequest", () => {
+  it("irreversibleゲートは go/skip の2択で impact=irreversible", () => {
+    const n = node({ impact: "irreversible", title: "本番へ反映" });
+    const req = buildIrreversibleGateRequest(n);
+    expect(req.options.map((o) => o.id)).toEqual(["go", "skip"]);
+    expect(req.impact).toBe("irreversible");
+    expect(req.context).toContain("本番へ反映");
+  });
+
+  it("失敗リカバリは retry/modify/abort の3択", () => {
+    const n = node({ title: "何かの処理" });
+    const req = buildFailureRecoveryRequest(n, "timeout");
+    expect(req.options.map((o) => o.id)).toEqual(["retry", "modify", "abort"]);
+    expect(req.context).toContain("timeout");
+  });
+});

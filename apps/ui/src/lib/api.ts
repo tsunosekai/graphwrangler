@@ -80,4 +80,39 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ requestId, option, note }),
     }),
+
+  /**
+   * 内蔵チャット（M4）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側
+   * (ChatDrawer) が行う — この関数は「api キー未設定 400」だけをエラーとして解釈する。
+   */
+  chatStream: async (
+    messages: unknown[],
+    pageId: string | null,
+    signal?: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array>> => {
+    let res: Response;
+    try {
+      res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, pageId }),
+        signal,
+      });
+    } catch {
+      throw new ApiError("サーバに接続できません");
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = `HTTP ${res.status}`;
+      try {
+        const data = JSON.parse(text);
+        if (data && typeof data.error === "string") msg = data.error;
+      } catch {
+        /* JSONでなければ既定メッセージのまま */
+      }
+      throw new ApiError(msg);
+    }
+    if (!res.body) throw new ApiError("ストリームを取得できません");
+    return res.body;
+  },
 };

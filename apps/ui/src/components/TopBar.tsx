@@ -5,9 +5,11 @@ import { Icon } from "./Icon";
 interface Props {
   nodes: Node[];
   onSelect: (id: string) => void;
+  chatOpen: boolean;
+  onToggleChat: () => void;
 }
 
-export function TopBar({ nodes, onSelect }: Props) {
+export function TopBar({ nodes, onSelect, chatOpen, onToggleChat }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pending = nodes.filter((n) => n.pendingRequest);
@@ -26,6 +28,14 @@ export function TopBar({ nodes, onSelect }: Props) {
       <div className="topbar-logo">GraphWrangler</div>
       <div className="topbar-chip">{nodes.length} ノード</div>
       <div className="topbar-spacer" />
+      <button
+        type="button"
+        className={`chat-toggle-btn${chatOpen ? " is-active" : ""}`}
+        onClick={onToggleChat}
+        title="相棒AIとチャット"
+      >
+        <Icon name="chat" size={13} />
+      </button>
       <div className="inbox" ref={ref}>
         <button
           type="button"
