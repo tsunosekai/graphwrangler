@@ -220,16 +220,6 @@ body {
   background: transparent;
 }
 
-/* 下書き（未確定）は太さ1pxのまま「目の粗い」破線に。CSS の dashed は目の間隔を
-   制御できないため、SVG の stroke-dasharray を背景に敷く（枠線自体は透明にして寸法維持） */
-.node-card.lifecycle-draft {
-  border-color: transparent !important;
-  box-shadow: none !important; /* 影が破線の下に写って二重に見えるのを防ぐ */
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='8'%20stroke='rgba(100,116,139,0.55)'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
-}
-.dark .node-card.lifecycle-draft {
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20width='100%25'%20height='100%25'%20fill='none'%20rx='8'%20stroke='rgba(255,255,255,0.4)'%20stroke-width='2'%20stroke-dasharray='7,6'/%3E%3C/svg%3E");
-}
 
 /* アクティブ（実行中）ノードは実行者の色で囲う（ロゴの3色 = 今誰が動いているか）。パルスも同色 */
 .node-card.exec-ai {
@@ -348,4 +338,14 @@ body {
 
 .realigning .react-flow__node.dragging {
   transition: none;
+}
+
+/* 下書き（未確定）の破線。凝ったSVG方式は環境差でバグったため、素のCSS破線で作り直し
+   （1.5px にすると破線の目もほどよく粗くなる）。影は破線と重なって二重に見えるので消す */
+.node-card.lifecycle-draft {
+  border-style: dashed;
+  border-width: 1.5px;
+  border-color: var(--border-strong);
+  background-image: none;
+  box-shadow: none;
 }
