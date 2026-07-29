@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type NodePatchInput } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
+import { useResizableWidth } from "../hooks/useResizableWidth";
 import type { Node } from "../types";
 import { Icon } from "./Icon";
 import { Thread } from "./Thread";
@@ -28,6 +29,9 @@ const STATUS_OPTIONS: Node["status"][] = [
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
 export function NodePanel({ node, onMutated, onClose }: Props) {
   const [tab, setTab] = useState<"talk" | "history">("talk");
+  // 会話に縦幅を使うため、メタ情報（detail/種別/担当…）は既定で折りたたむ
+  const [metaOpen, setMetaOpen] = useState(false);
+  const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
   const { data: thread, refresh: refreshThread } = usePolling(() => api.getThread(node.id), 10000);
 
   const [titleDraft, setTitleDraft] = useState(node.title);
@@ -89,7 +93,8 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
   );
 
   return (
-    <aside className="node-panel">
+    <aside className="node-panel" style={{ width }}>
+      <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
       <div className="node-panel-head">
         <input
           className="node-title-field"
@@ -109,31 +114,50 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
         </button>
       </div>
 
-      <textarea
-        className="node-detail-field"
-        placeholder="detail / 補足"
-        value={detailDraft}
-        onFocus={() => setDetailFocused(true)}
-        onChange={(e) => setDetailDraft(e.target.value)}
-        onBlur={saveDetail}
-        rows={3}
-      />
-
-      {node.kind === "procedure" && (
-        <input
-          className="node-schedule-field"
-          placeholder="例: daily 09:00（v1は記録のみ）"
-          value={scheduleDraft}
-          onFocus={() => setScheduleFocused(true)}
-          onChange={(e) => setScheduleDraft(e.target.value)}
-          onBlur={saveSchedule}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          }}
-        />
+      {!metaOpen && (
+        <button type="button" className="node-meta-summary" onClick={() => setMetaOpen(true)}>
+          <span className="node-meta-chips">
+            <span className="meta-chip">{node.kind}</span>
+            <span className="meta-chip">{node.executor}</span>
+            <span className="meta-chip">{node.impact}</span>
+            <span className="meta-chip">{node.lifecycle}</span>
+            <span className="meta-chip">{node.status}</span>
+          </span>
+          {node.detail && <span className="node-detail-preview">{node.detail}</span>}
+          <span className="meta-expand-hint">▾</span>
+        </button>
       )}
 
-      <div className="node-meta-grid">
+      {metaOpen && (
+        <>
+          <button type="button" className="node-meta-summary" onClick={() => setMetaOpen(false)}>
+            <span className="meta-expand-hint">▴ たたむ</span>
+          </button>
+          <textarea
+            className="node-detail-field"
+            placeholder="detail / 補足"
+            value={detailDraft}
+            onFocus={() => setDetailFocused(true)}
+            onChange={(e) => setDetailDraft(e.target.value)}
+            onBlur={saveDetail}
+            rows={3}
+          />
+
+          {node.kind === "procedure" && (
+            <input
+              className="node-schedule-field"
+              placeholder="例: daily 09:00（v1は記録のみ）"
+              value={scheduleDraft}
+              onFocus={() => setScheduleFocused(true)}
+              onChange={(e) => setScheduleDraft(e.target.value)}
+              onBlur={saveSchedule}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+            />
+          )}
+
+          <div className="node-meta-grid">
         <label>
           種別
           <select value={node.kind} onChange={(e) => patch({ kind: e.target.value as Node["kind"] })}>
@@ -184,7 +208,9 @@ export function NodePanel({ node, onMutated, onClose }: Props) {
             ))}
           </select>
         </label>
-      </div>
+          </div>
+        </>
+      )}
 
       <div className="node-panel-tabs">
         <button type="button" className={tab === "talk" ? "is-active" : ""} onClick={() => setTab("talk")}>

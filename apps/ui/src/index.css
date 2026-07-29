@@ -107,6 +107,35 @@ select:focus {
   border-color: var(--card-border-strong);
 }
 
+/* パネル幅のリサイズハンドル（desk と同じ控えめな6px。hover時のみ線が浮く） */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 20;
+}
+
+.resize-handle-right {
+  right: -3px;
+}
+
+.resize-handle-left {
+  left: -3px;
+}
+
+.resize-handle:hover::after,
+.resize-handle:active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2.5px;
+  width: 1px;
+  background: var(--card-border-strong);
+}
+
 /* ---- レイアウト ---- */
 
 .app {
@@ -218,7 +247,7 @@ select:focus {
 /* ---- 左レール: ページ（ゴール）一覧。zinsei desk の左レール方式 ---- */
 
 .page-list {
-  width: 224px;
+  width: 224px; /* 実際の幅は useResizableWidth の inline style が優先 */
   flex-shrink: 0;
   border-right: 1px solid var(--card-border);
   background: var(--panel-bg);
@@ -227,6 +256,7 @@ select:focus {
   overflow-y: auto;
   padding: 8px 6px;
   gap: 1px;
+  position: relative;
 }
 
 .page-list-head {
@@ -761,7 +791,7 @@ select:focus {
 /* ---- ノードパネル ---- */
 
 .node-panel {
-  width: 380px;
+  width: 380px; /* 実際の幅は useResizableWidth の inline style が優先 */
   flex-shrink: 0;
   border-left: 1px solid var(--card-border);
   background: var(--panel-bg);
@@ -770,6 +800,54 @@ select:focus {
   overflow: hidden;
   padding: 12px;
   gap: 8px;
+  position: relative;
+}
+
+/* 折りたたみ時のメタ情報サマリ（会話に縦幅を譲る） */
+.node-meta-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 2px 0;
+  color: var(--text-mid);
+}
+
+.node-meta-summary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+}
+
+.node-meta-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.meta-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--card-border);
+  border-radius: 3px;
+  color: var(--text-mid);
+  font-family: ui-monospace, monospace;
+}
+
+.node-detail-preview {
+  font-size: 11px;
+  color: var(--text-lo);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta-expand-hint {
+  font-size: 10px;
+  color: var(--text-lo);
 }
 
 .node-panel-head {
@@ -1228,13 +1306,14 @@ select:focus {
 }
 
 .chat-drawer {
-  width: 360px;
+  width: 360px; /* 実際の幅は useResizableWidth の inline style が優先 */
   flex-shrink: 0;
   border-left: 1px solid var(--card-border);
   background: var(--panel-bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 .chat-drawer-head {

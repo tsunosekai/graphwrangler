@@ -3,6 +3,7 @@
 // （ai パッケージは apps/ui の依存に無い。pnpm add 禁止のため自前実装、docs/agent-contracts.md）。
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../lib/api";
+import { useResizableWidth } from "../hooks/useResizableWidth";
 import { ChatMessageView, type ChatMessage, type ChatPart, type ChatToolPart } from "./ChatMessage";
 import { Icon } from "./Icon";
 
@@ -42,6 +43,7 @@ async function readSse(
 }
 
 export function ChatDrawer({ pageId, pageTitle, onMutated, onClose }: Props) {
+  const [width, startResize] = useResizableWidth("chatW", 360, 300, 640);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -153,7 +155,8 @@ export function ChatDrawer({ pageId, pageTitle, onMutated, onClose }: Props) {
   };
 
   return (
-    <div className="chat-drawer">
+    <div className="chat-drawer" style={{ width }}>
+      <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
       <div className="chat-drawer-head">
         <span className="chat-drawer-title">
           <Icon name="chat" size={13} /> 相棒AI

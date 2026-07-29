@@ -158,4 +158,50 @@ await post("/api/nodes", {
   lifecycle: "draft",
 });
 
+// ---- 手順ページ: 毎朝のベランダ見回り（繰り返し、ランが流れる） ----
+
+const patrol = await post("/api/nodes", {
+  title: "毎朝のベランダ見回り",
+  kind: "procedure",
+  detail: "起きたらベランダの状態を確認して記録する定例。",
+  lifecycle: "committed",
+});
+
+const sensor = await post("/api/nodes", {
+  title: "土の乾き具合を記録する",
+  group: patrol.id,
+  executor: "script",
+  impl: { type: "script", command: "echo 土壌湿度: 34%（センサー読み取りのダミー）" },
+  lifecycle: "committed",
+});
+
+const diagnose = await post("/api/nodes", {
+  title: "様子から今日の世話を判断する",
+  group: patrol.id,
+  parents: [sensor.id],
+  executor: "ai",
+  impl: {
+    type: "doc",
+    text: "記録された土壌湿度と季節から、今日の水やり・肥料の要否を1〜2行で判断する。40%未満なら水やりを推奨。",
+  },
+  lifecycle: "committed",
+});
+
+await post("/api/nodes", {
+  title: "水やりする",
+  group: patrol.id,
+  parents: [diagnose.id],
+  executor: "human",
+  lifecycle: "committed",
+});
+
+// ラン1本を開始して、最初のワークアイテムだけ完了済みにしておく（台帳のデモ用）
+const run = await post(`/api/procedures/${patrol.id}/runs`, { trigger: "manual" });
+await post(`/api/runs/${run.id}/items/${sensor.id}`, {
+  status: "done",
+  note: "土壌湿度: 34%",
+  actor: { kind: "agent", name: "executor:script" },
+  via: "engine",
+});
+
 console.log("demo seeded:", BASE);

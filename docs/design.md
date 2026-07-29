@@ -277,11 +277,15 @@ open なリクエストの存在 ⇔ ボールが人間、が機械的に対応�
 - [x] M2: server + UI — グラフ/アウトライン二重ビュー、ノードパネル（スレッド+判断カード）
   - 既知の妥協: apps/ui/src/types.ts は core スキーマの手動ミラー（TS project references
     未導入のため。core を変えたら追随が必要）。ドラッグ位置は構造変更でリセット
-- [ ] M3: MCP サーバ（グラフ変更APIの公開）
-- [ ] M4: 内蔵チャット（プロバイダ選択式）
-- [ ] M5: executor プラグイン（claude -p / script）と実行エンジン
-- [ ] M6: 手順ページ（3.8）: ラン生成・ワークアイテム・判断ノード・トレース再生・
-      dirty伝搬・キャッシュ（PDG的実行モデルの実装）
+- [x] M3: MCP サーバ（グラフ変更APIの公開。packages/mcp、stdio）
+- [x] M4: 内蔵チャット（プロバイダ選択式 anthropic/openai。/api/chat + 右ドロワー）
+- [x] M5: executor（claude -p / script）と実行エンジン（packages/engine。
+      不可逆は承認ゲート、失敗は復旧カード）
+- [x] M6: 手順ページ: ラン生成（手動+schedule every/daily）・ワークアイテム実行・
+      台帳ビュー・トレース。**未実装で残るもの**: 判断ノード（分岐）、dirty伝搬、
+      決定的ノードのキャッシュ、ランの irreversible 承認連携、ラン待ちの受信箱統合
+- [ ] M7候補: 上記の残り / アウトラインビュー再導入 / 入れ子ノード / 自己改善 /
+      担当者・ロール / durable execution 判断
 - [ ] 後段: shadcn/ui 化とテーマ機構 / 入れ子ノード / 自己改善 / durable execution 判断
 
 ## 7. 参考（先行ツールから盗む場所）

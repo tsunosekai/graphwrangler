@@ -6,6 +6,7 @@
 import { useMemo } from "react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
+import { useResizableWidth } from "../hooks/useResizableWidth";
 import type { Node, Run, RunItemStatus, Status } from "../types";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
@@ -39,6 +40,7 @@ const RUN_DOT_ORDER: RunItemStatus[] = ["waiting", "running", "pending", "done",
 const MAX_DOTS = 16;
 
 export function PageList({ folders, allNodes, pageId, onSelectPage, onMutated }: Props) {
+  const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   const procedureIds = useMemo(
     () => folders.filter((f) => f.kind === "procedure").map((f) => f.id),
     [folders],
@@ -67,7 +69,11 @@ export function PageList({ folders, allNodes, pageId, onSelectPage, onMutated }:
   };
 
   return (
-    <div className="page-list">
+    <div className="page-list" style={{ width }}>
+      <div
+        className="resize-handle resize-handle-right"
+        onPointerDown={(e) => startResize(e, 1)}
+      />
       <div className="page-list-head">
         <span>ゴール</span>
         <button type="button" className="page-add-btn" title="ゴールを追加" onClick={addGoal}>
