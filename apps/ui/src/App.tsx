@@ -16,6 +16,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pageIdRaw, setPageId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  // ノードエディタ標準の複数選択（QOL）: グラフ上での選択件数。NodePanel の「他N件選択中」表示に使う
+  const [selectionCount, setSelectionCount] = useState(0);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
   // QOL-7: 未読バッジ用のノードごとの最終メッセージ時刻
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
@@ -156,6 +158,7 @@ export default function App() {
           threadMeta={threadMeta}
           onSelect={selectNode}
           onMutated={handleMutated}
+          onSelectionCountChange={setSelectionCount}
         />
         {selectedNode && (
           <NodePanel
@@ -164,6 +167,7 @@ export default function App() {
             onMutated={handleMutated}
             onClose={() => setSelectedId(null)}
             onSelect={selectNode}
+            selectedCount={selectionCount}
           />
         )}
         {chatOpen && (

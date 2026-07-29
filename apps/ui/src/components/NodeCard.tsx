@@ -40,9 +40,12 @@ export interface NodeCardData {
   [key: string]: unknown;
 }
 
-export function NodeCard({ data }: { data: NodeCardData }) {
+// selected は React Flow が rfNode.selected から自動で渡す（複数選択・矩形選択の見た目用）。
+// data.selected は App が追跡する「主選択」1件のための既存フラグ。どちらか点灯でリングを出す
+export function NodeCard({ data, selected }: { data: NodeCardData; selected?: boolean }) {
   const { node, isTemplate } = data;
   const [draft, setDraft] = useState(node.title);
+  const ringOn = data.selected || selected;
 
   useEffect(() => {
     if (data.editing) setDraft(node.title);
@@ -55,12 +58,14 @@ export function NodeCard({ data }: { data: NodeCardData }) {
       className={cn(
         // marker クラス（exec-*/status-*/lifecycle-*）は index.css のパルスアニメーション・
         // 下書きの粗い破線背景に使う。見た目の大半は Tailwind ユーティリティで組む
-        "node-card relative w-[220px] rounded-md border border-border bg-card p-3 shadow-xs transition-colors hover:border-border-hover",
+        // 枠の濃さは破線（draft）時代の明るい方に統一（本人指定）。hover での色変化は
+        // ベースが既に strong なので廃止
+        "node-card relative w-[220px] rounded-md border border-border-strong bg-card p-3 shadow-xs transition-colors",
         `exec-${node.executor}`,
         `lifecycle-${node.lifecycle}`,
         !isTemplate && `status-${node.status}`,
         !isTemplate && (node.status === "done" || node.status === "dropped") && "opacity-90",
-        data.selected && "is-selected border-border-strong shadow-[0_0_0_1px_var(--border-strong)]",
+        ringOn && "is-selected border-border-strong shadow-[0_0_0_1px_var(--border-strong)]",
       )}
       onClick={() => data.onSelect(node.id)}
       onDoubleClick={() => data.onDoubleClick(node.id)}

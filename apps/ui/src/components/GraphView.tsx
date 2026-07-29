@@ -11,7 +11,7 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Undo2 } from "lucide-react";
+import { Keyboard, Undo2 } from "lucide-react";
 import { api } from "../lib/api";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
@@ -23,9 +23,44 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { CutEdge, type CutEdgeData } from "./CutEdge";
 import { LedgerView } from "./LedgerView";
 import { NodeCard, type NodeCardData } from "./NodeCard";
+import { ShortcutsDialog } from "./ShortcutsDialog";
 
 const nodeTypes = { task: NodeCard };
 const edgeTypes = { cut: CutEdge };
+
+// ---- Ctrl+C/Ctrl+V/Ctrl+D 用のアプリ内クリップボード（モジュール変数。ページを跨いでも保持する） ----
+interface ClipboardNode {
+  origId: string;
+  title: string;
+  detail: string | null;
+  impl: Node["impl"];
+  executor: Node["executor"];
+  impact: Node["impact"];
+  kind: Node["kind"];
+  /** コピー元選択内で閉じた依存だけを覚える（外部への parents は貼り付け時に捨てる） */
+  parentOrigIds: string[];
+  pos: Pos;
+}
+let clipboard: ClipboardNode[] = [];
+
+/** 入力欄・ダイアログ・ChatDrawer にフォーカスがある間はショートカットを無効にする */
+function isShortcutBlocked(e: KeyboardEvent): boolean {
+  const target = e.target as HTMLElement | null;
+  if (!target) return false;
+  if (
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT" ||
+    target.isContentEditable
+  ) {
+    return true;
+  }
+  // radix Dialog(CommandPalette/SetupModal/ShortcutsDialog等)は role="dialog" を持つ
+  if (target.closest('[role="dialog"]')) return true;
+  // ChatDrawer のルート要素に data-shortcuts-block を付けてある
+  if (target.closest("[data-shortcuts-block]")) return true;
+  return false;
+}
 
 interface Props {
   /** 表示するページ（フォルダ）のメンバーだけが渡される */
@@ -37,18 +72,81 @@ interface Props {
   threadMeta: Record<string, string>;
   onSelect: (id: string | null) => void;
   onMutated: () => void;
+  /** 複数選択件数。NodePanel の「他 N件選択中」表示に使う（QOL: 複数選択） */
+  onSelectionCountChange?: (count: number) => void;
 }
 
-function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onMutated }: Props) {
+function GraphViewInner({
+  nodes,
+  pageNode,
+  selectedId,
+  threadMeta,
+  onSelect,
+  onMutated,
+  onSelectionCountChange,
+}: Props) {
   const positionsRef = useRef<Map<string, Pos>>(new Map());
   // 紐を空中に放して作ったノードの「落とした位置」。次のレイアウト再計算時に適用して消す
   const overridesRef = useRef<Map<string, Pos>>(new Map());
+  // 貼り付け/複製で作った新規ノード群を、サーバから戻ってきた時点で選択状態にするための予約
+  const pendingSelectRef = useRef<Set<string> | null>(null);
+  // 直近クリックしたノードid。onSelectionChange の「最後に選択されたノード」推定を補強する
+  const lastClickedRef = useRef<string | null>(null);
   const sigRef = useRef<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rfNodes, setRfNodes] = useState<RFNode<NodeCardData>[]>([]);
   // QOL-2: 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
+
+  // 現在選択中のノードid一覧（React Flow の内部 selected フラグから）
+  const getSelectedNodeIds = useCallback(
+    () => getNodes().filter((n) => n.selected).map((n) => n.id),
+    [getNodes],
+  );
+
+  // App への「最後に選択されたノード」+件数の同期（プログラム的な選択変更用。
+  // クリック由来は onNodeClick が正確な値を lastClickedRef 経由で運ぶ）
+  const reportSelection = useCallback(
+    (ids: string[]) => {
+      onSelectionCountChange?.(ids.length);
+      const primary = ids.length > 0 ? ids[ids.length - 1] : null;
+      lastClickedRef.current = primary;
+      onSelect(primary);
+    },
+    [onSelect, onSelectionCountChange],
+  );
+
+  // rfNodes の selected フラグをまとめて書き換え、App にも同期する
+  // （Ctrl+A/Escape/貼り付け/複製など、React Flow のネイティブ操作を経由しない選択変更で使う）
+  const applySelection = useCallback(
+    (ids: string[]) => {
+      const idSet = new Set(ids);
+      setRfNodes((prev) =>
+        prev.map((n) => (idSet.has(n.id) === !!n.selected ? n : { ...n, selected: idSet.has(n.id) })),
+      );
+      reportSelection(ids);
+    },
+    [reportSelection],
+  );
+
+  // React Flow のネイティブ選択（クリック/Shift+クリック/矩形選択）が変わった時。
+  // 「最後に選択されたノード」は配列順では分からないため、直近クリックが選択集合に
+  // 残っていればそれを優先し、無ければ（矩形選択など）配列末尾で妥協する
+  const handleSelectionChange = useCallback(
+    ({ nodes: selNodes }: { nodes: RFNode<NodeCardData>[] }) => {
+      const ids = selNodes.map((n) => n.id);
+      onSelectionCountChange?.(ids.length);
+      if (ids.length === 0) return;
+      const primary =
+        lastClickedRef.current && ids.includes(lastClickedRef.current)
+          ? lastClickedRef.current
+          : ids[ids.length - 1];
+      onSelect(primary);
+    },
+    [onSelect, onSelectionCountChange],
+  );
 
   // 実測ノードサイズ（React Flow の measured）。整列時に渡すと、ノードの縦幅に
   // 関わらずノード間の間隔が一定になる（本人指定）
@@ -133,7 +231,19 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
       if (pageChanged) {
         // ページ切替時は全体が見える位置へ。「にゅっ」と動かさず即座に（本人指定）
         requestAnimationFrame(() => fitView({ padding: 0.2, duration: 0 }));
+        // 前ページの多重選択は引き継がない（NodePanel の「他N件」表示もリセット）
+        onSelectionCountChange?.(selectedId ? 1 : 0);
       }
+    }
+    // 複数選択(rn.selected)はポーリングのたびに rfNodes を作り直しても消えないよう、
+    // 直前の React Flow 内部状態から id ベースで引き継ぐ（本人指定）
+    const prevSelected = new Set(getNodes().filter((n) => n.selected).map((n) => n.id));
+    // 貼り付け/複製で作った新規ノードが今回のポーリングで初めて出現したら、選択状態にする
+    const pending = pendingSelectRef.current;
+    let pendingMatched: string[] = [];
+    if (pending) {
+      pendingMatched = nodes.map((n) => n.id).filter((id) => pending.has(id));
+      if (pendingMatched.length > 0) pendingSelectRef.current = null;
     }
     setRfNodes(
       nodes.map((n) => {
@@ -141,11 +251,14 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
         const lastMsgTs = threadMeta[n.id];
         const readTs = lastMsgTs ? localStorage.getItem(`gw.read.${n.id}`) : null;
         const unread = !!lastMsgTs && (!readTs || lastMsgTs > readTs);
+        const selected =
+          pendingMatched.length > 0 ? pendingMatched.includes(n.id) : prevSelected.has(n.id) || n.id === selectedId;
         return {
           id: n.id,
           type: "task" as const,
           position: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
           draggable: true,
+          selected,
           data: {
             node: n,
             selected: n.id === selectedId,
@@ -160,7 +273,21 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
         };
       }),
     );
-  }, [nodes, pageNode, selectedId, editingId, isProcedure, threadMeta, onSelect, commitTitle, fitView]);
+    if (pendingMatched.length > 0) reportSelection(pendingMatched);
+  }, [
+    nodes,
+    pageNode,
+    selectedId,
+    editingId,
+    isProcedure,
+    threadMeta,
+    onSelect,
+    commitTitle,
+    fitView,
+    getNodes,
+    reportSelection,
+    onSelectionCountChange,
+  ]);
 
   // QOL-2: 依存の切断。子ノードの parents から source を除く（Ctrl+Zで戻せる: undo は既存の操作ログ経由）
   const cutEdge = useCallback(
@@ -334,39 +461,261 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
     }
   }, [onMutated]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const isEditable =
-        !!target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (isEditable) return;
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
-      e.preventDefault();
-      if (e.shiftKey) void runRedo();
-      else void runUndo();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [runUndo, runRedo]);
+  // 依存の葉（選択集合内で自分を parents に持つノードがいない）から順に削除を試みる。
+  // 子持ちで消せないものは api() 側のトーストに任せ、次のパスへ回す。1周で1件も消えなければ打ち切る
+  // （discardDrafts と同じ考え方。ループが自然と葉順に収束するので、事前ソートは行わずAPIエラーに任せる）
+  const removeLeafFirst = useCallback(async (ids: string[]): Promise<string[]> => {
+    let remaining = [...ids];
+    const deleted: string[] = [];
+    while (remaining.length > 0) {
+      let removedAny = false;
+      const stillRemaining: string[] = [];
+      for (const id of remaining) {
+        try {
+          await api.removeNode(id);
+          deleted.push(id);
+          removedAny = true;
+        } catch {
+          stillRemaining.push(id);
+        }
+      }
+      remaining = stillRemaining;
+      if (!removedAny) break;
+    }
+    return deleted;
+  }, []);
 
-  // QOL-2: 選択中の依存エッジを Delete/Backspace で切断（入力欄フォーカス時は無効）
+  // Delete/Backspace（選択エッジが無い時）: 選択中の全ノードを削除。confirm は無し（undo で戻せるため）
+  const deleteSelectedNodes = useCallback(async () => {
+    const ids = getSelectedNodeIds();
+    if (ids.length === 0) return;
+    const deleted = await removeLeafFirst(ids);
+    applySelection([]);
+    onMutated();
+    if (deleted.length > 0) pushToast(`${deleted.length}件削除しました（Ctrl+Zで戻せます）`, "info");
+  }, [getSelectedNodeIds, removeLeafFirst, applySelection, onMutated]);
+
+  // Ctrl+C: 選択ノードをモジュール変数のクリップボードへ（thread は持たない。新規ノードとして貼り付ける）
+  const copySelection = useCallback(() => {
+    const ids = getSelectedNodeIds();
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const entries: ClipboardNode[] = [];
+    for (const id of ids) {
+      const n = nodes.find((x) => x.id === id);
+      if (!n) continue;
+      entries.push({
+        origId: id,
+        title: n.title,
+        detail: n.detail,
+        impl: n.impl,
+        executor: n.executor,
+        impact: n.impact,
+        kind: n.kind,
+        // 選択内で閉じた依存だけ覚える。外部への parents は貼り付け時に捨てる
+        parentOrigIds: n.parents.filter((p) => idSet.has(p)),
+        pos: positionsRef.current.get(id) ?? { x: 0, y: 0 },
+      });
+    }
+    clipboard = entries;
+    pushToast(`${entries.length}件コピーしました`, "info");
+  }, [nodes, getSelectedNodeIds]);
+
+  // Ctrl+V/Ctrl+D 共通: エントリ群を新規ノードとして作り、選択内で閉じた依存だけ張り替える。
+  // id はサーバ採番なので、まず全部作ってから旧id→新idマップで parents を patch する
+  const materializeClipboard = useCallback(
+    async (entries: ClipboardNode[], label: string) => {
+      if (entries.length === 0) return;
+      const idMap = new Map<string, string>();
+      const createdIds: string[] = [];
+      for (const entry of entries) {
+        const created = await api.addNode({
+          title: entry.title,
+          detail: entry.detail,
+          impl: entry.impl,
+          executor: entry.executor,
+          impact: entry.impact,
+          kind: entry.kind,
+          group: pageNode?.id ?? null,
+          lifecycle: "draft",
+          status: "pending",
+        });
+        idMap.set(entry.origId, created.id);
+        createdIds.push(created.id);
+        // 元の位置+40pxオフセット。次のレイアウト再計算時に一度だけ適用される（handleConnectEnd と同じ仕組み）
+        overridesRef.current.set(created.id, { x: entry.pos.x + 40, y: entry.pos.y + 40 });
+      }
+      for (const entry of entries) {
+        const newParents = entry.parentOrigIds
+          .map((pid) => idMap.get(pid))
+          .filter((x): x is string => !!x);
+        if (newParents.length === 0) continue;
+        const newId = idMap.get(entry.origId);
+        if (!newId) continue;
+        await api.patchNode(newId, { parents: newParents });
+      }
+      // 作成したノード群がポーリングで出現したら選択する（App の selectedId は1件しか運べないため）
+      pendingSelectRef.current = new Set(createdIds);
+      onMutated();
+      pushToast(`${createdIds.length}件${label}しました（Ctrl+Zで戻せます）`, "info");
+    },
+    [pageNode, onMutated],
+  );
+
+  const pasteClipboard = useCallback(
+    () => materializeClipboard(clipboard, "貼り付け"),
+    [materializeClipboard],
+  );
+
+  // Ctrl+D: Ctrl+C→Ctrl+V 相当を一発で（モジュール変数のクリップボードは書き換えない）
+  const duplicateSelection = useCallback(() => {
+    const ids = getSelectedNodeIds();
+    if (ids.length === 0) return Promise.resolve();
+    const idSet = new Set(ids);
+    const entries: ClipboardNode[] = ids
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter((n): n is Node => !!n)
+      .map((n) => ({
+        origId: n.id,
+        title: n.title,
+        detail: n.detail,
+        impl: n.impl,
+        executor: n.executor,
+        impact: n.impact,
+        kind: n.kind,
+        parentOrigIds: n.parents.filter((p) => idSet.has(p)),
+        pos: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
+      }));
+    return materializeClipboard(entries, "複製");
+  }, [nodes, getSelectedNodeIds, materializeClipboard]);
+
+  // F: 選択ノードがあればそれらにズーム、無ければ全体
+  const fitSelectionOrAll = useCallback(() => {
+    const ids = getSelectedNodeIds();
+    if (ids.length > 0) fitView({ nodes: ids.map((id) => ({ id })), padding: 0.2, duration: 0 });
+    else fitView({ padding: 0.2, duration: 0 });
+  }, [fitView, getSelectedNodeIds]);
+
+  // 選択中ノードがこのページのタスクなら、その後続として作る（Tab / 「+ ノード」ボタン共通）
+  const selectedInPage = selectedId && nodes.some((n) => n.id === selectedId) ? selectedId : null;
+
+  // Tab（選択なし）: 画面中央に新規ノードを作成+即リネーム。QOL-9のダブルクリック作成と同じ仕組み
+  const createNodeAtCenter = useCallback(async () => {
+    const rect = paneRef.current?.getBoundingClientRect();
+    const cx = rect ? rect.left + rect.width / 2 : 0;
+    const cy = rect ? rect.top + rect.height / 2 : 0;
+    const pos = screenToFlowPosition({ x: cx, y: cy });
+    const created = await api.addNode({ title: "", group: pageNode?.id ?? null });
+    overridesRef.current.set(created.id, { x: pos.x - 110, y: pos.y - 16 });
+    onMutated();
+    onSelect(created.id);
+    setEditingId(created.id);
+  }, [pageNode, onMutated, onSelect, screenToFlowPosition]);
+
+  // ---- ノードエディタ標準のキーボードショートカット（Houdini/Blender/ComfyUI 準拠）。
+  //      window で一元管理し、入力欄フォーカス中・ダイアログ/ChatDrawer 内では全て無効にする ----
   useEffect(() => {
-    if (!selectedEdgeId) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const isEditable =
-        !!target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (isEditable) return;
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
-      e.preventDefault();
-      const [source, target_] = selectedEdgeId.split("->");
-      void cutEdge(source, target_);
+      if (isShortcutBlocked(e)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key;
+      const keyLower = key.toLowerCase();
+
+      if (mod && keyLower === "z") {
+        e.preventDefault();
+        if (e.shiftKey) void runRedo();
+        else void runUndo();
+        return;
+      }
+      if (key === "Delete" || key === "Backspace") {
+        if (selectedEdgeId) {
+          e.preventDefault();
+          const [source, target_] = selectedEdgeId.split("->");
+          void cutEdge(source, target_);
+        } else if (getSelectedNodeIds().length > 0) {
+          e.preventDefault();
+          void deleteSelectedNodes();
+        }
+        return;
+      }
+      if (mod && keyLower === "a") {
+        e.preventDefault();
+        applySelection(nodes.map((n) => n.id));
+        return;
+      }
+      if (mod && keyLower === "c") {
+        if (getSelectedNodeIds().length === 0) return; // 通常のテキストコピーを邪魔しない
+        e.preventDefault();
+        copySelection();
+        return;
+      }
+      if (mod && keyLower === "v") {
+        if (clipboard.length === 0) return;
+        e.preventDefault();
+        void pasteClipboard();
+        return;
+      }
+      if (mod && keyLower === "d") {
+        if (getSelectedNodeIds().length === 0) return;
+        e.preventDefault();
+        void duplicateSelection();
+        return;
+      }
+      if (!mod && keyLower === "f") {
+        e.preventDefault();
+        fitSelectionOrAll();
+        return;
+      }
+      if (!mod && keyLower === "l") {
+        e.preventDefault();
+        realign();
+        return;
+      }
+      if (key === "F2") {
+        const ids = getSelectedNodeIds();
+        if (ids.length === 1) {
+          e.preventDefault();
+          setEditingId(ids[0]);
+        }
+        return;
+      }
+      if (key === "Tab") {
+        e.preventDefault();
+        if (selectedInPage) void createNode(selectedInPage);
+        else void createNodeAtCenter();
+        return;
+      }
+      if (key === "Escape") {
+        applySelection([]);
+        setSelectedEdgeId(null);
+        return;
+      }
+      if (key === "?" || (e.shiftKey && key === "/")) {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedEdgeId, cutEdge]);
+  }, [
+    selectedEdgeId,
+    cutEdge,
+    runUndo,
+    runRedo,
+    nodes,
+    applySelection,
+    getSelectedNodeIds,
+    deleteSelectedNodes,
+    copySelection,
+    pasteClipboard,
+    duplicateSelection,
+    fitSelectionOrAll,
+    realign,
+    createNode,
+    createNodeAtCenter,
+    selectedInPage,
+  ]);
 
   // ---- A-1: 下書き承認バー（draft ノードを確定/破棄） ----
   const draftNodes = useMemo(() => nodes.filter((n) => n.lifecycle === "draft"), [nodes]);
@@ -381,25 +730,9 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
   const discardDrafts = useCallback(async () => {
     if (draftNodes.length === 0) return;
     if (!window.confirm(`下書き ${draftNodes.length} 件を破棄しますか？`)) return;
-    // 依存の葉（子を持たないノード）から順に削除する。子持ちで消せないものはトースト表示済みなので
-    // 次のパスへ回し、1周で1件も消えなくなったら打ち切る（循環や draft 外の子が残っているケース）
-    let remaining = draftNodes.map((n) => n.id);
-    while (remaining.length > 0) {
-      let removedAny = false;
-      const stillRemaining: string[] = [];
-      for (const id of remaining) {
-        try {
-          await api.removeNode(id);
-          removedAny = true;
-        } catch {
-          stillRemaining.push(id);
-        }
-      }
-      remaining = stillRemaining;
-      if (!removedAny) break;
-    }
+    await removeLeafFirst(draftNodes.map((n) => n.id));
     onMutated();
-  }, [draftNodes, onMutated]);
+  }, [draftNodes, onMutated, removeLeafFirst]);
 
   // ---- A-5: 硬化率チップ（committed メンバーのうち impl=script の割合） ----
   const hardening = useMemo(() => {
@@ -407,9 +740,6 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
     const hardened = committed.filter((n) => n.impl?.type === "script");
     return { n: hardened.length, m: committed.length };
   }, [nodes]);
-
-  // 選択中ノードがこのページのタスクなら、その後続として作る
-  const selectedInPage = selectedId && nodes.some((n) => n.id === selectedId) ? selectedId : null;
 
   const showLedger = isProcedure && viewMode === "ledger";
 
@@ -451,6 +781,14 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
               </TooltipTrigger>
               <TooltipContent>元に戻す (Ctrl+Z)</TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" onClick={() => setShortcutsOpen(true)}>
+                  <Keyboard />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>ショートカット一覧 (?)</TooltipContent>
+            </Tooltip>
             {hardening.m > 0 && (
               <Badge variant="secondary" title="確定メンバーのうちスクリプト化済みの割合">
                 硬化 {hardening.n}/{hardening.m}
@@ -487,10 +825,15 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
           onNodesChange={handleNodesChange}
           onConnect={handleConnect}
           onConnectEnd={handleConnectEnd}
-          onNodeClick={(_, n) => onSelect(n.id)}
+          onNodeClick={(_, n) => {
+            lastClickedRef.current = n.id;
+            onSelect(n.id);
+          }}
           onEdgeClick={(_, edge) => setSelectedEdgeId(edge.id)}
+          onSelectionChange={handleSelectionChange}
           onPaneClick={() => {
             onSelect(null);
+            onSelectionCountChange?.(0);
             setSelectedEdgeId(null);
           }}
           onDoubleClick={handlePaneDoubleClick}
@@ -501,11 +844,16 @@ function GraphViewInner({ nodes, pageNode, selectedId, threadMeta, onSelect, onM
             createNode(null);
           }}
           proOptions={{ hideAttribution: true }}
+          // 複数選択: クリック/Shift+クリック/Ctrl+クリックで追加選択、Shift+ドラッグで矩形選択。
+          // パン(素のドラッグ)は既定のまま邪魔しない
+          selectionKeyCode="Shift"
+          multiSelectionKeyCode={["Shift", "Control", "Meta"]}
           fitView
         >
           <Controls showInteractive={false} />
         </ReactFlow>
       )}
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   );
 }

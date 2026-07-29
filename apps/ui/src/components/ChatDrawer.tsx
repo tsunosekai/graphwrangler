@@ -201,6 +201,9 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
 
   return (
     <div
+      // data-shortcuts-block: グラフのキーボードショートカット(GraphView)を無効化する目印
+      // （このドロワーは role="dialog" を持たない素の常設パネルのため、入力欄以外にも及ぶよう明示する）
+      data-shortcuts-block
       className="relative flex flex-shrink-0 flex-col overflow-hidden border-l bg-background"
       style={{ width }}
     >

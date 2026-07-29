@@ -19,6 +19,8 @@ interface Props {
   onClose: () => void;
   /** ノード複製後に新規ノードを選択するため（QOL-8）。ページ切替も面倒を見る App.selectNode を渡す */
   onSelect: (id: string) => void;
+  /** グラフ上での複数選択件数（QOL）。2以上の時だけ「他N件選択中」を出す */
+  selectedCount?: number;
 }
 
 const KIND_OPTIONS: Node["kind"][] = ["goal", "task", "procedure"];
@@ -36,7 +38,7 @@ const STATUS_OPTIONS: Node["status"][] = [
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
-export function NodePanel({ node, onMutated, onClose, onSelect }: Props) {
+export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }: Props) {
   const [tab, setTab] = useState<"talk" | "history">("talk");
   // 会話に縦幅を使うため、メタ情報（detail/種別/担当…）は既定で折りたたむ
   const [metaOpen, setMetaOpen] = useState(false);
@@ -188,6 +190,11 @@ export function NodePanel({ node, onMutated, onClose, onSelect }: Props) {
           <X />
         </Button>
       </div>
+
+      {/* 複数選択中(QOL): このノードは代表表示のみで、実際は他にも選択がある旨を示す */}
+      {selectedCount != null && selectedCount > 1 && (
+        <span className="-mt-2 text-xs text-muted-foreground">他 {selectedCount - 1} 件選択中</span>
+      )}
 
       {!metaOpen && (
         <button
