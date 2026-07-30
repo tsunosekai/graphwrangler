@@ -136,8 +136,6 @@ export default function App() {
     <div className="flex h-full flex-col text-foreground">
       <TopBar
         nodes={nodes}
-        runWaitItems={runWaitItems}
-        onSelect={selectNode}
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((v) => !v)}
         onOpenSettings={() => setSettingsOpen(true)}
