@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
-  GitBranch,
   History,
   Lock,
   MessageSquare,
@@ -25,6 +24,7 @@ import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { DecisionCard } from "./DecisionCard";
+import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 import { Thread } from "./Thread";
 
@@ -318,13 +318,13 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
         node.branches &&
         (node.status === "done" || node.status === "skipped" ? (
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-            <GitBranch className="size-3.5 flex-shrink-0" />
+            <Icon name="branch" size={13} />
             選択済み: {node.branches.find((b) => b.id === node.choice)?.label ?? node.choice ?? "-"}
           </div>
         ) : (
           <div className="flex flex-col gap-1.5 rounded-md border border-dashed border-border-strong bg-card p-2.5">
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <GitBranch className="size-3.5" /> 分岐を選ぶ
+              <Icon name="branch" size={13} /> 分岐を選ぶ
             </span>
             {node.branches.map((b) => (
               <Button
@@ -516,7 +516,7 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
           {node.kind === "decision" && (
             <div className="flex flex-col gap-1.5">
               <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <GitBranch className="size-3.5" /> 分岐の枝
+                <Icon name="branch" size={13} /> 分岐の枝
               </span>
               {(node.branches ?? []).map((b) => (
                 <BranchRow

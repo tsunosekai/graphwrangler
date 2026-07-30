@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
-import { GitBranch, Loader2, Lock, Play, Unlock, Zap } from "lucide-react";
+import { Loader2, Lock, Play, Unlock, Zap } from "lucide-react";
 import { api } from "../lib/api";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
@@ -192,7 +192,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         )}
         {node.kind === "decision" && (
           <span className="inline-flex flex-shrink-0 text-muted-foreground" title="判断ノード（分岐）">
-            <GitBranch className="size-3" />
+            <Icon name="branch" size={12} />
           </span>
         )}
         {node.kind === "trigger" && (
@@ -274,7 +274,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       {/* 分岐確定後: 選んだ枝を表示（docs/design.md 3.9） */}
       {node.kind === "decision" && node.choice && (
         <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-          <GitBranch className="size-3 flex-shrink-0" />
+          <Icon name="branch" size={12} />
           <span className="truncate">
             → {node.branches?.find((b) => b.id === node.choice)?.label ?? node.choice}
           </span>

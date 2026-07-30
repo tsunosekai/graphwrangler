@@ -34,6 +34,9 @@ const PATHS: Record<string, string> = {
   // 形状は Lucide の bot / terminal を移植（cpu/gear は「AI/スクリプトに見えない」ため置換）
   bot: 'M12 8V4H8M2 14h2M20 14h2M15 13v2M9 13v2',
   terminal: 'M4 17l6-6-6-6M12 19h8',
+  // 判断（分岐）: 下向きY字+枝先ちょぼ（2026-07-31 本人選定「C」。縦フローで枝が下辺から
+  // 割れる実挙動に向きを揃えた自作。GitBranch は上向きで Git 用語の絵だったため置換）
+  branch: 'M12 3.5v6.5M12 10 7 16.5M12 10 17 16.5',
 };
 
 // パスだけでは表せない形状（rect/circle）を含むアイコン
@@ -52,6 +55,12 @@ const EXTRA: Record<string, React.ReactNode> = {
   lock: <rect x="4" y="11" width="16" height="9" rx="1.5" />,
   unlock: <rect x="4" y="11" width="16" height="9" rx="1.5" />,
   bot: <rect x="4" y="8" width="16" height="12" rx="2" />,
+  branch: (
+    <>
+      <circle cx="7" cy="19" r="1.6" />
+      <circle cx="17" cy="19" r="1.6" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 13 }: { name: keyof typeof PATHS; size?: number }) {

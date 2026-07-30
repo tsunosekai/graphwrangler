@@ -19,6 +19,11 @@ export const NODE_WIDTH = 220;
 export const NODE_HEIGHT = 64;
 const GROUP_PAD = 24;
 const GROUP_TITLE_H = 28;
+/** カード左右の外付けバッジ（左: 完了チェック/スピナー、右: ロック/▶発火。どちらも
+ *  ±30px はみ出す）が隣のノードと被らないための水平マージン。dagre に渡す幅だけ
+ *  この分広げ、描画サイズは変えない（2026-07-31 本人指定）。nodesep はバッジ同士の
+ *  すき間になるので小さめでよい */
+const SIDE_BADGE_MARGIN = 30;
 
 export interface LayoutResult {
   /** グループ所属ノードは親からの相対座標、それ以外は絶対座標（React Flow の流儀） */
@@ -32,7 +37,7 @@ function runDagre(
   edges: [string, string][],
 ): dagre.graphlib.Graph {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: "TB", nodesep: 32, ranksep: 56 });
+  g.setGraph({ rankdir: "TB", nodesep: 12, ranksep: 56 });
   g.setDefaultEdgeLabel(() => ({}));
   for (const it of items) g.setNode(it.id, { width: it.width, height: it.height });
   for (const [a, b] of edges) g.setEdge(a, b);
@@ -46,6 +51,12 @@ function runDagre(
 export function layoutGraph(nodes: Node[], measured?: Map<string, Size>): LayoutResult {
   const sizeOf = (id: string): Size =>
     measured?.get(id) ?? { width: NODE_WIDTH, height: NODE_HEIGHT };
+  // dagre 用のサイズ: 左右バッジのはみ出し分を幅に含める（中心座標は変わらないので、
+  // 配置式は実寸のままで自動的に真ん中に収まる）
+  const layoutSizeOf = (id: string): Size => {
+    const s = sizeOf(id);
+    return { width: s.width + SIDE_BADGE_MARGIN * 2, height: s.height };
+  };
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
   const members = new Map<string, Node[]>();
   for (const n of nodes) {
@@ -67,7 +78,7 @@ export function layoutGraph(nodes: Node[], measured?: Map<string, Size>): Layout
       for (const p of n.parents) if (idSet.has(p)) edges.push([p, n.id]);
     }
     const g = runDagre(
-      list.map((n) => ({ id: n.id, ...sizeOf(n.id) })),
+      list.map((n) => ({ id: n.id, ...layoutSizeOf(n.id) })),
       edges,
     );
     let maxX = 0;
@@ -78,7 +89,8 @@ export function layoutGraph(nodes: Node[], measured?: Map<string, Size>): Layout
       const x = pos.x - sz.width / 2 + GROUP_PAD;
       const y = pos.y - sz.height / 2 + GROUP_PAD + GROUP_TITLE_H;
       positions.set(n.id, { x, y });
-      maxX = Math.max(maxX, x + sz.width);
+      // 右端は右バッジのはみ出し分まで箱に含める
+      maxX = Math.max(maxX, x + sz.width + SIDE_BADGE_MARGIN);
       maxY = Math.max(maxY, y + sz.height);
     }
     groupSizes.set(groupId, { width: maxX + GROUP_PAD, height: maxY + GROUP_PAD });
@@ -112,7 +124,7 @@ export function layoutGraph(nodes: Node[], measured?: Map<string, Size>): Layout
       const size = groupSizes.get(n.id);
       return {
         id: n.id,
-        width: size ? size.width : sizeOf(n.id).width,
+        width: size ? size.width : layoutSizeOf(n.id).width,
         height: size ? size.height + GROUP_TITLE_H : sizeOf(n.id).height,
       };
     }),
