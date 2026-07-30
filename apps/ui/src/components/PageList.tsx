@@ -1,6 +1,6 @@
-// 左レールのページ一覧。ゴール/手順（フォルダ）1つ = 1ページ（desk の左レール方式）。
+// 左レールのページ一覧。ゴール/ルーティーン（フォルダ）1つ = 1ページ（desk の左レール方式）。
 // タイトル下にメンバーの状態内訳ドット（desk の ball 内訳ドットの継承）。
-// 手順ページ（kind=procedure）は StatusCircle の代わりに repeat アイコンを出し、
+// ルーティーンページ（kind=procedure）は StatusCircle の代わりに repeat アイコンを出し、
 // ドットはメンバーの status ではなく「最新ランのワークアイテム状態内訳」にする
 // （テンプレート自身は status を持たない思想。docs/design.md 3.8）。
 // 最新ランの取得は App 側でまとめてポーリングする（B-6: 受信箱のラン待ち統合と共有し、
@@ -102,7 +102,7 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
       >
         <span className="flex min-w-0 items-center gap-2">
           {isProcedure ? (
-            <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground" title="手順ページ">
+            <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground" title="ルーティーンページ">
               <Icon name="repeat" size={12} />
             </span>
           ) : (

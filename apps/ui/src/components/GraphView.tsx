@@ -183,7 +183,7 @@ function GraphViewInner({
     };
   }, [fitView]);
 
-  // 手順ページ（kind=procedure）だけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8）
+  // ルーティーンページ（kind=procedure）だけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8）
   const isProcedure = pageNode?.kind === "procedure";
   const [viewMode, setViewMode] = useState<"graph" | "ledger">("graph");
 

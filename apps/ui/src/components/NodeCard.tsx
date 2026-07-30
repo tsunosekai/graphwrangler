@@ -28,7 +28,7 @@ export interface NodeCardData {
   node: Node;
   selected: boolean;
   editing: boolean;
-  /** 手順ページ（テンプレートの編集）で描かれているカードか。テンプレートは status を
+  /** ルーティーンページ（テンプレートの編集）で描かれているカードか。テンプレートは status を
    *  持たない思想（docs/design.md 3.8）なので、status 由来の見た目は出さない */
   isTemplate?: boolean;
   /** QOL-7: 既読ts(localStorage gw.read.<id>)より新しいメッセージがあるか */

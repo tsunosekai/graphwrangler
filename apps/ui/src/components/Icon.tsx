@@ -15,7 +15,7 @@ const PATHS: Record<string, string> = {
   drop: 'M8.5 12h7',
   trash:
     'M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12M10 11v6M14 11v6',
-  // 手順ページ（procedure）用。desk の repeat アイコンと同型
+  // ルーティーンページ（procedure）用。desk の repeat アイコンと同型
   repeat:
     'M4 12a8 8 0 0 1 13.5-5.5L20 9M20 4v5h-5M20 12a8 8 0 0 1-13.5 5.5L4 15M4 20v-5h5',
   // Houdini風ロック/アンロック（NodePanel のロックトグル）

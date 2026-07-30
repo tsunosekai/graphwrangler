@@ -84,7 +84,7 @@ export type MaterializedMessage = Message & {
   answeredBy?: string;
 };
 
-// ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
+// ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
 // テンプレート（procedure のメンバーノード）自身は status を持たず、
 // 実行のたびに生成する Run 側のワークアイテムが status を持つ。
 

@@ -34,7 +34,7 @@ export default function App() {
 
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
 
-  // ---- 手順ページの最新ラン（PageList の左レールドット + TopBar のラン待ち統合の両方が使う。
+  // ---- ルーティーンページの最新ラン（PageList の左レールドット + TopBar のラン待ち統合の両方が使う。
   //      procedure 数ぶんの N+1 取得を1箇所に集約する） ----
   const procedureIds = useMemo(
     () => folders.filter((f) => f.kind === "procedure").map((f) => f.id),

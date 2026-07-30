@@ -120,7 +120,7 @@ export const api = {
       body: JSON.stringify({ requestId, option, note }),
     }),
 
-  // ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.8） ----
+  // ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----
 
   createRun: (procedureId: string, input: { title?: string; trigger?: string } = {}) =>
     request<Run>(`/procedures/${procedureId}/runs`, { method: "POST", body: JSON.stringify(input) }),

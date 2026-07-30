@@ -16,7 +16,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { Icon } from "./Icon";
 
-/** 手順ページのラン待ち項目（B-6: 受信箱への統合）。クリックで onSelect(nodeId) を呼べば
+/** ルーティーンページのラン待ち項目（B-6: 受信箱への統合）。クリックで onSelect(nodeId) を呼べば
  *  テンプレートノードの選択 + そのページへの移動は App.selectNode が面倒を見る */
 export interface RunWaitItem {
   key: string;
