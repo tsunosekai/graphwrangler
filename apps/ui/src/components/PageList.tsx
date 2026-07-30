@@ -44,21 +44,22 @@ const STATUS_JA: Record<Status, string> = {
 };
 
 /** ちょぼの「席」= ball の所在。done/dropped/skipped は決着済みなので担当色でなく沈めた色にする。
- *  waiting は担当が誰であれ「あなたの番」＝人間の席として扱う */
-type Seat = "human" | "ai" | "script" | "done";
+ *  waiting（あなたの番）はカード右肩の橙点と同じ --attention 色で出す（人間の黄に畳むと
+ *  普通の人間タスクと見分けが付かない。2026-07-31 本人指摘） */
+type Seat = "attention" | "human" | "ai" | "script" | "done";
 function seatOf(status: Status, executor: Node["executor"]): Seat {
   if (status === "done" || status === "dropped" || status === "skipped") return "done";
-  if (status === "waiting") return "human";
+  if (status === "waiting") return "attention";
   return executor;
 }
 function seatColor(status: Status, executor: Node["executor"]): string {
   if (status === "done") return "var(--done)";
   if (status === "dropped" || status === "skipped") return "var(--dropped)";
-  if (status === "waiting") return "var(--human)";
+  if (status === "waiting") return "var(--attention)";
   return executor === "human" ? "var(--human)" : executor === "ai" ? "var(--ai)" : "var(--script)";
 }
-// 目に入るべき順: 人間の席（waiting含む）→ AI → スクリプト → 完了系
-const SEAT_ORDER: Seat[] = ["human", "ai", "script", "done"];
+// 目に入るべき順: あなたの番 → 人間の席 → AI → スクリプト → 完了系
+const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
 export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, onSelectPage, onMutated }: Props) {
@@ -100,15 +101,18 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
       isUnread,
     ).length;
 
+    // 質問が開いている（pendingRequest あり）ノードは status が何であれ「あなたの番」扱い
+    // （NodeCard の visualStatus と同じ保険）
+    const effStatus = (n: Node): Status => (n.pendingRequest ? "waiting" : n.status);
     const memberDots = !routine
       ? allNodes
           .filter((n) => n.group === f.id)
           .slice()
-          .sort((a, b) => SEAT_ORDER.indexOf(seatOf(a.status, a.executor)) - SEAT_ORDER.indexOf(seatOf(b.status, b.executor)))
+          .sort((a, b) => SEAT_ORDER.indexOf(seatOf(effStatus(a), a.executor)) - SEAT_ORDER.indexOf(seatOf(effStatus(b), b.executor)))
           .map((m) => ({
             key: m.id,
-            title: `${m.title || "（無題）"} — ${EXEC_JA[m.executor]}の席 / ${STATUS_JA[m.status]}`,
-            color: seatColor(m.status, m.executor),
+            title: `${m.title || "（無題）"} — ${EXEC_JA[m.executor]}の席 / ${STATUS_JA[effStatus(m)]}`,
+            color: seatColor(effStatus(m), m.executor),
           }))
       : [];
 

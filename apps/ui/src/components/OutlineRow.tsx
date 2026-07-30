@@ -172,7 +172,7 @@ export function OutlineRow({
           </span>
         )}
         {node.pendingRequest && (
-          <span className="size-2 flex-shrink-0 rounded-full bg-[#ff9f43]" title="あなたの番" />
+          <span className="size-2 flex-shrink-0 rounded-full bg-[var(--attention)]" title="あなたの番" />
         )}
         {extraParents.map((p) => (
           <button

@@ -81,6 +81,8 @@
   --done: #9aa3ad;
   --dropped: #c7ccd1;
   --danger: #d0342c;
+  /* あなたの番（pendingRequest/waiting）。カード右肩の点・レールのちょぼで共通 */
+  --attention: #f28c1d;
   --edge: rgba(23, 27, 33, 0.22);
   --text-lo: #8790a0;
   --border-hover: rgba(15, 23, 42, 0.22);
@@ -116,6 +118,7 @@
   --done: #46525f;
   --dropped: #333c46;
   --danger: #ff5d5d;
+  --attention: #ff9f43;
   --edge: rgba(155, 170, 185, 0.3);
   --text-lo: #556372;
   --border-hover: rgba(255, 255, 255, 0.28);

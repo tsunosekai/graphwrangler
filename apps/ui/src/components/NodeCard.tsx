@@ -54,6 +54,11 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   const [draft, setDraft] = useState(node.title);
   const [firing, setFiring] = useState(false);
   const ringOn = data.selected || selected;
+  // 保険: 質問が開いている（pendingRequest あり）間は、status が何であれ「あなたの番」を
+  // 優先して実行中アニメーション/スピナーを出さない（waiting は本来 pendingRequest から
+  // 導出できる派生状態。docs/design.md ステータス注記）。status との食い違いは旧プロセスの
+  // 取り残し等で起こり得るため、見た目はこちらを正とする（2026-07-31 本人指摘）
+  const visualStatus = node.pendingRequest ? "waiting" : node.status;
 
   // トリガー手動発火（human executor はこれが唯一の発火経路。script/aiは手動上書きとして使える。
   // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）
@@ -98,7 +103,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         "node-card relative w-[220px] rounded-md border border-border-strong bg-card p-3 shadow-xs transition-colors",
         `exec-${node.executor}`,
         `lifecycle-${node.lifecycle}`,
-        !isTemplate && `status-${node.status}`,
+        !isTemplate && `status-${visualStatus}`,
         !isTemplate &&
           (node.status === "done" || node.status === "dropped" || node.status === "skipped") &&
           "opacity-90",
@@ -123,7 +128,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       )}
       {/* 処理中スピナーもチェックと同じ左外の丸バッジ（同位置・同サイズ。2026-07-31 本人指定）。
           done/running は排他なので左スロットは衝突しない */}
-      {!isTemplate && node.status === "running" && (
+      {!isTemplate && visualStatus === "running" && (
         <span className="pdg-badge" style={{ color: "var(--active-color)" }} title="処理中">
           <Loader2 className="size-3.5 animate-spin" />
         </span>
@@ -163,7 +168,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       </span>
       {node.pendingRequest && (
         <span
-          className="absolute -right-1 -top-1 size-2 flex-shrink-0 rounded-full bg-[#ff9f43]"
+          className="absolute -right-1 -top-1 size-2 flex-shrink-0 rounded-full bg-[var(--attention)]"
           title="あなたの番"
         />
       )}

@@ -34,12 +34,13 @@ const research = await post("/api/nodes", {
   via: "engine",
 });
 
+// status は指定しない（後で開く判断リクエストが waiting にする。以前ここで "running" を
+// 作為していたが、status と pendingRequest の食い違いの種になるのでやめた。2026-07-31）
 const blend = await post("/api/nodes", {
   title: "スパイス配合を決める",
   group: curry.id,
   parents: [research.id],
   executor: "ai",
-  status: "running",
   lifecycle: "committed",
 });
 
@@ -52,12 +53,15 @@ const shopping = await post("/api/nodes", {
   lifecycle: "committed",
 });
 
+// Fix（ロック）済み + impl=script の例: やり方が確定していて中身も決定的
 const scorer = await post("/api/nodes", {
   title: "味見スコアを記録するスクリプト",
   group: curry.id,
   parents: [research.id],
   executor: "script",
   detail: "試作ごとに辛さ・コク・香りを5段階で記録して回帰を検出する",
+  impl: { type: "script", command: "echo 記録完了: 辛さ3 コク4 香り5" },
+  fixed: true,
   lifecycle: "committed",
 });
 
@@ -194,6 +198,32 @@ await post("/api/nodes", {
   lifecycle: "draft",
 });
 
+// 中止(dropped)の例
+await post("/api/nodes", {
+  title: "LED育成ライトを導入する",
+  group: garden.id,
+  executor: "human",
+  status: "dropped",
+  detail: "ベランダの日照で十分と判明したのでやめた",
+  lifecycle: "committed",
+});
+
+// ---- 完了済みゴール（左レールのアーカイブ節に入る例） ----
+
+const syrup = await post("/api/nodes", {
+  title: "梅シロップを仕込む",
+  kind: "goal",
+  status: "done",
+  lifecycle: "committed",
+});
+await post("/api/nodes", {
+  title: "青梅1kgを氷砂糖と漬ける",
+  group: syrup.id,
+  executor: "human",
+  status: "done",
+  lifecycle: "committed",
+});
+
 // ---- ルーティーンページ: 毎朝のベランダ見回り（繰り返し、ランが流れる）。
 // docs/design.md 3.8 新モデル: 「ルーティーンであること」はページ種別(procedure)でなく、
 // 先頭に置く trigger ノードから導出される。ページ自体は goal のまま ----
@@ -213,6 +243,7 @@ const patrolTrigger = await post("/api/nodes", {
   kind: "trigger",
   executor: "script",
   schedule: "daily 07:30",
+  fixed: true,
   lifecycle: "committed",
 });
 
@@ -253,6 +284,60 @@ await post(`/api/runs/${run.id}/items/${sensor.id}`, {
   note: "土壌湿度: 34%",
   actor: { kind: "agent", name: "executor:script" },
   via: "engine",
+});
+
+// ---- ルーティーンページ2: AIトリガーの例（executor=ai + チェック間隔。
+// 発火するかどうか自体をAIが判断する。docs/design.md 3.8） ----
+
+const laundry = await post("/api/nodes", {
+  title: "洗濯物を雨から守る",
+  kind: "goal",
+  lifecycle: "committed",
+});
+const rainCheck = await post("/api/nodes", {
+  title: "雨雲チェック",
+  group: laundry.id,
+  kind: "trigger",
+  executor: "ai",
+  schedule: "every 3h",
+  detail: "予報と空模様から「そろそろ降る」と判断したら発火する",
+  lifecycle: "committed",
+});
+await post("/api/nodes", {
+  title: "ベランダの洗濯物を取り込む",
+  group: laundry.id,
+  parents: [rainCheck.id],
+  executor: "human",
+  lifecycle: "committed",
+});
+
+// ---- ルーティーンページ3: 人間トリガーの例（executor=human = ▶手動発火が唯一の起動経路） ----
+
+const guests = await post("/api/nodes", {
+  title: "来客前の家リセット",
+  kind: "goal",
+  lifecycle: "committed",
+});
+const guestTrigger = await post("/api/nodes", {
+  title: "来客が決まったら",
+  group: guests.id,
+  kind: "trigger",
+  executor: "human",
+  lifecycle: "committed",
+});
+const tidy = await post("/api/nodes", {
+  title: "リビングを片付ける",
+  group: guests.id,
+  parents: [guestTrigger.id],
+  executor: "human",
+  lifecycle: "committed",
+});
+await post("/api/nodes", {
+  title: "トイレと洗面台を磨く",
+  group: guests.id,
+  parents: [tidy.id],
+  executor: "human",
+  lifecycle: "committed",
 });
 
 console.log("demo seeded:", BASE);
