@@ -7,10 +7,11 @@ import type { Node } from "../types";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 
-const EXEC_ICON: Record<Node["executor"], "user" | "cpu" | "gear"> = {
+// 担当アイコン（NodeCard と同じ「B. 明快系」セット）
+const EXEC_ICON: Record<Node["executor"], "user" | "bot" | "terminal"> = {
   human: "user",
-  ai: "cpu",
-  script: "gear",
+  ai: "bot",
+  script: "terminal",
 };
 const EXEC_TEXT: Record<Node["executor"], string> = {
   human: "text-human",

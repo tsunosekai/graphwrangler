@@ -30,6 +30,10 @@ const PATHS: Record<string, string> = {
   search: 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15z M16 16l5 5',
   // ノード複製（NodePanel ヘッダ）
   copy: 'M9 9h11v11H9z M5 15H4V4h11v1',
+  // 担当アイコン（2026-07-31 本人選定「B. 明快系」）: AI=ロボット顔 / スクリプト=ターミナル >_
+  // 形状は Lucide の bot / terminal を移植（cpu/gear は「AI/スクリプトに見えない」ため置換）
+  bot: 'M12 8V4H8M2 14h2M20 14h2M15 13v2M9 13v2',
+  terminal: 'M4 17l6-6-6-6M12 19h8',
 };
 
 // パスだけでは表せない形状（rect/circle）を含むアイコン
@@ -47,6 +51,7 @@ const EXTRA: Record<string, React.ReactNode> = {
   drop: <circle cx="12" cy="12" r="8.5" />,
   lock: <rect x="4" y="11" width="16" height="9" rx="1.5" />,
   unlock: <rect x="4" y="11" width="16" height="9" rx="1.5" />,
+  bot: <rect x="4" y="8" width="16" height="12" rx="2" />,
 };
 
 export function Icon({ name, size = 13 }: { name: keyof typeof PATHS; size?: number }) {

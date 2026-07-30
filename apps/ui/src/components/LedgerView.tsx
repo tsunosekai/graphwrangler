@@ -26,9 +26,10 @@ const RUN_STATUS_TO_DISPLAY: Record<RunStatus, Status> = {
   cancelled: "dropped",
 };
 
-const AUTHOR_ICON: Record<string, "user" | "cpu" | "gear"> = {
+// agent は担当アイコンの AI（bot）と揃える。system は担当軸ではないので gear のまま
+const AUTHOR_ICON: Record<string, "user" | "bot" | "gear"> = {
   human: "user",
-  agent: "cpu",
+  agent: "bot",
   system: "gear",
 };
 

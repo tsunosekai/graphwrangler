@@ -7,10 +7,11 @@ import { cn } from "../lib/utils";
 import type { Node } from "../types";
 import { Icon } from "./Icon";
 
-const EXEC_ICON: Record<Node["executor"], "user" | "cpu" | "gear"> = {
+// 担当アイコン（2026-07-31 本人選定「B. 明快系」: 人型 / ロボット顔 / ターミナル >_）
+const EXEC_ICON: Record<Node["executor"], "user" | "bot" | "terminal"> = {
   human: "user",
-  ai: "cpu",
-  script: "gear",
+  ai: "bot",
+  script: "terminal",
 };
 const STATUS_LABEL: Record<Node["status"], string> = {
   unplanned: "未計画",
@@ -120,7 +121,14 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           <Icon name="x" size={13} />
         </span>
       )}
-      {/* 右側のバッジ列: 処理中スピナー（チェックと同じ円で、くるくる）+ 発火(▶)+ Fix（ロック）トグル */}
+      {/* 処理中スピナーもチェックと同じ左外の丸バッジ（同位置・同サイズ。2026-07-31 本人指定）。
+          done/running は排他なので左スロットは衝突しない */}
+      {!isTemplate && node.status === "running" && (
+        <span className="pdg-badge" style={{ color: "var(--active-color)" }} title="処理中">
+          <Loader2 className="size-3.5 animate-spin" />
+        </span>
+      )}
+      {/* 右側のバッジ列: 発火(▶) + Fix（ロック）トグル */}
       <span className="absolute -right-[30px] inset-y-0 flex flex-col items-center justify-center gap-1">
         {node.kind === "trigger" && (
           <button
@@ -135,15 +143,6 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           >
             <Play className="size-3" />
           </button>
-        )}
-        {!isTemplate && node.status === "running" && (
-          <span
-            className="inline-flex size-[22px] items-center justify-center rounded-full border-[1.5px] border-current bg-background"
-            style={{ color: "var(--active-color)" }}
-            title="処理中"
-          >
-            <Loader2 className="size-3.5 animate-spin" />
-          </span>
         )}
         <button
           type="button"
