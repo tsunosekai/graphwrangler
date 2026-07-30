@@ -183,22 +183,21 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         <span className={cn("inline-flex flex-shrink-0", EXEC_TEXT[node.executor])}>
           <Icon name={EXEC_ICON[node.executor]} />
         </span>
+        {/* 2個目スロットは種別専任で常時表示（本人選定「B」2026-07-31: 実行=▷ 判断=⑂ トリガー=⚡）。
+            実装(impl)バッジは別軸なのでタイトル右端へ分離 */}
+        {node.kind === "task" && (
+          <span className="inline-flex flex-shrink-0 text-muted-foreground" title="実行ノード">
+            <Play className="size-3" />
+          </span>
+        )}
         {node.kind === "decision" && (
-          <span className="inline-flex flex-shrink-0 text-muted-foreground" title="分岐ノード">
+          <span className="inline-flex flex-shrink-0 text-muted-foreground" title="判断ノード（分岐）">
             <GitBranch className="size-3" />
           </span>
         )}
         {node.kind === "trigger" && (
           <span className="inline-flex flex-shrink-0 text-muted-foreground" title="起点ノード（トリガー）">
             <Zap className="size-3" />
-          </span>
-        )}
-        {node.impl && (
-          <span
-            className="inline-flex flex-shrink-0 text-script opacity-75"
-            title={node.impl.type === "doc" ? "実装: 手順書（文書）" : "実装: スクリプト（決定的）"}
-          >
-            <Icon name={node.impl.type === "doc" ? "doc" : "code"} size={12} />
           </span>
         )}
         {data.editing ? (
@@ -221,6 +220,15 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           />
         ) : (
           <span className="min-w-0 flex-1 truncate text-sm">{node.title || "（無題）"}</span>
+        )}
+        {/* 実装形態（impl）は種別と別軸なので右端に薄く出す（本人選定「B」の一部） */}
+        {node.impl && (
+          <span
+            className="inline-flex flex-shrink-0 text-text-lo"
+            title={node.impl.type === "doc" ? "実装: 手順書（文書）" : "実装: スクリプト（決定的）"}
+          >
+            <Icon name={node.impl.type === "doc" ? "doc" : "code"} size={12} />
+          </span>
         )}
         {node.impact === "irreversible" && (
           <span className="flex-shrink-0 text-destructive" title="不可逆">
