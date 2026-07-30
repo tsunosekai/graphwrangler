@@ -22,6 +22,7 @@ export interface RunCreateOpts {
 export interface PatchItemInput {
   status?: RunItemStatus;
   note?: string | null;
+  choice?: string | null;
 }
 
 export class RunStore {
@@ -62,6 +63,7 @@ export class RunStore {
       items[n.id] = {
         status: n.status === "unplanned" ? "skipped" : "pending",
         note: null,
+        choice: null,
         updated: ts,
       };
     }
@@ -106,9 +108,78 @@ export class RunStore {
     const updatedItem: RunItem = {
       status: patch.status ?? item.status,
       note: patch.note !== undefined ? patch.note : item.note,
+      choice: patch.choice !== undefined ? patch.choice : item.choice,
       updated: ts,
     };
     const items = { ...run.items, [nodeId]: updatedItem };
+    const allSettled = Object.values(items).every(
+      (it) => it.status === "done" || it.status === "dropped" || it.status === "skipped",
+    );
+    const status = run.status === "cancelled" ? run.status : allSettled ? "done" : run.status;
+    const updated: Run = { ...run, items, status, updated: ts };
+    this.write(updated);
+    return updated;
+  }
+
+  /**
+   * ランのワークアイテムのうち、テンプレートが kind=decision のものの choice を確定する
+   * （docs/design.md 3.9 のラン内版）。GraphStore.applyDecision と同じ規則をラン内スコープで行う:
+   * 1) item.choice をセット + status=done
+   * 2) 直接規則: templates の parentOptions[decisionId] が choice と不一致な item を skipped
+   * 3) 連鎖規則: 「ラン内に存在する全ての親」が skipped な item も skipped（再帰）
+   * templates は procedure の全メンバー（branches/parentOptions の定義を引くため必要。
+   * pickRun.ts の dependenciesSettled と同じく、ラン内に存在しない親は無視する）。
+   */
+  applyItemDecision(runId: string, nodeId: string, choice: string, templates: Node[]): Run {
+    const run = this.get(runId);
+    const item = run.items[nodeId];
+    if (!item) {
+      throw new GraphError(`run ${runId} has no work item for node ${nodeId}`, 404);
+    }
+    const templatesById = new Map(templates.map((t) => [t.id, t]));
+    const decisionTemplate = templatesById.get(nodeId);
+    if (!decisionTemplate || decisionTemplate.kind !== "decision") {
+      throw new GraphError(`node ${nodeId} is not a decision (kind=${decisionTemplate?.kind})`);
+    }
+    if (!decisionTemplate.branches || !decisionTemplate.branches.some((b) => b.id === choice)) {
+      throw new GraphError(`unknown choice: ${choice}`);
+    }
+
+    const ts = nowIso();
+    let items: Record<string, RunItem> = {
+      ...run.items,
+      [nodeId]: { ...item, status: "done", choice, updated: ts },
+    };
+
+    // 直接規則: このdecisionを親に持ち、選ばれなかった枝のitemをskippedにする
+    for (const [id, it] of Object.entries(items)) {
+      if (it.status === "done" || it.status === "dropped" || it.status === "skipped") continue;
+      const tmpl = templatesById.get(id);
+      if (!tmpl) continue;
+      const branchId = tmpl.parentOptions[nodeId];
+      if (branchId !== undefined && branchId !== choice) {
+        items = { ...items, [id]: { ...it, status: "skipped", updated: ts } };
+      }
+    }
+
+    // 連鎖規則: ラン内に存在する全ての親がskippedなitemもskippedにする（不動点まで繰り返す）
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [id, it] of Object.entries(items)) {
+        if (it.status === "done" || it.status === "dropped" || it.status === "skipped") continue;
+        const tmpl = templatesById.get(id);
+        if (!tmpl) continue;
+        const relevantParents = tmpl.parents.filter((pid) => pid in items);
+        if (relevantParents.length === 0) continue; // ラン内に親が居なければ連鎖の対象外
+        const allSkipped = relevantParents.every((pid) => items[pid]?.status === "skipped");
+        if (allSkipped) {
+          items = { ...items, [id]: { ...it, status: "skipped", updated: ts } };
+          changed = true;
+        }
+      }
+    }
+
     const allSettled = Object.values(items).every(
       (it) => it.status === "done" || it.status === "dropped" || it.status === "skipped",
     );

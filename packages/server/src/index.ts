@@ -204,6 +204,29 @@ app.post("/api/nodes/:id/answer", async (c) => {
   return c.json({ message, resolved, node: graph.get(id) });
 });
 
+// ---- 分岐ノード（kind=decision。docs/design.md 3.9） ----
+// choice 確定 + skip伝搬は GraphStore.applyDecision に一任する（1トランザクション=複数patch opsの連続）。
+// UI が直接叩く経路とエンジン(executor=script/ai の結果、または human回答後)が叩く経路の両方が正。
+
+const DecideSchema = z.object({ choice: z.string().min(1) });
+
+app.post("/api/nodes/:id/decide", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const { choice } = DecideSchema.parse(body);
+  const m = meta(body);
+  const updated = graph.applyDecision(id, choice, { actor: m.actor, via: m.via });
+  const label = updated.branches?.find((b) => b.id === choice)?.label ?? choice;
+  threads.post(id, {
+    kind: "status",
+    body: `分岐: ${label} を選択`,
+    payload: { choice },
+    author: m.actor,
+    via: m.via,
+  });
+  return c.json(updated);
+});
+
 // ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
 
 const CreateRunSchema = z.object({
@@ -285,6 +308,41 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
     });
   }
   return c.json(run);
+});
+
+const DecideRunItemSchema = z.object({ choice: z.string().min(1) });
+
+/** ラン内の分岐アイテム(kind=decision)の choice を確定する（docs/design.md 3.9のラン内版）。
+ *  templates は procedure の全メンバー（RunStore.applyItemDecision が parentOptions/branches の
+ *  定義を引くのに必要。ラン作成時と同じ group=procedure フィルタ） */
+app.post("/api/runs/:id/items/:nodeId/decide", async (c) => {
+  const runId = c.req.param("id");
+  const nodeId = c.req.param("nodeId");
+  const run = runs.get(runId);
+  const node = graph.get(nodeId);
+  const body = await c.req.json();
+  const { choice } = DecideRunItemSchema.parse(body);
+  const m = meta(body);
+  const templates = graph.state().nodes.filter((n) => n.group === run.procedure);
+  const updated = runs.applyItemDecision(runId, nodeId, choice, templates);
+  const label = node.branches?.find((b) => b.id === choice)?.label ?? choice;
+  threads.post(nodeId, {
+    kind: "status",
+    body: `[ラン ${runId}] 分岐: ${label} を選択`,
+    payload: { runId, choice },
+    author: m.actor,
+    via: m.via,
+  });
+  if (run.status !== "done" && updated.status === "done") {
+    threads.post(run.procedure, {
+      kind: "status",
+      body: `ラン完了: ${run.title}`,
+      payload: { runId },
+      author: { kind: "system" },
+      via: m.via,
+    });
+  }
+  return c.json(updated);
 });
 
 app.post("/api/runs/:id/cancel", (c) => {

@@ -5,6 +5,7 @@ import {
   ActorSchema,
   type Actor,
   type Node,
+  type NodeBranch,
   NodeInputSchema,
   type NodeInput,
   NodePatchSchema,
@@ -64,13 +65,19 @@ export class GraphStore {
     return this.nodes.has(id);
   }
 
-  /** frontier: status が done/dropped 以外で、parents が全て done のノード */
+  /** frontier: status が done/dropped/skipped 以外で、parents が全て done または skipped のノード。
+   *  「skipped も充足扱い」により、分岐(3.9)で片方の枝が skipped でも合流ノードは着火する
+   *  （skipped でない親が全て done、と同値）。skipped 自体はもう通らないと決着済みなので除外する */
   frontier(): Node[] {
     return [...this.nodes.values()].filter(
       (n) =>
         n.status !== "done" &&
         n.status !== "dropped" &&
-        n.parents.every((p) => this.nodes.get(p)?.status === "done"),
+        n.status !== "skipped" &&
+        n.parents.every((p) => {
+          const s = this.nodes.get(p)?.status;
+          return s === "done" || s === "skipped";
+        }),
     );
   }
 
@@ -104,6 +111,8 @@ export class GraphStore {
     const parsed = NodeInputSchema.parse(input);
     this.validateParents(null, parsed.parents);
     this.validateGroup(null, parsed.group);
+    this.validateBranches(parsed.kind, parsed.branches);
+    this.validateParentOptions(parsed.parents, parsed.parentOptions);
     const ts = nowIso();
     const node: Node = {
       ...parsed,
@@ -117,12 +126,72 @@ export class GraphStore {
   }
 
   patchNode(id: string, patch: NodePatch, meta: OpMeta = {}): Node {
-    this.get(id);
+    const current = this.get(id);
     const parsed = NodePatchSchema.parse(patch);
     if (parsed.parents) this.validateParents(id, parsed.parents);
     if (parsed.group !== undefined) this.validateGroup(id, parsed.group ?? null);
+    if (parsed.kind !== undefined || parsed.branches !== undefined) {
+      const kind = parsed.kind ?? current.kind;
+      const branches = parsed.branches !== undefined ? parsed.branches : current.branches;
+      this.validateBranches(kind, branches);
+    }
+    if (parsed.parentOptions !== undefined || parsed.parents !== undefined) {
+      const parents = parsed.parents ?? current.parents;
+      const parentOptions =
+        parsed.parentOptions !== undefined ? parsed.parentOptions : current.parentOptions;
+      this.validateParentOptions(parents, parentOptions);
+    }
     this.commit({ op: "node.patch", payload: { nodeId: id, patch: parsed } }, meta);
     return this.get(id);
+  }
+
+  /**
+   * 分岐ノード(kind=decision)の choice を確定する（docs/design.md 3.9）。
+   * 1) choice をセット + status を done にする
+   * 2) 直接規則: parentOptions[decisionId] を持つ子のうち、choice と不一致な枝は skipped
+   * 3) 連鎖規則: 「全ての親」が skipped になったノードも skipped（再帰。done/dropped は触らない）
+   * 複数の patch/commit の連続として行う（1つの巨大トランザクションopは持たない。undo は
+   * 「1opずつ戻る」ことで整合を保つ設計 — docs/agent-contracts.md の帰属規約どおり）。
+   */
+  applyDecision(nodeId: string, choice: string, meta: OpMeta = {}): Node {
+    const node = this.get(nodeId);
+    if (node.kind !== "decision") {
+      throw new GraphError(`node ${nodeId} is not a decision (kind=${node.kind})`);
+    }
+    if (!node.branches || !node.branches.some((b) => b.id === choice)) {
+      throw new GraphError(`unknown choice: ${choice}`);
+    }
+
+    this.patchNode(nodeId, { choice, status: "done" }, meta);
+
+    // 直接規則: このdecisionを親に持ち、選ばれなかった枝の子をskippedにする
+    for (const n of [...this.nodes.values()]) {
+      if (n.status === "done" || n.status === "dropped" || n.status === "skipped") continue;
+      const branchId = n.parentOptions[nodeId];
+      if (branchId !== undefined && branchId !== choice) {
+        this.patchNode(n.id, { status: "skipped" }, meta);
+      }
+    }
+
+    this.propagateSkipChain(meta);
+    return this.get(nodeId);
+  }
+
+  /** 連鎖規則: 全ての親が skipped なノードを skipped にする（不動点まで繰り返す） */
+  private propagateSkipChain(meta: OpMeta): void {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const n of [...this.nodes.values()]) {
+        if (n.status === "done" || n.status === "dropped" || n.status === "skipped") continue;
+        if (n.parents.length === 0) continue; // ルートは連鎖規則の対象外（親なし=空配列の空虚な真を避ける）
+        const allSkipped = n.parents.every((pid) => this.nodes.get(pid)?.status === "skipped");
+        if (allSkipped) {
+          this.patchNode(n.id, { status: "skipped" }, meta);
+          changed = true;
+        }
+      }
+    }
   }
 
   /** MVP: 子（依存の後続）またはメンバー（group で自分を指すノード）を持つノードは消せない */
@@ -159,6 +228,32 @@ export class GraphStore {
         if (seen.has(cur)) break;
         seen.add(cur);
         cur = this.nodes.get(cur)?.group ?? null;
+      }
+    }
+  }
+
+  /** kind=decision のノードは branches が最低2個必要（elseなし・単一選択。docs/design.md 3.9）。
+   *  それ以外の kind では branches の中身は問わない */
+  private validateBranches(kind: Node["kind"], branches: NodeBranch[] | null): void {
+    if (kind !== "decision") return;
+    if (!branches || branches.length < 2) {
+      throw new GraphError("decision ノードには branches が最低2つ必要です");
+    }
+  }
+
+  /** parentOptions の検証: キーが parents に含まれ、その親が kind=decision であること。
+   *  値がその親の branches に存在すること（docs/design.md 3.9） */
+  private validateParentOptions(parents: string[], parentOptions: Record<string, string>): void {
+    for (const [decisionId, branchId] of Object.entries(parentOptions)) {
+      if (!parents.includes(decisionId)) {
+        throw new GraphError(`parentOptions のキー ${decisionId} は parents に含まれていません`);
+      }
+      const decisionNode = this.nodes.get(decisionId);
+      if (!decisionNode || decisionNode.kind !== "decision") {
+        throw new GraphError(`parentOptions のキー ${decisionId} は decision ノードではありません`);
+      }
+      if (!decisionNode.branches?.some((b) => b.id === branchId)) {
+        throw new GraphError(`parentOptions の値 ${branchId} は ${decisionId} の branches に存在しません`);
       }
     }
   }

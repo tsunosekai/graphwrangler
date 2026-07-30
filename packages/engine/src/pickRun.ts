@@ -33,10 +33,12 @@ interface RunnableEntry {
 /**
  * 実行可能なランのワークアイテムを1件選ぶ（純粋関数）。
  *
- * 対象: run.status=running のラン、item.status=pending、テンプレート executor=ai|script、
- * ラン内依存（同じ手順のメンバーである parents）が全て done/skipped。
+ * 対象: run.status=running のラン、item.status=pending、テンプレート kind=task かつ
+ * executor=ai|script、ラン内依存（同じ手順のメンバーである parents）が全て done/skipped。
  * ラン created 昇順（古いランを先に）→ ラン内はテンプレート created 昇順で最初の1件。
  *
+ * - kind=decision のテンプレートは対象外（decisionRun.ts の selectRunDecisionAction が扱う。
+ *   3.9: 分岐は choice 確定+skip伝搬という別の完了経路を持つため、ここでは拾わない）
  * - executor=human のテンプレートは対象外（人間待ちのまま。ランの承認/担当UIは将来）
  * - impact=irreversible のテンプレートは実行せず waiting-irreversible を返す
  *   （呼び出し側が items patch {status:"waiting", note:"不可逆のため人間の実行待ち"} する。
@@ -56,6 +58,7 @@ export function selectRunAction(nodes: Node[], runs: Run[]): RunAction {
 
     for (const { node, item } of entries) {
       if (item.status !== "pending") continue; // running/waiting/done/dropped/skipped は対象外
+      if (node.kind !== "task") continue; // decision は decisionRun.ts が扱う
       if (node.executor !== "ai" && node.executor !== "script") continue;
       if (!dependenciesSettled(node, run)) continue;
 

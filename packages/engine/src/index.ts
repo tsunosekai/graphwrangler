@@ -3,6 +3,8 @@
 // docs/design.md 3.4/3.5/3.7、docs/agent-contracts.md が設計の正。
 import {
   createRun,
+  decideNode,
+  decideRunItem,
   getSettings,
   getState,
   getThread,
@@ -24,6 +26,19 @@ import {
   selectRunApprovalAction,
   type RunGateState,
 } from "./approval.js";
+import {
+  buildDecisionPrompt,
+  buildDecisionRequest,
+  parseBranchChoice,
+  selectDecisionAction,
+} from "./decision.js";
+import {
+  DECISION_WAITING_NOTE,
+  buildRunDecisionRequest,
+  collectPendingRunDecisions,
+  selectRunDecisionAction,
+  selectRunDecisionApprovalAction,
+} from "./decisionRun.js";
 import { parseSchedule, shouldCreateScheduledRun } from "./schedule.js";
 import { runScript } from "./executors/script.js";
 import { buildAiPrompt, runClaude, type ClaudeExecutorConfig } from "./executors/claude.js";
@@ -94,7 +109,10 @@ function candidateIdsNeedingThread(nodes: Node[]): string[] {
         (n.executor === "ai" || n.executor === "script") &&
         n.status === "pending" &&
         !n.pendingRequest &&
-        n.parents.every((pid) => byId.get(pid)?.status === "done"),
+        n.parents.every((pid) => {
+          const s = byId.get(pid)?.status;
+          return s === "done" || s === "skipped"; // 3.9: skipped も充足扱い（合流ノード対応）
+        }),
     )
     .map((n) => n.id);
 }
@@ -187,6 +205,123 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
   await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
   await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
   log(`実行失敗: id=${node.id} reason=${reason}`);
+}
+
+// ---- 分岐ノード（kind=decision、プロジェクト層。docs/design.md 3.9） ----
+
+/** decision候補のうち committed/pending/frontier のものだけスレッド取得対象にする
+ *  （decision.ts の isDecisionCandidateKind/isFrontierForDecision と同じ条件をここで再実装。
+ *  candidateIdsNeedingThread と同じ理由で、全ノード分は叩かない。executor問わず対象にするのは
+ *  script/ai executor の失敗リカバリ回答(abort)もここで拾う必要があるため） */
+function decisionCandidateIdsNeedingThread(nodes: Node[]): string[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return nodes
+    .filter(
+      (n) =>
+        n.kind === "decision" &&
+        n.lifecycle === "committed" &&
+        n.status === "pending" &&
+        !(n.group && byId.get(n.group)?.kind === "procedure") &&
+        n.parents.every((pid) => {
+          const s = byId.get(pid)?.status;
+          return s === "done" || s === "skipped";
+        }),
+    )
+    .map((n) => n.id);
+}
+
+/** 分岐ノード(kind=decision, プロジェクト層)を1件処理する。処理した(=何かアクションを
+ *  起こした)ら true を返す */
+async function tickDecision(nodes: Node[]): Promise<boolean> {
+  const ids = decisionCandidateIdsNeedingThread(nodes);
+  const lastMessages = await lastMessagesFor(ids);
+  const action = selectDecisionAction(nodes, lastMessages);
+
+  switch (action.type) {
+    case "none":
+      return false;
+    case "drop":
+      await patchNode(action.node.id, { status: "dropped" }, ENGINE_ACTOR, VIA);
+      log(`分岐の失敗リカバリで中止(dropped): id=${action.node.id} title=${action.node.title}`);
+      return true;
+    case "open-human-request":
+      await openRequest(action.node.id, buildDecisionRequest(action.node), ENGINE_ACTOR, VIA);
+      log(`分岐: 判断リクエストを開いた id=${action.node.id} title=${action.node.title}`);
+      return true;
+    case "decide":
+      await decideNode(action.node.id, action.choice, ENGINE_ACTOR, VIA);
+      log(`分岐確定(human回答): id=${action.node.id} choice=${action.choice}`);
+      return true;
+    case "execute-script": {
+      const node = action.node;
+      const actor: Actor = { kind: "agent", name: "executor:script" };
+      if (!node.impl || node.impl.type !== "script") {
+        await postMessage(
+          node.id,
+          { kind: "status", body: "実行失敗: 実装がない（impl が script 形式ではない）" },
+          actor,
+          VIA,
+        );
+        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
+        await openRequest(
+          node.id,
+          buildFailureRecoveryRequest(node, "impl が script 形式ではない"),
+          ENGINE_ACTOR,
+          VIA,
+        );
+        return true;
+      }
+      const result = await runScript(node.impl.command);
+      if (!result.success) {
+        const reason = result.error || "不明なエラー";
+        await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
+        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
+        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+        log(`分岐の script 実行失敗: id=${node.id} reason=${reason}`);
+        return true;
+      }
+      const choice = parseBranchChoice(node, result.output);
+      if (!choice) {
+        const reason = `script出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
+        await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
+        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
+        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+        log(`分岐の script 出力が不正: id=${node.id}`);
+        return true;
+      }
+      await postMessage(node.id, { kind: "status", body: `分岐: ${choice} を選択（script出力）` }, actor, VIA);
+      await decideNode(node.id, choice, actor, VIA);
+      log(`分岐確定(script): id=${node.id} choice=${choice}`);
+      return true;
+    }
+    case "execute-ai": {
+      const node = action.node;
+      const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
+      const prompt = buildDecisionPrompt(node);
+      const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig);
+      if (!result.success) {
+        const reason = result.error || "不明なエラー";
+        await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
+        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
+        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+        log(`分岐の ai 実行失敗: id=${node.id} reason=${reason}`);
+        return true;
+      }
+      const choice = parseBranchChoice(node, result.output);
+      if (!choice) {
+        const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
+        await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
+        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
+        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+        log(`分岐の ai 出力が不正: id=${node.id}`);
+        return true;
+      }
+      await postMessage(node.id, { kind: "say", body: result.output.trim() }, actor, VIA);
+      await decideNode(node.id, choice, actor, VIA);
+      log(`分岐確定(ai): id=${node.id} choice=${choice}`);
+      return true;
+    }
+  }
 }
 
 // ---- 手順ページ: ランのワークアイテム実行（M6） ----
@@ -341,8 +476,206 @@ async function tickRunApprovals(nodes: Node[], runs: Run[]): Promise<boolean> {
   }
 }
 
+// ---- 手順ページ: ランの分岐アイテム（kind=decision。docs/design.md 3.8/3.9） ----
+
+/** ラン内の human 分岐アイテムについて、テンプレートノードのスレッドから
+ *  承認連携(approval.ts)と同じ方式でゲート状態を集める */
+async function fetchRunDecisionGateStates(
+  pending: Array<{ run: Run; node: Node }>,
+): Promise<Record<string, RunGateState>> {
+  const gateStates: Record<string, RunGateState> = {};
+  for (const { run, node } of pending) {
+    try {
+      const { messages } = await getThread(node.id);
+      gateStates[gateKey(run.id, node.id)] = findRunGate(messages, run.id);
+    } catch (err) {
+      log(`分岐ゲートのスレッド取得に失敗（この周は保留）: run=${run.id} node=${node.id} ${String(err)}`);
+    }
+  }
+  return gateStates;
+}
+
+/** waiting中(note=DECISION_WAITING_NOTE)の human 分岐アイテムを1件処理する。処理したら true */
+async function tickRunDecisionApprovals(nodes: Node[], runs: Run[]): Promise<boolean> {
+  const pending = collectPendingRunDecisions(nodes, runs);
+  if (pending.length === 0) return false;
+
+  const gateStates = await fetchRunDecisionGateStates(pending);
+  const action = selectRunDecisionApprovalAction(nodes, runs, gateStates);
+
+  switch (action.type) {
+    case "none":
+      return false;
+    case "open-request":
+      try {
+        await openRequest(
+          action.node.id,
+          buildRunDecisionRequest(action.node, action.run),
+          ENGINE_ACTOR,
+          VIA,
+        );
+        log(
+          `分岐: 判断リクエストを開いた run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
+        );
+      } catch (err) {
+        log(
+          `分岐の判断リクエストを開けなかった（次周に持ち越し）: run=${action.run.id} node=${action.node.id} ${String(err)}`,
+        );
+      }
+      return true;
+    case "decide":
+      await decideRunItem(action.run.id, action.node.id, action.choice, ENGINE_ACTOR, VIA);
+      log(
+        `分岐確定(human回答, ラン内): run=${action.run.id} node=${action.node.id} choice=${action.choice}`,
+      );
+      return true;
+  }
+}
+
+/** ラン内の分岐アイテム(kind=decision)を1件実行する（script/ai executor。human は
+ *  tickRunItem 側で waiting へ倒し、tickRunDecisionApprovals が往復を担当する） */
+async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
+  await patchRunItem(run.id, node.id, { status: "running" }, ENGINE_ACTOR, VIA);
+  log(`ラン分岐実行開始: run=${run.id} node=${node.id} title=${node.title} executor=${node.executor}`);
+
+  const payload = { runId: run.id };
+
+  if (node.executor === "script") {
+    const actor: Actor = { kind: "agent", name: "executor:script" };
+    if (!node.impl || node.impl.type !== "script") {
+      await postMessage(
+        node.id,
+        { kind: "status", body: "実行失敗: 実装がない（impl が script 形式ではない）", payload },
+        actor,
+        VIA,
+      );
+      await patchRunItem(
+        run.id,
+        node.id,
+        { status: "waiting", note: "失敗: impl が script 形式ではない" },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      return;
+    }
+    const result = await runScript(node.impl.command);
+    if (!result.success) {
+      const reason = result.error || "不明なエラー";
+      await postMessage(
+        node.id,
+        { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload },
+        actor,
+        VIA,
+      );
+      await patchRunItem(
+        run.id,
+        node.id,
+        { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      log(`ラン分岐の script 実行失敗: run=${run.id} node=${node.id} reason=${reason}`);
+      return;
+    }
+    const choice = parseBranchChoice(node, result.output);
+    if (!choice) {
+      const reason = `script出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
+      await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, payload }, actor, VIA);
+      await patchRunItem(
+        run.id,
+        node.id,
+        { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      log(`ラン分岐の script 出力が不正: run=${run.id} node=${node.id}`);
+      return;
+    }
+    await postMessage(
+      node.id,
+      { kind: "status", body: `分岐: ${choice} を選択（script出力）`, payload },
+      actor,
+      VIA,
+    );
+    await decideRunItem(run.id, node.id, choice, actor, VIA);
+    log(`ラン分岐確定(script): run=${run.id} node=${node.id} choice=${choice}`);
+    return;
+  }
+
+  // executor=ai
+  const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
+  const prompt = buildDecisionPrompt(node);
+  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig);
+  if (!result.success) {
+    const reason = result.error || "不明なエラー";
+    await postMessage(
+      node.id,
+      { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload },
+      actor,
+      VIA,
+    );
+    await patchRunItem(
+      run.id,
+      node.id,
+      { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
+      ENGINE_ACTOR,
+      VIA,
+    );
+    log(`ラン分岐の ai 実行失敗: run=${run.id} node=${node.id} reason=${reason}`);
+    return;
+  }
+  const choice = parseBranchChoice(node, result.output);
+  if (!choice) {
+    const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
+    await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, payload }, actor, VIA);
+    await patchRunItem(
+      run.id,
+      node.id,
+      { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
+      ENGINE_ACTOR,
+      VIA,
+    );
+    log(`ラン分岐の ai 出力が不正: run=${run.id} node=${node.id}`);
+    return;
+  }
+  await postMessage(node.id, { kind: "say", body: result.output.trim(), payload }, actor, VIA);
+  await decideRunItem(run.id, node.id, choice, actor, VIA);
+  log(`ラン分岐確定(ai): run=${run.id} node=${node.id} choice=${choice}`);
+}
+
+/** プロジェクト側・通常のランタスクに実行候補が無かったとき、ランの分岐アイテムを1件処理する。
+ *  処理したら true を返す */
+async function tickRunDecision(nodes: Node[], runningRuns: Run[]): Promise<boolean> {
+  if (await tickRunDecisionApprovals(nodes, runningRuns)) return true;
+
+  const action = selectRunDecisionAction(nodes, runningRuns);
+  switch (action.type) {
+    case "none":
+      return false;
+    case "waiting-human":
+      // ここではカードを開かず waiting へ倒すだけ。判断リクエストの発行/再試行は
+      // tickRunDecisionApprovals（次周）が一元的に担当する（承認連携と同じ2段構え）
+      await patchRunItem(
+        action.run.id,
+        action.node.id,
+        { status: "waiting", note: DECISION_WAITING_NOTE },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      log(
+        `分岐(human)のため回答待ちへ: run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
+      );
+      return true;
+    case "execute-script":
+    case "execute-ai":
+      await executeRunDecisionItem(action.run, action.node);
+      return true;
+  }
+}
+
 /** プロジェクト側に実行候補が無かったとき、ランのワークアイテムを1件処理する。
- *  承認待ちアイテムの回答チェックをランの通常実行候補選択より先に行う */
+ *  承認待ちアイテムの回答チェックをランの通常実行候補選択より先に行う。通常タスクの実行候補が
+ *  無ければ分岐アイテム(kind=decision)を見る */
 async function tickRunItem(nodes: Node[]): Promise<void> {
   const runningRuns = await fetchRunningRuns(nodes);
   if (runningRuns.length === 0) return;
@@ -351,8 +684,6 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
 
   const action = selectRunAction(nodes, runningRuns);
   switch (action.type) {
-    case "none":
-      return;
     case "waiting-irreversible":
       // ここではカードを開かず waiting へ倒すだけ。承認カードの発行/再試行は
       // tickRunApprovals（次周）が一元的に担当する（開けなかった場合の再試行もそちら任せにできる）
@@ -370,7 +701,11 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
     case "execute":
       await executeRunItem(nodes, action.run, action.node);
       return;
+    case "none":
+      break; // 通常タスクの候補が無ければ分岐アイテムを見る
   }
+
+  await tickRunDecision(nodes, runningRuns);
 }
 
 // ---- 手順ページ: スケジュールによるラン自動生成（M6） ----
@@ -437,8 +772,10 @@ async function tick(): Promise<void> {
       await executeNode(nodes, action.node);
       return;
     case "none":
-      break; // プロジェクト側に候補が無ければランのアイテムを見る（候補: プロジェクト優先→ラン）
+      break; // プロジェクト側のタスクに候補が無ければ分岐ノードを見る（タスク優先→分岐→ラン）
   }
+
+  if (await tickDecision(nodes)) return;
 
   await tickRunItem(nodes);
 }

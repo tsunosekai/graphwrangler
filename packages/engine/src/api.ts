@@ -77,6 +77,17 @@ export async function postMessage(
   return (await request("POST", `/api/nodes/${id}/messages`, { ...input, actor, via })) as Message;
 }
 
+/** 分岐ノード(kind=decision)の choice を確定する（POST /api/nodes/:id/decide）。
+ *  choice が branches に無い/kind≠decision は ApiError(400) として投げる（docs/design.md 3.9） */
+export async function decideNode(
+  id: string,
+  choice: string,
+  actor: Actor,
+  via: string,
+): Promise<Node> {
+  return (await request("POST", `/api/nodes/${id}/decide`, { choice, actor, via })) as Node;
+}
+
 /** 判断リクエストを開く。ノードは server 側で自動的に waiting + pendingRequest になる */
 export async function openRequest(
   id: string,
@@ -124,6 +135,22 @@ export async function patchRunItem(
 ): Promise<Run> {
   return (await request("POST", `/api/runs/${runId}/items/${nodeId}`, {
     ...patch,
+    actor,
+    via,
+  })) as Run;
+}
+
+/** ランのワークアイテム(kind=decision のテンプレート)の choice を確定する
+ *  （POST /api/runs/:id/items/:nodeId/decide。docs/design.md 3.9のラン内版） */
+export async function decideRunItem(
+  runId: string,
+  nodeId: string,
+  choice: string,
+  actor: Actor,
+  via: string,
+): Promise<Run> {
+  return (await request("POST", `/api/runs/${runId}/items/${nodeId}/decide`, {
+    choice,
     actor,
     via,
   })) as Run;

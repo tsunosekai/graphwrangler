@@ -16,9 +16,14 @@ function isSchedulableKind(node: Node, byId: Map<string, Node>): boolean {
   );
 }
 
-/** parents が全て done か（空配列=ルートは真）。存在しない親は「未完了」扱いにして安全側に倒す */
+/** parents が全て done または skipped か（空配列=ルートは真）。存在しない親は「未完了」扱いにして
+ *  安全側に倒す。skipped も充足扱いにするのは分岐(3.9)の合流ノードが片方の枝の skipped で
+ *  止まらないようにするため（「skipped でない親が全て done」と同値。docs/design.md 3.9） */
 export function isFrontier(node: Node, byId: Map<string, Node>): boolean {
-  return node.parents.every((pid) => byId.get(pid)?.status === "done");
+  return node.parents.every((pid) => {
+    const s = byId.get(pid)?.status;
+    return s === "done" || s === "skipped";
+  });
 }
 
 export function buildIndex(nodes: Node[]): Map<string, Node> {

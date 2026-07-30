@@ -21,6 +21,9 @@ function node(partial: Partial<Node> = {}): Node {
     pendingRequest: partial.pendingRequest ?? null,
     order: partial.order ?? null,
     schedule: partial.schedule ?? null,
+    branches: partial.branches ?? null,
+    choice: partial.choice ?? null,
+    parentOptions: partial.parentOptions ?? {},
     created: partial.created ?? `2026-01-01T00:00:${String(nodeSeq).padStart(2, "0")}Z`,
     updated: partial.updated ?? `2026-01-01T00:00:${String(nodeSeq).padStart(2, "0")}Z`,
   };
@@ -30,6 +33,7 @@ function item(partial: Partial<RunItem> = {}): RunItem {
   return {
     status: partial.status ?? "pending",
     note: partial.note ?? null,
+    choice: partial.choice ?? null,
     updated: partial.updated ?? "2026-01-01T00:00:00Z",
   };
 }

@@ -1,0 +1,204 @@
+// 分岐ノード(kind=decision)まわりのテスト。docs/design.md 3.9 が仕様の正。
+import { describe, expect, it, beforeEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { GraphStore, GraphError } from "../src/index.js";
+
+let dir: string;
+let g: GraphStore;
+
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "graphwrangler-decision-"));
+  g = new GraphStore(dir);
+});
+
+describe("branches検証", () => {
+  it("decisionノードはbranchesが最低2個必要（0個/1個はGraphError）", () => {
+    expect(() => g.addNode({ title: "分岐", kind: "decision" })).toThrow(GraphError);
+    expect(() =>
+      g.addNode({ title: "分岐", kind: "decision", branches: [{ id: "a", label: "Aへ" }] }),
+    ).toThrow(GraphError);
+  });
+
+  it("decisionノードにbranchesが2個以上あれば作成できる", () => {
+    const d = g.addNode({
+      title: "分岐",
+      kind: "decision",
+      branches: [
+        { id: "a", label: "Aへ" },
+        { id: "b", label: "Bへ" },
+      ],
+    });
+    expect(d.branches).toHaveLength(2);
+  });
+
+  it("kind=task ではbranchesの中身は検証されない（null/1個でもよい）", () => {
+    const t = g.addNode({ title: "普通の作業", branches: [{ id: "a", label: "Aへ" }] });
+    expect(t.branches).toEqual([{ id: "a", label: "Aへ" }]);
+  });
+
+  it("patchでkindをdecisionに変えるときもbranchesが検証される", () => {
+    const t = g.addNode({ title: "普通の作業" });
+    expect(() => g.patchNode(t.id, { kind: "decision" })).toThrow(GraphError);
+    const withBranches = g.patchNode(t.id, {
+      kind: "decision",
+      branches: [
+        { id: "a", label: "Aへ" },
+        { id: "b", label: "Bへ" },
+      ],
+    });
+    expect(withBranches.kind).toBe("decision");
+  });
+});
+
+function makeDecision() {
+  return g.addNode({
+    title: "分岐",
+    kind: "decision",
+    lifecycle: "committed",
+    branches: [
+      { id: "a", label: "Aへ" },
+      { id: "b", label: "Bへ" },
+    ],
+  });
+}
+
+describe("parentOptions検証", () => {
+  it("親がdecisionでない場合は400相当のGraphError", () => {
+    const notDecision = g.addNode({ title: "普通のタスク" });
+    expect(() =>
+      g.addNode({
+        title: "子",
+        parents: [notDecision.id],
+        parentOptions: { [notDecision.id]: "a" },
+      }),
+    ).toThrow(GraphError);
+  });
+
+  it("枝idがそのdecisionのbranchesに存在しない場合は400相当のGraphError", () => {
+    const d = makeDecision();
+    expect(() =>
+      g.addNode({
+        title: "子",
+        parents: [d.id],
+        parentOptions: { [d.id]: "c" }, // c という枝は無い
+      }),
+    ).toThrow(GraphError);
+  });
+
+  it("キーがparentsに含まれていなければGraphError", () => {
+    const d = makeDecision();
+    expect(() =>
+      g.addNode({
+        title: "子",
+        parents: [], // d.id を parents に入れていない
+        parentOptions: { [d.id]: "a" },
+      }),
+    ).toThrow(GraphError);
+  });
+
+  it("正しい parentOptions（親がdecision・値がbranches内）なら作成できる", () => {
+    const d = makeDecision();
+    const child = g.addNode({ title: "子", parents: [d.id], parentOptions: { [d.id]: "a" } });
+    expect(child.parentOptions).toEqual({ [d.id]: "a" });
+  });
+});
+
+/** 分岐→2枝→片方はさらに1段下流(連鎖skip検証用)→合流、という形を組み立てる */
+function setupBranchGraph() {
+  const d = makeDecision();
+  const a1 = g.addNode({
+    title: "A枝の作業",
+    lifecycle: "committed",
+    parents: [d.id],
+    parentOptions: { [d.id]: "a" },
+  });
+  const b1 = g.addNode({
+    title: "B枝の作業",
+    lifecycle: "committed",
+    parents: [d.id],
+    parentOptions: { [d.id]: "b" },
+  });
+  const b2 = g.addNode({ title: "B枝の後続", lifecycle: "committed", parents: [b1.id] });
+  const merge = g.addNode({ title: "合流", lifecycle: "committed", parents: [a1.id, b2.id] });
+  return { d, a1, b1, b2, merge };
+}
+
+describe("applyDecision: 直接skip", () => {
+  it("選ばれなかった枝の直下の子だけがskippedになる", () => {
+    const { d, a1, b1 } = setupBranchGraph();
+    g.applyDecision(d.id, "a");
+    expect(g.get(d.id).status).toBe("done");
+    expect(g.get(d.id).choice).toBe("a");
+    expect(g.get(a1.id).status).toBe("pending"); // 選ばれた枝はそのまま
+    expect(g.get(b1.id).status).toBe("skipped"); // 選ばれなかった枝
+  });
+});
+
+describe("applyDecision: 連鎖skip", () => {
+  it("skippedノードの子で全ての親がskippedなものも連鎖的にskippedになる", () => {
+    const { d, b2 } = setupBranchGraph();
+    g.applyDecision(d.id, "a");
+    expect(g.get(b2.id).status).toBe("skipped");
+  });
+
+  it("done/droppedになっているノードは連鎖規則で上書きされない", () => {
+    const { d, a1, b1, b2 } = setupBranchGraph();
+    // b2 を先に dropped にしておく（人間が既に中止済み、という状況を模す）
+    g.patchNode(b2.id, { status: "dropped" });
+    g.applyDecision(d.id, "a");
+    expect(g.get(b1.id).status).toBe("skipped");
+    expect(g.get(b2.id).status).toBe("dropped"); // skippedで上書きされない
+    expect(g.get(a1.id).status).toBe("pending");
+  });
+});
+
+describe("applyDecision: 合流", () => {
+  it("片方の枝がskippedでも、もう片方が完了すれば合流ノードがfrontierに乗る", () => {
+    const built = setupBranchGraph();
+    g.applyDecision(built.d.id, "a");
+    // この時点では a1 がまだ pending なので合流はまだ frontier に乗らない
+    expect(g.frontier().map((n) => n.id)).not.toContain(built.merge.id);
+    g.patchNode(built.a1.id, { status: "done" });
+    // a1 が done、b2 は skipped → 「skippedでない親が全てdone」なので合流が着火する
+    expect(g.frontier().map((n) => n.id)).toContain(built.merge.id);
+  });
+});
+
+describe("applyDecision: 入力検証", () => {
+  it("choiceがbranchesに無ければGraphError", () => {
+    const d = makeDecision();
+    expect(() => g.applyDecision(d.id, "c")).toThrow(GraphError);
+  });
+
+  it("kind!=decisionのノードに対してはGraphError", () => {
+    const t = g.addNode({ title: "普通の作業", lifecycle: "committed" });
+    expect(() => g.applyDecision(t.id, "a")).toThrow(GraphError);
+  });
+});
+
+describe("applyDecision: undoとの整合", () => {
+  it("一連の変更は複数opの連続であり、undoは1opずつ戻る", () => {
+    const { d, b1, b2 } = setupBranchGraph();
+    g.applyDecision(d.id, "a");
+    expect(g.get(b1.id).status).toBe("skipped");
+    expect(g.get(b2.id).status).toBe("skipped");
+
+    // 最後のop（連鎖skipによるb2）だけが戻る
+    g.undoLast();
+    expect(g.get(b2.id).status).toBe("pending");
+    expect(g.get(b1.id).status).toBe("skipped"); // まだ戻っていない
+    expect(g.get(d.id).status).toBe("done"); // まだ戻っていない
+
+    // その前のop（直接skipのb1）が戻る
+    g.undoLast();
+    expect(g.get(b1.id).status).toBe("pending");
+    expect(g.get(d.id).status).toBe("done"); // まだ戻っていない
+
+    // 最初のop（choice確定）が戻る
+    g.undoLast();
+    expect(g.get(d.id).status).toBe("pending");
+    expect(g.get(d.id).choice).toBeNull();
+  });
+});

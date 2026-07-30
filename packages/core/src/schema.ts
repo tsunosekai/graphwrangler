@@ -14,12 +14,14 @@ export const ViaSchema = z.string().min(1);
 
 // ---- ノード ----
 
-/** goal=プロジェクトページ（一回きりのDAG） / task=作業 / procedure=手順ページ（繰り返し、ランが流れる） */
-export const NodeKindSchema = z.enum(["goal", "task", "procedure"]);
+/** goal=プロジェクトページ（一回きりのDAG） / task=作業 / procedure=手順ページ（繰り返し、ランが流れる） /
+ *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） */
+export const NodeKindSchema = z.enum(["goal", "task", "procedure", "decision"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
 export const ImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
 export const LifecycleSchema = z.enum(["draft", "committed"]);
-/** unplanned = やり方未定（「ここだけまだ考えてない」）。依存が揃っていても実行エンジンは拾わない */
+/** unplanned = やり方未定（「ここだけまだ考えてない」）。依存が揃っていても実行エンジンは拾わない。
+ *  skipped = 分岐で選ばれなかった枝を通ったため、その回は対象外になった正常状態（dropped=中止とは別物） */
 export const StatusSchema = z.enum([
   "unplanned",
   "pending",
@@ -27,6 +29,7 @@ export const StatusSchema = z.enum([
   "waiting",
   "done",
   "dropped",
+  "skipped",
 ]);
 
 /** ノードの実装形態（Fix3段階の後ろ2つ。null=会話段=AIの裁量で実行）
@@ -37,6 +40,15 @@ export const NodeImplSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("script"), command: z.string().min(1) }),
 ]);
 export type NodeImpl = z.infer<typeof NodeImplSchema>;
+
+/** 分岐ノード(kind=decision)の選択肢。判断リクエストの options と同形だが、
+ *  then は省略可（人間向けリクエストに変換するときは既定文言で補う。docs/design.md 3.9） */
+export const NodeBranchSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  then: z.string().optional(),
+});
+export type NodeBranch = z.infer<typeof NodeBranchSchema>;
 
 export const NodeSchema = z.object({
   id: z.string(),
@@ -67,6 +79,14 @@ export const NodeSchema = z.object({
   /** kind=procedure 用の定期トリガー記述（"schedule:daily 09:00" 等）。
    *  書式は自由文字列で、v1 では解釈しない（ラン生成のトリガー文字列に転記されるだけ） */
   schedule: z.string().nullable(),
+  /** kind=decision のみ意味を持つ選択肢一覧（最低2個。elseなし・単一選択。docs/design.md 3.9）。
+   *  それ以外の kind では null */
+  branches: z.array(NodeBranchSchema).nullable().default(null),
+  /** 決定済みの枝id（プロジェクト層。kind=decision が完了すると入る）。ラン側は RunItem.choice */
+  choice: z.string().nullable().default(null),
+  /** 子側: どの親decisionのどの枝から生えるか（親decisionId → 枝id）。
+   *  検証: キーが parents に含まれ、その親が kind=decision であること。値がその親の branches に存在すること */
+  parentOptions: z.record(z.string(), z.string()).default({}),
   created: z.string(),
   updated: z.string(),
 });
@@ -87,6 +107,9 @@ export const NodeInputSchema = z.object({
   fixed: z.boolean().default(false),
   order: z.number().nullable().default(null),
   schedule: z.string().nullable().default(null),
+  branches: z.array(NodeBranchSchema).nullable().default(null),
+  choice: z.string().nullable().default(null),
+  parentOptions: z.record(z.string(), z.string()).default({}),
 });
 export type NodeInput = z.input<typeof NodeInputSchema>;
 
@@ -198,7 +221,8 @@ export type MaterializedMessage = Message & {
 // テンプレート（procedure のメンバーノード）自身は status を持たない。
 // 実行のたびに生成する Run 側のワークアイテムが status を持つ。
 
-/** ワークアイテムの状態。skipped = unplanned テンプレート等、その回は対象外だったもの */
+/** ワークアイテムの状態。skipped = unplanned テンプレート等、その回は対象外だったもの
+ *  （分岐で選ばれなかった枝もここに乗る） */
 export const RunItemStatusSchema = z.enum([
   "pending",
   "running",
@@ -213,6 +237,8 @@ export const RunItemSchema = z.object({
   status: RunItemStatusSchema,
   note: z.string().nullable(),
   updated: z.string(),
+  /** テンプレートが kind=decision のとき、そのランで確定した枝id。それ以外は null */
+  choice: z.string().nullable().default(null),
 });
 export type RunItem = z.infer<typeof RunItemSchema>;
 
