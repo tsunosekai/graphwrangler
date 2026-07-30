@@ -172,9 +172,6 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           title="あなたの番"
         />
       )}
-      {data.unread && (
-        <span className="absolute -left-1 -top-1 size-2 flex-shrink-0 rounded-full bg-ai" title="未読メッセージあり" />
-      )}
       <div
         className={cn(
           "flex items-center gap-1.5",
@@ -229,6 +226,10 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           <span className="flex-shrink-0 text-destructive" title="不可逆">
             <Icon name="alert" size={12} />
           </span>
+        )}
+        {/* 未読はカード内の右側（レールの未読バッジと同じ「右端」ポジション。旧: 左肩の外付けドット） */}
+        {data.unread && (
+          <span className="size-2 flex-shrink-0 rounded-full bg-ai" title="未読メッセージあり" />
         )}
       </div>
       {(showFoot || phaseAction) && (
