@@ -147,6 +147,7 @@ export default function App() {
           folders={folders}
           allNodes={nodes}
           pageId={pageId}
+          threadMeta={threadMeta}
           latestRuns={latestRuns ?? {}}
           onSelectPage={(id) => {
             setPageId(id);

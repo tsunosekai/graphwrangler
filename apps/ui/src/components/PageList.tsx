@@ -23,6 +23,9 @@ interface Props {
   folders: Node[];
   allNodes: Node[];
   pageId: string | null;
+  /** ノードid → 最終メッセージ時刻。ページ行の未読数バッジに使う（本人指定 2026-07-31:
+   *  「未読は数字でプロジェクトに、あなたの番はちょぼに」） */
+  threadMeta: Record<string, string>;
   /** procedure id → 最新ラン（App 側でポーリング済み） */
   latestRuns: Record<string, Run | null>;
   onSelectPage: (id: string) => void;
@@ -58,10 +61,18 @@ function seatColor(status: Status, executor: Node["executor"]): string {
 const SEAT_ORDER: Seat[] = ["human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
-export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, onMutated }: Props) {
+export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, onSelectPage, onMutated }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // QOL-3: アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
+
+  // 未読判定は GraphView（カードの青ドット）と同じ規約: gw.read.<id> より新しいメッセージがあるか
+  const isUnread = (id: string) => {
+    const last = threadMeta[id];
+    if (!last) return false;
+    const read = localStorage.getItem(`gw.read.${id}`);
+    return !read || last > read;
+  };
 
   const addGoal = async () => {
     const created = await api.addNode({ title: "新しいゴール", kind: "goal" });
@@ -84,6 +95,10 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
   const renderRow = (f: Node, archived: boolean) => {
     const routine = isRoutinePage(f, allNodes);
     const latestRun = latestRuns?.[f.id] ?? null;
+    // ページ内（ゴール自身 + メンバー）の未読ノード数。数字バッジで行の右端に出す
+    const unreadCount = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)].filter(
+      isUnread,
+    ).length;
 
     const memberDots = !routine
       ? allNodes
@@ -142,6 +157,14 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
             <StatusCircle status={f.status} size={12} />
           )}
           <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
+          {unreadCount > 0 && (
+            <span
+              className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white"
+              title={`未読メッセージのあるノード ${unreadCount} 件`}
+            >
+              {unreadCount}
+            </span>
+          )}
         </span>
         {dots.length > 0 && (
           <span className="flex flex-wrap items-center gap-[3px] pl-5">
