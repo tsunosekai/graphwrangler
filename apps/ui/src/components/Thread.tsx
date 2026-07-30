@@ -30,9 +30,10 @@ function extractSources(payload: unknown): string[] | null {
 
 /**
  * ノードスレッド。Claude Code と同じ構成:
- * 上=流れるメッセージ列（自動で最下部へスクロール）、
- * 下=入力欄。open な判断リクエストは入力欄の直上に固定表示され、
- * 入力欄への自由文はそのリクエストへの「聞き返し」（ラリー）になる。
+ * 上=流れるメッセージ列（自動で最下部へスクロール）、下=入力欄。
+ * open な判断リクエストのカードはここではなく NodePanel が「ノード詳細とチャット欄の間」に
+ * 固定表示する（本人指定 2026-07-31）。ただし質問が開いている間の自由文が
+ * 「聞き返し」（ラリー）になる挙動はここが持つ。
  */
 export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
   const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
@@ -44,7 +45,7 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
     else replyDrafts.delete(nodeId);
   }, [reply, nodeId]);
 
-  // open な判断リクエストは流れに埋めず、入力欄の直上へ固定する
+  // open な判断リクエストは流れに埋めない（表示は NodePanel 側。ここでは聞き返し判定にだけ使う）
   const openRequests = messages.filter(
     (m) => m.kind === "decision_request" && m.requestStatus === "open",
   );
@@ -129,11 +130,6 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
           );
         })}
       </div>
-      {openRequests.map((m) => (
-        <div key={m.id} className="flex-shrink-0">
-          <DecisionCard message={m} nodeId={nodeId} onMutated={onMutated} />
-        </div>
-      ))}
       {showReplyBox && (
         <div className="flex flex-shrink-0 items-end gap-2">
           <Textarea

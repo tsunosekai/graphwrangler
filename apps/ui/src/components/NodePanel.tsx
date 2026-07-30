@@ -24,6 +24,7 @@ import { Switch } from "./ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { DecisionCard } from "./DecisionCard";
 import { StatusCircle } from "./StatusCircle";
 import { Thread } from "./Thread";
 
@@ -242,6 +243,11 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
     tab === "talk"
       ? m.kind === "say" || m.kind === "decision_request" || m.kind === "decision_answer"
       : m.kind === "status" || m.kind === "artifact",
+  );
+  // 開いている判断リクエストは会話の流れではなく「ノード詳細とチャット欄の間」に固定表示する
+  // （本人指定 2026-07-31）。タブに関わらず見える（履歴タブでも回答できる）
+  const openRequests = messages.filter(
+    (m) => m.kind === "decision_request" && m.requestStatus === "open",
   );
 
   return (
@@ -544,6 +550,18 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
           )}
         </>
       )}
+
+      {openRequests.map((m) => (
+        <DecisionCard
+          key={m.id}
+          message={m}
+          nodeId={node.id}
+          onMutated={() => {
+            onMutated();
+            refreshThread();
+          }}
+        />
+      ))}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history")} className="gap-3">
         <TabsList>
