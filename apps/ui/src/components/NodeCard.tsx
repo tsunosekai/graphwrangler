@@ -54,7 +54,9 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
     if (data.editing) setDraft(node.title);
   }, [data.editing, node.title]);
 
-  const showFoot = !isTemplate && node.status !== "done" && node.status !== "dropped";
+  // 人間に名前で見せる状態は「未計画」だけ（2026-07-31 本人方針: 人間の語彙は未計画かdoneかだけ。
+  // 実行中=スピナー/回答待ち=橙ドット/完了=チェック/スキップ=斜線円と、他は絵で伝わっている）
+  const showFoot = !isTemplate && node.status === "unplanned";
 
   return (
     <div

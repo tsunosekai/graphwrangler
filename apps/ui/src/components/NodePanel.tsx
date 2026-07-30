@@ -39,14 +39,18 @@ const KIND_OPTIONS: Node["kind"][] = ["goal", "task", "procedure", "decision"];
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
 const IMPACT_OPTIONS: Node["impact"][] = ["safe", "reversible", "irreversible"];
 const LIFECYCLE_OPTIONS: Node["lifecycle"][] = ["draft", "committed"];
-const STATUS_OPTIONS: Node["status"][] = [
-  "unplanned",
-  "pending",
-  "running",
-  "waiting",
-  "done",
-  "dropped",
-];
+// 人間が選ぶ意味のある状態だけに絞る（running/waiting/skipped は機械が付ける内部状態。
+// 現在値がそれらの場合のみ読み取り専用の選択肢として表示する）
+const STATUS_OPTIONS: Node["status"][] = ["unplanned", "pending", "done", "dropped"];
+const STATUS_JA: Record<Node["status"], string> = {
+  unplanned: "未計画",
+  pending: "進行",
+  running: "実行中（内部）",
+  waiting: "回答待ち（内部）",
+  done: "完了",
+  dropped: "中止",
+  skipped: "スキップ（内部）",
+};
 
 /** decision の枝の新規id採番: b1, b2, ... の空いている最初の番号（既存idは変更しない。docs/design.md 3.9） */
 function nextBranchId(existing: NodeBranch[]): string {
@@ -434,9 +438,13 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
               <Select value={node.status} onValueChange={(v) => patch({ status: v as Node["status"] })}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {STATUS_OPTIONS.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {k}
+                  {/* 現在値が内部状態(running/waiting/skipped)の時だけ、読み取り用にその項目も出す */}
+                  {(STATUS_OPTIONS.includes(node.status)
+                    ? STATUS_OPTIONS
+                    : [node.status, ...STATUS_OPTIONS]
+                  ).map((k) => (
+                    <SelectItem key={k} value={k} disabled={!STATUS_OPTIONS.includes(k)}>
+                      {STATUS_JA[k]}
                     </SelectItem>
                   ))}
                 </SelectContent>
