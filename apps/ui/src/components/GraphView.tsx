@@ -734,7 +734,7 @@ function GraphViewInner({
     onMutated();
   }, [draftNodes, onMutated, removeLeafFirst]);
 
-  // ---- A-5: 硬化率チップ（committed メンバーのうち impl=script の割合） ----
+  // ---- A-5: Fix率チップ（committed メンバーのうち impl=script の割合） ----
   const hardening = useMemo(() => {
     const committed = nodes.filter((n) => n.lifecycle === "committed");
     const hardened = committed.filter((n) => n.impl?.type === "script");
@@ -791,7 +791,7 @@ function GraphViewInner({
             </Tooltip>
             {hardening.m > 0 && (
               <Badge variant="secondary" title="確定メンバーのうちスクリプト化済みの割合">
-                硬化 {hardening.n}/{hardening.m}
+                Fix {hardening.n}/{hardening.m}
               </Badge>
             )}
           </>

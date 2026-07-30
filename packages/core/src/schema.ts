@@ -29,7 +29,7 @@ export const StatusSchema = z.enum([
   "dropped",
 ]);
 
-/** ノードの実装形態（硬化3段階の後ろ2つ。null=会話段=AIの裁量で実行）
+/** ノードの実装形態（Fix3段階の後ろ2つ。null=会話段=AIの裁量で実行）
  *  - doc: 手順書。AI executor がこれを読んで実行する
  *  - script: 決定的スクリプト（シェルコマンド）。script executor が実行する */
 export const NodeImplSchema = z.discriminatedUnion("type", [
@@ -43,7 +43,7 @@ export const NodeSchema = z.object({
   /** 空文字を許す（UIの「作って即リネーム」フローが空タイトルで作成するため。表示側は「（無題）」） */
   title: z.string(),
   detail: z.string().nullable(),
-  /** 実装形態（3.5 硬化ライフサイクル）。null = 会話段 */
+  /** 実装形態（3.5 Fixライフサイクル）。null = 会話段 */
   impl: NodeImplSchema.nullable(),
   /** 先行ノードid。DAG。空=ルート。依存（順序）を表す */
   parents: z.array(z.string()),
