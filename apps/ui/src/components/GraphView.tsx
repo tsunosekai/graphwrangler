@@ -37,8 +37,12 @@ interface ClipboardNode {
   executor: Node["executor"];
   impact: Node["impact"];
   kind: Node["kind"];
+  /** kind=decision のときの選択肢定義（コピーで引き継ぐ。他kindではnull。docs/design.md 3.9） */
+  branches: Node["branches"];
   /** コピー元選択内で閉じた依存だけを覚える（外部への parents は貼り付け時に捨てる） */
   parentOrigIds: string[];
+  /** parentOrigIds のうち親がdecisionのものについて、どの枝から生えるか（親id → 枝id） */
+  parentOptions: Node["parentOptions"];
   pos: Pos;
 }
 let clipboard: ClipboardNode[] = [];
@@ -289,12 +293,19 @@ function GraphViewInner({
     onSelectionCountChange,
   ]);
 
-  // QOL-2: 依存の切断。子ノードの parents から source を除く（Ctrl+Zで戻せる: undo は既存の操作ログ経由）
+  // QOL-2: 依存の切断。子ノードの parents から source を除く（Ctrl+Zで戻せる: undo は既存の操作ログ経由）。
+  // source が decision の枝だった場合、parentOptions からも該当エントリを削除する（docs/design.md 3.9）
   const cutEdge = useCallback(
     async (source: string, target: string) => {
       const child = nodes.find((n) => n.id === target);
       if (!child) return;
-      await api.patchNode(child.id, { parents: child.parents.filter((p) => p !== source) });
+      const restParentOptions = Object.fromEntries(
+        Object.entries(child.parentOptions).filter(([decisionId]) => decisionId !== source),
+      );
+      await api.patchNode(child.id, {
+        parents: child.parents.filter((p) => p !== source),
+        parentOptions: restParentOptions,
+      });
       setSelectedEdgeId(null);
       onMutated();
       pushToast("依存を切りました（Ctrl+Zで戻せます）", "info");
@@ -303,19 +314,34 @@ function GraphViewInner({
   );
 
   const rfEdges: RFEdge[] = useMemo(() => {
+    const byId = new Map(nodes.map((n) => [n.id, n] as const));
     const ids = new Set(nodes.map((n) => n.id));
     return nodes.flatMap((n) =>
       n.parents
         .filter((p) => ids.has(p))
         .map((p) => {
           const id = `${p}->${n.id}`;
+          const parent = byId.get(p);
+          // decision の子は必ずどの枝から生えるかを parentOptions に持つ（docs/design.md 3.9）。
+          // sourceHandle を合わせないと NodeCard 側の複数ハンドルのどれにも繋がらない
+          const branchId = parent?.kind === "decision" ? n.parentOptions[p] : undefined;
+          // choice 確定後、選ばれなかった枝のエッジは減光する
+          const deemphasize = !!(
+            parent?.kind === "decision" &&
+            parent.choice &&
+            branchId &&
+            parent.choice !== branchId
+          );
           return {
             id,
             source: p,
             target: n.id,
+            ...(branchId ? { sourceHandle: branchId } : {}),
             type: "cut",
             data: {
               selected: id === selectedEdgeId,
+              // 枝ラベルはポート下の常設ラベルに一本化（エッジ中点にも出すと短いエッジで二重表示になる）
+              deemphasize,
               onCut: () => cutEdge(p, n.id),
             } satisfies CutEdgeData,
           };
@@ -332,12 +358,23 @@ function GraphViewInner({
     setRfNodes((nds) => applyNodeChanges(changes, nds));
   }, []);
 
+  // source が decision の枝ハンドルなら、parents に加えて parentOptions[decisionId]=branchId も
+  // 一緒に patch する（docs/design.md 3.9。子側がどの枝から生えるかを持つ形）
   const handleConnect = useCallback(
     async (conn: Connection) => {
       if (!conn.source || !conn.target || conn.source === conn.target) return;
       const child = nodes.find((n) => n.id === conn.target);
       if (!child || child.parents.includes(conn.source)) return;
-      await api.patchNode(child.id, { parents: [...child.parents, conn.source] });
+      const parent = nodes.find((n) => n.id === conn.source);
+      const parents = [...child.parents, conn.source];
+      if (parent?.kind === "decision" && conn.sourceHandle) {
+        await api.patchNode(child.id, {
+          parents,
+          parentOptions: { ...child.parentOptions, [conn.source]: conn.sourceHandle },
+        });
+      } else {
+        await api.patchNode(child.id, { parents });
+      }
       onMutated();
     },
     [nodes, onMutated],
@@ -364,7 +401,7 @@ function GraphViewInner({
       connectionState: {
         isValid: boolean | null;
         fromNode: { id: string } | null;
-        fromHandle: { type: string | null } | null;
+        fromHandle: { type: string | null; id?: string | null } | null;
       },
     ) => {
       if (connectionState.isValid) return; // ノード上で放した→通常の onConnect に任せる
@@ -375,13 +412,19 @@ function GraphViewInner({
       const cy = isTouch ? event.changedTouches[0].clientY : event.clientY;
       const pos = screenToFlowPosition({ x: cx, y: cy });
       const fromType = connectionState.fromHandle?.type ?? "source";
+      const fromHandleId = connectionState.fromHandle?.id ?? null;
       void (async () => {
         if (fromType === "source") {
-          // 出力から空中へ → 子（後続）ノードを落とした位置に作る
+          // 出力から空中へ → 子（後続）ノードを落とした位置に作る。
+          // from が decision ノードなら、放したハンドルの枝id を parentOptions に持たせる（3.9）
+          const fromNode = nodes.find((n) => n.id === from.id);
           const created = await api.addNode({
             title: "",
             parents: [from.id],
             group: pageNode?.id ?? null,
+            ...(fromNode?.kind === "decision" && fromHandleId
+              ? { parentOptions: { [from.id]: fromHandleId } }
+              : {}),
           });
           overridesRef.current.set(created.id, { x: pos.x - 110, y: pos.y - 16 });
           onMutated();
@@ -512,8 +555,14 @@ function GraphViewInner({
         executor: n.executor,
         impact: n.impact,
         kind: n.kind,
+        // kind=decision の選択肢定義はそのまま引き継ぐ（無いと貼り付け時にサーバ検証で弾かれる）
+        branches: n.branches,
         // 選択内で閉じた依存だけ覚える。外部への parents は貼り付け時に捨てる
         parentOrigIds: n.parents.filter((p) => idSet.has(p)),
+        // 同様に、選択内で閉じたdecision親への枝の対応だけ引き継ぐ
+        parentOptions: Object.fromEntries(
+          Object.entries(n.parentOptions).filter(([decisionId]) => idSet.has(decisionId)),
+        ),
         pos: positionsRef.current.get(id) ?? { x: 0, y: 0 },
       });
     }
@@ -522,7 +571,7 @@ function GraphViewInner({
   }, [nodes, getSelectedNodeIds]);
 
   // Ctrl+V/Ctrl+D 共通: エントリ群を新規ノードとして作り、選択内で閉じた依存だけ張り替える。
-  // id はサーバ採番なので、まず全部作ってから旧id→新idマップで parents を patch する
+  // id はサーバ採番なので、まず全部作ってから旧id→新idマップで parents/parentOptions を patch する
   const materializeClipboard = useCallback(
     async (entries: ClipboardNode[], label: string) => {
       if (entries.length === 0) return;
@@ -536,6 +585,7 @@ function GraphViewInner({
           executor: entry.executor,
           impact: entry.impact,
           kind: entry.kind,
+          branches: entry.branches,
           group: pageNode?.id ?? null,
           lifecycle: "draft",
           status: "pending",
@@ -552,7 +602,12 @@ function GraphViewInner({
         if (newParents.length === 0) continue;
         const newId = idMap.get(entry.origId);
         if (!newId) continue;
-        await api.patchNode(newId, { parents: newParents });
+        const newParentOptions = Object.fromEntries(
+          Object.entries(entry.parentOptions)
+            .map(([oldDecisionId, branchId]) => [idMap.get(oldDecisionId), branchId] as const)
+            .filter((pair): pair is [string, string] => !!pair[0]),
+        );
+        await api.patchNode(newId, { parents: newParents, parentOptions: newParentOptions });
       }
       // 作成したノード群がポーリングで出現したら選択する（App の selectedId は1件しか運べないため）
       pendingSelectRef.current = new Set(createdIds);
@@ -583,7 +638,11 @@ function GraphViewInner({
         executor: n.executor,
         impact: n.impact,
         kind: n.kind,
+        branches: n.branches,
         parentOrigIds: n.parents.filter((p) => idSet.has(p)),
+        parentOptions: Object.fromEntries(
+          Object.entries(n.parentOptions).filter(([decisionId]) => idSet.has(decisionId)),
+        ),
         pos: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
       }));
     return materializeClipboard(entries, "複製");

@@ -1,9 +1,21 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Copy, History, Lock, MessageSquare, Trash2, Unlock, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  GitBranch,
+  History,
+  Lock,
+  MessageSquare,
+  Trash2,
+  Unlock,
+  X,
+} from "lucide-react";
 import { api, type NodePatchInput } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
-import type { Node } from "../types";
+import { pushToast } from "../lib/toast";
+import type { Node, NodeBranch } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -23,7 +35,7 @@ interface Props {
   selectedCount?: number;
 }
 
-const KIND_OPTIONS: Node["kind"][] = ["goal", "task", "procedure"];
+const KIND_OPTIONS: Node["kind"][] = ["goal", "task", "procedure", "decision"];
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
 const IMPACT_OPTIONS: Node["impact"][] = ["safe", "reversible", "irreversible"];
 const LIFECYCLE_OPTIONS: Node["lifecycle"][] = ["draft", "committed"];
@@ -35,6 +47,61 @@ const STATUS_OPTIONS: Node["status"][] = [
   "done",
   "dropped",
 ];
+
+/** decision の枝の新規id採番: b1, b2, ... の空いている最初の番号（既存idは変更しない。docs/design.md 3.9） */
+function nextBranchId(existing: NodeBranch[]): string {
+  let i = 1;
+  while (existing.some((b) => b.id === `b${i}`)) i++;
+  return `b${i}`;
+}
+
+/** 分岐エディタの1行。ラベルを入力→blurで確定（title/detailと同じ「編集中は自分のdraftを見る」流儀） */
+function BranchRow({
+  branch,
+  disableRemove,
+  onCommit,
+  onRemove,
+}: {
+  branch: NodeBranch;
+  disableRemove: boolean;
+  onCommit: (label: string) => void;
+  onRemove: () => void;
+}) {
+  const [draft, setDraft] = useState(branch.label);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(branch.label);
+  }, [branch.label, focused]);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Input
+        className="h-8 flex-1"
+        value={draft}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setFocused(false);
+          const t = draft.trim();
+          if (t && t !== branch.label) onCommit(t);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        disabled={disableRemove}
+        title={disableRemove ? "分岐は最低2つ必要です" : "この枝を削除"}
+        onClick={onRemove}
+      >
+        <Trash2 className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
@@ -96,7 +163,9 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
     if (scheduleDraft !== (node.schedule ?? "")) await patch({ schedule: scheduleDraft || null });
   };
 
-  // QOL-8: ノード複製。作成後は新規ノードを選択する
+  // QOL-8: ノード複製。作成後は新規ノードを選択する。
+  // parents は複製元と同じ集合のままなので parentOptions（decision分岐の対応）もそのまま引き継げる。
+  // kind=decision は branches が無いとサーバ検証で弾かれるためこちらも引き継ぐ（choiceは新規なので引き継がない）
   const handleDuplicate = async () => {
     try {
       const created = await api.addNode({
@@ -104,8 +173,10 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
         detail: node.detail,
         impl: node.impl,
         parents: node.parents,
+        parentOptions: node.parentOptions,
         group: node.group,
         kind: node.kind,
+        branches: node.branches,
         executor: node.executor,
         impact: node.impact,
         status: "pending",
@@ -113,6 +184,17 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
       });
       onMutated();
       onSelect(created.id);
+    } catch {
+      // api() 側でトースト表示済み
+    }
+  };
+
+  // decision の choice 未確定のときだけ「分岐を選ぶ」を出す（docs/design.md 3.9）
+  const decide = async (branchId: string, label: string) => {
+    try {
+      await api.decide(node.id, branchId);
+      onMutated();
+      pushToast(`${label} に分岐しました`, "info");
     } catch {
       // api() 側でトースト表示済み
     }
@@ -198,6 +280,36 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
         <span className="-mt-2 text-xs text-muted-foreground">他 {selectedCount - 1} 件選択中</span>
       )}
 
+      {/* decision ノード: choice 未確定なら分岐を選ぶボタン列、確定済みなら選択結果（docs/design.md 3.9）。
+          human分岐はエンジンが開く判断リクエスト(Threadタブ)でも回答できるが、ここから直接 /decide も正 */}
+      {node.kind === "decision" &&
+        node.branches &&
+        (node.status === "done" || node.status === "skipped" ? (
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+            <GitBranch className="size-3.5 flex-shrink-0" />
+            選択済み: {node.branches.find((b) => b.id === node.choice)?.label ?? node.choice ?? "-"}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5 rounded-md border border-dashed border-border-strong bg-card p-2.5">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <GitBranch className="size-3.5" /> 分岐を選ぶ
+            </span>
+            {node.branches.map((b) => (
+              <Button
+                key={b.id}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-start"
+                title={b.then}
+                onClick={() => decide(b.id, b.label)}
+              >
+                {b.label}
+              </Button>
+            ))}
+          </div>
+        ))}
+
       {!metaOpen && (
         <button
           type="button"
@@ -250,7 +362,24 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-sm text-muted-foreground">
               種別
-              <Select value={node.kind} onValueChange={(v) => patch({ kind: v as Node["kind"] })}>
+              <Select
+                value={node.kind}
+                onValueChange={(v) => {
+                  const kind = v as Node["kind"];
+                  // decision に切り替えた時、branches が未設定なら既定2枝を立てる（docs/design.md 3.9）
+                  if (kind === "decision" && !node.branches) {
+                    patch({
+                      kind,
+                      branches: [
+                        { id: "a", label: "A" },
+                        { id: "b", label: "B" },
+                      ],
+                    });
+                  } else {
+                    patch({ kind });
+                  }
+                }}
+              >
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {KIND_OPTIONS.map((k) => (
@@ -314,6 +443,44 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
               </Select>
             </label>
           </div>
+
+          {/* decision の枝エディタ: ラベル編集+削除（最低2枝）+追加。id は既存のものを変更しない
+              （エッジが parentOptions[decisionId]=branchId で紐づいているため。docs/design.md 3.9） */}
+          {node.kind === "decision" && (
+            <div className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <GitBranch className="size-3.5" /> 分岐の枝
+              </span>
+              {(node.branches ?? []).map((b) => (
+                <BranchRow
+                  key={b.id}
+                  branch={b}
+                  disableRemove={(node.branches?.length ?? 0) <= 2}
+                  onCommit={(label) =>
+                    patch({
+                      branches: (node.branches ?? []).map((x) => (x.id === b.id ? { ...x, label } : x)),
+                    })
+                  }
+                  onRemove={() => patch({ branches: (node.branches ?? []).filter((x) => x.id !== b.id) })}
+                />
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  patch({
+                    branches: [
+                      ...(node.branches ?? []),
+                      { id: nextBranchId(node.branches ?? []), label: "新しい枝" },
+                    ],
+                  })
+                }
+              >
+                + 枝を追加
+              </Button>
+            </div>
+          )}
         </>
       )}
 

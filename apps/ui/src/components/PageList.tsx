@@ -31,16 +31,16 @@ const DOT_COLOR: Record<Status, string> = {
   waiting: "var(--human)",
   done: "var(--done)", // 終わったちょぼは暗く（一覧では未処理が目立つべき）
   dropped: "var(--dropped)",
-};
-
-// ワークアイテムの status（RunItemStatus は Status に "skipped" を足しただけ）
-const RUN_DOT_COLOR: Record<RunItemStatus, string> = {
-  ...DOT_COLOR,
   skipped: "var(--text-lo)",
 };
 
+// ワークアイテムの status（RunItemStatus は Status と同形）
+const RUN_DOT_COLOR: Record<RunItemStatus, string> = {
+  ...DOT_COLOR,
+};
+
 // 目に入るべき順: あなたの番 → 実行中 → 待機系 → 完了 → 中止
-const DOT_ORDER: Status[] = ["waiting", "running", "pending", "unplanned", "done", "dropped"];
+const DOT_ORDER: Status[] = ["waiting", "running", "pending", "unplanned", "done", "dropped", "skipped"];
 const RUN_DOT_ORDER: RunItemStatus[] = ["waiting", "running", "pending", "done", "dropped", "skipped"];
 const MAX_DOTS = 16;
 

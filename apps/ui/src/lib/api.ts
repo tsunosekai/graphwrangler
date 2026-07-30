@@ -52,6 +52,10 @@ export interface NodeCreateInput {
   status?: Node["status"];
   fixed?: boolean;
   order?: number | null;
+  /** kind=decision のみ意味を持つ選択肢一覧（docs/design.md 3.9） */
+  branches?: Node["branches"];
+  choice?: Node["choice"];
+  parentOptions?: Node["parentOptions"];
 }
 
 export type NodePatchInput = Partial<Omit<Node, "id" | "created" | "updated">>;
@@ -118,6 +122,19 @@ export const api = {
     request<{ message: Message; resolved: boolean; node: Node }>(`/nodes/${id}/answer`, {
       method: "POST",
       body: JSON.stringify({ requestId, option, note }),
+    }),
+
+  // ---- 分岐ノード（kind=decision。docs/design.md 3.9） ----
+
+  /** プロジェクト層: choice確定+skip伝搬。UIから直接叩く経路も正（human分岐の判断リクエスト経由と並立） */
+  decide: (id: string, choice: string) =>
+    request<Node>(`/nodes/${id}/decide`, { method: "POST", body: JSON.stringify({ choice }) }),
+
+  /** ラン層: ワークアイテム(kind=decisionテンプレート)のchoice確定+skip伝搬 */
+  decideRunItem: (runId: string, nodeId: string, choice: string) =>
+    request<Run>(`/runs/${runId}/items/${nodeId}/decide`, {
+      method: "POST",
+      body: JSON.stringify({ choice }),
     }),
 
   // ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----

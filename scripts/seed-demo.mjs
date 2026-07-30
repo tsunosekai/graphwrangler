@@ -71,13 +71,46 @@ const cook = await post("/api/nodes", {
   lifecycle: "draft",
 });
 
-await post("/api/nodes", {
+const serve = await post("/api/nodes", {
   title: "近所に振る舞う",
   group: curry.id,
   parents: [cook.id],
   executor: "human",
   impact: "irreversible",
   detail: "一度振る舞ったら評判は取り消せない",
+  lifecycle: "draft",
+});
+
+// 分岐ノード（kind=decision。docs/design.md 3.9）の実例: 試食の評価。
+// 「試作1号を仕込む」の後続として置き、合格なら既存の「近所に振る舞う」へ、
+// 再調整なら新設の「配合を見直す」へ進む。
+const tasteCheck = await post("/api/nodes", {
+  title: "試食の評価",
+  group: curry.id,
+  parents: [cook.id],
+  kind: "decision",
+  executor: "human",
+  detail: "味見して、このまま振る舞うか配合をやり直すかを決める",
+  branches: [
+    { id: "pass", label: "合格", then: "このまま近所に振る舞う" },
+    { id: "retry", label: "再調整", then: "配合を見直してもう一度仕込む" },
+  ],
+  lifecycle: "draft",
+});
+
+// 既存の「近所に振る舞う」を、cook の直接の後続から「試食の評価」の合格枝の後続へ付け替える
+await post(`/api/nodes/${serve.id}`, {
+  parents: [tasteCheck.id],
+  parentOptions: { [tasteCheck.id]: "pass" },
+});
+
+await post("/api/nodes", {
+  title: "配合を見直す",
+  group: curry.id,
+  parents: [tasteCheck.id],
+  parentOptions: { [tasteCheck.id]: "retry" },
+  executor: "ai",
+  detail: "試食のフィードバックを踏まえてスパイス配合をやり直す",
   lifecycle: "draft",
 });
 

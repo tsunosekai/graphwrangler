@@ -1,5 +1,6 @@
 // Linear 風のステータスサークル（backlog/todo/in-progress/done の円形インジケータの系譜）。
-// pending=空円 / running=半分埋まったリング / waiting=中点付き円 / done=塗り円+チェック / dropped=×円
+// pending=空円 / running=半分埋まったリング / waiting=中点付き円 / done=塗り円+チェック /
+// dropped=×円 / skipped=薄い円+斜線（dropped の×とは区別。docs/design.md 3.9）
 import type { Status } from "../types";
 
 const COLOR: Record<Status, string> = {
@@ -9,6 +10,7 @@ const COLOR: Record<Status, string> = {
   waiting: "var(--human)",
   done: "var(--ok)",
   dropped: "var(--text-lo)",
+  skipped: "var(--text-lo)",
 };
 
 export function StatusCircle({ status, size = 14 }: { status: Status; size?: number }) {
@@ -37,6 +39,12 @@ export function StatusCircle({ status, size = 14 }: { status: Status; size?: num
         <>
           <circle cx="7" cy="7" r="5.4" fill="none" stroke={c} strokeWidth="1.2" />
           <path d="M4.8 4.8l4.4 4.4M9.2 4.8 4.8 9.2" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+        </>
+      ) : status === "skipped" ? (
+        // 薄い円+斜線1本（dropped の×=対角線2本とは区別。分岐で選ばれなかった枝）
+        <>
+          <circle cx="7" cy="7" r="5.4" fill="none" stroke={c} strokeWidth="1" opacity="0.7" />
+          <path d="M4.2 9.8 9.8 4.2" stroke={c} strokeWidth="1" strokeLinecap="round" opacity="0.7" />
         </>
       ) : status === "running" ? (
         <>

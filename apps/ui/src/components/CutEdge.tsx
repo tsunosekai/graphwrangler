@@ -6,6 +6,10 @@ import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyf
 export interface CutEdgeData {
   selected: boolean;
   onCut: (id: string) => void;
+  /** decision分岐(kind=decision)から生えるエッジの枝ラベル（docs/design.md 3.9） */
+  label?: string;
+  /** choice確定後、選ばれなかった枝のエッジを減光する */
+  deemphasize?: boolean;
   [key: string]: unknown;
 }
 
@@ -30,6 +34,7 @@ export function CutEdge({
   });
   const d = data as CutEdgeData | undefined;
   const selected = !!d?.selected;
+  const deemphasize = !!d?.deemphasize;
 
   return (
     <>
@@ -40,8 +45,23 @@ export function CutEdge({
         style={{
           stroke: selected ? "var(--border-strong)" : "var(--edge)",
           strokeWidth: selected ? 2 : 1,
+          opacity: deemphasize ? 0.35 : 1,
         }}
       />
+      {d?.label && !selected && (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan pointer-events-none whitespace-nowrap rounded-sm bg-background/80 px-1 text-[9px] leading-tight text-muted-foreground"
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              opacity: deemphasize ? 0.55 : 1,
+            }}
+          >
+            {d.label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
       {selected && (
         <EdgeLabelRenderer>
           <button

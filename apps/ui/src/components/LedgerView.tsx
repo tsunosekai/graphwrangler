@@ -68,11 +68,22 @@ function topoOrder(members: Node[]): Node[] {
   });
 }
 
-function renderCell(item: RunItem | undefined) {
+// decision テンプレートのセル: choice が確定していれば選んだ枝の label を極小表示する
+// （docs/design.md 3.9。台帳ビューではラン毎にどの枝を通ったかが見える）
+function renderCell(item: RunItem | undefined, col: Node) {
   if (!item || item.status === "skipped") {
     return <span className="text-text-lo">—</span>;
   }
-  return <StatusCircle status={item.status} size={13} />;
+  const choiceLabel =
+    col.kind === "decision" && item.choice
+      ? (col.branches?.find((b) => b.id === item.choice)?.label ?? item.choice)
+      : null;
+  return (
+    <span className="inline-flex items-center justify-center gap-1">
+      <StatusCircle status={item.status} size={13} />
+      {choiceLabel && <span className="text-[10px] text-muted-foreground">{choiceLabel}</span>}
+    </span>
+  );
 }
 
 export function LedgerView({ procedure, members, onMutated }: Props) {
@@ -257,17 +268,23 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
                 </td>
                 {columns.map((col) => {
                   const item = run.items[col.id];
+                  // 分岐はトグルではない（decide経由でしか確定しないため、セルクリックでの切替は無効）
+                  const toggleDisabled = col.kind === "decision";
                   return (
                     <td
                       key={col.id}
-                      className="cursor-pointer border-b border-border px-2.5 py-1.5 text-center align-middle"
+                      className={cn(
+                        "border-b border-border px-2.5 py-1.5 text-center align-middle",
+                        !toggleDisabled && "cursor-pointer",
+                      )}
                       onClick={(e) => {
+                        if (toggleDisabled) return;
                         if (!item || (item.status !== "pending" && item.status !== "done")) return;
                         e.stopPropagation();
                         toggleCell(run.id, col.id, item.status);
                       }}
                     >
-                      {renderCell(item)}
+                      {renderCell(item, col)}
                     </td>
                   );
                 })}

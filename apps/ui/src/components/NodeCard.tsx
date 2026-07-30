@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
-import { Loader2, Lock, Unlock } from "lucide-react";
+import { GitBranch, Loader2, Lock, Unlock } from "lucide-react";
 import { api } from "../lib/api";
 import { cn } from "../lib/utils";
 import type { Node } from "../types";
@@ -18,6 +18,7 @@ const STATUS_LABEL: Record<Node["status"], string> = {
   waiting: "回答待ち",
   done: "完了",
   dropped: "中止",
+  skipped: "スキップ",
 };
 
 const EXEC_TEXT: Record<Node["executor"], string> = {
@@ -66,7 +67,9 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         `exec-${node.executor}`,
         `lifecycle-${node.lifecycle}`,
         !isTemplate && `status-${node.status}`,
-        !isTemplate && (node.status === "done" || node.status === "dropped") && "opacity-90",
+        !isTemplate &&
+          (node.status === "done" || node.status === "dropped" || node.status === "skipped") &&
+          "opacity-90",
         ringOn && "is-selected border-border-strong shadow-[0_0_0_1px_var(--border-strong)]",
       )}
       onClick={() => data.onSelect(node.id)}
@@ -124,12 +127,19 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       <div
         className={cn(
           "flex items-center gap-1.5",
-          !isTemplate && (node.status === "done" || node.status === "dropped") && "opacity-55",
+          !isTemplate &&
+            (node.status === "done" || node.status === "dropped" || node.status === "skipped") &&
+            "opacity-55",
         )}
       >
         <span className={cn("inline-flex flex-shrink-0", EXEC_TEXT[node.executor])}>
           <Icon name={EXEC_ICON[node.executor]} />
         </span>
+        {node.kind === "decision" && (
+          <span className="inline-flex flex-shrink-0 text-muted-foreground" title="分岐ノード">
+            <GitBranch className="size-3" />
+          </span>
+        )}
         {node.impl && (
           <span
             className="inline-flex flex-shrink-0 text-script opacity-75"
@@ -170,7 +180,48 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           <span className="text-xs text-muted-foreground">{STATUS_LABEL[node.status]}</span>
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} />
+      {/* 分岐確定後: 選んだ枝を表示（docs/design.md 3.9） */}
+      {node.kind === "decision" && node.choice && (
+        <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+          <GitBranch className="size-3 flex-shrink-0" />
+          <span className="truncate">
+            → {node.branches?.find((b) => b.id === node.choice)?.label ?? node.choice}
+          </span>
+        </div>
+      )}
+      {node.kind === "decision" && node.branches && node.branches.length > 0 ? (
+        <>
+          {node.branches.map((b, i) => {
+            const leftPct = ((i + 0.5) / node.branches!.length) * 100;
+            return (
+              <Handle
+                key={b.id}
+                type="source"
+                id={b.id}
+                position={Position.Bottom}
+                style={{ left: `${leftPct}%` }}
+              />
+            );
+          })}
+          <div className="pointer-events-none absolute inset-x-1 -bottom-4 flex text-[9px] leading-none text-muted-foreground">
+            {node.branches.map((b, i) => {
+              const leftPct = ((i + 0.5) / node.branches!.length) * 100;
+              return (
+                <span
+                  key={b.id}
+                  className="absolute max-w-[70px] -translate-x-1/2 truncate"
+                  style={{ left: `${leftPct}%` }}
+                  title={b.label}
+                >
+                  {b.label}
+                </span>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <Handle type="source" position={Position.Bottom} />
+      )}
     </div>
   );
 }

@@ -10,15 +10,25 @@ export interface Actor {
   name?: string;
 }
 
-export type NodeKind = "goal" | "task" | "procedure";
+/** decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） */
+export type NodeKind = "goal" | "task" | "procedure" | "decision";
 
 /** ノードの実装形態（Fix3段階の後ろ2つ）。null = 会話段（AIの裁量で実行） */
 export type NodeImpl = { type: "doc"; text: string } | { type: "script"; command: string };
 export type Executor = "human" | "ai" | "script";
 export type Impact = "safe" | "reversible" | "irreversible";
 export type Lifecycle = "draft" | "committed";
-/** unplanned = やり方未定（実行エンジンは拾わない） */
-export type Status = "unplanned" | "pending" | "running" | "waiting" | "done" | "dropped";
+/** unplanned = やり方未定（実行エンジンは拾わない）。
+ *  skipped = 分岐で選ばれなかった枝を通ったため、その回は対象外になった正常状態（dropped=中止とは別物） */
+export type Status = "unplanned" | "pending" | "running" | "waiting" | "done" | "dropped" | "skipped";
+
+/** 分岐ノード(kind=decision)の選択肢。判断リクエストの options と同形だが、
+ *  then は省略可（docs/design.md 3.9） */
+export interface NodeBranch {
+  id: string;
+  label: string;
+  then?: string;
+}
 
 export interface Node {
   id: string;
@@ -39,6 +49,12 @@ export interface Node {
   order: number | null;
   /** kind=procedure 用の定期トリガー記述（自由文字列。v1では解釈しない） */
   schedule: string | null;
+  /** kind=decision のみ意味を持つ選択肢一覧（最低2個）。それ以外の kind では null */
+  branches: NodeBranch[] | null;
+  /** 決定済みの枝id（プロジェクト層。kind=decision が完了すると入る）。ラン側は RunItem.choice */
+  choice: string | null;
+  /** 子側: どの親decisionのどの枝から生えるか（親decisionId → 枝id） */
+  parentOptions: Record<string, string>;
   created: string;
   updated: string;
 }
@@ -101,6 +117,8 @@ export interface RunItem {
   status: RunItemStatus;
   note: string | null;
   updated: string;
+  /** テンプレートが kind=decision のとき、そのランで確定した枝id。それ以外は null */
+  choice: string | null;
 }
 
 export type RunStatus = "running" | "done" | "cancelled";
