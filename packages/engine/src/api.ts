@@ -105,10 +105,39 @@ export async function openRequest(
 // ---- 手順ページ: ラン（M6）----
 
 /** procedureId に属するラン一覧（server 側で created 降順。全 procedure を横断する
- *  一覧APIは無いので、呼び出し側が procedure ノードごとにこれを呼んで束ねる） */
+ *  一覧APIは無いので、呼び出し側が procedure ノードごとにこれを呼んで束ねる）。
+ *  互換エイリアスの /api/procedures/:id/runs を叩く（新エンドポイントは listPageRuns 参照） */
 export async function listProcedureRuns(procedureId: string): Promise<Run[]> {
   const res = (await request("GET", `/api/procedures/${procedureId}/runs`)) as { runs: Run[] };
   return res.runs;
+}
+
+// ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9 新モデル） ----
+
+/** pageId（トリガーノードの group、または他ノードから group として参照されるノードid）に
+ *  属するラン一覧。中身は listProcedureRuns と同じ（GET /api/pages/:id/runs）。
+ *  「ルーティーンであること」はページ種別ではないため、こちらを正の呼び出し先とする */
+export async function listPageRuns(pageId: string): Promise<Run[]> {
+  const res = (await request("GET", `/api/pages/${pageId}/runs`)) as { runs: Run[] };
+  return res.runs;
+}
+
+/** トリガーノード（kind=trigger）を発火する（POST /api/nodes/:id/fire）。そのノードの
+ *  group ページで createFromTrigger によりランが1本作られる。opts.via は発火理由の自由文字列
+ *  （"manual" / "schedule:<原文>" / "ai" 等。省略時はサーバ側既定の "manual"）で、
+ *  この1フィールドが run.trigger の記録とスレッド投稿の帰属(via)の両方に使われる
+ *  （他の書き込みAPIのような actor/via 2引数と違い、このエンドポイントは via を1つしか
+ *  持たない。他の関数と同じ形で末尾に別の via を足すと上書きされて事故る＝2026-07-31に
+ *  実際に踏んだ穴なので、シグネチャで区別する） */
+export async function fireTriggerNode(
+  nodeId: string,
+  opts: { via?: string } = {},
+  actor: Actor,
+): Promise<Run> {
+  return (await request("POST", `/api/nodes/${nodeId}/fire`, {
+    ...opts,
+    actor,
+  })) as Run;
 }
 
 /** ランを作成する（手動 or スケジュール）。trigger 省略時は server 側で "manual" */

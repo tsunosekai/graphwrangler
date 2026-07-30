@@ -164,26 +164,69 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加�
   （`test/approval.test.ts` でユニットテスト。gateStates は呼び出し側が
   `${runId}:${nodeId}` キーで渡す）
 
-### スケジュールによるラン自動生成（`src/schedule.ts` / `scheduleTick`）
+### トリガーノード（`kind=trigger`）による発火とラン自動生成（`src/trigger.ts` / `triggerTick`）
 
-- `node.schedule` を持つ `kind=procedure` ノードを毎tickチェックする。対応書式は
-  `src/schedule.ts` の `parseSchedule` が正:
-  - `every <N>m` / `every <N>h` / `every <N>d` — 最新ランの `created` から N 経過していたら
-    新ラン（最新ランが無ければ即座に生成。cron の初回即時実行と同じ発想）
-  - `daily <HH:MM>` — ローカル時刻でその時刻を過ぎていて、最新ランがローカル暦で「今日」の
-    ものでなければ新ラン（trigger を問わず「今日の分」が1本あれば足りる、という判定）
-  - `weekly <mon|tue|wed|thu|fri|sat|sun> <HH:MM>` — 対象曜日で、かつローカル時刻でその
-    時刻を過ぎていない間は生成しない（dailyと同じ理由。無ければ即座に生成、にはしない）。
-    それ以外は直近の対象曜日・時刻（必ず現在時刻以前になるよう計算）を求め、最新ランがそれより
-    前なら新ラン（trigger を問わず「今週の分」が1本あれば足りる、という判定）
-  - それ以外の書式は**無視して警告ログ**（`未対応のschedule書式のため無視`）を出すだけで、
-    ラン生成は行わない
-- **重複防止**: その手順に `status=running` のランが既にあれば、上記条件を満たしていても
-  新規生成しない（積み残し防止。前のランが全アイテム `done/dropped/skipped` になって
-  `status=done` に変わるまでは次のランを作らない）
-- 生成したランの `trigger` は `schedule:<schedule文字列そのまま>`（例 `schedule:every 15m`）
-- パース・判定はいずれもネットワークI/Oを持たない純粋関数（`test/schedule.test.ts` でユニット
-  テスト）
+2026-07-31、「ルーティーンであること」を **ページ種別（`kind=procedure`）の宣言」から
+「フロー先頭のトリガーノード（`kind=trigger`）から導出する」モデルへ移行した**
+（docs/design.md 3.4/3.8/3.9）。旧 `scheduleTick`（`procedure.schedule` ベース）は
+`triggerTick`（`src/index.ts`）に置き換わった。Rx の思想を借りる: トリガー = Observable の
+ソース、ラン = イベントの伝搬。起動方式は `executor` 軸で一貫させる:
+
+- **script トリガー**（cron的な定期実行）: `node.schedule` を `src/schedule.ts` の
+  `parseSchedule`/`shouldCreateScheduledRun`（旧 procedure 判定と全く同じロジック。
+  `src/trigger.ts` の `shouldFireScriptTrigger` が薄くラップして流用する）で判定し、
+  発火条件を満たせば `POST /api/nodes/:id/fire` を呼ぶ。書式は `every <N>m/h/d` /
+  `daily <HH:MM>` / `weekly <曜日> <HH:MM>` の3つ（詳細は下記「補足: schedule書式」）
+- **ai トリガー**: `node.schedule` を「AIに発火要否を判定させる間隔」として使う
+  （`resolveAiCheckIntervalMs`。`every` 系のみ解釈、無指定/未対応書式は既定1時間）。
+  間隔経過かつそのページに実行中ランが無いとき（`shouldEvaluateAiTrigger` で重複防止も
+  兼ねる）、`buildTriggerPrompt`（title/detail/`impl={type:"doc"}`の全文+現在時刻）を
+  `claude -p`（または `engine.mode="api"` なら `/api/ai/complete`）に渡し、出力を
+  `parseAiFireDecision` で `fire`/`skip` として解釈する。`fire` ならスレッドへ理由を
+  `say` した上で発火、`skip` はエンジンログのみ（スレッドは汚さない）。チェック時刻は
+  エンジンのメモリ内 `Map`（`aiTriggerLastCheckedAt`）で管理し、プロセス再起動で
+  即再チェックされるのは許容する
+- **human トリガー**: エンジンは何もしない（`POST /api/nodes/:id/fire` の手動発火のみ）
+
+**発火**（`fireTriggerNode` → `POST /api/nodes/:id/fire`）すると、サーバ側がそのトリガーの
+`group`（所属ページ）で `RunStore.createFromTrigger` を呼び、トリガーの**子孫**
+（`parents` を辿って到達可能なメンバー。分岐・合流を含む。トリガー自身は含まない）を
+ワークアイテムとするランを1本作る。**Fix/committed はランの参加条件ではない**——`lifecycle`
+を問わず子孫であれば items に入る（draft は `status=pending` のまま入る）。ただし
+**自動実行の対象は `lifecycle=committed` のみ**という3.4の原則は engine 側
+（`pickRun.ts`/`decisionRun.ts` の `lifecycle !== "committed"` 除外）で維持する。
+
+- **重複防止**: script は `hasRunningRun`、ai は `shouldEvaluateAiTrigger` の
+  `hasRunningRun` 引数で、そのページに `status=running` のランが既にあれば何もしない
+  （積み残し防止）
+- 生成したランの `trigger` は `trigger:<triggerノードid>:<via>`（`via` は `manual` /
+  `schedule:<原文>` / `ai`）
+- 二重実行防止: トリガーノードを持つページ（新モデルのルーティーンページ）のメンバーは、
+  旧来の `kind=procedure` メンバーと同じくプロジェクト側エンジン（`pick.ts`/`decision.ts`）
+  からも除外される（`pick.ts` の `triggerPageIds`/`isRunManagedMember` で判定。2026-07-29に
+  `kind=procedure` で実際に起きた二重実行の穴を新モデルでも塞ぐ）
+- パース・判定はいずれもネットワークI/Oを持たない純粋関数（`test/trigger.test.ts` /
+  `test/schedule.test.ts` でユニットテスト）
+
+#### 補足: schedule書式（`src/schedule.ts` の `parseSchedule` が正）
+
+- `every <N>m` / `every <N>h` / `every <N>d` — 最新ランの `created` から N 経過していたら
+  新ラン（最新ランが無ければ即座に生成。cron の初回即時実行と同じ発想）
+- `daily <HH:MM>` — ローカル時刻でその時刻を過ぎていて、最新ランがローカル暦で「今日」の
+  ものでなければ新ラン（trigger を問わず「今日の分」が1本あれば足りる、という判定）
+- `weekly <mon|tue|wed|thu|fri|sat|sun> <HH:MM>` — 対象曜日で、かつローカル時刻でその
+  時刻を過ぎていない間は生成しない（dailyと同じ理由。無ければ即座に生成、にはしない）。
+  それ以外は直近の対象曜日・時刻（必ず現在時刻以前になるよう計算）を求め、最新ランがそれより
+  前なら新ラン（trigger を問わず「今週の分」が1本あれば足りる、という判定）
+- それ以外の書式は**無視して警告ログ**を出すだけ（script は「未対応のschedule書式のため無視」、
+  ai は既定のチェック間隔=1時間にフォールバック）
+
+#### 後方互換: `kind=procedure`（非推奨）
+
+`kind=procedure` は enum に残っており、`GET/POST /api/procedures/:id/runs` も互換
+エイリアスとして動く。ページにトリガーノードが無い場合に限り、旧来どおり
+`kind=procedure` のノードとして扱われる（`RunStore.create` が committed のみを items に
+入れる旧仕様のまま）。新規に作るページはトリガーノードを使うこと。
 
 ### E2E確認の実績（2026-07-29）
 

@@ -12,11 +12,18 @@ import {
 } from "./schema.js";
 import { nextId, nowIso } from "./ids.js";
 import { ensureDir, readJson, writeJsonAtomic } from "./storage.js";
-import { GraphError } from "./graph.js";
+import { GraphError, collectDescendantsAmong } from "./graph.js";
 
 export interface RunCreateOpts {
   title?: string;
   trigger?: string;
+}
+
+export interface TriggerRunOpts {
+  title?: string;
+  /** 発火理由の自由文字列（"manual" / "schedule:<原文>" / "ai" 等。既定 "manual"）。
+   *  run.trigger は "trigger:<triggerId>:<via>" の形で記録する */
+  via?: string;
 }
 
 export interface PatchItemInput {
@@ -72,6 +79,55 @@ export class RunStore {
       procedure: procedureId,
       title: opts.title ?? `ラン ${ts}`,
       trigger: opts.trigger ?? "manual",
+      status: "running",
+      items,
+      created: ts,
+      updated: ts,
+    });
+    this.write(run);
+    return run;
+  }
+
+  /**
+   * トリガーノード（kind=trigger）の発火からランを作成する（docs/design.md 3.8 新モデル）。
+   * 「ルーティーンであること」はページ種別ではなく、フロー先頭のトリガーノードから導出する。
+   *
+   * - items = トリガーの子孫（parents を辿って allMembers 内で到達可能なメンバー。分岐・合流を
+   *   含む）。トリガー自身は items に含めない
+   * - **Fix/committed をランの参加条件にしない**: lifecycle を問わず（draft も committed も）
+   *   子孫であれば items に入る。draft は status=pending のまま入る（実行するかどうかは
+   *   engine 側が lifecycle=committed のみを対象にすることで担保する。3.4「committedのみ
+   *   自動実行」の原則は engine 側で維持）
+   * - status=unplanned（やり方未定）のテンプレートは create() と同じく item.status を
+   *   "skipped" にする（それ以外は unplanned とは別物として維持）
+   *
+   * pageId は run.procedure（＝ランが属するページ）に記録するid。トリガーノードの group が
+   * 通常これにあたる（呼び出し側=server が渡す）。
+   */
+  createFromTrigger(
+    pageId: string,
+    triggerId: string,
+    allMembers: Node[],
+    opts: TriggerRunOpts = {},
+  ): Run {
+    const ts = nowIso();
+    const descendants = collectDescendantsAmong(allMembers, triggerId);
+    const items: Record<string, RunItem> = {};
+    for (const n of allMembers) {
+      if (!descendants.has(n.id)) continue;
+      items[n.id] = {
+        status: n.status === "unplanned" ? "skipped" : "pending",
+        note: null,
+        choice: null,
+        updated: ts,
+      };
+    }
+    const via = opts.via ?? "manual";
+    const run: Run = RunSchema.parse({
+      id: nextId("r", this.existingIds()),
+      procedure: pageId,
+      title: opts.title ?? `ラン ${ts}`,
+      trigger: `trigger:${triggerId}:${via}`,
       status: "running",
       items,
       created: ts,
@@ -140,6 +196,18 @@ export class RunStore {
     const decisionTemplate = templatesById.get(nodeId);
     if (!decisionTemplate || decisionTemplate.kind !== "decision") {
       throw new GraphError(`node ${nodeId} is not a decision (kind=${decisionTemplate?.kind})`);
+    }
+    // 実行フェーズに入っていないランアイテムで分岐を選べないようにするゲート（2026-07-31追加。
+    // GraphStore.applyDecision の validateDecisionGate と同種。ラン内では「テンプレートの
+    // parents のうち、このランの items に存在するもの」が全て done|skipped であることを見る
+    // （pickRun.ts の dependenciesSettled と同じ「ラン内依存」規則）
+    const relevantParents = decisionTemplate.parents.filter((pid) => pid in run.items);
+    const parentsSettled = relevantParents.every((pid) => {
+      const s = run.items[pid]?.status;
+      return s === "done" || s === "skipped";
+    });
+    if (!parentsSettled) {
+      throw new GraphError("前のノードが終わっていないため、まだ分岐を選べません", 409);
     }
     if (!decisionTemplate.branches || !decisionTemplate.branches.some((b) => b.id === choice)) {
       throw new GraphError(`unknown choice: ${choice}`);

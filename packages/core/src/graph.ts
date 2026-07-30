@@ -35,6 +35,32 @@ interface Snapshot {
   nodes: Node[];
 }
 
+/** id とその子孫すべて（nodes 配列内の parents リンクを辿る。id 自身は含まない）。
+ *  GraphStore.collectDescendants と RunStore.createFromTrigger（トリガーの子孫算出）が
+ *  共有する純粋関数として切り出した（docs/design.md 3.8 新モデル）。 */
+export function collectDescendantsAmong(nodes: Node[], id: string): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const n of nodes) {
+    for (const p of n.parents) {
+      const list = childrenOf.get(p) ?? [];
+      list.push(n.id);
+      childrenOf.set(p, list);
+    }
+  }
+  const seen = new Set<string>();
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const c of childrenOf.get(cur) ?? []) {
+      if (!seen.has(c)) {
+        seen.add(c);
+        stack.push(c);
+      }
+    }
+  }
+  return seen;
+}
+
 export class GraphStore {
   private nodes = new Map<string, Node>();
   private opsPath: string;
@@ -83,26 +109,7 @@ export class GraphStore {
 
   /** id とその子孫すべて */
   collectDescendants(id: string): Set<string> {
-    const childrenOf = new Map<string, string[]>();
-    for (const n of this.nodes.values()) {
-      for (const p of n.parents) {
-        const list = childrenOf.get(p) ?? [];
-        list.push(n.id);
-        childrenOf.set(p, list);
-      }
-    }
-    const seen = new Set<string>();
-    const stack = [id];
-    while (stack.length) {
-      const cur = stack.pop()!;
-      for (const c of childrenOf.get(cur) ?? []) {
-        if (!seen.has(c)) {
-          seen.add(c);
-          stack.push(c);
-        }
-      }
-    }
-    return seen;
+    return collectDescendantsAmong([...this.nodes.values()], id);
   }
 
   // ---- 書き込み（すべて操作ログ経由） ----
@@ -110,6 +117,7 @@ export class GraphStore {
   addNode(input: NodeInput, meta: OpMeta = {}): Node {
     const parsed = NodeInputSchema.parse(input);
     this.validateParents(null, parsed.parents);
+    this.validateTriggerHasNoParents(parsed.kind, parsed.parents);
     this.validateGroup(null, parsed.group);
     this.validateBranches(parsed.kind, parsed.branches);
     this.validateParentOptions(parsed.parents, parsed.parentOptions);
@@ -135,6 +143,11 @@ export class GraphStore {
       const branches = parsed.branches !== undefined ? parsed.branches : current.branches;
       this.validateBranches(kind, branches);
     }
+    if (parsed.kind !== undefined || parsed.parents !== undefined) {
+      const kind = parsed.kind ?? current.kind;
+      const parents = parsed.parents ?? current.parents;
+      this.validateTriggerHasNoParents(kind, parents);
+    }
     if (parsed.parentOptions !== undefined || parsed.parents !== undefined) {
       const parents = parsed.parents ?? current.parents;
       const parentOptions =
@@ -158,6 +171,7 @@ export class GraphStore {
     if (node.kind !== "decision") {
       throw new GraphError(`node ${nodeId} is not a decision (kind=${node.kind})`);
     }
+    this.validateDecisionGate(node);
     if (!node.branches || !node.branches.some((b) => b.id === choice)) {
       throw new GraphError(`unknown choice: ${choice}`);
     }
@@ -175,6 +189,34 @@ export class GraphStore {
 
     this.propagateSkipChain(meta);
     return this.get(nodeId);
+  }
+
+  /**
+   * まだ実行フェーズに入っていない decision ノードで分岐を選べてしまわないようにするゲート
+   * （2026-07-31 追加。「前のノードが終わっていないノードで実行系の操作ができてしまうのは
+   * おかしい」）。会話AIとのプラン改善（スレッドへの発言・patch等の編集）はゲートしない —
+   * ここで弾くのは choice 確定（applyDecision）だけ。
+   * - lifecycle=draft はまだ下書き（実行フェーズは committed が前提）
+   * - status が done/skipped/dropped は既に決着済み（選び直しはできない）
+   * - frontier でない（parents が全て done|skipped ではない）＝前のノードがまだ終わっていない
+   */
+  private validateDecisionGate(node: Node): void {
+    if (node.lifecycle !== "committed") {
+      throw new GraphError(
+        "下書き(draft)のノードです。分岐を選ぶ前に確定(committed)してください",
+        409,
+      );
+    }
+    if (node.status === "done" || node.status === "skipped" || node.status === "dropped") {
+      throw new GraphError("この分岐は既に決着しています", 409);
+    }
+    const frontier = node.parents.every((pid) => {
+      const s = this.nodes.get(pid)?.status;
+      return s === "done" || s === "skipped";
+    });
+    if (!frontier) {
+      throw new GraphError("前のノードが終わっていないため、まだ分岐を選べません", 409);
+    }
   }
 
   /** 連鎖規則: 全ての親が skipped なノードを skipped にする（不動点まで繰り返す） */
@@ -238,6 +280,14 @@ export class GraphStore {
     if (kind !== "decision") return;
     if (!branches || branches.length < 2) {
       throw new GraphError("decision ノードには branches が最低2つ必要です");
+    }
+  }
+
+  /** kind=trigger のノードは parents を持てない（トリガー=グラフの起点=Observable のソース、
+   *  という構造を守る。docs/design.md 3.4/3.8 新モデル） */
+  private validateTriggerHasNoParents(kind: Node["kind"], parents: string[]): void {
+    if (kind === "trigger" && parents.length > 0) {
+      throw new GraphError("trigger ノードは parents を持てません");
     }
   }
 

@@ -83,6 +83,14 @@ describe("selectRunDecisionAction: executor別の分岐処理", () => {
   });
 });
 
+describe("selectRunDecisionAction: lifecycle除外(3.8新モデル: draftもitemsには入るが自動判定はしない)", () => {
+  it("lifecycle=draft のテンプレートは items にあっても候補にならない", () => {
+    const n = node({ id: "d1", lifecycle: "draft" });
+    const r = run({ d1: item() });
+    expect(selectRunDecisionAction([n], [r])).toEqual({ type: "none" });
+  });
+});
+
 describe("selectRunDecisionAction: ラン内伝搬（依存充足）", () => {
   it("ラン内の親アイテムが未完了(pending)なら候補から除外される", () => {
     const parent = node({ id: "p1", kind: "task" });

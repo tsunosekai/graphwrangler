@@ -2,15 +2,22 @@
 // pick.ts と同じ方針: ネットワークI/Oを一切持たない純粋関数のみを置く（vitest でユニットテストする対象）。
 // docs/design.md 3.9 が仕様の正。
 import type { DecisionRequest, Message, Node } from "./types.js";
+import { isRunManagedMember, triggerPageIds } from "./pick.js";
 
-/** 手順テンプレート(kind=procedure配下)はプロジェクト側スケジューラの対象外
- *  （pick.ts の isSchedulableKind と同じ理由。ランのワークアイテムは decisionRun.ts が扱う） */
-function isProcedureMember(node: Node, byId: Map<string, Node>): boolean {
-  return Boolean(node.group && byId.get(node.group)?.kind === "procedure");
-}
-
-function isDecisionCandidateKind(node: Node, byId: Map<string, Node>): boolean {
-  return node.kind === "decision" && node.lifecycle === "committed" && !isProcedureMember(node, byId);
+/** 手順ページ(kind=procedure、非推奨)配下 または トリガーノードを持つページ(新モデルの
+ *  ルーティーンページ)配下の decision はプロジェクト側スケジューラの対象外
+ *  （pick.ts の isSchedulableKind/isRunManagedMember と同じ理由。ランのワークアイテムは
+ *  decisionRun.ts が扱う） */
+function isDecisionCandidateKind(
+  node: Node,
+  byId: Map<string, Node>,
+  triggerPages: Set<string>,
+): boolean {
+  return (
+    node.kind === "decision" &&
+    node.lifecycle === "committed" &&
+    !isRunManagedMember(node, byId, triggerPages)
+  );
 }
 
 /** parents が全て done または skipped か（pick.ts の isFrontier と同じ規則） */
@@ -59,10 +66,11 @@ export function selectDecisionAction(
   lastMessages: Record<string, Message | undefined> = {},
 ): DecisionAction {
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const triggerPages = triggerPageIds(nodes);
   const sorted = [...nodes].sort((a, b) => a.created.localeCompare(b.created));
 
   for (const node of sorted) {
-    if (!isDecisionCandidateKind(node, byId)) continue;
+    if (!isDecisionCandidateKind(node, byId, triggerPages)) continue;
     if (node.status !== "pending") continue;
     if (!isFrontierForDecision(node, byId)) continue;
 

@@ -14,9 +14,16 @@ export const ViaSchema = z.string().min(1);
 
 // ---- ノード ----
 
-/** goal=プロジェクトページ（一回きりのDAG） / task=作業 / procedure=手順ページ（繰り返し、ランが流れる） /
- *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） */
-export const NodeKindSchema = z.enum(["goal", "task", "procedure", "decision"]);
+/** goal=プロジェクトページ（一回きりのDAG） / task=作業 /
+ *  procedure=手順ページ（繰り返し、ランが流れる）。@deprecated 2026-07-31
+ *  「ルーティーンであること」はページ種別ではなく先頭の trigger ノードから導出するモデルへ
+ *  移行した（docs/design.md 3.8）。後方互換のため enum には残すが、新規作成 UI からは
+ *  使わない想定 /
+ *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） /
+ *  trigger=起点ノード（Rx の Observable のソース。発火するとそのページ(group)でランが
+ *  生成される。docs/design.md 3.4/3.8/3.9。parents を持てない=グラフの起点であることを
+ *  構造的に保証する） */
+export const NodeKindSchema = z.enum(["goal", "task", "procedure", "decision", "trigger"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
 export const ImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
 export const LifecycleSchema = z.enum(["draft", "committed"]);
@@ -76,8 +83,11 @@ export const NodeSchema = z.object({
   pendingRequest: z.string().nullable(),
   /** 兄弟内の表示順（小さいほど上）。null は末尾扱い */
   order: z.number().nullable(),
-  /** kind=procedure 用の定期トリガー記述（"schedule:daily 09:00" 等）。
-   *  書式は自由文字列で、v1 では解釈しない（ラン生成のトリガー文字列に転記されるだけ） */
+  /** kind=trigger 用の起動方式記述（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等）。
+   *  executor=script なら cron 的な発火判定にそのまま使う。executor=ai なら「AIに発火要否を
+   *  判定させる間隔」として使う（every系のみ解釈、無指定は既定1時間）。executor=human では
+   *  使わない（手動発火のみ）。kind=procedure（非推奨）でも旧来どおり同じ書式で解釈される。
+   *  書式は自由文字列で、パースできないものは無視される（ラン生成のtrigger文字列に転記されるだけ） */
   schedule: z.string().nullable(),
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個。elseなし・単一選択。docs/design.md 3.9）。
    *  それ以外の kind では null */
@@ -247,10 +257,14 @@ export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 export const RunSchema = z.object({
   id: z.string(),
-  /** kind=procedure のノード id */
+  /** ランが属するページ(group)のid。旧モデルでは常に kind=procedure のノード id だったが、
+   *  新モデル（trigger起点。docs/design.md 3.8）では任意のページ(goal等)のidになりうる。
+   *  フィールド名は後方互換のため procedure のまま残す */
   procedure: z.string(),
   title: z.string().min(1),
-  /** "manual" ほか自由文字列（"schedule:daily 09:00" 等） */
+  /** 発火元の記録。新モデルでは "trigger:<triggerノードid>:<via>" の形
+   *  （via は "manual" / "schedule:<原文>" / "ai" 等）。旧モデル互換の "manual" 単体や
+   *  "schedule:daily 09:00" もそのまま許容する自由文字列 */
   trigger: z.string().min(1),
   status: RunStatusSchema,
   /** テンプレートノード id → ワークアイテム */

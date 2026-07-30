@@ -19,6 +19,8 @@ import {
   RunItemStatusSchema,
   nowIso,
   type Actor,
+  type Node,
+  type Run,
 } from "@graphwrangler/core";
 import { z } from "zod";
 import { chatKeyMissing, completeText, handleChat } from "./chat.js";
@@ -227,6 +229,53 @@ app.post("/api/nodes/:id/decide", async (c) => {
   return c.json(updated);
 });
 
+// ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9 新モデル） ----
+// 「ルーティーンであること」はページ種別ではなく先頭のトリガーノードから導出する。
+// トリガーが発火すると、その group ページで createFromTrigger によりランが1本生成される。
+
+/** トリガーノードを発火し、その group ページでランを作成する（POST /fire・レガシー互換の
+ *  POST /api/procedures/:id/runs 双方から呼ばれる共通処理）。トリガーのスレッドへ
+ *  「発火: <run.title>」を payload {runId} 付きで記録する */
+function fireTriggerNode(
+  trigger: Node,
+  via: string,
+  titleOverride: string | undefined,
+  m: { actor: Actor; via: string },
+): Run {
+  if (trigger.kind !== "trigger") {
+    throw new GraphError(`node ${trigger.id} is not a trigger (kind=${trigger.kind})`, 400);
+  }
+  const pageId = trigger.group;
+  if (!pageId) {
+    throw new GraphError(`trigger node ${trigger.id} has no group (page) to fire into`, 400);
+  }
+  const members = graph.state().nodes.filter((n) => n.group === pageId);
+  const run = runs.createFromTrigger(pageId, trigger.id, members, {
+    title: titleOverride ?? defaultRunTitle(),
+    via,
+  });
+  threads.post(trigger.id, {
+    kind: "status",
+    body: `発火: ${run.title}`,
+    payload: { runId: run.id },
+    author: m.actor,
+    via: m.via,
+  });
+  return run;
+}
+
+const FireSchema = z.object({ via: z.string().min(1).optional() });
+
+app.post("/api/nodes/:id/fire", async (c) => {
+  const id = c.req.param("id");
+  const node = graph.get(id);
+  const body = await c.req.json().catch(() => ({}));
+  const { via } = FireSchema.parse(body);
+  const m = meta(body);
+  const run = fireTriggerNode(node, via ?? "manual", undefined, m);
+  return c.json(run);
+});
+
 // ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
 
 const CreateRunSchema = z.object({
@@ -234,21 +283,35 @@ const CreateRunSchema = z.object({
   trigger: z.string().min(1).optional(),
 });
 
-/** ラン作成。procedure のメンバー（group=:id）からワークアイテムを組み立てる */
+/** ラン開始（互換エイリアス）。ページ(:id)にトリガーノード（kind=trigger、created昇順で最初の
+ *  1件）があればそれを発火する新方式に委譲する。トリガーが無ければ従来どおり
+ *  kind=procedure のノードとして扱う（無ければ400。旧来の挙動を維持） */
 app.post("/api/procedures/:id/runs", async (c) => {
   const id = c.req.param("id");
   const node = graph.get(id);
-  if (node.kind !== "procedure") {
-    throw new GraphError(`node ${id} is not a procedure (kind=${node.kind})`, 400);
-  }
   const body = await c.req.json().catch(() => ({}));
   const input = CreateRunSchema.parse(body);
+  const m = meta(body);
   const members = graph.state().nodes.filter((n) => n.group === id);
+  const trigger = [...members]
+    .filter((n) => n.kind === "trigger")
+    .sort((a, b) => a.created.localeCompare(b.created))[0];
+
+  if (trigger) {
+    const run = fireTriggerNode(trigger, input.trigger ?? "manual", input.title, m);
+    return c.json(run);
+  }
+
+  if (node.kind !== "procedure") {
+    throw new GraphError(
+      `node ${id} is not a procedure (kind=${node.kind}) and has no trigger node`,
+      400,
+    );
+  }
   const run = runs.create(id, members, {
     title: input.title ?? defaultRunTitle(),
     trigger: input.trigger ?? "manual",
   });
-  const m = meta(body);
   threads.post(id, {
     kind: "status",
     body: `ラン開始: ${run.title}`,
@@ -260,6 +323,13 @@ app.post("/api/procedures/:id/runs", async (c) => {
 });
 
 app.get("/api/procedures/:id/runs", (c) => {
+  const id = c.req.param("id");
+  graph.get(id);
+  return c.json({ runs: runs.list(id) });
+});
+
+/** GET /api/procedures/:id/runs の新名称（どのページ種別でも同じランを返す。中身は同じ） */
+app.get("/api/pages/:id/runs", (c) => {
   const id = c.req.param("id");
   graph.get(id);
   return c.json({ runs: runs.list(id) });

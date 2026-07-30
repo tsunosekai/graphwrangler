@@ -178,6 +178,50 @@ describe("applyDecision: 入力検証", () => {
   });
 });
 
+describe("applyDecision: 実行フェーズゲート(2026-07-31追加)", () => {
+  it("lifecycle=draftの分岐は選べない(409)", () => {
+    const d = g.addNode({
+      title: "分岐",
+      kind: "decision",
+      branches: [
+        { id: "a", label: "Aへ" },
+        { id: "b", label: "Bへ" },
+      ],
+    }); // lifecycle省略=draft
+    expect(() => g.applyDecision(d.id, "a")).toThrow(/確定\(committed\)/);
+  });
+
+  it("前の親ノードが終わっていない分岐は選べない(409)。終われば選べる", () => {
+    const pre = g.addNode({ title: "前段", lifecycle: "committed" });
+    const d = g.addNode({
+      title: "分岐",
+      kind: "decision",
+      lifecycle: "committed",
+      parents: [pre.id],
+      branches: [
+        { id: "a", label: "Aへ" },
+        { id: "b", label: "Bへ" },
+      ],
+    });
+    expect(() => g.applyDecision(d.id, "a")).toThrow(/前のノードが終わっていない/);
+    g.patchNode(pre.id, { status: "done" });
+    expect(() => g.applyDecision(d.id, "a")).not.toThrow();
+  });
+
+  it("既に決着済み(done)の分岐は選び直せない(409)", () => {
+    const d = makeDecision();
+    g.applyDecision(d.id, "a");
+    expect(() => g.applyDecision(d.id, "b")).toThrow(/既に決着/);
+  });
+
+  it("committed かつ frontier に到達した分岐は選べる", () => {
+    const d = makeDecision();
+    const updated = g.applyDecision(d.id, "a");
+    expect(updated.status).toBe("done");
+    expect(updated.choice).toBe("a");
+  });
+});
+
 describe("applyDecision: undoとの整合", () => {
   it("一連の変更は複数opの連続であり、undoは1opずつ戻る", () => {
     const { d, b1, b2 } = setupBranchGraph();

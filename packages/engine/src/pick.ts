@@ -3,12 +3,35 @@
 // packages/engine 内で完結させる）。
 import type { DecisionRequest, Node, Message } from "./types.js";
 
-/** スケジューラの対象になりうる基本条件（frontier/status/メッセージ判定は別途 selectAction が見る）。
- *  手順（kind=procedure）のメンバー＝テンプレートは対象外: テンプレートは status を持たない思想で、
- *  実行はラン側のワークアイテムが担う。ここで除外しないとプロジェクト側エンジンにも拾われて
- *  二重実行になる（2026-07-29 に実際に発生した不具合） */
-function isSchedulableKind(node: Node, byId: Map<string, Node>): boolean {
-  if (node.group && byId.get(node.group)?.kind === "procedure") return false;
+/** kind=trigger ノードを持つページの id 一覧（新モデルのルーティーンページ。docs/design.md
+ *  3.4/3.8/3.9）。「ルーティーンであること」はページ種別ではなくフロー先頭のトリガーノードから
+ *  導出するため、旧来の「group.kind===procedure」判定をこれで一般化する */
+export function triggerPageIds(nodes: Node[]): Set<string> {
+  const ids = new Set<string>();
+  for (const n of nodes) {
+    if (n.kind === "trigger" && n.group) ids.add(n.group);
+  }
+  return ids;
+}
+
+/** ノードが「手順ページ（kind=procedure。非推奨）」または「トリガーノードを持つページ
+ *  （新モデルのルーティーンページ）」のメンバーか。そのメンバー＝テンプレートはプロジェクト側
+ *  スケジューラの対象外（実行はラン側のワークアイテムが担う。ここで除外しないとプロジェクト側
+ *  エンジンにも拾われて二重実行になる。2026-07-29 に kind=procedure で実際に発生した不具合と
+ *  同じ穴を新モデルでも塞ぐ） */
+export function isRunManagedMember(
+  node: Node,
+  byId: Map<string, Node>,
+  triggerPages: Set<string>,
+): boolean {
+  if (!node.group) return false;
+  if (byId.get(node.group)?.kind === "procedure") return true;
+  return triggerPages.has(node.group);
+}
+
+/** スケジューラの対象になりうる基本条件（frontier/status/メッセージ判定は別途 selectAction が見る）。 */
+function isSchedulableKind(node: Node, byId: Map<string, Node>, triggerPages: Set<string>): boolean {
+  if (isRunManagedMember(node, byId, triggerPages)) return false;
   return (
     node.lifecycle === "committed" &&
     node.kind === "task" &&
@@ -61,10 +84,11 @@ export function selectAction(
   lastMessages: Record<string, Message | undefined> = {},
 ): EngineAction {
   const byId = buildIndex(nodes);
+  const triggerPages = triggerPageIds(nodes);
   const sorted = [...nodes].sort((a, b) => a.created.localeCompare(b.created));
 
   for (const node of sorted) {
-    if (!isSchedulableKind(node, byId)) continue;
+    if (!isSchedulableKind(node, byId, triggerPages)) continue;
     if (node.status !== "pending") continue; // unplanned/running/waiting/done/dropped は除外
     if (node.pendingRequest) continue; // open request があるなら人間待ち（本来 pending とは両立しない想定だが念のため）
     if (!isFrontier(node, byId)) continue;

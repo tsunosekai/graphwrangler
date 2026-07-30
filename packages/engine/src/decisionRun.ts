@@ -46,6 +46,9 @@ export type RunDecisionAction =
  * executor=human はまず waiting にする（承認連携(approval.ts)と同じ2段構え。
  * 判断リクエストを開く/回答を見るのは selectRunDecisionApprovalAction が次周に担当する）。
  * ラン created 昇順→ラン内はテンプレート created 昇順で最初の1件。
+ *
+ * **lifecycle=draft のテンプレートは対象外**（items には入るが自動判定はされない。
+ * pickRun.ts の selectRunAction と同じ「committedのみ自動実行」の原則。3.4/3.8新モデル）
  */
 export function selectRunDecisionAction(nodes: Node[], runs: Run[]): RunDecisionAction {
   const runningRuns = [...runs]
@@ -55,6 +58,7 @@ export function selectRunDecisionAction(nodes: Node[], runs: Run[]): RunDecision
   for (const run of runningRuns) {
     for (const { node, item } of decisionEntries(nodes, run)) {
       if (item.status !== "pending") continue;
+      if (node.lifecycle !== "committed") continue; // draft は items に入るが自動判定はしない
       if (!dependenciesSettled(node, run)) continue;
 
       if (node.executor === "script") return { type: "execute-script", run, node };

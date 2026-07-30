@@ -143,7 +143,10 @@ server.registerTool(
       title: z.string().min(1).describe("人間粒度の作業名"),
       detail: z.string().nullable().optional().describe("補足・文脈"),
       kind: NodeKindSchema.optional().describe(
-        "goal=プロジェクトページ(ルート意図) / task=作業 / procedure=手順ページ(繰り返し)。既定 task",
+        "goal=プロジェクトページ(ルート意図) / task=作業 / decision=分岐ノード(branchesが必要) / " +
+          "trigger=起点ノード(parentsを持てない。schedule+executorで発火方式を決める。発火は " +
+          "trigger_fire または run_create) / procedure=手順ページ(繰り返し、非推奨。新規には trigger " +
+          "を使うこと)。既定 task",
       ),
       executor: ExecutorSchema.optional().describe("誰にディスパッチするか。既定 human"),
       impact: ImpactSchema.optional().describe("不可逆な外部副作用は承認ゲートを通す。既定 safe"),
@@ -265,27 +268,53 @@ server.registerTool(
 );
 
 // ---- 10. run_create ----
-// procedure=手順ページ(kind=procedure のノード、繰り返し実行される作業のテンプレート集)。
-// run=そのテンプレートから生成される1回分の実行インスタンス（ワークアイテムごとに進捗状態を持つ）。
+// 新モデル(docs/design.md 3.4/3.8/3.9, 2026-07-31): 「ルーティーンであること」はページ種別
+// (kind=procedure)の宣言ではなく、ページ先頭の trigger ノード（kind=trigger）から導出する。
+// run=ページから生成される1回分の実行インスタンス（ワークアイテムごとに進捗状態を持つ）。
+// トリガーを手動発火したいだけなら trigger_fire を使うこと（こちらは互換エイリアス）。
 
 server.registerTool(
   "run_create",
   {
     description:
-      "procedure（手順ページ、繰り返し実行のテンプレート集）から新しいラン（実行インスタンス）を開始する。" +
-      "procedure に所属するメンバーノード（group=procedureId）のうち lifecycle=committed のものだけが" +
-      "ワークアイテムとして組み込まれる（draft は素通りしない）。その中で status=unplanned（やり方未定）の" +
-      "テンプレートは items で status:skipped として作られる。title 省略時はサーバ既定" +
-      "（「MM/DD HH:mm のラン」）、trigger 省略時は \"manual\"。procedureId でないノード（kind!=procedure）" +
-      "を指定すると失敗する。作成されたランを返す。",
+      "ページ（procedureId で指定するノードのid。旧来は kind=procedure だったが、新モデルでは" +
+      "goal ページ配下に trigger ノードがあれば同様にランを持てる）から新しいラン（実行インスタンス）を" +
+      "開始する互換エイリアス。ページ内に trigger ノード（kind=trigger、複数あれば作成が最も古いもの）が" +
+      "あればそれを発火する（trigger_fire と同じ経路）: その場合ワークアイテムはトリガーの" +
+      "子孫（parentsを辿って到達可能なメンバー。分岐・合流を含む。トリガー自身は含まない）になり、" +
+      "lifecycle を問わず（draft も committed も）items に入る。status=unplanned（やり方未定）の" +
+      "テンプレートは status:skipped になる。trigger ノードが無いページでは、kind=procedure のときだけ" +
+      "旧方式（lifecycle=committed のメンバーだけが items に入る）にフォールバックする（それ以外は失敗）。" +
+      "title 省略時はサーバ既定（「MM/DD HH:mm のラン」）、trigger 省略時は \"manual\"。作成されたランを返す。",
     inputSchema: {
-      procedureId: z.string().describe("ラン元の procedure ノードid（state_get の pages から kind=procedure のものを選ぶ）"),
+      procedureId: z.string().describe("ラン元のページid（state_get の pages から選ぶ）"),
       title: z.string().min(1).optional().describe("ランのタイトル。省略時はサーバ既定"),
       trigger: z.string().min(1).optional().describe("起動理由の自由文字列。省略時は \"manual\"（schedule実行なら\"schedule:...\"等）"),
     },
   },
   safe(async ({ procedureId, ...rest }: { procedureId: string; [key: string]: unknown }) =>
     apiPost(`/api/procedures/${encodeURIComponent(procedureId)}/runs`, withMeta(rest)),
+  ),
+);
+
+// ---- trigger_fire ----
+// トリガーノード（kind=trigger）を手動発火する。docs/design.md 3.4/3.8/3.9。
+
+server.registerTool(
+  "trigger_fire",
+  {
+    description:
+      "トリガーノード（kind=trigger）を手動発火し、その group（所属ページ）でランを1本作成する。" +
+      "対象ノードが kind=trigger でない、または group（所属ページ）が無い場合は失敗する。" +
+      "ワークアイテムはトリガーの子孫（parentsを辿って到達可能なメンバー。lifecycleを問わず" +
+      "items に入るが、実行されるのは lifecycle=committed のみ）。作成されたランを返す。",
+    inputSchema: {
+      nodeId: z.string().describe("発火させるトリガーノードid（kind=trigger）"),
+      via: z.string().min(1).optional().describe("発火理由の自由文字列。省略時はサーバ既定の \"manual\""),
+    },
+  },
+  safe(async ({ nodeId, ...rest }: { nodeId: string; [key: string]: unknown }) =>
+    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/fire`, withMeta(rest)),
   ),
 );
 

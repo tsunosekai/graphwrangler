@@ -98,6 +98,28 @@ describe("selectRunAction: executor 除外", () => {
   });
 });
 
+describe("selectRunAction: lifecycle除外(3.8新モデル: draftもitemsには入るが自動実行はしない)", () => {
+  it("lifecycle=draft のテンプレートは items にあっても実行候補にならない", () => {
+    const n = node({ id: "d1", lifecycle: "draft" });
+    const r = run({ d1: item({ status: "pending" }) });
+    expect(selectRunAction([n], [r])).toEqual({ type: "none" });
+  });
+
+  it("lifecycle=draft をスキップして後続のcommittedを拾う", () => {
+    const draftNode = node({ id: "d1", lifecycle: "draft", created: "2026-01-01T00:00:01Z" });
+    const committedNode = node({ id: "c1", lifecycle: "committed", created: "2026-01-01T00:00:02Z" });
+    const r = run({
+      d1: item({ status: "pending" }),
+      c1: item({ status: "pending" }),
+    });
+    expect(selectRunAction([draftNode, committedNode], [r])).toEqual({
+      type: "execute",
+      run: r,
+      node: committedNode,
+    });
+  });
+});
+
 describe("selectRunAction: irreversible", () => {
   it("impact=irreversibleは実行せずwaiting-irreversibleを返す", () => {
     const n = node({ id: "irr1", impact: "irreversible" });

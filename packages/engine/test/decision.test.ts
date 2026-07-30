@@ -106,6 +106,15 @@ describe("selectDecisionAction: frontier/lifecycle/kind除外", () => {
     expect(selectDecisionAction([proc, tmpl])).toEqual({ type: "none" });
   });
 
+  // 新モデル（docs/design.md 3.4/3.8/3.9）: kind=goal でもトリガーノードを持つページの
+  // decision メンバーは、プロジェクト側ではなくラン側(decisionRun.ts)が扱う
+  it("トリガーノードを持つページ(kind=goal)のdecisionメンバーもプロジェクト側の候補にならない", () => {
+    const page = node({ id: "g1", kind: "goal" });
+    const trigger = node({ id: "tr1", kind: "trigger", group: "g1", status: "done" });
+    const tmpl = node({ id: "t1", group: "g1", parents: ["tr1"] });
+    expect(selectDecisionAction([page, trigger, tmpl])).toEqual({ type: "none" });
+  });
+
   it("status=doneやskipped済みのdecisionは候補にならない", () => {
     const done = node({ status: "done", choice: "a" });
     const skipped = node({ status: "skipped" });

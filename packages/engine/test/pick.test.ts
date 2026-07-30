@@ -198,4 +198,27 @@ d2("手順テンプレートの除外", () => {
     } as never;
     e2(sa([proc, tmpl]).type).toBe("none");
   });
+
+  // 新モデル（docs/design.md 3.4/3.8/3.9）: 「ルーティーンであること」はページ種別ではなく
+  // 先頭のトリガーノードから導出する。kind=goal でもトリガーを持つページのメンバーは同様に
+  // プロジェクト側エンジンから除外されなければならない（二重実行防止の穴を塞ぐ）
+  i2("トリガーノードを持つページ(kind=goal)のメンバーもプロジェクト側エンジンに拾われない", () => {
+    const page = {
+      id: "g1", title: "ゴール", detail: null, impl: null, parents: [], group: null,
+      kind: "goal", executor: "human", impact: "safe", lifecycle: "committed",
+      status: "pending", fixed: false, pendingRequest: null, order: null,
+      schedule: null, created: "2026-01-01T00:00:00Z", updated: "2026-01-01T00:00:00Z",
+    } as never;
+    const trigger = {
+      ...(page as object),
+      id: "tr1", title: "起点", kind: "trigger", executor: "script", group: "g1",
+      status: "done", // frontier判定で親条件が満たされた状態にし、group除外だけが効くようにする
+    } as never;
+    const tmpl = {
+      ...(page as object),
+      id: "t1", title: "テンプレ", kind: "task", executor: "script", group: "g1",
+      parents: ["tr1"], impl: { type: "script", command: "echo x" },
+    } as never;
+    e2(sa([page, trigger, tmpl]).type).toBe("none");
+  });
 });

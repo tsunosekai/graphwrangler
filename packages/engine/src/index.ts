@@ -2,20 +2,26 @@
 // 実行可能なノード（実行者=ai|script）を1並列で処理する。zinsei desk/engine.py の一般化。
 // docs/design.md 3.4/3.5/3.7、docs/agent-contracts.md が設計の正。
 import {
-  createRun,
   decideNode,
   decideRunItem,
+  fireTriggerNode,
   getSettings,
   getState,
   getThread,
   heartbeat,
-  listProcedureRuns,
+  listPageRuns,
   openRequest,
   patchNode,
   patchRunItem,
   postMessage,
 } from "./api.js";
-import { buildFailureRecoveryRequest, buildIrreversibleGateRequest, selectAction } from "./pick.js";
+import {
+  buildFailureRecoveryRequest,
+  buildIrreversibleGateRequest,
+  isRunManagedMember,
+  selectAction,
+  triggerPageIds,
+} from "./pick.js";
 import { selectRunAction } from "./pickRun.js";
 import {
   APPROVAL_WAITING_NOTE,
@@ -39,7 +45,14 @@ import {
   selectRunDecisionAction,
   selectRunDecisionApprovalAction,
 } from "./decisionRun.js";
-import { parseSchedule, shouldCreateScheduledRun } from "./schedule.js";
+import {
+  buildTriggerPrompt,
+  isFireableTrigger,
+  parseAiFireDecision,
+  resolveAiCheckIntervalMs,
+  shouldEvaluateAiTrigger,
+  shouldFireScriptTrigger,
+} from "./trigger.js";
 import { runScript } from "./executors/script.js";
 import { buildAiPrompt, runClaude, type ClaudeExecutorConfig } from "./executors/claude.js";
 import { runApi } from "./executors/api.js";
@@ -215,13 +228,14 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
  *  script/ai executor の失敗リカバリ回答(abort)もここで拾う必要があるため） */
 function decisionCandidateIdsNeedingThread(nodes: Node[]): string[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const triggerPages = triggerPageIds(nodes);
   return nodes
     .filter(
       (n) =>
         n.kind === "decision" &&
         n.lifecycle === "committed" &&
         n.status === "pending" &&
-        !(n.group && byId.get(n.group)?.kind === "procedure") &&
+        !isRunManagedMember(n, byId, triggerPages) &&
         n.parents.every((pid) => {
           const s = byId.get(pid)?.status;
           return s === "done" || s === "skipped";
@@ -393,21 +407,34 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
   log(`ラン実行失敗: run=${run.id} node=${node.id} reason=${reason}`);
 }
 
-/** status=running の全ランを procedure ノードごとに束ねて取得する
- *  （procedure を横断する一覧APIが無いため、procedure ノード単位で叩いて集める） */
+/** ランを持ちうる「ページ」の id 一覧: kind=goal/procedure のノード、または他ノードから
+ *  group として参照されているノード（トリガーを持つ goal ページ等、新モデルのルーティーン
+ *  ページを含む）。packages/mcp/src/index.ts の state_get の pages 算出と同じ考え方
+ *  （docs/design.md 3.4/3.8 新モデル: 「ルーティーンであること」はページ種別で決まらない） */
+function pageIds(nodes: Node[]): string[] {
+  const ids = new Set<string>();
+  for (const n of nodes) {
+    if (n.kind === "goal" || n.kind === "procedure") ids.add(n.id);
+    if (n.group) ids.add(n.group);
+  }
+  return [...ids];
+}
+
+/** status=running の全ランをページごとに束ねて取得する
+ *  （ページを横断する一覧APIが無いため、ページ単位で叩いて集める） */
 async function fetchRunningRuns(nodes: Node[]): Promise<Run[]> {
-  const procedures = nodes.filter((n) => n.kind === "procedure");
-  const runsByProcedure = await Promise.all(
-    procedures.map(async (p) => {
+  const pages = pageIds(nodes);
+  const runsByPage = await Promise.all(
+    pages.map(async (id) => {
       try {
-        return await listProcedureRuns(p.id);
+        return await listPageRuns(id);
       } catch (err) {
-        log(`ラン一覧取得に失敗（この周は除外）: procedure=${p.id} ${String(err)}`);
+        log(`ラン一覧取得に失敗（この周は除外）: page=${id} ${String(err)}`);
         return [] as Run[];
       }
     }),
   );
-  return runsByProcedure.flat().filter((r) => r.status === "running");
+  return runsByPage.flat().filter((r) => r.status === "running");
 }
 
 // ---- 手順ページ: 不可逆ランアイテムの承認連携（docs/agent-contracts.md 1.） ----
@@ -708,40 +735,110 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
   await tickRunDecision(nodes, runningRuns);
 }
 
-// ---- 手順ページ: スケジュールによるラン自動生成（M6） ----
+// ---- トリガーノード（kind=trigger）: script/ai発火・ランの自動生成 ----
+// 旧 scheduleTick（procedure.scheduleベース）を置き換える。docs/design.md 3.4/3.8/3.9。
+// 「ルーティーンであること」はページ種別ではなく、フロー先頭のトリガーノードから導出する。
 
-/** node.schedule を持つ procedure ノードを毎tickチェックし、条件を満たせば新しいランを作る。
- *  対応書式は schedule.ts の parseSchedule のみ（それ以外は警告ログを出して無視する） */
-async function scheduleTick(nodes: Node[]): Promise<void> {
-  const procedures = nodes.filter((n) => n.kind === "procedure" && n.schedule);
+/** ai トリガーの直近チェック時刻（エンジンのメモリ管理。プロセス再起動で即再チェックされるのは
+ *  許容する。docs/design.md「チェック時刻はエンジンのメモリ管理」） */
+const aiTriggerLastCheckedAt = new Map<string, number>();
 
-  for (const proc of procedures) {
-    const schedule = parseSchedule(proc.schedule as string);
-    if (!schedule) {
-      log(`未対応のschedule書式のため無視: procedure=${proc.id} schedule="${proc.schedule}"`);
+/** script トリガーを1件処理する（schedule.ts の判定をそのまま流用。旧 scheduleTick と同じ判定） */
+async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
+  const hasRunningRun = runsForPage.some((r) => r.status === "running");
+  const latestRun = runsForPage[0] ?? null; // list は created 降順
+  const should = shouldFireScriptTrigger(trigger.schedule, latestRun, new Date(), hasRunningRun);
+  if (should === null) {
+    if (trigger.schedule) {
+      log(`未対応のschedule書式のため無視: trigger=${trigger.id} schedule="${trigger.schedule}"`);
+    } else {
+      log(`scheduleが無いためscriptトリガーは発火しません: trigger=${trigger.id} title=${trigger.title}`);
+    }
+    return;
+  }
+  if (!should) return;
+
+  try {
+    await fireTriggerNode(trigger.id, { via: `schedule:${trigger.schedule}` }, ENGINE_ACTOR);
+    log(`スケジュールにより発火: trigger=${trigger.id} schedule="${trigger.schedule}"`);
+  } catch (err) {
+    log(`発火に失敗（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
+  }
+}
+
+/** ai トリガーを1件処理する。schedule をチェック間隔として使い、間隔経過かつ実行中ランなしの
+ *  ときだけ AI に「今発火すべきか」を判定させる。fire ならスレッドへ理由を残して発火し、
+ *  skip はエンジンログのみ（スレッドは汚さない。docs/design.md「skipはエンジンログのみ」） */
+async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
+  const hasRunningRun = runsForPage.some((r) => r.status === "running");
+  const intervalMs = resolveAiCheckIntervalMs(trigger.schedule);
+  const lastCheckedAt = aiTriggerLastCheckedAt.get(trigger.id) ?? null;
+  const now = Date.now();
+  if (!shouldEvaluateAiTrigger(intervalMs, lastCheckedAt, now, hasRunningRun)) return;
+  aiTriggerLastCheckedAt.set(trigger.id, now);
+
+  const prompt = buildTriggerPrompt(trigger, new Date(now));
+  const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
+  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig);
+
+  if (!result.success) {
+    log(`AIトリガー判定に失敗（次周に持ち越し）: trigger=${trigger.id} title=${trigger.title} reason=${result.error}`);
+    return;
+  }
+
+  const decision = parseAiFireDecision(result.output);
+  if (decision === "fire") {
+    try {
+      await postMessage(trigger.id, { kind: "say", body: result.output.trim() || "(理由なし)" }, actor, VIA);
+      await fireTriggerNode(trigger.id, { via: "ai" }, actor);
+      log(`AI判定により発火: trigger=${trigger.id} title=${trigger.title}`);
+    } catch (err) {
+      log(`AI発火に失敗（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
+    }
+    return;
+  }
+  if (decision === "skip") {
+    log(`AI判定で見送り(skip): trigger=${trigger.id} title=${trigger.title}`);
+    return;
+  }
+  log(
+    `AI判定の出力がfire/skipと一致しません: trigger=${trigger.id} 出力="${truncate(result.output, 200)}"`,
+  );
+}
+
+/** kind=trigger(lifecycle=committed) のノードを毎tickチェックする。executor軸で分岐:
+ *  script=cron的、ai=間隔チェック、human=エンジンは何もしない（手動 /fire のみ） */
+async function triggerTick(nodes: Node[]): Promise<void> {
+  const triggers = nodes.filter(isFireableTrigger);
+  if (triggers.length === 0) return;
+
+  // ページ横断の一覧APIは無いため、対象トリガーの所属ページ(group)ごとに束ねて取得する
+  // （同じページを指す複数トリガーがあっても1回だけ取得する）
+  const runsByPage = new Map<string, Run[]>();
+  for (const trigger of triggers) {
+    if (!trigger.group) {
+      log(`groupが無いためトリガーは無視: id=${trigger.id} title=${trigger.title}`);
       continue;
     }
-
-    let runsForProc: Run[];
+    if (runsByPage.has(trigger.group)) continue;
     try {
-      runsForProc = await listProcedureRuns(proc.id);
+      runsByPage.set(trigger.group, await listPageRuns(trigger.group));
     } catch (err) {
-      log(`ラン一覧取得に失敗（次周に持ち越し）: procedure=${proc.id} ${String(err)}`);
-      continue;
+      log(`ラン一覧取得に失敗（次周に持ち越し）: page=${trigger.group} ${String(err)}`);
     }
+  }
 
-    const hasRunningRun = runsForProc.some((r) => r.status === "running");
-    const latestRun = runsForProc[0] ?? null; // list は created 降順
-    const now = new Date();
+  for (const trigger of triggers) {
+    if (!trigger.group) continue;
+    const runsForPage = runsByPage.get(trigger.group);
+    if (!runsForPage) continue; // 一覧取得に失敗したページはこの周スキップ
 
-    if (!shouldCreateScheduledRun(schedule, latestRun, now, hasRunningRun)) continue;
-
-    try {
-      await createRun(proc.id, { trigger: `schedule:${proc.schedule}` }, ENGINE_ACTOR, VIA);
-      log(`スケジュールによりラン生成: procedure=${proc.id} schedule="${proc.schedule}"`);
-    } catch (err) {
-      log(`ラン生成に失敗（次周に持ち越し）: procedure=${proc.id} ${String(err)}`);
+    if (trigger.executor === "script") {
+      await tickScriptTrigger(trigger, runsForPage);
+    } else if (trigger.executor === "ai") {
+      await tickAiTrigger(trigger, runsForPage);
     }
+    // executor=human はエンジンは何もしない（手動 /fire のみ）
   }
 }
 
@@ -753,7 +850,7 @@ async function tick(): Promise<void> {
 
   const { nodes } = await getState();
 
-  await scheduleTick(nodes);
+  await triggerTick(nodes);
 
   const ids = candidateIdsNeedingThread(nodes);
   const lastMessages = await lastMessagesFor(ids);

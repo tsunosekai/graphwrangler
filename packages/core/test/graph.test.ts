@@ -141,3 +141,38 @@ describe("GraphStore", () => {
     expect(g2.get(a.id).title).toBe("a");
   });
 });
+
+// kind=trigger（起点ノード）まわりのテスト。docs/design.md 3.4/3.8 新モデルが仕様の正。
+describe("GraphStore: trigger ノード", () => {
+  it("trigger ノードは parents を持てない（addNode時）", () => {
+    const g = new GraphStore(dir);
+    const a = g.addNode({ title: "a" });
+    expect(() => g.addNode({ title: "起点", kind: "trigger", parents: [a.id] })).toThrow(
+      /trigger ノードは parents を持てません/,
+    );
+  });
+
+  it("parentsが空ならtriggerノードを作成できる", () => {
+    const g = new GraphStore(dir);
+    const t = g.addNode({ title: "起点", kind: "trigger" });
+    expect(t.kind).toBe("trigger");
+    expect(t.parents).toEqual([]);
+  });
+
+  it("patchでparentsを足そうとすると拒否される（既存triggerノード）", () => {
+    const g = new GraphStore(dir);
+    const t = g.addNode({ title: "起点", kind: "trigger" });
+    const a = g.addNode({ title: "a" });
+    expect(() => g.patchNode(t.id, { parents: [a.id] })).toThrow(/trigger ノードは parents を持てません/);
+  });
+
+  it("patchでkindをtriggerに変えるときもparents保有が検証される", () => {
+    const g = new GraphStore(dir);
+    const a = g.addNode({ title: "a" });
+    const b = g.addNode({ title: "b", parents: [a.id] });
+    expect(() => g.patchNode(b.id, { kind: "trigger" })).toThrow(/trigger ノードは parents を持てません/);
+    // parentsも同時に空にすれば通る
+    const patched = g.patchNode(b.id, { kind: "trigger", parents: [] });
+    expect(patched.kind).toBe("trigger");
+  });
+});
