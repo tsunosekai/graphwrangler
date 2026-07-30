@@ -56,8 +56,10 @@ export const NodeSchema = z.object({
   impact: ImpactSchema,
   lifecycle: LifecycleSchema,
   status: StatusSchema,
-  /** 自己改善許可フラグ（アンロックHDA相当） */
-  selfImprove: z.boolean(),
+  /** Fix フラグ（= Houdini のロック）。true = やり方が確定し、AIは impl を書き換えない。
+   *  中身がスクリプトでも手順書でも「人間が判断する」でもよい — Fix はやり方の確定であって
+   *  スクリプト化ではない（2026-07-31 本人定義）。ノードは未Fix（改善中）で生まれる */
+  fixed: z.boolean(),
   /** open な判断リクエストの message id。open の存在 ⇔ ボールが人間 */
   pendingRequest: z.string().nullable(),
   /** 兄弟内の表示順（小さいほど上）。null は末尾扱い */
@@ -82,7 +84,7 @@ export const NodeInputSchema = z.object({
   impact: ImpactSchema.default("safe"),
   lifecycle: LifecycleSchema.default("draft"),
   status: StatusSchema.default("pending"),
-  selfImprove: z.boolean().default(false),
+  fixed: z.boolean().default(false),
   order: z.number().nullable().default(null),
   schedule: z.string().nullable().default(null),
 });

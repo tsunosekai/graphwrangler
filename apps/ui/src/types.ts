@@ -33,7 +33,8 @@ export interface Node {
   impact: Impact;
   lifecycle: Lifecycle;
   status: Status;
-  selfImprove: boolean;
+  /** Fix（=ロック）。やり方が確定したか。AIは fixed ノードの impl を書き換えない */
+  fixed: boolean;
   pendingRequest: string | null;
   order: number | null;
   /** kind=procedure 用の定期トリガー記述（自由文字列。v1では解釈しない） */

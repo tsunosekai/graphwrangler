@@ -159,15 +159,16 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
               type="button"
               variant="ghost"
               size="icon"
-              onClick={() => patch({ selfImprove: !node.selfImprove })}
+              className={node.fixed ? "text-ok" : undefined}
+              onClick={() => patch({ fixed: !node.fixed })}
             >
-              {node.selfImprove ? <Unlock /> : <Lock />}
+              {node.fixed ? <Lock /> : <Unlock />}
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            {node.selfImprove
-              ? "アンロック中: AIが実装(impl)を書き換えてよい"
-              : "ロック中: AIは実装(impl)を書き換えない"}
+            {node.fixed
+              ? "Fix済み: やり方が確定。AIは実装を書き換えない"
+              : "未Fix（改善中）: AIが実装を書き換えてよい。クリックで Fix する"}
           </TooltipContent>
         </Tooltip>
         <Tooltip>

@@ -166,7 +166,7 @@ server.registerTool(
   {
     description:
       "既存ノードを部分更新する。patch には変えたいフィールドだけを渡す（title/detail/impl/parents/group/kind/" +
-      "executor/impact/lifecycle/status/selfImprove/pendingRequest/order の部分集合）。更新後のノードを返す。",
+      "executor/impact/lifecycle/status/fixed/pendingRequest/order の部分集合）。更新後のノードを返す。",
     inputSchema: {
       nodeId: z.string().describe("更新対象のノードid"),
       patch: z.object(NodePatchShape).describe("変更したいフィールドだけを含む部分オブジェクト"),

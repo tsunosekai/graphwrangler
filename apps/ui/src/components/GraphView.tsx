@@ -734,11 +734,11 @@ function GraphViewInner({
     onMutated();
   }, [draftNodes, onMutated, removeLeafFirst]);
 
-  // ---- A-5: Fix率チップ（committed メンバーのうち impl=script の割合） ----
+  // ---- Fix率チップ: Fix済み（やり方確定=ロック）ノード / 全メンバー。
+  //      100% = このページの Fix 完了（スクリプト化率ではない。2026-07-31 本人定義） ----
   const hardening = useMemo(() => {
-    const committed = nodes.filter((n) => n.lifecycle === "committed");
-    const hardened = committed.filter((n) => n.impl?.type === "script");
-    return { n: hardened.length, m: committed.length };
+    const fixed = nodes.filter((n) => n.fixed);
+    return { n: fixed.length, m: nodes.length };
   }, [nodes]);
 
   const showLedger = isProcedure && viewMode === "ledger";

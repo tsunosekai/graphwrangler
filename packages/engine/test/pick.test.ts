@@ -22,7 +22,7 @@ function node(partial: Partial<Node> = {}): Node {
     impact: partial.impact ?? "safe",
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending",
-    selfImprove: partial.selfImprove ?? false,
+    fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
     order: partial.order ?? null,
     schedule: partial.schedule ?? null,
@@ -185,7 +185,7 @@ d2("手順テンプレートの除外", () => {
     const proc = {
       id: "p1", title: "手順", detail: null, impl: null, parents: [], group: null,
       kind: "procedure", executor: "human", impact: "safe", lifecycle: "committed",
-      status: "pending", selfImprove: false, pendingRequest: null, order: null,
+      status: "pending", fixed: false, pendingRequest: null, order: null,
       schedule: null, created: "2026-01-01T00:00:00Z", updated: "2026-01-01T00:00:00Z",
     } as never;
     const tmpl = {

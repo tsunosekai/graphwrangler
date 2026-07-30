@@ -25,7 +25,7 @@ function node(partial: Partial<Node> = {}): Node {
     impact: partial.impact ?? "irreversible",
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending",
-    selfImprove: partial.selfImprove ?? false,
+    fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
     order: partial.order ?? null,
     schedule: partial.schedule ?? null,

@@ -17,7 +17,7 @@ function node(partial: Partial<Node> = {}): Node {
     impact: partial.impact ?? "safe",
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending", // ランには関係しない（テンプレートは status を持たない扱い）
-    selfImprove: partial.selfImprove ?? false,
+    fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
     order: partial.order ?? null,
     schedule: partial.schedule ?? null,

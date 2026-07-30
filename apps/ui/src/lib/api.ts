@@ -50,7 +50,7 @@ export interface NodeCreateInput {
   impact?: Node["impact"];
   lifecycle?: Node["lifecycle"];
   status?: Node["status"];
-  selfImprove?: boolean;
+  fixed?: boolean;
   order?: number | null;
 }
 
