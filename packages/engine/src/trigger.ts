@@ -111,7 +111,7 @@ export function buildTriggerPrompt(
     `トリガー: ${node.title}`,
   ];
   if (node.detail) lines.push(`補足: ${node.detail}`);
-  if (node.impl && node.impl.type === "doc") {
+  if (node.impl && node.impl.type === "doc" && node.impl.text) {
     lines.push("", "発火条件（手順書）:", node.impl.text);
   }
   lines.push("", `現在時刻: ${now.toISOString()}`);

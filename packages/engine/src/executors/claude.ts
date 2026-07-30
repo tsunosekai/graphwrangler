@@ -81,7 +81,7 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
   }
   lines.push(`作業内容: ${node.title}`);
   if (node.detail) lines.push(`補足: ${node.detail}`);
-  if (node.impl && node.impl.type === "doc") {
+  if (node.impl && node.impl.type === "doc" && node.impl.text) {
     sources.push("手順書");
     lines.push("", "手順書。これに従え:", node.impl.text);
   }

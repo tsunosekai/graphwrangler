@@ -209,3 +209,28 @@ export async function completeAi(prompt: string, maxTokens?: number): Promise<st
 export async function heartbeat(): Promise<void> {
   await request("POST", "/api/engine/heartbeat", {});
 }
+
+// ---- ワークスペース=1ファイル化（GET /api/workspace・GET /api/files） ----
+
+export interface WorkspaceInfo {
+  mode: "workspace" | "datadir";
+  root: string | null;
+  file: string | null;
+}
+
+/** サーバの動作モードを取得する（GET /api/workspace）。起動時に1回読み、
+ *  script executor の cwd 決定と impl={type:"doc",path} の解決に使う */
+export async function getWorkspace(): Promise<WorkspaceInfo> {
+  return (await request("GET", "/api/workspace")) as WorkspaceInfo;
+}
+
+/** ワークスペース内のファイルを読む（GET /api/files?path=）。impl={type:"doc",path} の
+ *  本文をプロンプトへインラインするために使う。ワークスペースモード以外・パス脱出・
+ *  存在しないファイルは ApiError として投げる（呼び出し側が実行失敗として扱う） */
+export async function getFile(relPath: string): Promise<string> {
+  const res = (await request("GET", `/api/files?path=${encodeURIComponent(relPath)}`)) as {
+    path: string;
+    content: string;
+  };
+  return res.content;
+}

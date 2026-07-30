@@ -5,9 +5,11 @@ import {
   decideNode,
   decideRunItem,
   fireTriggerNode,
+  getFile,
   getSettings,
   getState,
   getThread,
+  getWorkspace,
   heartbeat,
   listPageRuns,
   openRequest,
@@ -105,6 +107,41 @@ async function refreshEngineConfig(force = false): Promise<void> {
   }
 }
 
+// ---- ワークスペース=1ファイル化: サーバの動作モード（起動時に1回取得。M-workspace） ----
+// script executor の cwd 決定（workspace root を渡す）と impl={type:"doc",path} の解決に使う。
+// 取得失敗時は null のまま（従来の data-dir モードと同じ挙動で継続する）
+
+let workspaceRoot: string | null = null;
+
+async function refreshWorkspaceInfo(): Promise<void> {
+  try {
+    const info = await getWorkspace();
+    workspaceRoot = info.mode === "workspace" ? info.root : null;
+    if (workspaceRoot) log(`ワークスペースモードで接続: root=${workspaceRoot}`);
+  } catch (err) {
+    log(`ワークスペース情報の取得に失敗（data-dirモード相当で継続）: ${String(err)}`);
+  }
+}
+
+/** impl={type:"doc"} の本文を解決する。text があればそのまま（インライン済み扱い）、
+ *  無くて path があれば GET /api/files で取得して text に埋め込む（ワークスペースモード。
+ *  仕様書「ワークスペース=1ファイル化」参照）。取得に失敗したら error を返す
+ *  （呼び出し側はこれを実行失敗として既存の failure recovery（承認/回答リクエスト）に乗せる） */
+async function resolveDocForPrompt(node: Node): Promise<{ node: Node; error?: string }> {
+  if (!node.impl || node.impl.type !== "doc" || node.impl.text || !node.impl.path) {
+    return { node };
+  }
+  try {
+    const text = await getFile(node.impl.path);
+    return { node: { ...node, impl: { ...node.impl, text } } };
+  } catch (err) {
+    return {
+      node,
+      error: `手順書ファイル(path=${node.impl.path})の取得に失敗しました: ${String(err)}`,
+    };
+  }
+}
+
 function truncate(text: string, limit: number): string {
   const t = text.trim();
   return t.length <= limit ? t : t.slice(0, limit) + "…";
@@ -174,19 +211,25 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     if (!node.impl || node.impl.type !== "script") {
       result = { success: false, output: "", error: "実装がない（impl が script 形式ではない）" };
     } else {
-      result = await runScript(node.impl.command);
+      result = await runScript(node.impl.command, { cwd: workspaceRoot ?? undefined });
     }
   } else {
     const goal = node.group ? (nodes.find((n) => n.id === node.group) ?? null) : null;
     const parentSayMessages = await parentSayContext(node, nodes);
-    const built = buildAiPrompt({ node, goal, parentSayMessages });
-    aiSources = built.sources;
-    if (engineMode === "api") {
-      executorName = "executor:api";
-      result = await runApi(built.prompt);
+    const resolved = await resolveDocForPrompt(node);
+    if (resolved.error) {
+      executorName = engineMode === "api" ? "executor:api" : "executor:claude";
+      result = { success: false, output: "", error: resolved.error };
     } else {
-      executorName = "executor:claude";
-      result = await runClaude(built.prompt, engineConfig);
+      const built = buildAiPrompt({ node: resolved.node, goal, parentSayMessages });
+      aiSources = built.sources;
+      if (engineMode === "api") {
+        executorName = "executor:api";
+        result = await runApi(built.prompt);
+      } else {
+        executorName = "executor:claude";
+        result = await runClaude(built.prompt, engineConfig);
+      }
     }
   }
 
@@ -285,7 +328,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
         );
         return true;
       }
-      const result = await runScript(node.impl.command);
+      const result = await runScript(node.impl.command, { cwd: workspaceRoot ?? undefined });
       if (!result.success) {
         const reason = result.error || "不明なエラー";
         await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
@@ -356,18 +399,24 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
     if (!node.impl || node.impl.type !== "script") {
       result = { success: false, output: "", error: "実装がない（impl が script 形式ではない）" };
     } else {
-      result = await runScript(node.impl.command);
+      result = await runScript(node.impl.command, { cwd: workspaceRoot ?? undefined });
     }
   } else {
     const procedureNode = nodes.find((n) => n.id === run.procedure) ?? null;
-    const built = buildAiPrompt({ node, goal: procedureNode, parentSayMessages: [] });
-    aiSources = built.sources;
-    if (engineMode === "api") {
-      executorName = "executor:api";
-      result = await runApi(built.prompt);
+    const resolved = await resolveDocForPrompt(node);
+    if (resolved.error) {
+      executorName = engineMode === "api" ? "executor:api" : "executor:claude";
+      result = { success: false, output: "", error: resolved.error };
     } else {
-      executorName = "executor:claude";
-      result = await runClaude(built.prompt, engineConfig);
+      const built = buildAiPrompt({ node: resolved.node, goal: procedureNode, parentSayMessages: [] });
+      aiSources = built.sources;
+      if (engineMode === "api") {
+        executorName = "executor:api";
+        result = await runApi(built.prompt);
+      } else {
+        executorName = "executor:claude";
+        result = await runClaude(built.prompt, engineConfig);
+      }
     }
   }
 
@@ -585,7 +634,7 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
       );
       return;
     }
-    const result = await runScript(node.impl.command);
+    const result = await runScript(node.impl.command, { cwd: workspaceRoot ?? undefined });
     if (!result.success) {
       const reason = result.error || "不明なエラー";
       await postMessage(
@@ -884,6 +933,7 @@ function sleep(ms: number): Promise<void> {
 async function main(): Promise<void> {
   const url = process.env.GRAPHWRANGLER_URL ?? "http://localhost:8770";
   await refreshEngineConfig(true); // 起動時は必ず一度取得する
+  await refreshWorkspaceInfo(); // 起動時に1回、サーバの動作モード（workspace/datadir）を読む
   log(
     `graphwrangler engine 起動: url=${url} interval=${INTERVAL_MS}ms mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model}`,
   );

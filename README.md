@@ -50,3 +50,21 @@ pnpm --filter @graphwrangler/engine start
 # Claude Code から使う（MCP）:
 claude mcp add graphwrangler -- npx tsx <このリポジトリ>/packages/mcp/src/index.ts
 ```
+
+### 既存リポジトリを開く（ワークスペースモード）
+
+対象リポジトリのルートに置いた1ファイルを正データとして開ける（.excalidraw と同じ使用感。
+docs/design.md 3.10）。グラフ定義は `workflow.gw.json`、会話ログは隣の
+`.graphwrangler/threads/` に入り、どちらも git にコミットして経緯ごと版管理する
+（ラン履歴・undo記録・AI設定は自動生成の .gitignore で除外される）。
+
+```bash
+# 環境変数 か --workspace で正データファイルを指定（ディレクトリ指定なら workflow.gw.json）
+GRAPHWRANGLER_WORKSPACE=/path/to/repo/workflow.gw.json pnpm --filter @graphwrangler/server start
+
+# 既存の data ディレクトリからの移行
+node scripts/migrate-to-workspace.mjs ./data /path/to/repo/workflow.gw.json
+```
+
+ノードの実装（impl）は `{type:"doc", path:"docs/x.md"}` でリポジトリ内のドキュメントを
+パス参照でき、実行AIが実行時に読む。スクリプトの作業ディレクトリもワークスペースルートになる。

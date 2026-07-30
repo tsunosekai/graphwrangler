@@ -24,11 +24,16 @@ export function readJsonl<T>(file: string): T[] {
   return out;
 }
 
-export function writeJsonAtomic(file: string, data: unknown): void {
+/** テキストのアトミック書き込み（tmpファイルに書いて rename）。中身の整形は呼び出し側の責務 */
+export function writeTextAtomic(file: string, content: string): void {
   ensureDir(path.dirname(file));
   const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
+  fs.writeFileSync(tmp, content, "utf8");
   fs.renameSync(tmp, file);
+}
+
+export function writeJsonAtomic(file: string, data: unknown): void {
+  writeTextAtomic(file, JSON.stringify(data, null, 2));
 }
 
 export function readJson<T>(file: string): T | null {

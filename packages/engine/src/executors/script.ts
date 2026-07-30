@@ -31,13 +31,23 @@ export function decodeOutput(buf: Buffer): string {
   }
 }
 
+export interface RunScriptOptions {
+  timeoutMs?: number;
+  /** 作業ディレクトリ。省略時は従来どおりリポジトリ外の作業用tmp（os.tmpdir()）。
+   *  ワークスペースモードでは正データファイルのあるディレクトリ（workspace root）を渡す
+   *  （ワークスペース=1ファイル化仕様: スクリプトがリポジトリ内のファイルを素で参照できる） */
+  cwd?: string;
+}
+
 /**
- * command を子プロセスで実行する。cwd はリポジトリ外の作業用tmp（os.tmpdir()）に固定する
- * （このリポジトリを汚さない。CLAUDE.md 系の「一時ファイルは /tmp へ」規律と同じ発想）。
+ * command を子プロセスで実行する。cwd は既定でリポジトリ外の作業用tmp（os.tmpdir()）に固定する
+ * （このリポジトリを汚さない。CLAUDE.md 系の「一時ファイルは /tmp へ」規律と同じ発想）が、
+ * opts.cwd を渡せば上書きできる（ワークスペースモードの workspace root 用）。
  * 出力はバイト列で貯めて close 時に一括デコードする（チャンク境界でマルチバイト文字が
  * 割れるのを防ぐ + 上記の Shift_JIS フォールバックのため）。
  */
-export function runScript(command: string, timeoutMs: number = SCRIPT_TIMEOUT_MS): Promise<ExecResult> {
+export function runScript(command: string, opts: RunScriptOptions = {}): Promise<ExecResult> {
+  const { timeoutMs = SCRIPT_TIMEOUT_MS, cwd = os.tmpdir() } = opts;
   return new Promise((resolve) => {
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
@@ -45,7 +55,7 @@ export function runScript(command: string, timeoutMs: number = SCRIPT_TIMEOUT_MS
 
     const child = spawn(command, {
       shell: true,
-      cwd: os.tmpdir(),
+      cwd,
     });
 
     const timer = setTimeout(() => {

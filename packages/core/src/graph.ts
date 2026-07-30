@@ -1,5 +1,11 @@
 // グラフストア。すべての変更は操作ログ（ops.jsonl）を通り、snapshot.json は
 // その適用結果にすぎない（docs/design.md 3.2）。snapshot 直接編集は禁止。
+//
+// ワークスペースモード（ワークスペース=1ファイル化）では正データファイル
+// （<repo>/workflow.gw.json 等）が正になる。ops.jsonl はサイドカー（.graphwrangler/）
+// への「セッション内 undo 用の作業記録」に格下げされ、起動時には再生しない
+// （正データファイルを zod でパースして初期状態にする）。
+import fs from "node:fs";
 import path from "node:path";
 import {
   ActorSchema,
@@ -12,9 +18,12 @@ import {
   type NodePatch,
   type OpRecord,
   OpRecordSchema,
+  type WorkspaceFile,
+  WorkspaceFileSchema,
 } from "./schema.js";
 import { nextId, nowIso } from "./ids.js";
-import { appendJsonl, readJson, readJsonl, writeJsonAtomic } from "./storage.js";
+import { appendJsonl, readJson, readJsonl, writeJsonAtomic, writeTextAtomic } from "./storage.js";
+import { stableStringify } from "./stable-stringify.js";
 
 /** 操作の帰属メタデータ。省略時は human/ui（desk の actor 既定と同じ思想） */
 export interface OpMeta {
@@ -33,6 +42,53 @@ export class GraphError extends Error {
 
 interface Snapshot {
   nodes: Node[];
+}
+
+/** GraphStore の動作モード。datadir=従来（ops.jsonl 再生 + snapshot.json）、
+ *  workspace=ワークスペース=1ファイル化（正データファイルが正、ops.jsonl は
+ *  サイドカーへの undo 用作業記録のみ）。互換のため datadir は一切変更しない */
+type StoreMode =
+  | { kind: "datadir"; dataDir: string }
+  | { kind: "workspace"; canonicalFile: string; sidecarDir: string };
+
+function sortNodesById(nodes: Node[]): Node[] {
+  return [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** 正データファイルを読む。存在しない/空なら空グラフ（[]）として扱う（最初のcommitで
+ *  ファイルを作る想定）。壊れたファイル（不正JSON・zod不通過）は起動時に明確なエラーにする */
+export function readWorkspaceFile(file: string): Node[] {
+  if (!fs.existsSync(file)) return [];
+  const raw = fs.readFileSync(file, "utf8");
+  if (!raw.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new GraphError(
+      `正データファイルの読み込みに失敗しました（不正なJSON）: ${file}\n${(e as Error).message}`,
+      500,
+    );
+  }
+  const result = WorkspaceFileSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new GraphError(
+      `正データファイルの形式が不正です: ${file}\n${result.error.message}`,
+      500,
+    );
+  }
+  return result.data.nodes;
+}
+
+/** 正データファイルをアトミック書き込みする。nodes は id 昇順に並べ替え、
+ *  キー再帰辞書順ソート済みの決定的シリアライズ（stableStringify）で書く */
+export function writeWorkspaceFile(file: string, nodes: Node[]): void {
+  const payload: WorkspaceFile = {
+    format: "graphwrangler-workspace",
+    version: 1,
+    nodes: sortNodesById(nodes),
+  };
+  writeTextAtomic(file, stableStringify(payload));
 }
 
 /** id とその子孫すべて（nodes 配列内の parents リンクを辿る。id 自身は含まない）。
@@ -63,16 +119,40 @@ export function collectDescendantsAmong(nodes: Node[], id: string): Set<string> 
 
 export class GraphStore {
   private nodes = new Map<string, Node>();
+  private mode: StoreMode;
   private opsPath: string;
-  private snapshotPath: string;
 
-  constructor(private dataDir: string) {
+  constructor(dataDir: string) {
+    this.mode = { kind: "datadir", dataDir };
     this.opsPath = path.join(dataDir, "ops.jsonl");
-    this.snapshotPath = path.join(dataDir, "snapshot.json");
-    const snap = readJson<Snapshot>(this.snapshotPath);
+    const snap = readJson<Snapshot>(path.join(dataDir, "snapshot.json"));
     if (snap) {
       for (const n of snap.nodes) this.nodes.set(n.id, n);
     }
+  }
+
+  /**
+   * ワークスペースモードで開く（ワークスペース=1ファイル化）。canonicalFile
+   * （例: <repo>/workflow.gw.json）を正として zod パースし初期状態にする。
+   * sidecarDir（例: <repo>/.graphwrangler）には ops.jsonl（undo 用の作業記録。
+   * 再生しない）を置く。従来の data-dir モードとは完全に別経路で、互換は壊さない
+   */
+  static workspace(canonicalFile: string, sidecarDir: string): GraphStore {
+    const store = Object.create(GraphStore.prototype) as GraphStore;
+    const raw = store as unknown as { nodes: Map<string, Node>; mode: StoreMode; opsPath: string };
+    raw.nodes = new Map();
+    raw.mode = { kind: "workspace", canonicalFile, sidecarDir };
+    raw.opsPath = path.join(sidecarDir, "ops.jsonl");
+    for (const n of readWorkspaceFile(canonicalFile)) raw.nodes.set(n.id, n);
+    return store;
+  }
+
+  /** サーバの GET /api/workspace 用: 現在のモードと関連パスを返す */
+  workspaceInfo(): { mode: "workspace" | "datadir"; root: string | null; file: string | null } {
+    if (this.mode.kind === "workspace") {
+      return { mode: "workspace", root: path.dirname(this.mode.canonicalFile), file: this.mode.canonicalFile };
+    }
+    return { mode: "datadir", root: null, file: null };
   }
 
   // ---- 読み取り ----
@@ -340,7 +420,13 @@ export class GraphStore {
     });
     this.apply(record);
     appendJsonl(this.opsPath, record);
-    writeJsonAtomic(this.snapshotPath, { nodes: [...this.nodes.values()] });
+    if (this.mode.kind === "workspace") {
+      writeWorkspaceFile(this.mode.canonicalFile, [...this.nodes.values()]);
+    } else {
+      writeJsonAtomic(path.join(this.mode.dataDir, "snapshot.json"), {
+        nodes: [...this.nodes.values()],
+      });
+    }
   }
 
   private apply(record: OpRecord): void {

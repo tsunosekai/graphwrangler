@@ -40,10 +40,18 @@ export const StatusSchema = z.enum([
 ]);
 
 /** ノードの実装形態（Fix3段階の後ろ2つ。null=会話段=AIの裁量で実行）
- *  - doc: 手順書。AI executor がこれを読んで実行する
+ *  - doc: 手順書。AI executor がこれを読んで実行する。text はインライン本文、path は
+ *    ワークスペースモード（ワークスペース=1ファイル化）でリポジトリ内ファイルを指す相対パス
+ *    （docs/design.md 「ワークスペース=1ファイル化」仕様）。どちらか片方があれば良く、
+ *    両方あるときは text を優先する（engine 側の規約）。両方 null は実装未記入と同義で、
+ *    既存データ（text だけ）はそのまま通る後方互換を維持する
  *  - script: 決定的スクリプト（シェルコマンド）。script executor が実行する */
 export const NodeImplSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("doc"), text: z.string().min(1) }),
+  z.object({
+    type: z.literal("doc"),
+    text: z.string().min(1).nullable().optional(),
+    path: z.string().min(1).nullable().optional(),
+  }),
   z.object({ type: z.literal("script"), command: z.string().min(1) }),
 ]);
 export type NodeImpl = z.infer<typeof NodeImplSchema>;
@@ -273,3 +281,15 @@ export const RunSchema = z.object({
   updated: z.string(),
 });
 export type Run = z.infer<typeof RunSchema>;
+
+// ---- ワークスペースモード: 正データファイル（<repo>/workflow.gw.json 等。
+// docs「ワークスペース=1ファイル化」仕様）----
+
+/** 正データファイルの形。nodes は id 昇順・決定的シリアライズ（stableStringify）で書く
+ *  ことで git diff が意味のある差分になる（本ファイルはその形の検証にのみ使う） */
+export const WorkspaceFileSchema = z.object({
+  format: z.literal("graphwrangler-workspace"),
+  version: z.literal(1),
+  nodes: z.array(NodeSchema),
+});
+export type WorkspaceFile = z.infer<typeof WorkspaceFileSchema>;

@@ -26,16 +26,65 @@ import { z } from "zod";
 import { chatKeyMissing, completeText, handleChat } from "./chat.js";
 import { handleChatCli } from "./chat_cli.js";
 import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema } from "./settings.js";
+import { resolveWorkspacePath } from "./files.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
-const dataDir = process.env.GRAPHWRANGLER_DATA ?? path.join(repoRoot, "data");
 const port = Number(process.env.GRAPHWRANGLER_PORT ?? 8770);
 
-const graph = new GraphStore(dataDir);
-const threads = new ThreadStore(dataDir);
-const runs = new RunStore(dataDir);
-const settings = new SettingsStore(dataDir);
+// ---- 起動時解決: ワークスペースモード（ワークスペース=1ファイル化） or 従来の data-dir モード ----
+// 優先順: GRAPHWRANGLER_WORKSPACE 環境変数 → --workspace <path> CLI引数 → 従来の GRAPHWRANGLER_DATA。
+// path が ".gw.json" で終わればそのファイルを正データファイルとし、それ以外はディレクトリと
+// みなして "<dir>/workflow.gw.json" を正データファイルにする（仕様書「ファイルレイアウト」参照）。
+
+/** --workspace <path> の値を argv から取り出す（無ければ null） */
+function parseWorkspaceArg(argv: string[]): string | null {
+  const idx = argv.indexOf("--workspace");
+  if (idx === -1) return null;
+  const value = argv[idx + 1];
+  if (!value) throw new Error("--workspace には path を指定してください");
+  return value;
+}
+
+/** rawPath から正データファイルの絶対パスを決める */
+function resolveCanonicalFile(rawPath: string): string {
+  const abs = path.resolve(rawPath);
+  if (abs.toLowerCase().endsWith(".gw.json")) return abs;
+  return path.join(abs, "workflow.gw.json");
+}
+
+const GITIGNORE_CONTENT = "ops.jsonl\nruns/\nsettings.json\n";
+
+const workspaceArg = process.env.GRAPHWRANGLER_WORKSPACE ?? parseWorkspaceArg(process.argv.slice(2));
+
+let graph: GraphStore;
+let threads: ThreadStore;
+let runs: RunStore;
+let settings: SettingsStore;
+let serverModeLabel: string;
+
+if (workspaceArg) {
+  const canonicalFile = resolveCanonicalFile(workspaceArg);
+  const workspaceRoot = path.dirname(canonicalFile);
+  const sidecarDir = path.join(workspaceRoot, ".graphwrangler");
+  fs.mkdirSync(sidecarDir, { recursive: true });
+  const gitignorePath = path.join(sidecarDir, ".gitignore");
+  if (!fs.existsSync(gitignorePath)) {
+    fs.writeFileSync(gitignorePath, GITIGNORE_CONTENT, "utf8");
+  }
+  graph = GraphStore.workspace(canonicalFile, sidecarDir);
+  threads = new ThreadStore(sidecarDir);
+  runs = new RunStore(sidecarDir);
+  settings = new SettingsStore(sidecarDir); // settings.json は sidecar 配下＝gitignore 済みなのでAPIキーは漏れない
+  serverModeLabel = `workspace: ${canonicalFile}`;
+} else {
+  const dataDir = process.env.GRAPHWRANGLER_DATA ?? path.join(repoRoot, "data");
+  graph = new GraphStore(dataDir);
+  threads = new ThreadStore(dataDir);
+  runs = new RunStore(dataDir);
+  settings = new SettingsStore(dataDir);
+  serverModeLabel = `data: ${dataDir}`;
+}
 
 /** ラン既定タイトル「MM/DD HH:mm のラン」（docs/design.md 3.8） */
 function defaultRunTitle(): string {
@@ -100,6 +149,37 @@ app.get("/api/export", (c) => {
     runs: runDump,
     settings: settings.publicView(),
   });
+});
+
+// ---- ワークスペース=1ファイル化: 動作モード + ワークスペース内ファイルの参照 ----
+
+/** 現在の動作モード（workspace/datadir）を返す。GraphStore#workspaceInfo をそのまま公開する */
+app.get("/api/workspace", (c) => {
+  return c.json(graph.workspaceInfo());
+});
+
+/** ワークスペース内のファイルを utf8 テキストとして読む。root（正データファイルの
+ *  あるディレクトリ）基準で解決し、絶対パス・".." でのルート外脱出は 400。
+ *  ワークスペースモード以外・path 未指定も 400。存在しない/ディレクトリは 404
+ *  （engine の impl={type:"doc",path} 解決が主な利用者。仕様書参照） */
+app.get("/api/files", (c) => {
+  const info = graph.workspaceInfo();
+  if (info.mode !== "workspace" || !info.root) {
+    return c.json({ error: "ワークスペースモードではありません" }, 400);
+  }
+  const relPath = c.req.query("path");
+  if (!relPath) {
+    return c.json({ error: "path クエリパラメータが必要です" }, 400);
+  }
+  const absolute = resolveWorkspacePath(info.root, relPath);
+  if (!absolute) {
+    return c.json({ error: `ワークスペース外のパスは指定できません: ${relPath}` }, 400);
+  }
+  if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) {
+    return c.json({ error: `ファイルが見つかりません: ${relPath}` }, 404);
+  }
+  const content = fs.readFileSync(absolute, "utf8");
+  return c.json({ path: relPath, content });
 });
 
 // ---- エンジン稼働ハートビート（UIの稼働インジケータ用。メモリ保持のみ） ----
@@ -514,5 +594,5 @@ if (fs.existsSync(uiDist)) {
 }
 
 serve({ fetch: app.fetch, port }, () => {
-  console.log(`graphwrangler server: http://localhost:${port} (data: ${dataDir})`);
+  console.log(`graphwrangler server: http://localhost:${port} (${serverModeLabel})`);
 });
