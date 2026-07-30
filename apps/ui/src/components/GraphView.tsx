@@ -249,6 +249,12 @@ function GraphViewInner({
       pendingMatched = nodes.map((n) => n.id).filter((id) => pending.has(id));
       if (pendingMatched.length > 0) pendingSelectRef.current = null;
     }
+    const byIdForFrontier = new Map(nodes.map((n) => [n.id, n] as const));
+    const isFrontierOf = (n: Node) =>
+      n.parents.every((p) => {
+        const st = byIdForFrontier.get(p)?.status;
+        return st === "done" || st === "skipped";
+      });
     setRfNodes(
       nodes.map((n) => {
         // QOL-7: 未読バッジ。既読tsは NodePanel がスレッド表示のたびに書き込む
@@ -268,6 +274,7 @@ function GraphViewInner({
             selected: n.id === selectedId,
             editing: n.id === editingId,
             isTemplate: isProcedure,
+            isFrontier: isFrontierOf(n),
             unread,
             onSelect: (id: string) => onSelect(id),
             onDoubleClick: (id: string) => setEditingId(id),

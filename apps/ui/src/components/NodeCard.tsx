@@ -34,6 +34,8 @@ export interface NodeCardData {
   /** ルーティーンページ（テンプレートの編集）で描かれているカードか。テンプレートは status を
    *  持たない思想（docs/design.md 3.8）なので、status 由来の見た目は出さない */
   isTemplate?: boolean;
+  /** 実行フェーズ（全親が done|skipped）か。段階式アクションボタンの表示条件 */
+  isFrontier?: boolean;
   /** QOL-7: 既読ts(localStorage gw.read.<id>)より新しいメッセージがあるか */
   unread?: boolean;
   onSelect: (id: string) => void;
@@ -57,6 +59,16 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // 人間に名前で見せる状態は「未計画」だけ（2026-07-31 本人方針: 人間の語彙は未計画かdoneかだけ。
   // 実行中=スピナー/回答待ち=橙ドット/完了=チェック/スキップ=斜線円と、他は絵で伝わっている）
   const showFoot = !isTemplate && node.status === "unplanned";
+  // 実行フェーズの段階式アクション: 未計画 →「プラン済みにする」→ 進行 →「完了」
+  // （decision は「分岐を選ぶ」がパネルにあるので対象外。trigger も対象外）
+  const actionable =
+    !isTemplate && data.isFrontier && node.kind === "task";
+  const phaseAction =
+    actionable && node.status === "unplanned"
+      ? { label: "プラン済みにする", next: "pending" as const }
+      : actionable && node.status === "pending"
+        ? { label: "完了", next: "done" as const }
+        : null;
 
   return (
     <div
@@ -177,9 +189,21 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           </span>
         )}
       </div>
-      {showFoot && (
-        <div className="mt-1.5">
-          <span className="text-xs text-muted-foreground">{STATUS_LABEL[node.status]}</span>
+      {(showFoot || phaseAction) && (
+        <div className="mt-1.5 flex items-center gap-2">
+          {showFoot && <span className="text-xs text-muted-foreground">{STATUS_LABEL[node.status]}</span>}
+          {phaseAction && (
+            <button
+              type="button"
+              className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
+              onClick={async (e) => {
+                e.stopPropagation();
+                await api.patchNode(node.id, { status: phaseAction.next });
+              }}
+            >
+              {phaseAction.label}
+            </button>
+          )}
         </div>
       )}
       {/* 分岐確定後: 選んだ枝を表示（docs/design.md 3.9） */}
