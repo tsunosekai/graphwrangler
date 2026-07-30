@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
+import { Loader2, Lock, Unlock } from "lucide-react";
+import { api } from "../lib/api";
 import { cn } from "../lib/utils";
 import type { Node } from "../types";
 import { Icon } from "./Icon";
@@ -82,6 +84,34 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           <Icon name="x" size={13} />
         </span>
       )}
+      {/* 右側のバッジ列: 処理中スピナー（チェックと同じ円で、くるくる）+ Fix（ロック）トグル */}
+      <span className="absolute -right-[30px] inset-y-0 flex flex-col items-center justify-center gap-1">
+        {!isTemplate && node.status === "running" && (
+          <span
+            className="inline-flex size-[22px] items-center justify-center rounded-full border-[1.5px] border-current bg-background"
+            style={{ color: "var(--active-color)" }}
+            title="処理中"
+          >
+            <Loader2 className="size-3.5 animate-spin" />
+          </span>
+        )}
+        <button
+          type="button"
+          className={cn(
+            "nodrag inline-flex size-[22px] items-center justify-center rounded-full border bg-background transition-opacity",
+            node.fixed
+              ? "border-ok text-ok" // Fix済み=濃く
+              : "border-border text-text-lo opacity-40 hover:opacity-90", // 未Fix=薄く
+          )}
+          title={node.fixed ? "Fix済み（クリックで解除）" : "未Fix・改善中（クリックで Fix）"}
+          onClick={async (e) => {
+            e.stopPropagation();
+            await api.patchNode(node.id, { fixed: !node.fixed });
+          }}
+        >
+          {node.fixed ? <Lock className="size-3" /> : <Unlock className="size-3" />}
+        </button>
+      </span>
       {node.pendingRequest && (
         <span
           className="absolute -right-1 -top-1 size-2 flex-shrink-0 rounded-full bg-[#ff9f43]"

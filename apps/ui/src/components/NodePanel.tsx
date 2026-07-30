@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Copy, Lock, Trash2, Unlock, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, History, Lock, MessageSquare, Trash2, Unlock, X } from "lucide-react";
 import { api, type NodePatchInput } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
@@ -159,7 +159,8 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
               type="button"
               variant="ghost"
               size="icon"
-              className={node.fixed ? "text-ok" : undefined}
+              // Fix済み=濃く（緑の錠前）、未Fix=薄く（開いた錠前）
+              className={node.fixed ? "text-ok" : "text-text-lo opacity-60"}
               onClick={() => patch({ fixed: !node.fixed })}
             >
               {node.fixed ? <Lock /> : <Unlock />}
@@ -318,8 +319,12 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history")} className="gap-3">
         <TabsList>
-          <TabsTrigger value="talk">💬 会話</TabsTrigger>
-          <TabsTrigger value="history">📜 履歴</TabsTrigger>
+          <TabsTrigger value="talk">
+            <MessageSquare className="size-3.5" /> 会話
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <History className="size-3.5" /> 履歴
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
