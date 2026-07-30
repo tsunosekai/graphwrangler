@@ -1,10 +1,8 @@
-import { Monitor, Moon, Search, Settings, Sun } from "lucide-react";
+import { Keyboard, Monitor, Moon, Search, Settings, Sun, Undo2 } from "lucide-react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
-import { openPalette } from "../lib/palette";
+import { openPalette, openShortcuts } from "../lib/palette";
 import { useTheme, type ThemeMode } from "../lib/theme";
-import type { Node } from "../types";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -25,10 +23,11 @@ export interface RunWaitItem {
 }
 
 interface Props {
-  nodes: Node[];
   chatOpen: boolean;
   onToggleChat: () => void;
   onOpenSettings: () => void;
+  /** 元に戻す（操作ログの補償追記）。ボタンはヘッダー、Ctrl+Z は GraphView が持つ */
+  onUndo: () => void;
 }
 
 const THEME_ICON: Record<ThemeMode, typeof Sun> = { light: Sun, dark: Moon, system: Monitor };
@@ -90,30 +89,38 @@ function ThemeToggle() {
   );
 }
 
-export function TopBar({ nodes, chatOpen, onToggleChat, onOpenSettings }: Props) {
-  // QOL-5: エンジン稼働インジケータ（5秒毎ポーリング）
+export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo }: Props) {
+  // QOL-5: エンジン稼働インジケータ（5秒毎ポーリング）。平常時は何も出さず、
+  // 「AIが動いていない」ときだけ警告として表示する（2026-07-31 本人指示。
+  // ノード数バッジも同時に廃止: 常時出る情報バッジは圧になるだけ）
   const { data: engineStatus } = usePolling(() => api.getEngineStatus(), 5000);
-  const engineAlive = engineStatus?.alive ?? false;
-  const engineTitle = engineAlive
-    ? `最終確認: ${engineStatus?.lastSeen ?? "-"}`
-    : `最終確認: ${engineStatus?.lastSeen ?? "-"}\n起動: pnpm --filter @graphwrangler/engine start`;
+  const engineDown = engineStatus != null && !engineStatus.alive;
 
   return (
     <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b bg-background px-4">
       <div className="font-semibold">GraphWrangler</div>
-      <Badge variant="secondary">{nodes.length} ノード</Badge>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-            <i className={`inline-block size-2 flex-shrink-0 rounded-full ${engineAlive ? "bg-ok" : "bg-text-lo"}`} />
-            {engineAlive ? "エンジン稼働中" : "エンジン停止中"}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent className="whitespace-pre-line">{engineTitle}</TooltipContent>
-      </Tooltip>
+      {engineDown && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <i className="inline-block size-2 flex-shrink-0 rounded-full bg-text-lo" />
+              エンジン停止中
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="whitespace-pre-line">
+            {`最終確認: ${engineStatus?.lastSeen ?? "-"}\n起動: pnpm --filter @graphwrangler/engine start`}
+          </TooltipContent>
+        </Tooltip>
+      )}
       <div className="flex-1" />
+      <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
+        <Undo2 />
+      </IconButton>
       <IconButton title="全ノード検索 (Ctrl+K)" onClick={() => openPalette()}>
         <Search />
+      </IconButton>
+      <IconButton title="ショートカット一覧 (?)" onClick={() => openShortcuts()}>
+        <Keyboard />
       </IconButton>
       <ThemeToggle />
       <IconButton title="AI設定" onClick={onOpenSettings}>

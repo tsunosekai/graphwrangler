@@ -12,3 +12,16 @@ export function subscribeOpenPalette(fn: Listener): () => void {
 export function openPalette(): void {
   for (const fn of listeners) fn();
 }
+
+// ショートカット一覧ダイアログも同じ流儀（ボタンはヘッダー、ダイアログと "?" キーは
+// GraphView が持つ。2026-07-31 本人指示でボタンをヘッダーへ移設）
+const shortcutListeners = new Set<Listener>();
+
+export function subscribeOpenShortcuts(fn: Listener): () => void {
+  shortcutListeners.add(fn);
+  return () => shortcutListeners.delete(fn);
+}
+
+export function openShortcuts(): void {
+  for (const fn of shortcutListeners) fn();
+}

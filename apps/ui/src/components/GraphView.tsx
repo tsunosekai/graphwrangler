@@ -11,8 +11,8 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Keyboard, Undo2 } from "lucide-react";
 import { api } from "../lib/api";
+import { subscribeOpenShortcuts } from "../lib/palette";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import { isRoutinePage } from "../lib/routine";
@@ -20,7 +20,6 @@ import type { Node } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { CutEdge, type CutEdgeData } from "./CutEdge";
 import { LedgerView } from "./LedgerView";
 import { NodeCard, type NodeCardData } from "./NodeCard";
@@ -104,6 +103,9 @@ function GraphViewInner({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
+
+  // ヘッダーの⌨ボタンからショートカット一覧を開く（ダイアログ本体はここが持つ）
+  useEffect(() => subscribeOpenShortcuts(() => setShortcutsOpen(true)), []);
 
   // 現在選択中のノードid一覧（React Flow の内部 selected フラグから）
   const getSelectedNodeIds = useCallback(
@@ -832,22 +834,8 @@ function GraphViewInner({
             <Button type="button" variant="outline" title="dagre で並べ直す" onClick={realign}>
               整列
             </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" onClick={runUndo}>
-                  <Undo2 />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>元に戻す (Ctrl+Z)</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" onClick={() => setShortcutsOpen(true)}>
-                  <Keyboard />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>ショートカット一覧 (?)</TooltipContent>
-            </Tooltip>
+            {/* 「元に戻す」「ショートカット一覧」ボタンはヘッダー（TopBar）へ移動
+                （2026-07-31 本人指示）。Ctrl+Z / "?" キーとダイアログ本体は引き続きここが持つ */}
             {hardening.m > 0 && (
               <Badge variant="secondary" title="確定メンバーのうちスクリプト化済みの割合">
                 Fix {hardening.n}/{hardening.m}

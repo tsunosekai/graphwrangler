@@ -10,6 +10,7 @@ import { TopBar, type RunWaitItem } from "./components/TopBar";
 import { api, type SettingsView } from "./lib/api";
 import { usePolling } from "./hooks/usePolling";
 import { isRoutinePage } from "./lib/routine";
+import { pushToast } from "./lib/toast";
 import type { Run } from "./types";
 
 export default function App() {
@@ -118,6 +119,17 @@ export default function App() {
     refresh();
   }, [refresh]);
 
+  // ヘッダーの「元に戻す」（Ctrl+Z のショートカット処理は GraphView 側）
+  const handleUndo = useCallback(async () => {
+    try {
+      await api.undo();
+      pushToast("元に戻しました", "info");
+      refresh();
+    } catch {
+      // api() 側でエラートースト表示済み
+    }
+  }, [refresh]);
+
   // どこから選択されても、そのノードのページへ移動する（受信箱ジャンプ用）
   const selectNode = useCallback(
     (id: string | null) => {
@@ -135,10 +147,10 @@ export default function App() {
     // 背景色は body が持つ（格子と一体）。ここに不透明背景を敷くと格子が隠れる
     <div className="flex h-full flex-col text-foreground">
       <TopBar
-        nodes={nodes}
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((v) => !v)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onUndo={handleUndo}
       />
       <div className="flex min-h-0 flex-1">
         <PageList
