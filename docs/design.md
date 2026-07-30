@@ -231,7 +231,13 @@ zinsei 運用で判明した3課題への解: **会話はノードに帰属、�
 }
 ```
 
-導出概念（保存しない）: **frontier** = status が done/dropped 以外で parents が全て done。
+導出概念（保存しない）: **frontier** = status が done/dropped 以外で parents が全て done|skipped。
+
+**status の哲学（2026-07-31）**: 人間の語彙は「未計画か」「終わったか」だけ。
+pending/running/waiting/skipped は機械の内部状態で、UIでは絵（スピナー・橙ドット・
+チェック・斜線円）で表し名前を見せない。**waiting は pendingRequest の有無から導出可能な
+冗長ステータス**であり、enum からの削除がTODO（トリガー実装完了後。ランアイテム側の
+waiting の扱い含む）。
 
 ### 5.2 操作ログ（ops.jsonl の1行）
 
