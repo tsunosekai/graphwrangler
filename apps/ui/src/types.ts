@@ -10,7 +10,13 @@ export interface Actor {
   name?: string;
 }
 
-/** decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） */
+/** goal=プロジェクトページ（一回きりのDAG） / task=作業 /
+ *  procedure=手順ページ（繰り返し、ランが流れる）。@deprecated 2026-07-31
+ *  「ルーティーンであること」はページ種別ではなく先頭の trigger ノードから導出するモデルへ
+ *  移行した（docs/design.md 3.8）。後方互換のため型には残すが、新規作成 UI からは使わない /
+ *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） /
+ *  trigger=起点ノード（発火するとそのページ(group)でランが生成される。3.4/3.8/3.9。
+ *  parents を持てない=グラフの起点であることを構造的に保証する） */
 export type NodeKind = "goal" | "task" | "procedure" | "decision" | "trigger";
 
 /** ノードの実装形態（Fix3段階の後ろ2つ）。null = 会話段（AIの裁量で実行） */
@@ -47,7 +53,10 @@ export interface Node {
   fixed: boolean;
   pendingRequest: string | null;
   order: number | null;
-  /** kind=procedure 用の定期トリガー記述（自由文字列。v1では解釈しない） */
+  /** kind=trigger 用の起動方式記述（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等）。
+   *  executor=script なら cron 的な発火判定、executor=ai なら「発火要否を判定させる間隔」
+   *  （everyのみ解釈、無指定は既定1時間）、executor=human では使わない（手動発火のみ）。
+   *  kind=procedure（非推奨）でも旧来どおり同じ書式で解釈される */
   schedule: string | null;
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個）。それ以外の kind では null */
   branches: NodeBranch[] | null;
@@ -125,10 +134,13 @@ export type RunStatus = "running" | "done" | "cancelled";
 
 export interface Run {
   id: string;
-  /** kind=procedure のノード id */
+  /** ランが属するページ(group)のid。新モデルでは任意のページ(goal等)のidになりうる。
+   *  フィールド名は後方互換のため procedure のまま */
   procedure: string;
   title: string;
-  /** "manual" ほか自由文字列（"schedule:daily 09:00" 等） */
+  /** 発火元の記録。新モデルでは "trigger:<triggerノードid>:<via>" の形
+   *  （via は "manual" / "schedule:<原文>" / "ai"）。旧モデル互換の "manual" 単体や
+   *  "schedule:daily 09:00" もそのまま許容する自由文字列 — 固定書式を仮定せず生表示する */
   trigger: string;
   status: RunStatus;
   /** テンプレートノード id → ワークアイテム */

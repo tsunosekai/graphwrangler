@@ -29,6 +29,8 @@ import { Thread } from "./Thread";
 
 interface Props {
   node: Node;
+  /** 実行フェーズゲート（docs/design.md 3.9）の判定に使う全ノード。分岐の親の status を見る */
+  allNodes: Node[];
   onMutated: () => void;
   onClose: () => void;
   /** ノード複製後に新規ノードを選択するため（QOL-8）。ページ切替も面倒を見る App.selectNode を渡す */
@@ -119,7 +121,7 @@ function BranchRow({
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
-export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }: Props) {
+export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, selectedCount }: Props) {
   const [tab, setTab] = useState<"talk" | "history">("talk");
   // 会話に縦幅を使うため、メタ情報（detail/種別/担当…）は既定で折りたたむ
   const [metaOpen, setMetaOpen] = useState(false);
@@ -202,6 +204,16 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
       // api() 側でトースト表示済み
     }
   };
+
+  // 実行フェーズの原則（docs/design.md 3.9）: 分岐を選ぶのは lifecycle=committed かつ
+  // 全 parents が done|skipped（frontier）のノードでのみ許可する。まだ順番が来ていない
+  // ノードで実行系操作ができてしまわないための UI 側ガード（サーバ側は GraphStore.validateDecisionGate
+  // が同じ規則で 409 を返す。ここでは事前にボタンを無効化して分かりやすくするだけ）
+  const isFrontier = node.parents.every((pid) => {
+    const s = allNodes.find((n) => n.id === pid)?.status;
+    return s === "done" || s === "skipped";
+  });
+  const decisionGateOk = node.lifecycle === "committed" && isFrontier;
 
   // decision の choice 未確定のときだけ「分岐を選ぶ」を出す（docs/design.md 3.9）
   const decide = async (branchId: string, label: string) => {
@@ -316,11 +328,17 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
                 size="sm"
                 className="justify-start"
                 title={b.then}
+                disabled={!decisionGateOk}
                 onClick={() => decide(b.id, b.label)}
               >
                 {b.label}
               </Button>
             ))}
+            {!decisionGateOk && (
+              <span className="text-xs text-muted-foreground">
+                {node.lifecycle !== "committed" ? "下書きです。先に確定してください" : "前のノードが終わると選べます"}
+              </span>
+            )}
           </div>
         ))}
 
@@ -372,6 +390,28 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
               }}
             />
           )}
+
+          {/* トリガーの起動方式（docs/design.md 3.8）。human は手動発火(▶)のみなので欄自体を出さない。
+              script=cron的な発火条件、ai=発火要否を判定させる間隔 */}
+          {node.kind === "trigger" &&
+            (node.executor === "human" ? (
+              <p className="text-xs text-muted-foreground">手動発火のみ（カードの ▶ から発火）</p>
+            ) : (
+              <Input
+                placeholder={
+                  node.executor === "ai"
+                    ? "チェック間隔: every 1h（条件は detail や手順書に書く）"
+                    : "every 15m / daily 09:00 / weekly mon 09:00"
+                }
+                value={scheduleDraft}
+                onFocus={() => setScheduleFocused(true)}
+                onChange={(e) => setScheduleDraft(e.target.value)}
+                onBlur={saveSchedule}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+              />
+            ))}
 
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-sm text-muted-foreground">
@@ -431,35 +471,38 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
                 onCheckedChange={(v) => patch({ impact: v ? "irreversible" : "safe" })}
               />
             </label>
-            <div className="col-span-2 flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">進捗:</span>
-              <span className="inline-flex items-center gap-1.5">
-                <StatusCircle status={node.status} />
-                {STATUS_JA[node.status]}
-              </span>
-              <span className="flex-1" />
-              {node.status === "unplanned" && (
-                <Button type="button" variant="outline" size="sm"
-                  onClick={() => patch({ status: "pending", lifecycle: "committed" })}>
-                  プラン済みにする
-                </Button>
-              )}
-              {node.status === "pending" && (
-                <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
-                  着手
-                </Button>
-              )}
-              {(node.status === "pending" || node.status === "running") && (
-                <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "done" })}>
-                  完了
-                </Button>
-              )}
-              {node.status === "done" && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => patch({ status: "pending" })}>
-                  戻す
-                </Button>
-              )}
-            </div>
+            {/* トリガーに進捗はない（docs/design.md 3.8。発火はあってもステータス遷移という概念が無い） */}
+            {node.kind !== "trigger" && (
+              <div className="col-span-2 flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">進捗:</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <StatusCircle status={node.status} />
+                  {STATUS_JA[node.status]}
+                </span>
+                <span className="flex-1" />
+                {node.status === "unplanned" && (
+                  <Button type="button" variant="outline" size="sm"
+                    onClick={() => patch({ status: "pending", lifecycle: "committed" })}>
+                    プラン済みにする
+                  </Button>
+                )}
+                {node.status === "pending" && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
+                    着手
+                  </Button>
+                )}
+                {(node.status === "pending" || node.status === "running") && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "done" })}>
+                    完了
+                  </Button>
+                )}
+                {node.status === "done" && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => patch({ status: "pending" })}>
+                    戻す
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* decision の枝エディタ: ラベル編集+削除（最低2枝）+追加。id は既存のものを変更しない

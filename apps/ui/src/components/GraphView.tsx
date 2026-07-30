@@ -15,6 +15,7 @@ import { Keyboard, Undo2 } from "lucide-react";
 import { api } from "../lib/api";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
+import { isRoutinePage } from "../lib/routine";
 import type { Node } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -187,8 +188,11 @@ function GraphViewInner({
     };
   }, [fitView]);
 
-  // ルーティーンページ（kind=procedure）だけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8）
-  const isProcedure = pageNode?.kind === "procedure";
+  // ルーティーンページだけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8 新モデル）。
+  // 「ルーティーンであること」はページ種別(kind=procedure。非推奨)ではなく、
+  // フロー先頭の trigger ノードがメンバーにいるかどうかから導出する（isRoutinePage が判定を一元化）。
+  // nodes は既に「このページのメンバー」だけに絞られているので、そのまま members として渡せる
+  const isRoutine = pageNode ? isRoutinePage(pageNode, nodes) : false;
   const [viewMode, setViewMode] = useState<"graph" | "ledger">("graph");
 
   const commitTitle = useCallback(
@@ -273,7 +277,7 @@ function GraphViewInner({
             node: n,
             selected: n.id === selectedId,
             editing: n.id === editingId,
-            isTemplate: isProcedure,
+            isTemplate: isRoutine,
             isFrontier: isFrontierOf(n),
             unread,
             onSelect: (id: string) => onSelect(id),
@@ -290,7 +294,7 @@ function GraphViewInner({
     pageNode,
     selectedId,
     editingId,
-    isProcedure,
+    isRoutine,
     threadMeta,
     onSelect,
     commitTitle,
@@ -372,6 +376,12 @@ function GraphViewInner({
       if (!conn.source || !conn.target || conn.source === conn.target) return;
       const child = nodes.find((n) => n.id === conn.target);
       if (!child || child.parents.includes(conn.source)) return;
+      // trigger は parents を持てない=グラフの起点（docs/design.md 3.4）。NodeCard 側で
+      // 入力ハンドル自体を出していないため通常は起きないが、防御としても弾いておく
+      if (child.kind === "trigger") {
+        pushToast("トリガーノードは他のノードの後続にできません（parents を持てません）");
+        return;
+      }
       const parent = nodes.find((n) => n.id === conn.source);
       const parents = [...child.parents, conn.source];
       if (parent?.kind === "decision" && conn.sourceHandle) {
@@ -513,7 +523,7 @@ function GraphViewInner({
 
   // 依存の葉（選択集合内で自分を parents に持つノードがいない）から順に削除を試みる。
   // 子持ちで消せないものは api() 側のトーストに任せ、次のパスへ回す。1周で1件も消えなければ打ち切る
-  // （discardDrafts と同じ考え方。ループが自然と葉順に収束するので、事前ソートは行わずAPIエラーに任せる）
+  // （ループが自然と葉順に収束するので、事前ソートは行わずAPIエラーに任せる。deleteSelectedNodes と共用）
   const removeLeafFirst = useCallback(async (ids: string[]): Promise<string[]> => {
     let remaining = [...ids];
     const deleted: string[] = [];
@@ -783,23 +793,6 @@ function GraphViewInner({
     selectedInPage,
   ]);
 
-  // ---- A-1: 下書き承認バー（draft ノードを確定/破棄） ----
-  const draftNodes = useMemo(() => nodes.filter((n) => n.lifecycle === "draft"), [nodes]);
-
-  const confirmDrafts = useCallback(async () => {
-    for (const n of draftNodes) {
-      await api.patchNode(n.id, { lifecycle: "committed" });
-    }
-    onMutated();
-  }, [draftNodes, onMutated]);
-
-  const discardDrafts = useCallback(async () => {
-    if (draftNodes.length === 0) return;
-    if (!window.confirm(`下書き ${draftNodes.length} 件を破棄しますか？`)) return;
-    await removeLeafFirst(draftNodes.map((n) => n.id));
-    onMutated();
-  }, [draftNodes, onMutated, removeLeafFirst]);
-
   // ---- Fix率チップ: Fix済み（やり方確定=ロック）ノード / 全メンバー。
   //      100% = このページの Fix 完了（スクリプト化率ではない。2026-07-31 本人定義） ----
   const hardening = useMemo(() => {
@@ -807,7 +800,7 @@ function GraphViewInner({
     return { n: fixed.length, m: nodes.length };
   }, [nodes]);
 
-  const showLedger = isProcedure && viewMode === "ledger";
+  const showLedger = isRoutine && viewMode === "ledger";
 
   return (
     <div ref={paneRef} className={`graph-pane relative min-w-0 flex-1${realigning ? " realigning" : ""}`}>
@@ -823,7 +816,7 @@ function GraphViewInner({
             {pageNode.title || "（無題）"}
           </Button>
         )}
-        {isProcedure && (
+        {isRoutine && (
           <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "graph" | "ledger")}>
             <TabsList>
               <TabsTrigger value="graph">グラフ</TabsTrigger>
@@ -863,23 +856,6 @@ function GraphViewInner({
           </>
         )}
       </div>
-      {!showLedger && draftNodes.length > 0 && (
-        <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-md border border-dashed border-border-strong bg-card px-3 py-2 text-sm">
-          <span className="text-muted-foreground">下書き {draftNodes.length}件</span>
-          <Button type="button" size="sm" className="border-ok/40 text-ok" variant="outline" onClick={confirmDrafts}>
-            すべて確定
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="border-destructive/40 text-destructive"
-            variant="outline"
-            onClick={discardDrafts}
-          >
-            破棄
-          </Button>
-        </div>
-      )}
       {showLedger && pageNode ? (
         <LedgerView procedure={pageNode} members={nodes} onMutated={onMutated} />
       ) : (

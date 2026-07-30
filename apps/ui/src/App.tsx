@@ -9,6 +9,7 @@ import { ToastHost } from "./components/ToastHost";
 import { TopBar, type RunWaitItem } from "./components/TopBar";
 import { api, type SettingsView } from "./lib/api";
 import { usePolling } from "./hooks/usePolling";
+import { isRoutinePage } from "./lib/routine";
 import type { Run } from "./types";
 
 export default function App() {
@@ -35,15 +36,17 @@ export default function App() {
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
 
   // ---- ルーティーンページの最新ラン（PageList の左レールドット + TopBar のラン待ち統合の両方が使う。
-  //      procedure 数ぶんの N+1 取得を1箇所に集約する） ----
-  const procedureIds = useMemo(
-    () => folders.filter((f) => f.kind === "procedure").map((f) => f.id),
-    [folders],
+  //      ページ数ぶんの N+1 取得を1箇所に集約する）。
+  //      「ルーティーンであること」は isRoutinePage が判定する（docs/design.md 3.8 新モデル。
+  //      kind=procedure(非推奨・後方互換) または trigger ノードをメンバーに持つこと） ----
+  const routinePageIds = useMemo(
+    () => folders.filter((f) => isRoutinePage(f, nodes)).map((f) => f.id),
+    [folders, nodes],
   );
   const { data: latestRuns } = usePolling(async (): Promise<Record<string, Run | null>> => {
-    if (procedureIds.length === 0) return {};
+    if (routinePageIds.length === 0) return {};
     const entries = await Promise.all(
-      procedureIds.map(async (id) => {
+      routinePageIds.map(async (id) => {
         try {
           const { runs } = await api.listRuns(id);
           return [id, runs[0] ?? null] as const;
@@ -164,6 +167,7 @@ export default function App() {
           <NodePanel
             key={selectedNode.id}
             node={selectedNode}
+            allNodes={nodes}
             onMutated={handleMutated}
             onClose={() => setSelectedId(null)}
             onSelect={selectNode}

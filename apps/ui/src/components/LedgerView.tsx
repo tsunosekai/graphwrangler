@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
+import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { Node, RunItem, RunItemStatus, RunStatus, Status, TraceEvent } from "../types";
 import { Button } from "./ui/button";
@@ -161,17 +162,29 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
     setReplaying(true);
   }, [replaying, events.length]);
 
+  // 発火先: メンバー中のトリガーノード（created昇順で最初の1件。docs/design.md 3.8 新モデル）。
+  // トリガーが無い旧 kind=procedure ページは互換エイリアス(createRun)にフォールバックする
+  // （サーバ側 POST /api/procedures/:id/runs が同じ優先順位で解決するので実質同じ挙動）
+  const triggerNode = useMemo(
+    () =>
+      members
+        .filter((m) => m.kind === "trigger")
+        .sort((a, b) => a.created.localeCompare(b.created))[0] ?? null,
+    [members],
+  );
+
   const startRun = useCallback(async () => {
     setStarting(true);
     try {
-      const run = await api.createRun(procedure.id, {});
+      const run = triggerNode ? await api.fireTrigger(triggerNode.id) : await api.createRun(procedure.id, {});
       await refreshRuns();
       setSelectedRunId(run.id);
       onMutated();
+      pushToast("ランを開始しました", "info");
     } finally {
       setStarting(false);
     }
-  }, [procedure.id, refreshRuns, onMutated]);
+  }, [triggerNode, procedure.id, refreshRuns, onMutated]);
 
   const cancelSelected = useCallback(async () => {
     if (!selectedRunId) return;
@@ -217,8 +230,9 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
             className="border-ai/40 text-ai"
             disabled={starting}
             onClick={startRun}
+            title={triggerNode ? `トリガー「${triggerNode.title || "（無題）"}」を発火` : "ラン開始"}
           >
-            ▶ ラン開始
+            ▶ 発火
           </Button>
         </div>
       </div>

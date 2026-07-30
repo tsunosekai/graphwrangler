@@ -137,12 +137,23 @@ export const api = {
       body: JSON.stringify({ choice }),
     }),
 
+  // ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
+
+  /** トリガーを発火し、そのページ(group)でランを1本作る。via 省略時はサーバ既定の "manual" */
+  fireTrigger: (nodeId: string, via?: string) =>
+    request<Run>(`/nodes/${nodeId}/fire`, {
+      method: "POST",
+      body: JSON.stringify(via ? { via } : {}),
+    }),
+
   // ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----
+  // ラン作成は互換エイリアス（ページにトリガーノードがあればそれを発火、無ければ旧procedure仕様）。
+  // ラン一覧取得は新設の /api/pages/:id/runs を使う（どのページ種別でも同じ形で返る）
 
   createRun: (procedureId: string, input: { title?: string; trigger?: string } = {}) =>
     request<Run>(`/procedures/${procedureId}/runs`, { method: "POST", body: JSON.stringify(input) }),
 
-  listRuns: (procedureId: string) => request<{ runs: Run[] }>(`/procedures/${procedureId}/runs`),
+  listRuns: (pageId: string) => request<{ runs: Run[] }>(`/pages/${pageId}/runs`),
 
   getRun: (runId: string) => request<Run>(`/runs/${runId}`),
 

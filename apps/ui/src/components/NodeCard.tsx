@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
-import { GitBranch, Loader2, Lock, Unlock } from "lucide-react";
+import { GitBranch, Loader2, Lock, Play, Unlock, Zap } from "lucide-react";
 import { api } from "../lib/api";
+import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { Node } from "../types";
 import { Icon } from "./Icon";
@@ -50,7 +51,23 @@ export interface NodeCardData {
 export function NodeCard({ data, selected }: { data: NodeCardData; selected?: boolean }) {
   const { node, isTemplate } = data;
   const [draft, setDraft] = useState(node.title);
+  const [firing, setFiring] = useState(false);
   const ringOn = data.selected || selected;
+
+  // トリガー手動発火（human executor はこれが唯一の発火経路。script/aiは手動上書きとして使える。
+  // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）
+  const fire = async () => {
+    if (firing) return;
+    setFiring(true);
+    try {
+      const run = await api.fireTrigger(node.id);
+      pushToast(`発火しました: ${run.title}`, "info");
+    } catch {
+      // api() 側でトースト表示済み
+    } finally {
+      setFiring(false);
+    }
+  };
 
   useEffect(() => {
     if (data.editing) setDraft(node.title);
@@ -89,7 +106,9 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       onClick={() => data.onSelect(node.id)}
       onDoubleClick={() => data.onDoubleClick(node.id)}
     >
-      <Handle type="target" position={Position.Top} />
+      {/* trigger は parents を持てない=グラフの起点（docs/design.md 3.4）。
+          入力ハンドルを構造的に持たせないことで、他ノードの後続へドラッグ接続できないようにする */}
+      {node.kind !== "trigger" && <Handle type="target" position={Position.Top} />}
       {/* PDG風の完了/中止マーク（カード左外側の丸バッジ）。テンプレートには出さない */}
       {!isTemplate && node.status === "done" && (
         <span className="pdg-badge text-ok" title="完了">
@@ -101,8 +120,22 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           <Icon name="x" size={13} />
         </span>
       )}
-      {/* 右側のバッジ列: 処理中スピナー（チェックと同じ円で、くるくる）+ Fix（ロック）トグル */}
+      {/* 右側のバッジ列: 処理中スピナー（チェックと同じ円で、くるくる）+ 発火(▶)+ Fix（ロック）トグル */}
       <span className="absolute -right-[30px] inset-y-0 flex flex-col items-center justify-center gap-1">
+        {node.kind === "trigger" && (
+          <button
+            type="button"
+            className="nodrag inline-flex size-[22px] items-center justify-center rounded-full border border-border bg-background text-text-lo transition-opacity hover:opacity-90 disabled:opacity-40"
+            title="手動発火"
+            disabled={firing}
+            onClick={(e) => {
+              e.stopPropagation();
+              void fire();
+            }}
+          >
+            <Play className="size-3" />
+          </button>
+        )}
         {!isTemplate && node.status === "running" && (
           <span
             className="inline-flex size-[22px] items-center justify-center rounded-full border-[1.5px] border-current bg-background"
@@ -152,6 +185,11 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         {node.kind === "decision" && (
           <span className="inline-flex flex-shrink-0 text-muted-foreground" title="分岐ノード">
             <GitBranch className="size-3" />
+          </span>
+        )}
+        {node.kind === "trigger" && (
+          <span className="inline-flex flex-shrink-0 text-muted-foreground" title="起点ノード（トリガー）">
+            <Zap className="size-3" />
           </span>
         )}
         {node.impl && (
@@ -205,6 +243,20 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             </button>
           )}
         </div>
+      )}
+      {/* トリガーの起動方式（docs/design.md 3.8）。script=cron的な発火条件、ai=発火要否を判定させる間隔。
+          human はここには何も出さない（▶ボタンが唯一の発火経路のため） */}
+      {node.kind === "trigger" && node.executor === "script" && (
+        <div className="mt-1.5 text-xs">
+          {node.schedule ? (
+            <span className="text-muted-foreground">{node.schedule}</span>
+          ) : (
+            <span className="text-destructive">schedule 未設定</span>
+          )}
+        </div>
+      )}
+      {node.kind === "trigger" && node.executor === "ai" && (
+        <div className="mt-1.5 text-xs text-muted-foreground">チェック間隔: {node.schedule || "every 1h"}</div>
       )}
       {/* 分岐確定後: 選んだ枝を表示（docs/design.md 3.9） */}
       {node.kind === "decision" && node.choice && (

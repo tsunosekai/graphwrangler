@@ -1,15 +1,20 @@
 // 左レールのページ一覧。ゴール/ルーティーン（フォルダ）1つ = 1ページ（desk の左レール方式）。
-// タイトル下にメンバーの状態内訳ドット（desk の ball 内訳ドットの継承）。
-// ルーティーンページ（kind=procedure）は StatusCircle の代わりに repeat アイコンを出し、
-// ドットはメンバーの status ではなく「最新ランのワークアイテム状態内訳」にする
-// （テンプレート自身は status を持たない思想。docs/design.md 3.8）。
+// 「プロジェクト」節（トリガーを持たないページ）と「ルーティーン」節（トリガーを持つページ）に
+// ビュー的に分ける（本人指定 2026-07-31）。ルーティーン化はトリガーを置く/外すだけの1操作で、
+// 節をまたぐのはその副作用として自然に起きる（design.md 3.8: 「プロジェクト/ルーティーンは
+// トリガーの有無の別名」）。
+// タイトル下のちょぼは zinsei desk と同じ「ball（いま誰の席か）」内訳（本人指定）:
+// done/dropped/skipped は暗く沈め、それ以外は担当(executor)の色で誰の手番かを見せる。
+// ルーティーン行は最新ランのワークアイテム内訳（テンプレート自身は status を持たないため、
+// 担当色はテンプレートノードの executor を allNodes から引く）。
 // 最新ランの取得は App 側でまとめてポーリングする（B-6: 受信箱のラン待ち統合と共有し、
-// procedure 数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
+// ページ数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
 import { useState } from "react";
 import { api } from "../lib/api";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { isRoutinePage } from "../lib/routine";
 import { cn } from "../lib/utils";
-import type { Node, Run, RunItemStatus, Status } from "../types";
+import type { Node, Run, Status } from "../types";
 import { Button } from "./ui/button";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
@@ -24,24 +29,33 @@ interface Props {
   onMutated: () => void;
 }
 
-const DOT_COLOR: Record<Status, string> = {
-  unplanned: "var(--text-lo)",
-  pending: "var(--text-lo)",
-  running: "var(--ai)",
-  waiting: "var(--human)",
-  done: "var(--done)", // 終わったちょぼは暗く（一覧では未処理が目立つべき）
-  dropped: "var(--dropped)",
-  skipped: "var(--text-lo)",
+const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
+const STATUS_JA: Record<Status, string> = {
+  unplanned: "未計画",
+  pending: "待ち",
+  running: "進行中",
+  waiting: "回答待ち",
+  done: "完了",
+  dropped: "中止",
+  skipped: "スキップ",
 };
 
-// ワークアイテムの status（RunItemStatus は Status と同形）
-const RUN_DOT_COLOR: Record<RunItemStatus, string> = {
-  ...DOT_COLOR,
-};
-
-// 目に入るべき順: あなたの番 → 実行中 → 待機系 → 完了 → 中止
-const DOT_ORDER: Status[] = ["waiting", "running", "pending", "unplanned", "done", "dropped", "skipped"];
-const RUN_DOT_ORDER: RunItemStatus[] = ["waiting", "running", "pending", "done", "dropped", "skipped"];
+/** ちょぼの「席」= ball の所在。done/dropped/skipped は決着済みなので担当色でなく沈めた色にする。
+ *  waiting は担当が誰であれ「あなたの番」＝人間の席として扱う */
+type Seat = "human" | "ai" | "script" | "done";
+function seatOf(status: Status, executor: Node["executor"]): Seat {
+  if (status === "done" || status === "dropped" || status === "skipped") return "done";
+  if (status === "waiting") return "human";
+  return executor;
+}
+function seatColor(status: Status, executor: Node["executor"]): string {
+  if (status === "done") return "var(--done)";
+  if (status === "dropped" || status === "skipped") return "var(--dropped)";
+  if (status === "waiting") return "var(--human)";
+  return executor === "human" ? "var(--human)" : executor === "ai" ? "var(--ai)" : "var(--script)";
+}
+// 目に入るべき順: 人間の席（waiting含む）→ AI → スクリプト → 完了系
+const SEAT_ORDER: Seat[] = ["human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
 export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, onMutated }: Props) {
@@ -55,37 +69,56 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
     onSelectPage(created.id);
   };
 
-  // procedure は対象外。goal 等の status が done|dropped のものだけアーカイブへ回す
+  // ルーティーンは対象外（常にアクティブ扱い）。goal 等の status が done|dropped のものだけ
+  // アーカイブへ回す
   const activeFolders = folders.filter(
-    (f) => f.kind === "procedure" || (f.status !== "done" && f.status !== "dropped"),
+    (f) => isRoutinePage(f, allNodes) || (f.status !== "done" && f.status !== "dropped"),
   );
   const archivedFolders = folders.filter(
-    (f) => f.kind !== "procedure" && (f.status === "done" || f.status === "dropped"),
+    (f) => !isRoutinePage(f, allNodes) && (f.status === "done" || f.status === "dropped"),
   );
+  // プロジェクト（トリガー無し）/ ルーティーン（トリガー有り）のビュー的な分類（本人指定）
+  const projectFolders = activeFolders.filter((f) => !isRoutinePage(f, allNodes));
+  const routineFolders = activeFolders.filter((f) => isRoutinePage(f, allNodes));
 
   const renderRow = (f: Node, archived: boolean) => {
-    const isProcedure = f.kind === "procedure";
+    const routine = isRoutinePage(f, allNodes);
     const latestRun = latestRuns?.[f.id] ?? null;
 
-    const memberDots = !isProcedure
+    const memberDots = !routine
       ? allNodes
           .filter((n) => n.group === f.id)
-          .sort((a, b) => DOT_ORDER.indexOf(a.status) - DOT_ORDER.indexOf(b.status))
-          .map((m) => ({ key: m.id, title: `${m.title || "（無題）"} — ${m.status}`, color: DOT_COLOR[m.status] }))
+          .slice()
+          .sort((a, b) => SEAT_ORDER.indexOf(seatOf(a.status, a.executor)) - SEAT_ORDER.indexOf(seatOf(b.status, b.executor)))
+          .map((m) => ({
+            key: m.id,
+            title: `${m.title || "（無題）"} — ${EXEC_JA[m.executor]}の席 / ${STATUS_JA[m.status]}`,
+            color: seatColor(m.status, m.executor),
+          }))
       : [];
 
+    // ランのワークアイテムはテンプレート自身の status を持たないため、担当色はテンプレートノード
+    // （allNodes 内の同id）の executor を引く。テンプレートが見当たらない（削除済み等）場合は
+    // script 扱いにフォールバックする
     const runDots =
-      isProcedure && latestRun
+      routine && latestRun
         ? Object.entries(latestRun.items)
-            .sort(([, a], [, b]) => RUN_DOT_ORDER.indexOf(a.status) - RUN_DOT_ORDER.indexOf(b.status))
             .map(([nodeId, item]) => ({
+              nodeId,
+              item,
+              executor: allNodes.find((n) => n.id === nodeId)?.executor ?? ("script" as const),
+            }))
+            .sort(
+              (a, b) => SEAT_ORDER.indexOf(seatOf(a.item.status, a.executor)) - SEAT_ORDER.indexOf(seatOf(b.item.status, b.executor)),
+            )
+            .map(({ nodeId, item, executor }) => ({
               key: nodeId,
-              title: `${item.status}`,
-              color: RUN_DOT_COLOR[item.status],
+              title: `${EXEC_JA[executor]}の席 / ${STATUS_JA[item.status]}`,
+              color: seatColor(item.status, executor),
             }))
         : [];
 
-    const dots = isProcedure ? runDots : memberDots;
+    const dots = routine ? runDots : memberDots;
     const shown = dots.slice(0, MAX_DOTS);
     const rest = dots.length - shown.length;
 
@@ -101,7 +134,7 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
         onClick={() => onSelectPage(f.id)}
       >
         <span className="flex min-w-0 items-center gap-2">
-          {isProcedure ? (
+          {routine ? (
             <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground" title="ルーティーンページ">
               <Icon name="repeat" size={12} />
             </span>
@@ -133,8 +166,11 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
       style={{ width }}
     >
       <div className="resize-handle resize-handle-right" onPointerDown={(e) => startResize(e, 1)} />
+      {/* プロジェクト節: トリガー無しのページ。「＋」はここに1個だけ（ルーティーン化はトリガーを
+          置けば自動でルーティーン節へ移る、という体験に任せる。本人指定）。
+          見出しは0件でも常に出す — 消すと「＋」の導線が無くなるコールドスタート問題があるため */}
       <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
-        <span>ゴール</span>
+        <span>プロジェクト</span>
         <Button
           type="button"
           variant="ghost"
@@ -146,7 +182,15 @@ export function PageList({ folders, allNodes, pageId, latestRuns, onSelectPage, 
           ＋
         </Button>
       </div>
-      {activeFolders.map((f) => renderRow(f, false))}
+      {projectFolders.map((f) => renderRow(f, false))}
+      {routineFolders.length > 0 && (
+        <>
+          <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
+            <span>ルーティーン</span>
+          </div>
+          {routineFolders.map((f) => renderRow(f, false))}
+        </>
+      )}
       {archivedFolders.length > 0 && (
         <>
           <button

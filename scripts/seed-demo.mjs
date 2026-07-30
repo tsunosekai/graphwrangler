@@ -84,6 +84,9 @@ const serve = await post("/api/nodes", {
 // 分岐ノード（kind=decision。docs/design.md 3.9）の実例: 試食の評価。
 // 「試作1号を仕込む」の後続として置き、合格なら既存の「近所に振る舞う」へ、
 // 再調整なら新設の「配合を見直す」へ進む。
+// lifecycle は committed にする（親の「試作1号を仕込む」が unplanned=未完のままなので、
+// 実行フェーズゲート（docs/design.md 3.9）が「前のノードが終わっていない」で分岐を選ばせない
+// デモになる）
 const tasteCheck = await post("/api/nodes", {
   title: "試食の評価",
   group: curry.id,
@@ -95,7 +98,7 @@ const tasteCheck = await post("/api/nodes", {
     { id: "pass", label: "合格", then: "このまま近所に振る舞う" },
     { id: "retry", label: "再調整", then: "配合を見直してもう一度仕込む" },
   ],
-  lifecycle: "draft",
+  lifecycle: "committed",
 });
 
 // 既存の「近所に振る舞う」を、cook の直接の後続から「試食の評価」の合格枝の後続へ付け替える
@@ -191,18 +194,32 @@ await post("/api/nodes", {
   lifecycle: "draft",
 });
 
-// ---- 手順ページ: 毎朝のベランダ見回り（繰り返し、ランが流れる） ----
+// ---- ルーティーンページ: 毎朝のベランダ見回り（繰り返し、ランが流れる）。
+// docs/design.md 3.8 新モデル: 「ルーティーンであること」はページ種別(procedure)でなく、
+// 先頭に置く trigger ノードから導出される。ページ自体は goal のまま ----
 
 const patrol = await post("/api/nodes", {
   title: "毎朝のベランダ見回り",
-  kind: "procedure",
+  kind: "goal",
   detail: "起きたらベランダの状態を確認して記録する定例。",
+  lifecycle: "committed",
+});
+
+// トリガー（kind=trigger）: フロー先頭に置く起点ノード。parents は持てない。
+// executor=script + schedule="daily 07:30" = 毎朝7:30に発火するcron的な定期実行
+const patrolTrigger = await post("/api/nodes", {
+  title: "毎朝の起動",
+  group: patrol.id,
+  kind: "trigger",
+  executor: "script",
+  schedule: "daily 07:30",
   lifecycle: "committed",
 });
 
 const sensor = await post("/api/nodes", {
   title: "土の乾き具合を記録する",
   group: patrol.id,
+  parents: [patrolTrigger.id],
   executor: "script",
   impl: { type: "script", command: "echo 土壌湿度: 34%（センサー読み取りのダミー）" },
   lifecycle: "committed",
@@ -228,8 +245,9 @@ await post("/api/nodes", {
   lifecycle: "committed",
 });
 
-// ラン1本を開始して、最初のワークアイテムだけ完了済みにしておく（台帳のデモ用）
-const run = await post(`/api/procedures/${patrol.id}/runs`, { trigger: "manual" });
+// ラン1本を開始して、最初のワークアイテムだけ完了済みにしておく（台帳のデモ用）。
+// 発火はトリガーノードの /fire で行う（旧ラン作成APIは使わない。docs/design.md 3.8 新モデル）
+const run = await post(`/api/nodes/${patrolTrigger.id}/fire`, { via: "manual" });
 await post(`/api/runs/${run.id}/items/${sensor.id}`, {
   status: "done",
   note: "土壌湿度: 34%",
