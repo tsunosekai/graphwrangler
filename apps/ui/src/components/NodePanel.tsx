@@ -20,9 +20,11 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Switch } from "./ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { StatusCircle } from "./StatusCircle";
 import { Thread } from "./Thread";
 
 interface Props {
@@ -35,21 +37,29 @@ interface Props {
   selectedCount?: number;
 }
 
-const KIND_OPTIONS: Node["kind"][] = ["goal", "task", "procedure", "decision"];
+// 種別はノードの3種のみ（ゴールはページなので選択肢に出さない。現在値がゴール等の時だけ表示）
+const KIND_OPTIONS: Node["kind"][] = ["task", "decision", "trigger"];
+const KIND_JA: Record<Node["kind"], string> = {
+  task: "実行",
+  decision: "判断",
+  trigger: "トリガー",
+  goal: "ゴール（ページ）",
+  procedure: "ルーティーン（旧）",
+};
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
-const IMPACT_OPTIONS: Node["impact"][] = ["safe", "reversible", "irreversible"];
-const LIFECYCLE_OPTIONS: Node["lifecycle"][] = ["draft", "committed"];
-// 人間が選ぶ意味のある状態だけに絞る（running/waiting/skipped は機械が付ける内部状態。
-// 現在値がそれらの場合のみ読み取り専用の選択肢として表示する）
-const STATUS_OPTIONS: Node["status"][] = ["unplanned", "pending", "done", "dropped"];
+const EXECUTOR_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
+// 進捗はドロップダウンでなくボタン遷移（2026-07-31 本人指定）。
+// 人間の語彙: 未計画 →[プラン済みにする]→ 待ち →[着手]→ 進行中 →[完了]。
+// 待ち/進行中は人間ノードでは「やってるかどうかの目印」、AI/スクリプトでは機械が動かす。
+// 中止(dropped)は選択肢から廃止（消すならノード削除。Ctrl+Zで戻せる）
 const STATUS_JA: Record<Node["status"], string> = {
   unplanned: "未計画",
-  pending: "進行",
-  running: "実行中（内部）",
-  waiting: "回答待ち（内部）",
+  pending: "待ち",
+  running: "進行中",
+  waiting: "あなたの番（回答待ち）",
   done: "完了",
   dropped: "中止",
-  skipped: "スキップ（内部）",
+  skipped: "スキップ",
 };
 
 /** decision の枝の新規id採番: b1, b2, ... の空いている最初の番号（既存idは変更しない。docs/design.md 3.9） */
@@ -386,11 +396,13 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
               >
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {KIND_OPTIONS.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {k}
-                    </SelectItem>
-                  ))}
+                  {(KIND_OPTIONS.includes(node.kind) ? KIND_OPTIONS : [node.kind, ...KIND_OPTIONS]).map(
+                    (k) => (
+                      <SelectItem key={k} value={k} disabled={!KIND_OPTIONS.includes(k)}>
+                        {KIND_JA[k]}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
             </label>
@@ -401,55 +413,53 @@ export function NodePanel({ node, onMutated, onClose, onSelect, selectedCount }:
                 <SelectContent>
                   {EXECUTOR_OPTIONS.map((k) => (
                     <SelectItem key={k} value={k}>
-                      {k}
+                      {EXECUTOR_JA[k]}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </label>
-            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-              影響
-              <Select value={node.impact} onValueChange={(v) => patch({ impact: v as Node["impact"] })}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {IMPACT_OPTIONS.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {k}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
+              <span className="flex flex-col">
+                <span>不可逆</span>
+                <span className="text-xs text-muted-foreground">
+                  実行前に人間の承認ゲートを通る（外部公開・送信・削除など取り返しのつかない操作）
+                </span>
+              </span>
+              <Switch
+                checked={node.impact === "irreversible"}
+                onCheckedChange={(v) => patch({ impact: v ? "irreversible" : "safe" })}
+              />
             </label>
-            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-              確定
-              <Select value={node.lifecycle} onValueChange={(v) => patch({ lifecycle: v as Node["lifecycle"] })}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {LIFECYCLE_OPTIONS.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {k}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-              進捗
-              <Select value={node.status} onValueChange={(v) => patch({ status: v as Node["status"] })}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {/* 現在値が内部状態(running/waiting/skipped)の時だけ、読み取り用にその項目も出す */}
-                  {(STATUS_OPTIONS.includes(node.status)
-                    ? STATUS_OPTIONS
-                    : [node.status, ...STATUS_OPTIONS]
-                  ).map((k) => (
-                    <SelectItem key={k} value={k} disabled={!STATUS_OPTIONS.includes(k)}>
-                      {STATUS_JA[k]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
+            <div className="col-span-2 flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">進捗:</span>
+              <span className="inline-flex items-center gap-1.5">
+                <StatusCircle status={node.status} />
+                {STATUS_JA[node.status]}
+              </span>
+              <span className="flex-1" />
+              {node.status === "unplanned" && (
+                <Button type="button" variant="outline" size="sm"
+                  onClick={() => patch({ status: "pending", lifecycle: "committed" })}>
+                  プラン済みにする
+                </Button>
+              )}
+              {node.status === "pending" && (
+                <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
+                  着手
+                </Button>
+              )}
+              {(node.status === "pending" || node.status === "running") && (
+                <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "done" })}>
+                  完了
+                </Button>
+              )}
+              {node.status === "done" && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => patch({ status: "pending" })}>
+                  戻す
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* decision の枝エディタ: ラベル編集+削除（最低2枝）+追加。id は既存のものを変更しない

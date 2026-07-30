@@ -11,7 +11,7 @@ export interface Actor {
 }
 
 /** decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） */
-export type NodeKind = "goal" | "task" | "procedure" | "decision";
+export type NodeKind = "goal" | "task" | "procedure" | "decision" | "trigger";
 
 /** ノードの実装形態（Fix3段階の後ろ2つ）。null = 会話段（AIの裁量で実行） */
 export type NodeImpl = { type: "doc"; text: string } | { type: "script"; command: string };
