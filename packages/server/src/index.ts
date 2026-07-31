@@ -2,6 +2,7 @@
 // UI も MCP も将来の executor も、全員がこの API（＝操作ログ）を通る。
 import path from "node:path";
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -101,6 +102,29 @@ function chatHistoryPath(pageId: string): string | null {
   // ファイル名に使うのはノードid（n-... 形式）か "global" のみ。パス脱出を構造で防ぐ
   if (!/^[A-Za-z0-9_-]+$/.test(pageId)) return null;
   return path.join(chatsDir, `${pageId}.json`);
+}
+
+/** 会話アーカイブ（「新しい会話」で退避したセッション履歴）の保存先。pageId検証は
+ *  chatHistoryPath と共通（拡張子だけ .archive.json に差し替える） */
+function chatArchivePath(pageId: string): string | null {
+  const file = chatHistoryPath(pageId);
+  return file ? file.replace(/\.json$/, ".archive.json") : null;
+}
+
+interface ChatArchiveSession {
+  id: string;
+  ts: string;
+  messages: unknown[];
+}
+
+function readChatArchive(file: string): ChatArchiveSession[] {
+  if (!fs.existsSync(file)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    return Array.isArray(parsed) ? (parsed as ChatArchiveSession[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 /** ラン既定タイトル「MM/DD HH:mm のラン」（docs/design.md 3.8） */
@@ -625,6 +649,28 @@ app.put("/api/chats/:pageId", async (c) => {
   fs.writeFileSync(tmp, JSON.stringify(messages, null, 2), "utf8");
   fs.renameSync(tmp, file);
   return c.json({ ok: true, count: messages.length });
+});
+
+// Workflow AI の会話アーカイブ（「新しい会話」でスナップショットを退避した過去セッション）。
+// POST=現行の会話を1件追記 / GET=一覧取得（新しい順で返す。ファイルへは追記=古い順で保存する）
+app.post("/api/chats/:pageId/archive", async (c) => {
+  const file = chatArchivePath(c.req.param("pageId"));
+  if (!file) throw new GraphError("不正なページidです", 400);
+  const body = await c.req.json();
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const sessions = readChatArchive(file);
+  sessions.push({ id: randomUUID(), ts: nowIso(), messages });
+  fs.mkdirSync(chatsDir, { recursive: true });
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(sessions, null, 2), "utf8");
+  fs.renameSync(tmp, file);
+  return c.json({ ok: true, count: sessions.length });
+});
+
+app.get("/api/chats/:pageId/archive", (c) => {
+  const file = chatArchivePath(c.req.param("pageId"));
+  if (!file) throw new GraphError("不正なページidです", 400);
+  return c.json({ sessions: [...readChatArchive(file)].reverse() });
 });
 
 // ---- チャット（M4: グラフ整理の Workflow AI。実装は chat.ts / chat_cli.ts） ----
