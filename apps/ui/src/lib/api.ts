@@ -1,6 +1,14 @@
 // graphwrangler サーバ API の薄いクライアント。エラーは {error:"..."} + 4xx/5xx を前提に、
 // 拾ってトースト表示してから re-throw する（呼び出し側は catch して個別UIを止めるだけでよい）。
-import type { Message, MaterializedMessage, Node, Run, RunItemStatus, TraceEvent } from "../types";
+import type {
+  ImplTrial,
+  Message,
+  MaterializedMessage,
+  Node,
+  Run,
+  RunItemStatus,
+  TraceEvent,
+} from "../types";
 import { pushToast } from "./toast";
 
 export class ApiError extends Error {}
@@ -109,6 +117,14 @@ export const api = {
 
   removeNode: (id: string) =>
     request<{ removed: boolean }>(`/nodes/${id}/remove`, { method: "POST", body: "{}" }),
+
+  // ---- スクリプト試走（試走ゲート。docs/design.md 3.5 近く。実装は packages/server/src/trial.ts） ----
+
+  trialNode: (id: string) =>
+    request<{ success: boolean; exitCode: number | null; output: string; implTrial: ImplTrial | null }>(
+      `/nodes/${id}/trial`,
+      { method: "POST", body: "{}" },
+    ),
 
   getThread: (id: string) => request<{ messages: MaterializedMessage[] }>(`/nodes/${id}/thread`),
 

@@ -28,6 +28,7 @@ import { handleChatCli } from "./chat_cli.js";
 import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema } from "./settings.js";
 import { resolveWorkspacePath } from "./files.js";
 import { maybeTriggerThreadAi } from "./thread_ai.js";
+import { assertTrialAllowed, runTrial, sha256Hex, trialCwd } from "./trial.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -214,6 +215,36 @@ app.post("/api/nodes/:id/remove", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   graph.removeNode(c.req.param("id"), meta(body));
   return c.json({ removed: true });
+});
+
+// ---- スクリプト試走（試走ゲート。docs/design.md 3.5 近く。実装は trial.ts） ----
+// impl.type==="script" の command を実際に1回動かし、implTrial（hash/success/ts）を
+// ノードに記録する。「実装をscriptにするのは宣言であって証明ではない」を埋めるための
+// ソフトゲート（ハードブロックはしない。人間が主導権を持つ思想）。
+
+app.post("/api/nodes/:id/trial", async (c) => {
+  const id = c.req.param("id");
+  const node = graph.get(id);
+  assertTrialAllowed(node); // 400: impl.type!=="script" または impact==="irreversible"
+  const command = node.impl.command;
+  const cwd = trialCwd(graph.workspaceInfo().root);
+  const result = await runTrial(command, cwd);
+  const implTrial = { hash: sha256Hex(command), success: result.success, ts: nowIso() };
+  const updated = graph.patchNode(id, { implTrial }, { actor: { kind: "system" }, via: "ui" });
+  const resultLabel = result.success ? "試走成功" : `試走失敗（exit ${result.exitCode}）`;
+  threads.post(id, {
+    kind: "status",
+    body: `${resultLabel}\n${result.output.slice(0, 500)}`.trim(),
+    payload: { implTrial },
+    author: { kind: "system" },
+    via: "ui",
+  });
+  return c.json({
+    success: result.success,
+    exitCode: result.exitCode,
+    output: result.output.slice(0, 2000),
+    implTrial: updated.implTrial,
+  });
 });
 
 // ---- スレッド ----

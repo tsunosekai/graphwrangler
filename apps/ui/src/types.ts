@@ -19,8 +19,12 @@ export interface Actor {
  *  parents を持てない=グラフの起点であることを構造的に保証する） */
 export type NodeKind = "goal" | "task" | "procedure" | "decision" | "trigger";
 
-/** ノードの実装形態（Fix3段階の後ろ2つ）。null = 会話段（AIの裁量で実行） */
-export type NodeImpl = { type: "doc"; text: string } | { type: "script"; command: string };
+/** ノードの実装形態（Fix3段階の後ろ2つ）。null = 会話段（AIの裁量で実行）。
+ *  doc は text（インライン本文）/ path（ワークスペース内ファイルへの相対パス）のどちらか
+ *  片方があればよい（両方あれば text 優先。packages/core/src/schema.ts NodeImplSchema と同形） */
+export type NodeImpl =
+  | { type: "doc"; text?: string | null; path?: string | null }
+  | { type: "script"; command: string };
 export type Executor = "human" | "ai" | "script";
 export type Impact = "safe" | "reversible" | "irreversible";
 export type Lifecycle = "draft" | "committed";
@@ -36,11 +40,21 @@ export interface NodeBranch {
   then?: string;
 }
 
+/** スクリプト試走（試走ゲート。docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）の記録。
+ *  hash は試走時点の impl.command の sha256 hex。null = 未試走 */
+export interface ImplTrial {
+  hash: string;
+  success: boolean;
+  ts: string;
+}
+
 export interface Node {
   id: string;
   title: string;
   detail: string | null;
   impl: NodeImpl | null;
+  /** impl.type==="script" の試走記録。impl が script でないノードでは常に null */
+  implTrial: ImplTrial | null;
   parents: string[];
   /** 所属グループ（フォルダ）ノードの id。包含であり依存(parents)とは独立 */
   group: string | null;

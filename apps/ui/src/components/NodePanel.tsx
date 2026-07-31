@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
   Copy,
   History,
+  Loader2,
   Lock,
   MessageSquare,
   Trash2,
@@ -13,6 +14,7 @@ import {
 import { api, type NodePatchInput } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { sha256Hex } from "../lib/hash";
 import { pushToast } from "../lib/toast";
 import type { Node, NodeBranch } from "../types";
 import { Badge } from "./ui/badge";
@@ -51,6 +53,18 @@ const KIND_JA: Record<Node["kind"], string> = {
 };
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
 const EXECUTOR_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
+// 実装セクションのラベルは担当連動（docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）:
+// human=読む手順書 / ai=実行時プロンプトへインライン / script=command 実行
+const IMPL_LABEL_BY_EXECUTOR: Record<Node["executor"], string> = {
+  human: "手順書",
+  ai: "プロンプト（手順書）",
+  script: "スクリプト",
+};
+type ImplTypeOption = "none" | "doc" | "script";
+/** 試走状態（server の implStatus と同じ4値。UI 側でも同等の判定を行う。
+ *  packages/server/src/trial.ts の implStatus と対応を保つこと */
+type ImplStatusUi = "ok" | "stale" | "unverified" | "not-script";
+const TRIAL_CONFIRM_MESSAGE = "スクリプトの試走が成功していません。このまま続けますか？";
 // 進捗はドロップダウンでなくボタン遷移（2026-07-31 本人指定）。
 // 人間の語彙: 未計画 →[プラン済みにする]→ 待ち →[着手]→ 進行中 →[完了]。
 // 待ち/進行中は人間ノードでは「やってるかどうかの目印」、AI/スクリプトでは機械が動かす。
@@ -159,9 +173,126 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
     if (!scheduleFocused) setScheduleDraft(node.schedule ?? "");
   }, [node.schedule, scheduleFocused]);
 
+  // 実装（impl）編集ドラフト（title/detail/schedule と同じ「編集中は自分のdraftを見る」流儀）
+  const [implPathFocused, setImplPathFocused] = useState(false);
+  const [implPathDraft, setImplPathDraft] = useState(
+    node.impl?.type === "doc" ? (node.impl.path ?? "") : "",
+  );
+  useEffect(() => {
+    if (!implPathFocused) setImplPathDraft(node.impl?.type === "doc" ? (node.impl.path ?? "") : "");
+  }, [node.impl, implPathFocused]);
+
+  const [implTextFocused, setImplTextFocused] = useState(false);
+  const [implTextDraft, setImplTextDraft] = useState(
+    node.impl?.type === "doc" ? (node.impl.text ?? "") : "",
+  );
+  useEffect(() => {
+    if (!implTextFocused) setImplTextDraft(node.impl?.type === "doc" ? (node.impl.text ?? "") : "");
+  }, [node.impl, implTextFocused]);
+
+  const [implCommandFocused, setImplCommandFocused] = useState(false);
+  const [implCommandDraft, setImplCommandDraft] = useState(
+    node.impl?.type === "script" ? node.impl.command : "",
+  );
+  useEffect(() => {
+    if (!implCommandFocused) setImplCommandDraft(node.impl?.type === "script" ? node.impl.command : "");
+  }, [node.impl, implCommandFocused]);
+
+  // 試走ゲート: command の sha256 を UI 側でも計算し（Web Crypto は非同期）、implTrial.hash と
+  // 突き合わせて鮮度を見る。packages/server/src/trial.ts の sha256Hex/implStatus と同じロジック
+  const [scriptHash, setScriptHash] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (node.impl?.type === "script") {
+      sha256Hex(node.impl.command).then((h) => {
+        if (!cancelled) setScriptHash(h);
+      });
+    } else {
+      setScriptHash(null);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [node.impl]);
+
+  const implStatus: ImplStatusUi = useMemo(() => {
+    if (!node.impl || node.impl.type !== "script") return "not-script";
+    if (!node.implTrial) return "unverified";
+    if (scriptHash === null) return "unverified"; // ハッシュ計算中は保留（「未検証」扱い）
+    if (node.implTrial.hash !== scriptHash) return "stale";
+    return node.implTrial.success ? "ok" : "unverified";
+  }, [node.impl, node.implTrial, scriptHash]);
+
+  const [trialRunning, setTrialRunning] = useState(false);
+  const runTrial = async () => {
+    if (trialRunning) return;
+    setTrialRunning(true);
+    try {
+      const result = await api.trialNode(node.id);
+      onMutated();
+      refreshThread();
+      pushToast(
+        result.success ? "試走成功" : `試走失敗（exit ${result.exitCode ?? "?"}）`,
+        result.success ? "info" : "error",
+      );
+    } catch {
+      // api() 側でトースト表示済み
+    } finally {
+      setTrialRunning(false);
+    }
+  };
+
   const patch = async (fields: NodePatchInput) => {
     await api.patchNode(node.id, fields);
     onMutated();
+  };
+
+  // 実装の種類セレクトの変更。中身（path/text/command）は種類を跨いで保持しない
+  // （doc⇔scriptは別素材のため引き継ぐ意味が薄い。desk のFix定義通り「素材」の切替）
+  const setImplType = async (v: ImplTypeOption) => {
+    if (v === "none") {
+      await patch({ impl: null });
+      return;
+    }
+    if (v === "doc") {
+      const cur = node.impl?.type === "doc" ? node.impl : null;
+      await patch({ impl: { type: "doc", text: cur?.text ?? null, path: cur?.path ?? null } });
+      return;
+    }
+    await patch({ impl: { type: "script", command: node.impl?.type === "script" ? node.impl.command : "" } });
+  };
+
+  const saveImplPath = async () => {
+    setImplPathFocused(false);
+    if (node.impl?.type !== "doc") return;
+    const v = implPathDraft.trim() || null;
+    if (v !== (node.impl.path ?? null)) await patch({ impl: { type: "doc", text: node.impl.text ?? null, path: v } });
+  };
+
+  const saveImplText = async () => {
+    setImplTextFocused(false);
+    if (node.impl?.type !== "doc") return;
+    const v = implTextDraft || null;
+    if (v !== (node.impl.text ?? null)) await patch({ impl: { type: "doc", text: v, path: node.impl.path ?? null } });
+  };
+
+  const saveImplCommand = async () => {
+    setImplCommandFocused(false);
+    if (node.impl?.type !== "script") return;
+    const v = implCommandDraft.trim();
+    if (v && v !== node.impl.command) await patch({ impl: { type: "script", command: v } });
+  };
+
+  // 昇格時警告（ハードブロックしない。docs/design.md 3.5 近く）: 担当をscriptに変更する時、
+  // または担当=scriptのノードで「プラン済みにする」を押す時、試走が ok でなければ確認する
+  const confirmPromotionIfNeeded = (): boolean => {
+    if (implStatus === "ok") return true;
+    return window.confirm(TRIAL_CONFIRM_MESSAGE);
+  };
+
+  const handleExecutorChange = async (v: Node["executor"]) => {
+    if (v === "script" && !confirmPromotionIfNeeded()) return;
+    await patch({ executor: v });
   };
 
   const saveTitle = async () => {
@@ -348,6 +479,16 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
           </div>
         ))}
 
+      {/* 担当×実装の不整合⚠（docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）:
+          担当=script なのに impl が script でない=実行すると失敗する組み合わせ。
+          常に見えるようにする（メタ折りたたみの外）。NodeCard 側にも同じ理由で⚠バッジを出す */}
+      {node.executor === "script" && node.impl?.type !== "script" && (
+        <div className="flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <Icon name="alert" size={13} />
+          実装が未接続（実行すると失敗します）
+        </div>
+      )}
+
       {!metaOpen && (
         <button
           type="button"
@@ -454,7 +595,7 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
             </label>
             <label className="flex flex-col gap-1 text-sm text-muted-foreground">
               担当
-              <Select value={node.executor} onValueChange={(v) => patch({ executor: v as Node["executor"] })}>
+              <Select value={node.executor} onValueChange={(v) => handleExecutorChange(v as Node["executor"])}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {EXECUTOR_OPTIONS.map((k) => (
@@ -494,7 +635,10 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                     <span className="flex-1" />
                     {vs === "unplanned" && (
                       <Button type="button" variant="outline" size="sm"
-                        onClick={() => patch({ status: "pending", lifecycle: "committed" })}>
+                        onClick={() => {
+                          if (node.executor === "script" && !confirmPromotionIfNeeded()) return;
+                          patch({ status: "pending", lifecycle: "committed" });
+                        }}>
                         プラン済みにする
                       </Button>
                     )}
@@ -516,6 +660,106 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                   </div>
                 );
               })()}
+          </div>
+
+          {/* 実装（impl）: 担当連動ラベル + 種類セレクト + doc/script 編集 + 試走ボタン
+              （試走ゲート。docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）。対応表:
+              human→doc=読む手順書 / ai→doc=実行時プロンプトへインライン / script→script=command
+              実行。それ以外の組み合わせ（例: 担当=humanでimpl=script）は実行に使われない */}
+          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2.5">
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Icon name={node.impl?.type === "script" ? "code" : "doc"} size={13} />
+              実装（{IMPL_LABEL_BY_EXECUTOR[node.executor]}）
+            </span>
+            <Select
+              value={node.impl === null ? "none" : node.impl.type}
+              onValueChange={(v) => setImplType(v as ImplTypeOption)}
+            >
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">なし</SelectItem>
+                <SelectItem value="doc">手順書</SelectItem>
+                <SelectItem value="script">スクリプト</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {node.impl?.type === "doc" && (
+              <>
+                <Input
+                  placeholder="ワークスペース相対パス（例: docs/how-to.md）。text と両方あれば text 優先"
+                  value={implPathDraft}
+                  onFocus={() => setImplPathFocused(true)}
+                  onChange={(e) => setImplPathDraft(e.target.value)}
+                  onBlur={saveImplPath}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                />
+                <Textarea
+                  placeholder="本文（path と両方あれば省略可。どちらか片方があればよい）"
+                  value={implTextDraft}
+                  onFocus={() => setImplTextFocused(true)}
+                  onChange={(e) => setImplTextDraft(e.target.value)}
+                  onBlur={saveImplText}
+                  rows={4}
+                />
+              </>
+            )}
+
+            {node.impl?.type === "script" && (
+              <>
+                <Input
+                  placeholder="実行コマンド"
+                  value={implCommandDraft}
+                  onFocus={() => setImplCommandFocused(true)}
+                  onChange={(e) => setImplCommandDraft(e.target.value)}
+                  onBlur={saveImplCommand}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={node.impact === "irreversible" || trialRunning}
+                    title={node.impact === "irreversible" ? "不可逆ノードは試走できません" : undefined}
+                    onClick={runTrial}
+                  >
+                    {trialRunning && <Loader2 className="size-3.5 animate-spin" />}
+                    試走
+                  </Button>
+                  {node.impact === "irreversible" && (
+                    <span className="text-xs text-muted-foreground">不可逆ノードは試走できません</span>
+                  )}
+                  {implStatus === "ok" && node.implTrial && (
+                    <span className="text-xs text-ok">
+                      ✓ 試走成功（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
+                    </span>
+                  )}
+                  {implStatus === "stale" && (
+                    <span className="text-xs text-destructive">
+                      ⚠ コマンドが変更されています（再試走を推奨）
+                    </span>
+                  )}
+                  {implStatus === "unverified" && node.implTrial && !node.implTrial.success && (
+                    <span className="text-xs text-destructive">
+                      ✗ 試走失敗（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
+                    </span>
+                  )}
+                  {implStatus === "unverified" && !node.implTrial && (
+                    <span className="text-xs text-muted-foreground">未検証</span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {node.impl?.type === "script" && node.executor !== "script" && (
+              <p className="text-xs text-muted-foreground">
+                このスクリプトは実行されません（担当がスクリプトではないため）
+              </p>
+            )}
           </div>
 
           {/* decision の枝エディタ: ラベル編集+削除（最低2枝）+追加。id は既存のものを変更しない

@@ -1,0 +1,129 @@
+// スクリプト試走（試走ゲート。docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）。
+// impl.type==="script" のノードに対し、command を実際に1回動かして「書いてるだけで実行すると
+// 黙って失敗する」を防ぐ。ゲートはハードブロックでなく警告（人間が主導権を持つ思想）。
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import os from "node:os";
+import type { Node } from "@graphwrangler/core";
+import { GraphError } from "@graphwrangler/core";
+
+/** command 文字列の sha256 hex（implTrial.hash の鮮度チェックに使う。UI 側は
+ *  Web Crypto の crypto.subtle.digest("SHA-256", ...) で同じ値を計算する） */
+export function sha256Hex(command: string): string {
+  return createHash("sha256").update(command, "utf8").digest("hex");
+}
+
+export type ImplStatus = "ok" | "stale" | "unverified" | "not-script";
+
+/**
+ * 試走状態の純関数判定。
+ * - not-script: impl.type !== "script"（試走の対象外）
+ * - unverified: impl.type==="script" だが implTrial が無い、または implTrial はあるが
+ *   hash は一致しているのに前回失敗している（=まだ成功が証明されていない、という意味で
+ *   unverified に含める。stale は「hash 不一致」専用）
+ * - stale: implTrial はあるが command が変わっていて hash が一致しない（再試走を推奨）
+ * - ok: hash 一致 かつ 最後の試走が成功
+ */
+export function implStatus(node: Pick<Node, "impl" | "implTrial">): ImplStatus {
+  if (!node.impl || node.impl.type !== "script") return "not-script";
+  if (!node.implTrial) return "unverified";
+  const currentHash = sha256Hex(node.impl.command);
+  if (node.implTrial.hash !== currentHash) return "stale";
+  return node.implTrial.success ? "ok" : "unverified";
+}
+
+/**
+ * 試走が許可されるノードかを検証する（TypeScript の assertion function。通れば
+ * node.impl が {type:"script",command} であることが以降の型で保証される）。
+ * 許可されなければ GraphError(400) を投げる。
+ * - impl.type !== "script" のノードは試走できない（何を動かすか無い）
+ * - impact === "irreversible" のノードは試走できない（承認ゲートの外で不可逆な副作用を
+ *   走らせてしまうため。docs/design.md 3.4「不可逆な外部副作用は承認ゲートを通す」）
+ */
+export function assertTrialAllowed(
+  node: Node,
+): asserts node is Node & { impl: { type: "script"; command: string } } {
+  if (!node.impl || node.impl.type !== "script") {
+    throw new GraphError(`node ${node.id} の実装はスクリプトではありません（impl.type!=="script"）`, 400);
+  }
+  if (node.impact === "irreversible") {
+    throw new GraphError("不可逆ノードは試走できません", 400);
+  }
+}
+
+/**
+ * 子プロセス出力のデコード。packages/engine/src/executors/script.ts の decodeOutput と
+ * 完全に同じロジック（server は engine に依存しないため複製している。**変えたら両方直す**）。
+ * Windows では cmd.exe 等がシステムコードページ（日本語環境は CP932/Shift_JIS）で出力するため、
+ * UTF-8 として読むと文字化けする。UTF-8 で厳密デコードし、失敗したら Shift_JIS で読み直す。
+ */
+export function decodeOutput(buf: Buffer): string {
+  if (process.platform !== "win32") return buf.toString("utf8");
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch {
+    try {
+      return new TextDecoder("shift_jis").decode(buf);
+    } catch {
+      return buf.toString("utf8");
+    }
+  }
+}
+
+export const TRIAL_TIMEOUT_MS = 5 * 60 * 1000; // 5分（script executor と同じ）
+
+export interface TrialRunResult {
+  success: boolean;
+  exitCode: number | null;
+  output: string;
+}
+
+/**
+ * command を子プロセスで1回実行する。cwd はワークスペースルート（渡されなければ os.tmpdir()）。
+ * shell:true でコマンド文字列をそのまま渡す（packages/engine/src/executors/script.ts の
+ * runScript と同じ実行方式。試走はエンジンを経由しないため server 側で直接子プロセスを起動する）。
+ */
+export function runTrial(command: string, cwd: string): Promise<TrialRunResult> {
+  return new Promise((resolve) => {
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let timedOut = false;
+
+    const child = spawn(command, { shell: true, cwd });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, TRIAL_TIMEOUT_MS);
+
+    child.stdout?.on("data", (d: Buffer) => stdoutChunks.push(d));
+    child.stderr?.on("data", (d: Buffer) => stderrChunks.push(d));
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      const stdout = decodeOutput(Buffer.concat(stdoutChunks));
+      resolve({ success: false, exitCode: null, output: `${stdout}\n${String(err)}`.trim() });
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const stdout = decodeOutput(Buffer.concat(stdoutChunks));
+      const stderr = decodeOutput(Buffer.concat(stderrChunks));
+      if (timedOut) {
+        resolve({
+          success: false,
+          exitCode: code,
+          output: `${stdout}\nタイムアウト（${Math.round(TRIAL_TIMEOUT_MS / 60000)}分）`.trim(),
+        });
+        return;
+      }
+      const combined = code === 0 ? stdout : `${stdout}\n${stderr}`.trim();
+      resolve({ success: code === 0, exitCode: code, output: combined });
+    });
+  });
+}
+
+/** 試走の作業ディレクトリ既定値（ワークスペースルートが無ければ os.tmpdir()） */
+export function trialCwd(workspaceRoot: string | null): string {
+  return workspaceRoot ?? os.tmpdir();
+}

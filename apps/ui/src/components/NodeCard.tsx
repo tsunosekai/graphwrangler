@@ -86,8 +86,10 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // （decision は「分岐を選ぶ」がパネルにあるので対象外。trigger も対象外）
   const actionable =
     !isTemplate && data.isFrontier && node.kind === "task";
+  // 下書き（draft）の間は status に関わらず「プラン済みにする」（確定）が先。
+  // 破線=draft のカードに「完了」が出るのは筋が通らない（2026-07-31 本人指摘の紛れ）
   const phaseAction =
-    actionable && node.status === "unplanned"
+    actionable && (node.status === "unplanned" || node.lifecycle === "draft")
       ? { label: "プラン済みにする", next: "pending" as const }
       : actionable && node.status === "pending"
         ? { label: "完了", next: "done" as const }
@@ -228,6 +230,14 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             title={node.impl.type === "doc" ? "実装: 手順書（文書）" : "実装: スクリプト（決定的）"}
           >
             <Icon name={node.impl.type === "doc" ? "doc" : "code"} size={12} />
+          </span>
+        )}
+        {/* 担当×実装の不整合⚠（docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）:
+            担当=script なのに impl が script でない=実行すると失敗する。既存の不可逆⚠と
+            同じ Icon name="alert" を使い、title で理由を区別する（NodePanel にも同じ警告を出す） */}
+        {node.executor === "script" && node.impl?.type !== "script" && (
+          <span className="flex-shrink-0 text-destructive" title="実装が未接続（実行すると失敗します）">
+            <Icon name="alert" size={12} />
           </span>
         )}
         {node.impact === "irreversible" && (

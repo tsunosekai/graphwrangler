@@ -56,6 +56,19 @@ export const NodeImplSchema = z.discriminatedUnion("type", [
 ]);
 export type NodeImpl = z.infer<typeof NodeImplSchema>;
 
+/** スクリプト試走（試走ゲート。docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）の記録。
+ *  hash は試走時点の impl.command の sha256 hex（鮮度チェック用: command を変更後は
+ *  再試走するまで stale 扱いになる）。success は最後の試走の成否、ts は試走時刻。
+ *  null = 未試走。impl.type!=="script" のノードでは常に null（意味を持たない） */
+export const ImplTrialSchema = z
+  .object({
+    hash: z.string().min(1),
+    success: z.boolean(),
+    ts: z.string(),
+  })
+  .nullable();
+export type ImplTrial = z.infer<typeof ImplTrialSchema>;
+
 /** 分岐ノード(kind=decision)の選択肢。判断リクエストの options と同形だが、
  *  then は省略可（人間向けリクエストに変換するときは既定文言で補う。docs/design.md 3.9） */
 export const NodeBranchSchema = z.object({
@@ -72,6 +85,9 @@ export const NodeSchema = z.object({
   detail: z.string().nullable(),
   /** 実装形態（3.5 Fixライフサイクル）。null = 会話段 */
   impl: NodeImplSchema.nullable(),
+  /** impl.type==="script" の試走記録（試走ゲート。docs/design.md 3.5 近く）。
+   *  既存データ互換のため default null（旧データには無いフィールド） */
+  implTrial: ImplTrialSchema.default(null),
   /** 先行ノードid。DAG。空=ルート。依存（順序）を表す */
   parents: z.array(z.string()),
   /** 所属するグループ（フォルダ）ノードの id。包含を表す。依存(parents)とは独立。

@@ -104,6 +104,7 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
       status: "pending",
       fixed: false,
       pendingRequest: null,
+      implTrial: null,
       order: null,
       schedule: null,
       branches: null,

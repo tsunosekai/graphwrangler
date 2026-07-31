@@ -206,6 +206,9 @@ export class GraphStore {
       ...parsed,
       id: nextId("n", this.nodes.keys()),
       pendingRequest: null,
+      // 試走記録は新規作成時は必ず未試走（NodeInputSchema には含めない。desk と同じく
+      // 「作成時に指定できるものではなく、試走APIだけが書く」フィールド）
+      implTrial: null,
       created: ts,
       updated: ts,
     };

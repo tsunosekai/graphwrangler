@@ -119,6 +119,49 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
   進捗追跡・状態更新・受け渡し・トリガー=エッジ側。本ツールの価値の本体はフロー制御と
   状態追跡のほう）
 
+### 3.5.1 担当×実装の対応表と試走ゲート（2026-07-31 決定 → 同日実装済み）
+
+3.4 の executor（誰にディスパッチするか）と 3.5 の impl（やり方の素材）は直交軸だが、
+どの組み合わせが実際に「実行」に使われるかは明文化されていなかった（UIにも出ていなかった）。
+対応表:
+
+| executor | impl が使われる条件 | 使われ方 |
+|---|---|---|
+| human | impl.type === "doc" | 人間が読む手順書 |
+| ai | impl.type === "doc" | 実行時プロンプトへインライン（text 優先、無ければ path のファイルを読む） |
+| script | impl.type === "script" | command を子プロセスで実行（決定的） |
+
+**それ以外の組み合わせ（例: executor=human で impl.type="script"）は実行に使われない**。
+UI はこれを2種類の⚠として明示する:
+
+- **担当=script なのに impl が script でない** → 「実装が未接続（実行すると失敗します）」
+  （NodePanel に常時表示 + NodeCard のタイトル右端に destructive の⚠。実行すると確実に
+  失敗する組み合わせなので、不可逆⚠と同じ強さで警告する）
+- **担当が script でないのに impl.type="script"** → 「このスクリプトは実行されません
+  （担当がスクリプトではないため）」（NodePanel の実装セクション内の注記のみ。書いた
+  スクリプトが死んでいるわけではなく単に今は使われない、という軽い注記）
+
+**impl を script にするのは宣言であって証明ではない**。「書いてるだけ」のスクリプトが
+実行に乗って黙って失敗しうるため、試走（trial）というソフトゲートを挟む:
+
+- `POST /api/nodes/:id/trial`（実装 `packages/server/src/trial.ts`）が command を実際に
+  1回子プロセスで実行し、結果を `node.implTrial = {hash, success, ts}` としてノードへ記録する
+  （hash は command の sha256 hex）。impact="irreversible" のノードは試走できない
+  （承認ゲートの外で不可逆な副作用を走らせてしまうため）
+- **hash は鮮度チェック**: command を編集すると hash が変わり、過去の試走結果は
+  「stale」（コマンドが変更されています）に落ちる。`implStatus(node)` が
+  ok（hash一致+成功） / stale（hash不一致） / unverified（未試走、または hash一致でも
+  失敗） / not-script の4値を返す純関数（server: `trial.ts`、UI: NodePanel が同じロジックを
+  Web Crypto の `crypto.subtle.digest` で複製）
+- **昇格時に警告する（ハードブロックはしない）**: 担当を script に変更するとき、または
+  担当=script のノードで「プラン済みにする」（draft→committed）を押すとき、implStatus が
+  ok でなければ `window.confirm` で確認する。断っても patch 自体は止められる仕組みで
+  ブロックはしていない——**人間が主導権を持つ思想（1章）どおり、ゲートは常にソフト**。
+  「試走が通っていないスクリプトを本番投入するかどうか」の最終判断は常に人間に残す
+- 試走の実行結果はノードスレッドに kind:"status" で記録される（成功/失敗(exit N) +
+  出力先頭500字）。試走→（必要なら Fix を戻して）直す→再試走→昇格、が 3.5 の
+  Fix ライフサイクルと噛み合う想定のフロー
+
 ### 3.6 入れ子ノードと自己改善（Houdini HDA と同型）
 
 - ノードを開くと中にサブグラフ（スクリプト部分とLLM部分の混在）がある。外から見れば
