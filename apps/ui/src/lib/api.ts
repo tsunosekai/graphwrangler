@@ -105,6 +105,28 @@ export interface SettingsPatch {
   setupDone?: boolean;
 }
 
+/** 自分の操作に伴う機械の記録メッセージ（状態遷移・試走結果等）で未読バッジが
+ *  付かないよう、操作したノードを少し先の時刻まで既読扱いにする（2026-07-31 本人指摘
+ *  「完了を自分で押した奴は青バッジ通知来なくていい」）。5秒のマージンは操作の直後に
+ *  サーバ/エンジンが書く記録を吸収するため——Task AI の応答（〜10秒以降）は吸収せず
+ *  ちゃんと未読になる */
+function markSelfActionRead(nodeId: string): void {
+  try {
+    const cur = localStorage.getItem(`gw.read.${nodeId}`);
+    const next = new Date(Date.now() + 5000).toISOString();
+    if (!cur || cur < next) localStorage.setItem(`gw.read.${nodeId}`, next);
+  } catch {
+    // 無視（未読バッジは補助機能）
+  }
+}
+
+/** ノードに対する操作系APIの後処理: 成功したら既読マークを打つ */
+async function withSelfRead<T>(nodeId: string, p: Promise<T>): Promise<T> {
+  const result = await p;
+  markSelfActionRead(nodeId);
+  return result;
+}
+
 export const api = {
   // threadMeta: ノードごとの最終メッセージ時刻（未読バッジの判定に使う。QOL-7）
   getState: () => request<{ nodes: Node[]; threadMeta: Record<string, string>; now: string }>("/state"),
@@ -113,7 +135,7 @@ export const api = {
     request<Node>("/nodes", { method: "POST", body: JSON.stringify(input) }),
 
   patchNode: (id: string, patch: NodePatchInput) =>
-    request<Node>(`/nodes/${id}`, { method: "POST", body: JSON.stringify(patch) }),
+    withSelfRead(id, request<Node>(`/nodes/${id}`, { method: "POST", body: JSON.stringify(patch) })),
 
   removeNode: (id: string) =>
     request<{ removed: boolean }>(`/nodes/${id}/remove`, { method: "POST", body: "{}" }),
@@ -121,50 +143,50 @@ export const api = {
   // ---- スクリプト試走（試走ゲート。docs/design.md 3.5 近く。実装は packages/server/src/trial.ts） ----
 
   trialNode: (id: string) =>
-    request<{
+    withSelfRead(id, request<{
       success: boolean;
       exitCode: number | null;
       output: string;
       implTrial: ImplTrial | null;
       /** 実際に実行した実コマンド（パラメータ置換後 + --dry-run。docs/design.md 3.5.1） */
       resolvedCommand: string;
-    }>(`/nodes/${id}/trial`, { method: "POST", body: "{}" }),
+    }>(`/nodes/${id}/trial`, { method: "POST", body: "{}" })),
 
   getThread: (id: string) => request<{ messages: MaterializedMessage[] }>(`/nodes/${id}/thread`),
 
   postMessage: (id: string, body: string) =>
-    request<Message>(`/nodes/${id}/messages`, {
+    withSelfRead(id, request<Message>(`/nodes/${id}/messages`, {
       method: "POST",
       body: JSON.stringify({ kind: "say", body }),
-    }),
+    })),
 
   answer: (id: string, requestId: string, option: string | null, note: string | null = null) =>
-    request<{ message: Message; resolved: boolean; node: Node }>(`/nodes/${id}/answer`, {
+    withSelfRead(id, request<{ message: Message; resolved: boolean; node: Node }>(`/nodes/${id}/answer`, {
       method: "POST",
       body: JSON.stringify({ requestId, option, note }),
-    }),
+    })),
 
   // ---- 分岐ノード（kind=decision。docs/design.md 3.9） ----
 
   /** プロジェクト層: choice確定+skip伝搬。UIから直接叩く経路も正（human分岐の判断リクエスト経由と並立） */
   decide: (id: string, choice: string) =>
-    request<Node>(`/nodes/${id}/decide`, { method: "POST", body: JSON.stringify({ choice }) }),
+    withSelfRead(id, request<Node>(`/nodes/${id}/decide`, { method: "POST", body: JSON.stringify({ choice }) })),
 
   /** ラン層: ワークアイテム(kind=decisionテンプレート)のchoice確定+skip伝搬 */
   decideRunItem: (runId: string, nodeId: string, choice: string) =>
-    request<Run>(`/runs/${runId}/items/${nodeId}/decide`, {
+    withSelfRead(nodeId, request<Run>(`/runs/${runId}/items/${nodeId}/decide`, {
       method: "POST",
       body: JSON.stringify({ choice }),
-    }),
+    })),
 
   // ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 
   /** トリガーを発火し、そのページ(group)でランを1本作る。via 省略時はサーバ既定の "manual" */
   fireTrigger: (nodeId: string, via?: string) =>
-    request<Run>(`/nodes/${nodeId}/fire`, {
+    withSelfRead(nodeId, request<Run>(`/nodes/${nodeId}/fire`, {
       method: "POST",
       body: JSON.stringify(via ? { via } : {}),
-    }),
+    })),
 
   // ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----
   // ラン作成は互換エイリアス（ページにトリガーノードがあればそれを発火、無ければ旧procedure仕様）。
@@ -178,7 +200,7 @@ export const api = {
   getRun: (runId: string) => request<Run>(`/runs/${runId}`),
 
   patchRunItem: (runId: string, nodeId: string, input: { status?: RunItemStatus; note?: string | null }) =>
-    request<Run>(`/runs/${runId}/items/${nodeId}`, { method: "POST", body: JSON.stringify(input) }),
+    withSelfRead(nodeId, request<Run>(`/runs/${runId}/items/${nodeId}`, { method: "POST", body: JSON.stringify(input) })),
 
   cancelRun: (runId: string) =>
     request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
