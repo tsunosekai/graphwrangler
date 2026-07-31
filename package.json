@@ -2,7 +2,7 @@
   "name": "graphwrangler",
   "private": true,
   "scripts": {
-    "test": "pnpm --filter @graphwrangler/core test",
+    "test": "pnpm -r test",
     "dev": "pnpm --parallel --filter @graphwrangler/server --filter ui dev",
     "build": "pnpm -r build"
   },

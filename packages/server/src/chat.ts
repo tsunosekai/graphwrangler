@@ -2,7 +2,9 @@
 // Vercel AI SDK の streamText + tool-calling を使い、AIは人間のUI操作と同じ書き込み経路
 // （GraphStore/ThreadStore を直接呼ぶ）でグラフを変更する。帰属は docs/agent-contracts.md の
 // 規約どおり via:"chat" / actor:{kind:"agent", name:"chat:<model>"} に統一する。
-// 会話履歴はステートレス（クライアントが毎回全履歴を送る。永続化はしない、design.md M4）。
+// このエンドポイント自体はステートレス（クライアントが毎回全履歴を送る）。会話履歴の保存は
+// 別ルート（GET/PUT /api/chats/:pageId → sidecar または dataDir の chats/）が担う
+// （2026-07-31 に localStorage からサーバ保存へ移行。docs/design.md 2章のストレージ図）。
 import fs from "node:fs";
 import { streamText, generateText, stepCountIs, convertToModelMessages, tool, type UIMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
