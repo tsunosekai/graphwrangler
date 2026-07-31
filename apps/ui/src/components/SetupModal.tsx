@@ -32,6 +32,7 @@ const CHAT_DEFAULT_MODEL: Record<"anthropic" | "openai", string> = {
 // claude CLI のエイリアス名をそのまま値にする。保存済みの値がリストに無い場合は
 // 「カスタム」として選択肢に足し、既存設定を壊さない
 const CLI_MODELS = [
+  { value: "fable", label: "Fable 5（最高性能）" },
   { value: "opus", label: "Opus 5（高性能・既定）" },
   { value: "sonnet", label: "Sonnet 5（標準）" },
   { value: "haiku", label: "Haiku 4.5（高速）" },
