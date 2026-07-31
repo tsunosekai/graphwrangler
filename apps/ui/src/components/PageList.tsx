@@ -11,7 +11,7 @@
 // ページ数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
 import { useState } from "react";
 import { PanelLeft, PanelLeftClose } from "lucide-react";
-import { api } from "../lib/api";
+import { focusGoalCapture } from "../lib/capture";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { isRoutinePage } from "../lib/routine";
 import { cn } from "../lib/utils";
@@ -30,7 +30,6 @@ interface Props {
   /** procedure id → 最新ラン（App 側でポーリング済み） */
   latestRuns: Record<string, Run | null>;
   onSelectPage: (id: string) => void;
-  onMutated: () => void;
 }
 
 const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
@@ -63,7 +62,7 @@ function seatColor(status: Status, executor: Node["executor"]): string {
 const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
-export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, onSelectPage, onMutated }: Props) {
+export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, onSelectPage }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // QOL-3: アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -87,11 +86,10 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
     return !read || last > read;
   };
 
-  const addGoal = async () => {
-    const created = await api.addNode({ title: "新しいゴール", kind: "goal" });
-    onMutated();
-    onSelectPage(created.id);
-  };
+  // 作成は「ヘッダーのゴール捕獲欄」に一本化した（2026-08-01 本人指示。docs/design.md 4章 ②）。
+  // ここの「＋」は無題ノードを作らず、その入力欄へフォーカスを渡すだけにする——
+  // 入口が2つあると「無題のゴール」が量産されるため
+  const addGoal = () => focusGoalCapture();
 
   // ルーティーンは対象外（常にアクティブ扱い）。goal 等の status が done|dropped のものだけ
   // アーカイブへ回す
@@ -226,7 +224,8 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
       <div className="resize-handle resize-handle-right" onPointerDown={(e) => startResize(e, 1)} />
       {/* プロジェクト節: トリガー無しのページ。「＋」はここに1個だけ（ルーティーン化はトリガーを
           置けば自動でルーティーン節へ移る、という体験に任せる。本人指定）。
-          見出しは0件でも常に出す — 消すと「＋」の導線が無くなるコールドスタート問題があるため */}
+          見出しは0件でも常に出す — 消すと「＋」の導線が無くなるコールドスタート問題があるため
+          （その「＋」自体は作成せず、ヘッダーのゴール捕獲欄へ案内する） */}
       <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
         <span>プロジェクト</span>
         <span className="flex items-center">
@@ -235,7 +234,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
             variant="ghost"
             size="icon"
             className="size-6 text-muted-foreground"
-            title="ゴールを追加"
+            title="ゴールを追加（ヘッダーの入力欄へ）"
             onClick={addGoal}
           >
             ＋

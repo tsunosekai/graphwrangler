@@ -1,9 +1,12 @@
+import { useEffect, useRef, useState } from "react";
 import { Keyboard, Monitor, Moon, Search, Settings, Sun, Undo2 } from "lucide-react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
+import { subscribeFocusGoalCapture } from "../lib/capture";
 import { openPalette, openShortcuts } from "../lib/palette";
 import { useTheme, type ThemeMode } from "../lib/theme";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +31,8 @@ interface Props {
   onOpenSettings: () => void;
   /** 元に戻す（操作ログの補償追記）。ボタンはヘッダー、Ctrl+Z は GraphView が持つ */
   onUndo: () => void;
+  /** ゴール捕獲欄で Enter を押したとき。新しいプロジェクト（goal ノード）を作って開く */
+  onCaptureGoal: (title: string) => Promise<void>;
 }
 
 const THEME_ICON: Record<ThemeMode, typeof Sun> = { light: Sun, dark: Moon, system: Monitor };
@@ -89,7 +94,55 @@ function ThemeToggle() {
   );
 }
 
-export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo }: Props) {
+/** ゴール捕獲欄（2026-08-01 本人指示で受信箱を置き換え）。zinsei の #inbox と同じ体験:
+ *  思いついたゴールを一行書いて Enter を押すだけで、新しいプロジェクト（空の goal ページ）が
+ *  生まれてそこへ移動する。溜め置き（未整理の受信箱）は作らない——溜まる場所を作ると
+ *  「捌く」仕事が増えるため、書いた瞬間にプロジェクトになる（docs/design.md 4章 ②）。
+ *  分解は自動で走らせない: 開いた先で自分から Workflow AI に頼む。 */
+function GoalCapture({ onCapture }: { onCapture: (title: string) => Promise<void> }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+
+  // 左レールの「＋」からもここへ来る（作成の入口はこの1箇所に集約する）
+  useEffect(() => subscribeFocusGoalCapture(() => ref.current?.focus()), []);
+
+  // 二重送信は busy フラグだけで防ぎ、入力欄は disabled にしない——disabled にすると
+  // ブラウザがフォーカスを外し、連投しようとした2件目が欄の外へタイプされてしまう
+  const submit = async () => {
+    const title = text.trim();
+    if (!title || busy) return;
+    setBusy(true);
+    try {
+      await onCapture(title);
+      setText("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Input
+      ref={ref}
+      value={text}
+      placeholder="思いついたゴールを書く → Enter で新しいプロジェクト"
+      aria-label="ゴールを登録して新しいプロジェクトを作る"
+      className="h-8 w-full max-w-md bg-muted/40 text-sm"
+      onChange={(e) => setText(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void submit();
+        } else if (e.key === "Escape") {
+          setText("");
+          ref.current?.blur();
+        }
+      }}
+    />
+  );
+}
+
+export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptureGoal }: Props) {
   // QOL-5: エンジン稼働インジケータ（5秒毎ポーリング）。平常時は何も出さず、
   // 「AIが動いていない」ときだけ警告として表示する（2026-07-31 本人指示。
   // ノード数バッジも同時に廃止: 常時出る情報バッジは圧になるだけ）
@@ -112,7 +165,10 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo }: Props
           </TooltipContent>
         </Tooltip>
       )}
-      <div className="flex-1" />
+      {/* 旧「あなたの番 N」＝受信箱があった場所。数を数える箱をやめ、ゴールを投げ込む口にした */}
+      <div className="flex flex-1 justify-center px-2">
+        <GoalCapture onCapture={onCaptureGoal} />
+      </div>
       <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
         <Undo2 />
       </IconButton>

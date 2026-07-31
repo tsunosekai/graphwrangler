@@ -103,7 +103,8 @@ export default function App() {
     refreshActiveRun();
   }, [pageId, isCurrentPageRoutine, refreshActiveRun]);
 
-  // 実行中ランのワークアイテムで status=waiting のものを受信箱項目として集める（B-6）
+  // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
+  // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）
   const runWaitItems = useMemo<RunWaitItem[]>(() => {
     if (!latestRuns) return [];
     const items: RunWaitItem[] = [];
@@ -119,7 +120,7 @@ export default function App() {
     return items;
   }, [latestRuns, nodes]);
 
-  // QOL-6: 受信箱件数が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）
+  // QOL-6: あなたの番が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）
   const inboxItemsRef = useRef<{ id: string; title: string }[] | null>(null);
   useEffect(() => {
     const combined: { id: string; title: string }[] = [
@@ -163,6 +164,23 @@ export default function App() {
     refresh();
   }, [refresh]);
 
+  // ヘッダーのゴール捕獲欄（2026-08-01: 受信箱を置き換えた新規プロジェクトの唯一の入口。
+  // docs/design.md 4章 ②）。書いた瞬間に goal ノード = 空のページを作り、そこへ移動する
+  const handleCaptureGoal = useCallback(
+    async (title: string) => {
+      try {
+        const created = await api.addNode({ title, kind: "goal" });
+        refresh();
+        setPageId(created.id);
+        setSelectedId(created.id);
+        pushToast(`プロジェクト「${title}」を作りました`, "info");
+      } catch {
+        // api() 側でエラートースト表示済み
+      }
+    },
+    [refresh],
+  );
+
   // ヘッダーの「元に戻す」（Ctrl+Z のショートカット処理は GraphView 側）
   const handleUndo = useCallback(async () => {
     try {
@@ -195,6 +213,7 @@ export default function App() {
         onToggleChat={() => setChatOpen((v) => !v)}
         onOpenSettings={() => setSettingsOpen(true)}
         onUndo={handleUndo}
+        onCaptureGoal={handleCaptureGoal}
       />
       <div className="flex min-h-0 flex-1">
         <PageList
@@ -207,7 +226,6 @@ export default function App() {
             setPageId(id);
             setSelectedId(id);
           }}
-          onMutated={handleMutated}
         />
         <GraphView
           nodes={pageNodes}

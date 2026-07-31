@@ -2,9 +2,16 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+// forwardRef で包む（shadcn の React 19 版は ref を props として素通しするが、この UI は
+// React 18 なので包まないと ref が DOM へ届かない。ヘッダーのゴール捕獲欄が
+// 「＋」からフォーカスを受け取るのに必要）
+const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(function Input(
+  { className, type, ...props },
+  ref,
+) {
   return (
     <input
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(
@@ -16,6 +23,6 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       {...props}
     />
   )
-}
+})
 
 export { Input }
