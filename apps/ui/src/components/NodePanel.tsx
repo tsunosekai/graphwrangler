@@ -387,11 +387,28 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
   };
 
   const messages = thread?.messages ?? [];
-  const filtered = messages.filter((m) =>
+  // 「新しい会話」区切り（payload.chatBreak）以降だけを会話タブに出す（2026-07-31 本人要望。
+  // スレッドは経緯の正史なので消さない——履歴タブには区切りを含め全部残る。
+  // Task AI の応答文脈も server 側で同じ区切りを尊重する）
+  const lastBreak = messages.reduce(
+    (acc, m, i) => ((m.payload as { chatBreak?: boolean } | null)?.chatBreak ? i : acc),
+    -1,
+  );
+  const talkSource = lastBreak >= 0 ? messages.slice(lastBreak + 1) : messages;
+  const filtered = (tab === "talk" ? talkSource : messages).filter((m) =>
     tab === "talk"
       ? m.kind === "say" || m.kind === "decision_request" || m.kind === "decision_answer"
       : m.kind === "status" || m.kind === "artifact",
   );
+
+  const startNewTalk = async () => {
+    await fetch(`/api/nodes/${node.id}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "status", body: "―― 新しい会話 ――", payload: { chatBreak: true } }),
+    });
+    refreshThread();
+  };
   // 開いている判断リクエストは会話の流れではなく「ノード詳細とチャット欄の間」に固定表示する
   // （本人指定 2026-07-31）。タブに関わらず見える（履歴タブでも回答できる）
   const openRequests = messages.filter(
@@ -831,6 +848,17 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
             </TabsTrigger>
           </TabsList>
         </Tabs>
+        <span className="flex items-center">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          title="ここまでの会話を区切って新しく始める（過去分は履歴タブに残る）"
+          onClick={() => void startNewTalk()}
+        >
+          新しい会話
+        </Button>
         <Button
           type="button"
           variant="ghost"
@@ -848,6 +876,7 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
             </>
           )}
         </Button>
+        </span>
       </div>
 
       <Thread

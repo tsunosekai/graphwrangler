@@ -177,7 +177,14 @@ async function respondInThread(
   const last = messages[messages.length - 1];
   if (!last) return; // 起動条件は post 直後なので理論上は必ずある
 
-  const history: ThreadAiHistoryEntry[] = messages
+  // 「新しい会話」区切り（payload.chatBreak。UIの NodePanel と同じ規約）以降だけを文脈にする
+  const lastBreak = messages.reduce(
+    (acc, m, i) => ((m.payload as { chatBreak?: boolean } | null)?.chatBreak ? i : acc),
+    -1,
+  );
+  const scoped = lastBreak >= 0 ? messages.slice(lastBreak + 1) : messages;
+
+  const history: ThreadAiHistoryEntry[] = scoped
     .slice(0, -1)
     .filter((m) => m.kind === "say" || m.kind === "decision_request" || m.kind === "decision_answer")
     .slice(-MAX_THREAD_AI_HISTORY)
