@@ -10,6 +10,7 @@
 // 最新ランの取得は App 側でまとめてポーリングする（B-6: 受信箱のラン待ち統合と共有し、
 // ページ数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
 import { useState } from "react";
+import { PanelLeft, PanelLeftClose } from "lucide-react";
 import { api } from "../lib/api";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { isRoutinePage } from "../lib/routine";
@@ -66,6 +67,17 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // QOL-3: アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
+  // レール自体の開閉（2026-07-31 本人要望）。閉じると細い縦帯だけ残す
+  const [railOpen, setRailOpen] = useState(() => localStorage.getItem("gw.railOpen") !== "0");
+  const toggleRail = () =>
+    setRailOpen((v) => {
+      try {
+        localStorage.setItem("gw.railOpen", v ? "0" : "1");
+      } catch {
+        // 無視
+      }
+      return !v;
+    });
 
   // 未読判定は GraphView（カードの青ドット）と同じ規約: gw.read.<id> より新しいメッセージがあるか
   const isUnread = (id: string) => {
@@ -187,6 +199,23 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
     );
   };
 
+  if (!railOpen) {
+    return (
+      <div className="flex flex-shrink-0 flex-col items-center border-r border-border bg-muted py-1.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground"
+          title="プロジェクト一覧を開く"
+          onClick={toggleRail}
+        >
+          <PanelLeft className="size-4" />
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div
       className="relative flex flex-shrink-0 flex-col gap-px overflow-y-auto border-r border-border bg-muted p-1.5"
@@ -198,16 +227,28 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
           見出しは0件でも常に出す — 消すと「＋」の導線が無くなるコールドスタート問題があるため */}
       <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
         <span>プロジェクト</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-6 text-muted-foreground"
-          title="ゴールを追加"
-          onClick={addGoal}
-        >
-          ＋
-        </Button>
+        <span className="flex items-center">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground"
+            title="ゴールを追加"
+            onClick={addGoal}
+          >
+            ＋
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground"
+            title="プロジェクト一覧を閉じる"
+            onClick={toggleRail}
+          >
+            <PanelLeftClose className="size-3.5" />
+          </Button>
+        </span>
       </div>
       {projectFolders.map((f) => renderRow(f, false))}
       {routineFolders.length > 0 && (
