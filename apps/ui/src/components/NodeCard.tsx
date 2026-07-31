@@ -87,12 +87,14 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   const actionable =
     !isTemplate && data.isFrontier && node.kind === "task";
   // 下書き（draft）の間は status に関わらず「プラン済みにする」（確定）が先。
-  // 破線=draft のカードに「完了」が出るのは筋が通らない（2026-07-31 本人指摘の紛れ）
+  // 破線=draft のカードに「完了」が出るのは筋が通らない（2026-07-31 本人指摘の紛れ）。
+  // 「プラン済みにする」は lifecycle:"committed" まで含めた patch（status だけ変えても
+  // draft+pending のノードでは何も起きない、が実際に起きたバグの修正）
   const phaseAction =
     actionable && (node.status === "unplanned" || node.lifecycle === "draft")
-      ? { label: "プラン済みにする", next: "pending" as const }
+      ? { label: "プラン済みにする", patch: { status: "pending", lifecycle: "committed" } as const }
       : actionable && node.status === "pending"
-        ? { label: "完了", next: "done" as const }
+        ? { label: "完了", patch: { status: "done" } as const }
         : null;
 
   return (
@@ -259,7 +261,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
               className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
               onClick={async (e) => {
                 e.stopPropagation();
-                await api.patchNode(node.id, { status: phaseAction.next });
+                await api.patchNode(node.id, phaseAction.patch);
               }}
             >
               {phaseAction.label}

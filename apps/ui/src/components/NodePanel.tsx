@@ -633,7 +633,7 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                       {STATUS_JA[vs]}
                     </span>
                     <span className="flex-1" />
-                    {vs === "unplanned" && (
+                    {(vs === "unplanned" || node.lifecycle === "draft") && (
                       <Button type="button" variant="outline" size="sm"
                         onClick={() => {
                           if (node.executor === "script" && !confirmPromotionIfNeeded()) return;
