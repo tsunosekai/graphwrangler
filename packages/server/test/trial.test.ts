@@ -136,7 +136,7 @@ test("assertTrialAllowed: impact が irreversible なら 400（不可逆ノー�
     (err: unknown) => {
       assert.ok(err instanceof GraphError);
       assert.equal(err.status, 400);
-      assert.match((err as GraphError).message, /不可逆/);
+      assert.match((err as GraphError).message, /実行前承認/);
       return true;
     },
   );

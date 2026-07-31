@@ -664,7 +664,7 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
             <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
               {/* 説明はインラインでなくヒント（ツールチップ）で出す（2026-07-31 本人指定） */}
               <span className="flex items-center gap-1.5">
-                <span>不可逆</span>
+                <span>実行前承認</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="inline-flex cursor-help text-muted-foreground">
@@ -823,7 +823,7 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                     disabled={node.impact === "irreversible" || trialRunning || missingParams.length > 0}
                     title={
                       node.impact === "irreversible"
-                        ? "不可逆ノードは試走できません"
+                        ? "実行前承認が必要なノードは試走できません"
                         : missingParams.length > 0
                           ? `未入力: ${missingParams.join(", ")}`
                           : undefined
@@ -834,7 +834,7 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                     試走（--dry-run 付き・副作用なし）
                   </Button>
                   {node.impact === "irreversible" && (
-                    <span className="text-xs text-muted-foreground">不可逆ノードは試走できません</span>
+                    <span className="text-xs text-muted-foreground">実行前承認が必要なノードは試走できません</span>
                   )}
                   {node.impact !== "irreversible" && missingParams.length > 0 && (
                     <span className="text-xs text-destructive">未入力: {missingParams.join(", ")}</span>

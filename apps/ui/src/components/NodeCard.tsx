@@ -253,7 +253,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           </span>
         )}
         {node.impact === "irreversible" && (
-          <span className="flex-shrink-0 text-destructive" title="不可逆">
+          <span className="flex-shrink-0 text-destructive" title="実行前承認（不可逆な操作。実行前に人間の承認ゲートを通る）">
             <Icon name="alert" size={12} />
           </span>
         )}

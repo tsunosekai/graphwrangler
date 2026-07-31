@@ -77,7 +77,7 @@ export function assertTrialAllowed(
     throw new GraphError(`node ${node.id} の実装はスクリプトではありません（impl.type!=="script"）`, 400);
   }
   if (node.impact === "irreversible") {
-    throw new GraphError("不可逆ノードは試走できません", 400);
+    throw new GraphError("実行前承認が必要なノードは試走できません", 400);
   }
 }
 
