@@ -81,6 +81,28 @@ export default function App() {
     return Object.fromEntries(entries);
   }, 5000);
 
+  // ---- アクティブなラン（docs/design.md 3.8: トリガー起点のルーティーン。グラフ投影用）。
+  //      「最新ラン」（上の latestRuns。状態不問。PageList のちょぼ用）とは別物——ここで欲しいのは
+  //      「現在表示中のページの、status==="running" な最新1本」。複数ランが並走中でも
+  //      running のものだけを対象にする（他は台帳ビューで見る想定。design.md 3.8）。
+  //      現在ページだけを見れば良いので、全ルーティーンページを N+1 取得する latestRuns とは
+  //      別に軽量ポーリングする ----
+  const isCurrentPageRoutine = pageNode ? isRoutinePage(pageNode, nodes) : false;
+  const { data: activeRun, refresh: refreshActiveRun } = usePolling(async (): Promise<Run | null> => {
+    if (!pageId || !isCurrentPageRoutine) return null;
+    try {
+      const { runs } = await api.listRuns(pageId);
+      // listRuns は新しい順（LedgerView と同じ前提）。running のうち最新の1本を採る
+      return runs.find((r) => r.status === "running") ?? null;
+    } catch {
+      return null;
+    }
+  }, 3000);
+  // ページを切り替えたら次の3秒ポーリングを待たずに即座に取り直す（切替直後の古い投影を避ける）
+  useEffect(() => {
+    refreshActiveRun();
+  }, [pageId, isCurrentPageRoutine, refreshActiveRun]);
+
   // 実行中ランのワークアイテムで status=waiting のものを受信箱項目として集める（B-6）
   const runWaitItems = useMemo<RunWaitItem[]>(() => {
     if (!latestRuns) return [];
@@ -192,6 +214,7 @@ export default function App() {
           pageNode={pageNode}
           selectedId={selectedId}
           threadMeta={threadMeta}
+          activeRun={activeRun ?? null}
           onSelect={selectNode}
           onMutated={handleMutated}
           onSelectionCountChange={setSelectionCount}
@@ -201,6 +224,7 @@ export default function App() {
             key={selectedNode.id}
             node={selectedNode}
             allNodes={nodes}
+            activeRun={activeRun ?? null}
             onMutated={handleMutated}
             onClose={() => setSelectedId(null)}
             onSelect={selectNode}

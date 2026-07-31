@@ -4,7 +4,7 @@ import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
-import type { Node } from "../types";
+import type { Node, RunItemStatus } from "../types";
 import { Icon } from "./Icon";
 
 // 担当アイコン（2026-07-31 本人選定「B. 明快系」: 人型 / ロボット顔 / ターミナル >_）
@@ -42,10 +42,18 @@ export interface NodeCardData {
   selected: boolean;
   editing: boolean;
   /** ルーティーンページ（テンプレートの編集）で描かれているカードか。テンプレートは status を
-   *  持たない思想（docs/design.md 3.8）なので、status 由来の見た目は出さない */
+   *  持たない思想（docs/design.md 3.8）なので、status 由来の見た目は出さない
+   *  ——ただし runItem がある間はその進捗を投影する（下記） */
   isTemplate?: boolean;
   /** 実行フェーズ（全親が done|skipped）か。段階式アクションボタンの表示条件 */
   isFrontier?: boolean;
+  /** アクティブなランのこのノードに対応するワークアイテム（あれば）。docs/design.md 3.8:
+   *  「アクティブなランがある間だけ、その進捗をカードに投影する」。runId はボタンの
+   *  更新先（api.patchRunItem）の特定に使う——テンプレートの patchNode は使わない */
+  runItem?: { runId: string; status: RunItemStatus; note: string | null } | null;
+  /** runItem 版のフロンティア判定（親の「ランのアイテム」が全部 done|skipped か）。
+   *  isFrontier のラン投影版。段階式アクションボタン（着手/完了）の表示条件 */
+  isRunFrontier?: boolean;
   /** QOL-7: 既読ts(localStorage gw.read.<id>)より新しいメッセージがあるか */
   unread?: boolean;
   onSelect: (id: string) => void;
@@ -58,15 +66,53 @@ export interface NodeCardData {
 // selected は React Flow が rfNode.selected から自動で渡す（複数選択・矩形選択の見た目用）。
 // data.selected は App が追跡する「主選択」1件のための既存フラグ。どちらか点灯でリングを出す
 export function NodeCard({ data, selected }: { data: NodeCardData; selected?: boolean }) {
-  const { node, isTemplate } = data;
+  const { node, isTemplate, runItem } = data;
   const [draft, setDraft] = useState(node.title);
   const [firing, setFiring] = useState(false);
+  const [runBusy, setRunBusy] = useState(false);
   const ringOn = data.selected || selected;
+  // ラン投影（docs/design.md 3.8）: テンプレート自身は status を持たないが、アクティブな
+  // ラン（status==="running" の最新1本）がある間だけ、そのワークアイテムの進捗を
+  // カードへ投影する（プロジェクトと同じ見た目・同じ操作にする）。ランが閉じたら
+  // （runItem が無くなったら）素のテンプレート表示に戻る
+  const projecting = !!(isTemplate && runItem);
   // 保険: 質問が開いている（pendingRequest あり）間は、status が何であれ「あなたの番」を
   // 優先して実行中アニメーション/スピナーを出さない（waiting は本来 pendingRequest から
   // 導出できる派生状態。docs/design.md ステータス注記）。status との食い違いは旧プロセスの
-  // 取り残し等で起こり得るため、見た目はこちらを正とする（2026-07-31 本人指摘）
-  const visualStatus = node.pendingRequest ? "waiting" : node.status;
+  // 取り残し等で起こり得るため、見た目はこちらを正とする（2026-07-31 本人指摘）。
+  // 投影中はランアイテムの status をそのまま使う（ランアイテムに pendingRequest 概念はない）
+  const visualStatus = projecting ? runItem.status : node.pendingRequest ? "waiting" : node.status;
+  // 見た目に status を反映してよいか（非テンプレート、または投影中のテンプレート）
+  const showStatus = !isTemplate || projecting;
+
+  // ラン内の段階式アクション（docs/design.md 3.8）: 担当が human のアイテムだけ。
+  // pending+ラン内フロンティア→「着手」「完了」、running→「完了」「戻す」（戻す=pending）。
+  // ボタンはランのアイテムを更新する（テンプレートの patchNode は使わない）
+  const runButtons: { label: string; status: RunItemStatus }[] =
+    projecting && node.executor === "human"
+      ? runItem.status === "pending" && data.isRunFrontier
+        ? [
+            { label: "着手", status: "running" },
+            { label: "完了", status: "done" },
+          ]
+        : runItem.status === "running"
+          ? [
+              { label: "完了", status: "done" },
+              { label: "戻す", status: "pending" },
+            ]
+          : []
+      : [];
+  const patchRunItemStatus = async (status: RunItemStatus) => {
+    if (!runItem || runBusy) return;
+    setRunBusy(true);
+    try {
+      await api.patchRunItem(runItem.runId, node.id, { status });
+    } catch {
+      // api() 側でトースト表示済み
+    } finally {
+      setRunBusy(false);
+    }
+  };
 
   // トリガー手動発火（human executor はこれが唯一の発火経路。script/aiは手動上書きとして使える。
   // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）
@@ -119,9 +165,9 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         "node-card relative w-[220px] rounded-md border border-border-strong bg-card p-3 shadow-xs transition-colors",
         `exec-${node.executor}`,
         `lifecycle-${node.lifecycle}`,
-        !isTemplate && `status-${visualStatus}`,
-        !isTemplate &&
-          (node.status === "done" || node.status === "dropped" || node.status === "skipped") &&
+        showStatus && `status-${visualStatus}`,
+        showStatus &&
+          (visualStatus === "done" || visualStatus === "dropped" || visualStatus === "skipped") &&
           "opacity-90",
         ringOn && "is-selected border-border-strong shadow-[0_0_0_1px_var(--border-strong)]",
       )}
@@ -138,20 +184,21 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       {/* trigger は parents を持てない=グラフの起点（docs/design.md 3.4）。
           入力ハンドルを構造的に持たせないことで、他ノードの後続へドラッグ接続できないようにする */}
       {node.kind !== "trigger" && <Handle type="target" position={Position.Top} />}
-      {/* PDG風の完了/中止マーク（カード左外側の丸バッジ）。テンプレートには出さない */}
-      {!isTemplate && node.status === "done" && (
+      {/* PDG風の完了/中止マーク（カード左外側の丸バッジ）。テンプレートには出さない
+          ——ただしアクティブなランの投影中は item.status で描く（docs/design.md 3.8） */}
+      {showStatus && visualStatus === "done" && (
         <span className="pdg-badge text-ok" title="完了">
           <Icon name="check" size={14} />
         </span>
       )}
-      {!isTemplate && node.status === "dropped" && (
+      {showStatus && visualStatus === "dropped" && (
         <span className="pdg-badge text-text-lo" title="中止">
           <Icon name="x" size={13} />
         </span>
       )}
       {/* 処理中スピナーもチェックと同じ左外の丸バッジ（同位置・同サイズ。2026-07-31 本人指定）。
           done/running は排他なので左スロットは衝突しない */}
-      {!isTemplate && visualStatus === "running" && (
+      {showStatus && visualStatus === "running" && (
         <span className="pdg-badge" style={{ color: "var(--active-color)" }} title="処理中">
           <Loader2 className="size-3.5 animate-spin" />
         </span>
@@ -189,7 +236,9 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           {node.fixed ? <Lock className="size-3" /> : <Unlock className="size-3" />}
         </button>
       </span>
-      {node.pendingRequest && (
+      {/* 「あなたの番」の右肩ドット。非テンプレートは pendingRequest、投影中はランアイテムの
+          waiting をそのまま使う（ランアイテムに pendingRequest 概念はない。docs/design.md 3.8） */}
+      {((!isTemplate && node.pendingRequest) || (projecting && visualStatus === "waiting")) && (
         <span
           className="absolute -right-1 -top-1 size-2 flex-shrink-0 rounded-full bg-[var(--attention)]"
           title="あなたの番"
@@ -198,8 +247,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       <div
         className={cn(
           "flex items-center gap-1.5",
-          !isTemplate &&
-            (node.status === "done" || node.status === "dropped" || node.status === "skipped") &&
+          showStatus &&
+            (visualStatus === "done" || visualStatus === "dropped" || visualStatus === "skipped") &&
             "opacity-55",
         )}
       >
@@ -262,7 +311,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           <span className="size-2 flex-shrink-0 rounded-full bg-ai" title="未読メッセージあり" />
         )}
       </div>
-      {(showFoot || phaseAction) && (
+      {(showFoot || phaseAction || runButtons.length > 0) && (
         <div className="mt-1.5 flex items-center gap-2">
           {showFoot && <span className="text-xs text-muted-foreground">{STATUS_LABEL[node.status]}</span>}
           {phaseAction && (
@@ -277,6 +326,22 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
               {phaseAction.label}
             </button>
           )}
+          {/* ラン投影の段階ボタン（docs/design.md 3.8）。担当が human のワークアイテムのみ。
+              テンプレートの patchNode ではなく、ランのアイテムを更新する（api.patchRunItem） */}
+          {runButtons.map((b) => (
+            <button
+              key={b.label}
+              type="button"
+              className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-40"
+              disabled={runBusy}
+              onClick={async (e) => {
+                e.stopPropagation();
+                await patchRunItemStatus(b.status);
+              }}
+            >
+              {b.label}
+            </button>
+          ))}
         </div>
       )}
       {/* トリガーの起動方式（docs/design.md 3.8）。script=cron的な発火条件、ai=発火要否を判定させる間隔。

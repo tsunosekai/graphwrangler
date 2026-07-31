@@ -16,7 +16,7 @@ import { subscribeOpenShortcuts } from "../lib/palette";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import { isRoutinePage } from "../lib/routine";
-import type { Node } from "../types";
+import type { Node, Run } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
@@ -74,6 +74,10 @@ interface Props {
   selectedId: string | null;
   /** ノードid → 最終メッセージ時刻。未読ドット(QOL-7)の判定に使う */
   threadMeta: Record<string, string>;
+  /** アクティブなラン（docs/design.md 3.8: トリガー起点のルーティーン）。
+   *  status==="running" の最新1本。ルーティーンページでない/実行中のランが無い間は null
+   *  （App が算出して渡す）。ある間だけテンプレートのカードにその進捗を投影する */
+  activeRun: Run | null;
   onSelect: (id: string | null) => void;
   onMutated: () => void;
   /** 複数選択件数。NodePanel の「他 N件選択中」表示に使う（QOL: 複数選択） */
@@ -85,6 +89,7 @@ function GraphViewInner({
   pageNode,
   selectedId,
   threadMeta,
+  activeRun,
   onSelect,
   onMutated,
   onSelectionCountChange,
@@ -279,6 +284,14 @@ function GraphViewInner({
         const st = byIdForFrontier.get(p)?.status;
         return st === "done" || st === "skipped";
       });
+    // ラン内フロンティア（docs/design.md 3.8 投影）: 親の「ランのアイテム」が全部 done|skipped か。
+    // 親がトリガー（ラン内にアイテムを持たない=常に「既に発火済み」）の場合は満たしている扱いにする
+    const isRunFrontierOf = (n: Node) =>
+      !!activeRun &&
+      n.parents.every((p) => {
+        const st = activeRun.items[p]?.status;
+        return st === undefined || st === "done" || st === "skipped";
+      });
     setRfNodes(
       nodes.map((n) => {
         // QOL-7: 未読バッジ。既読tsは NodePanel がスレッド表示のたびに書き込む
@@ -287,6 +300,8 @@ function GraphViewInner({
         const unread = !!lastMsgTs && (!readTs || lastMsgTs > readTs);
         const selected =
           pendingMatched.length > 0 ? pendingMatched.includes(n.id) : prevSelected.has(n.id) || n.id === selectedId;
+        // アクティブなランのワークアイテム（あれば）。テンプレートのカードへの投影に使う
+        const runItem = activeRun?.items[n.id];
         return {
           id: n.id,
           type: "task" as const,
@@ -299,6 +314,8 @@ function GraphViewInner({
             editing: n.id === editingId,
             isTemplate: isRoutine,
             isFrontier: isFrontierOf(n),
+            runItem: runItem ? { runId: activeRun!.id, status: runItem.status, note: runItem.note } : null,
+            isRunFrontier: isRunFrontierOf(n),
             unread,
             onSelect: (id: string) => onSelect(id),
             onDoubleClick: (id: string) => setEditingId(id),
@@ -316,6 +333,7 @@ function GraphViewInner({
     editingId,
     isRoutine,
     threadMeta,
+    activeRun,
     onSelect,
     commitTitle,
     fitView,

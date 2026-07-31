@@ -18,7 +18,7 @@ import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
 import { missingParamNames } from "../lib/params";
 import { pushToast } from "../lib/toast";
-import type { Node, NodeBranch, ScriptParam } from "../types";
+import type { Node, NodeBranch, Run, RunItemStatus, ScriptParam } from "../types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -35,6 +35,9 @@ interface Props {
   node: Node;
   /** 実行フェーズゲート（docs/design.md 3.9）の判定に使う全ノード。分岐の親の status を見る */
   allNodes: Node[];
+  /** アクティブなラン（docs/design.md 3.8）。現在ページの status==="running" 最新1本。
+   *  無ければ null——このノードがルーティーンのテンプレートメンバーなら現行の注記のまま */
+  activeRun: Run | null;
   onMutated: () => void;
   onClose: () => void;
   /** ノード複製後に新規ノードを選択するため（QOL-8）。ページ切替も面倒を見る App.selectNode を渡す */
@@ -173,7 +176,7 @@ function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: s
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
-export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, selectedCount }: Props) {
+export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSelect, selectedCount }: Props) {
   const [tab, setTab] = useState<"talk" | "history">("talk");
   // ノード詳細は既定で開いておく（2026-07-31 本人指定）。会話に集中したいときだけ
   // タブ行右端の「会話を広げる」で閉じる。開閉はリロードを跨いで保持
@@ -306,6 +309,33 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
   const patch = async (fields: NodePatchInput) => {
     await api.patchNode(node.id, fields);
     onMutated();
+  };
+
+  // ---- ラン投影（docs/design.md 3.8）: アクティブなラン（現在ページの status==="running"
+  //      最新1本）がこのノードのワークアイテムを持っていれば、その進捗をパネルにも投影する。
+  //      テンプレートの patch（patchNode）ではなく、ランのアイテムを更新する（api.patchRunItem） ----
+  const activeRunItem = activeRun?.items[node.id] ?? null;
+  // ラン内フロンティア: 親の「ランのアイテム」が全部 done|skipped か（親がトリガー等でランに
+  // アイテムを持たない場合は「既に発火済み」として満たしている扱い。GraphView と同じ規則）
+  const runFrontier = !!(
+    activeRun &&
+    node.parents.every((pid) => {
+      const st = activeRun.items[pid]?.status;
+      return st === undefined || st === "done" || st === "skipped";
+    })
+  );
+  const [runItemBusy, setRunItemBusy] = useState(false);
+  const patchRunItemStatus = async (status: RunItemStatus) => {
+    if (!activeRun || runItemBusy) return;
+    setRunItemBusy(true);
+    try {
+      await api.patchRunItem(activeRun.id, node.id, { status });
+      onMutated();
+    } catch {
+      // api() 側でトースト表示済み
+    } finally {
+      setRunItemBusy(false);
+    }
   };
 
   // 実装の種類セレクトの変更。中身（path/text/command）は種類を跨いで保持しない
@@ -697,16 +727,66 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                 </Button>
               </div>
             )}
-            {/* ルーティーン（トリガーを持つページ）のメンバーはテンプレート＝進捗を持たない
-                （docs/design.md 3.8。進捗はラン側に付き、台帳ビューで見る）。パネルにも
-                進捗行を出さず注記に差し替える（2026-07-31 本人質問「実行後も待ちのまま」対応） */}
+            {/* ルーティーン（トリガーを持つページ）のメンバーはテンプレート＝それ自体は進捗を持たない
+                （docs/design.md 3.8。データモデルは不変——状態はラン側のみ）。ただし**アクティブな
+                ラン（status==="running"の最新1本）がある間だけ**、その進捗をプロジェクトと
+                同じ見た目・同じ操作で投影する（2026-07-31 本人合意）。ランが無ければ従来の注記のまま
+                （2026-07-31 本人質問「実行後も待ちのまま」対応） */}
             {node.kind !== "trigger" &&
               node.group != null &&
-              allNodes.some((n) => n.kind === "trigger" && n.group === node.group) && (
+              allNodes.some((n) => n.kind === "trigger" && n.group === node.group) &&
+              (activeRunItem ? (
+                <div className="col-span-2 flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">進捗（実行中のラン）:</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <StatusCircle status={activeRunItem.status} />
+                    {STATUS_JA[activeRunItem.status]}
+                  </span>
+                  <span className="flex-1" />
+                  {node.executor === "human" && activeRunItem.status === "pending" && !runFrontier && (
+                    <span className="text-xs text-muted-foreground">前のノードが終わると着手できます</span>
+                  )}
+                  {node.executor === "human" && activeRunItem.status === "pending" && runFrontier && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={runItemBusy}
+                      onClick={() => patchRunItemStatus("running")}
+                    >
+                      着手
+                    </Button>
+                  )}
+                  {node.executor === "human" &&
+                    ((activeRunItem.status === "pending" && runFrontier) || activeRunItem.status === "running") && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={runItemBusy}
+                        onClick={() => patchRunItemStatus("done")}
+                      >
+                        完了
+                      </Button>
+                    )}
+                  {node.executor === "human" && activeRunItem.status === "running" && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={runItemBusy}
+                      title="着手前（待ち）に戻す"
+                      onClick={() => patchRunItemStatus("pending")}
+                    >
+                      戻す
+                    </Button>
+                  )}
+                </div>
+              ) : (
                 <p className="col-span-2 text-xs text-muted-foreground">
                   ルーティーンのテンプレートです。進捗は実行（ラン）ごとに付きます——台帳ビューで確認できます
                 </p>
-              )}
+              ))}
             {node.kind !== "trigger" &&
               !(node.group != null && allNodes.some((n) => n.kind === "trigger" && n.group === node.group)) &&
               (() => {
