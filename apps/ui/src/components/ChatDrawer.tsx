@@ -263,8 +263,9 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
           <Icon name="x" size={15} />
         </Button>
       </div>
-      {/* タブ行に下線は付けない（NodePanel=Task AI 側と見た目を揃える。本人指定） */}
-      <div className="flex flex-shrink-0 items-center px-4 py-2">
+      {/* タブ行に下線は付けない・タブ下の余白は NodePanel=Task AI 側の gap-3(12px) に揃える
+          （本人指定）。タブ行は下パディング無しにし、下の各コンテナが pt-3 を持つ */}
+      <div className="flex flex-shrink-0 items-center px-4 pt-2">
         <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history")}>
           <TabsList>
             <TabsTrigger value="talk">
@@ -278,7 +279,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       </div>
       {tab === "talk" ? (
         <>
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4" ref={bodyRef}>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4 pt-3" ref={bodyRef}>
             {messages.length === 0 && !error && (
               <div className="py-2 text-sm text-muted-foreground">グラフの整理を話しかけてみてください</div>
             )}
@@ -336,7 +337,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
           </div>
         </>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-2 pt-3">
           {archiveLoading && <div className="p-2 text-sm text-muted-foreground">読み込み中…</div>}
           {!archiveLoading && archiveSessions.length === 0 && (
             <div className="p-2 text-sm text-muted-foreground">まだありません</div>
