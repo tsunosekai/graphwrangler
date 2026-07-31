@@ -17,7 +17,6 @@ import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
 import { pushToast } from "../lib/toast";
 import type { Node, NodeBranch } from "../types";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -489,33 +488,10 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
         </div>
       )}
 
-      {!metaOpen && (
-        <button
-          type="button"
-          className="flex flex-col items-stretch gap-1.5 rounded-md text-left text-muted-foreground hover:bg-accent/40"
-          onClick={() => setMetaOpen(true)}
-        >
-          <span className="flex flex-wrap items-center gap-1">
-            {[node.kind, node.executor, node.impact, node.lifecycle, node.status].map((v) => (
-              <Badge key={v} variant="outline" className="font-mono">
-                {v}
-              </Badge>
-            ))}
-          </span>
-          {node.detail && <span className="truncate text-sm text-muted-foreground">{node.detail}</span>}
-          <ChevronDown className="size-3.5 text-muted-foreground" />
-        </button>
-      )}
-
+      {/* 操作の主役は「詳細をたたむ」ではなく「会話を広げる」（2026-07-31 本人指定）。
+          既定は会話が広い状態（メタ非表示）で、切替はタブ行の右端のボタンが担う */}
       {metaOpen && (
         <>
-          <button
-            type="button"
-            className="flex items-center gap-1 text-left text-sm text-muted-foreground hover:text-foreground"
-            onClick={() => setMetaOpen(false)}
-          >
-            <ChevronUp className="size-3.5" /> たたむ
-          </button>
           <Textarea
             placeholder="detail / 補足"
             value={detailDraft}
@@ -814,16 +790,35 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
         />
       ))}
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history")} className="gap-3">
-        <TabsList>
-          <TabsTrigger value="talk">
-            <MessageSquare className="size-3.5" /> 会話
-          </TabsTrigger>
-          <TabsTrigger value="history">
-            <History className="size-3.5" /> 履歴
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="flex items-center justify-between">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history")} className="gap-3">
+          <TabsList>
+            <TabsTrigger value="talk">
+              <MessageSquare className="size-3.5" /> 会話
+            </TabsTrigger>
+            <TabsTrigger value="history">
+              <History className="size-3.5" /> 履歴
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          onClick={() => setMetaOpen((v) => !v)}
+        >
+          {metaOpen ? (
+            <>
+              <ChevronUp className="size-3.5" /> 会話を広げる
+            </>
+          ) : (
+            <>
+              <ChevronDown className="size-3.5" /> ノード詳細
+            </>
+          )}
+        </Button>
+      </div>
 
       <Thread
         nodeId={node.id}
