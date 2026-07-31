@@ -75,16 +75,17 @@
   --ring: rgba(15, 23, 42, 0.38);
 
   --ai: #0066dd;
-  /* 人間の緑。旧 #7a8500 は5pxのちょぼで灰(script #57606b)と見分けが付かなかった
-     （2026-07-31 本人指摘）。ダークの #adb600 と同系統のまま緑寄りに明るく */
-  --human: #7fa800;
+  /* 人間はオレンジ（2026-07-31 本人指定「人間の緑をオレンジにします」。
+     旧: 黄緑 #7fa800。実績のある旧 attention のオレンジを継承） */
+  --human: #f28c1d;
   --script: #57606b;
   --ok: #2f7a3d;
   --done: #9aa3ad;
   --dropped: #c7ccd1;
   --danger: #d0342c;
-  /* あなたの番（pendingRequest/waiting）。カード右肩の点・レールのちょぼで共通 */
-  --attention: #f28c1d;
+  /* あなたの番（pendingRequest/waiting）。人間がオレンジを取ったため紫へ移動
+     （同色だと通常の人間タスクと見分けが付かない=以前の本人指摘の再発を防ぐ） */
+  --attention: #8b5cf6;
   --edge: rgba(23, 27, 33, 0.22);
   --text-lo: #8790a0;
   --border-hover: rgba(15, 23, 42, 0.22);
@@ -114,13 +115,13 @@
   --ring: rgba(255, 255, 255, 0.45);
 
   --ai: #2e8fff;
-  --human: #adb600;
+  --human: #ff9f43; /* 人間=オレンジ（本人指定。旧: 黄緑 #adb600） */
   --script: #cfd6de;
   --ok: #93c98b;
   --done: #46525f;
   --dropped: #333c46;
   --danger: #ff5d5d;
-  --attention: #ff9f43;
+  --attention: #c084fc; /* あなたの番=紫（人間がオレンジを取ったため移動） */
   --edge: rgba(155, 170, 185, 0.3);
   --text-lo: #556372;
   --border-hover: rgba(255, 255, 255, 0.28);
