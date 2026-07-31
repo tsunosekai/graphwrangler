@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
+  CircleHelp,
   Copy,
   History,
   Loader2,
@@ -618,11 +619,19 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
               </Select>
             </label>
             <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
-              <span className="flex flex-col">
+              {/* 説明はインラインでなくヒント（ツールチップ）で出す（2026-07-31 本人指定） */}
+              <span className="flex items-center gap-1.5">
                 <span>不可逆</span>
-                <span className="text-xs text-muted-foreground">
-                  実行前に人間の承認ゲートを通る（外部公開・送信・削除など取り返しのつかない操作）
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex cursor-help text-muted-foreground">
+                      <CircleHelp className="size-3.5" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-64">
+                    実行前に人間の承認ゲートを通る（外部公開・送信・削除など取り返しのつかない操作）
+                  </TooltipContent>
+                </Tooltip>
               </span>
               <Switch
                 checked={node.impact === "irreversible"}
