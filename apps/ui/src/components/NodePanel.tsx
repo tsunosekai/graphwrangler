@@ -697,7 +697,18 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                 </Button>
               </div>
             )}
+            {/* ルーティーン（トリガーを持つページ）のメンバーはテンプレート＝進捗を持たない
+                （docs/design.md 3.8。進捗はラン側に付き、台帳ビューで見る）。パネルにも
+                進捗行を出さず注記に差し替える（2026-07-31 本人質問「実行後も待ちのまま」対応） */}
             {node.kind !== "trigger" &&
+              node.group != null &&
+              allNodes.some((n) => n.kind === "trigger" && n.group === node.group) && (
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  ルーティーンのテンプレートです。進捗は実行（ラン）ごとに付きます——台帳ビューで確認できます
+                </p>
+              )}
+            {node.kind !== "trigger" &&
+              !(node.group != null && allNodes.some((n) => n.kind === "trigger" && n.group === node.group)) &&
               (() => {
                 const vs = node.pendingRequest ? ("waiting" as const) : node.status;
                 // 実行フェーズの原則（docs/design.md 3.9）: 前へ進める操作（着手・完了）は
