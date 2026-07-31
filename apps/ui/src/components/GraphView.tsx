@@ -138,6 +138,18 @@ function GraphViewInner({
     [reportSelection],
   );
 
+  // パネルの✕などで選択が解除された（selectedId=null）ら、React Flow 内部の selected も
+  // 消す。残っていると、その後の何気ない操作（ドラッグ開始・ポーリング再描画等）で
+  // selection-change が発火した際に「まだ選択中」と解釈されてパネルが勝手に開き直す
+  // （2026-07-31 本人報告のバグ）
+  useEffect(() => {
+    if (selectedId !== null) return;
+    lastClickedRef.current = null;
+    setRfNodes((prev) =>
+      prev.some((n) => n.selected) ? prev.map((n) => (n.selected ? { ...n, selected: false } : n)) : prev,
+    );
+  }, [selectedId]);
+
   // React Flow のネイティブ選択（クリック/Shift+クリック/矩形選択）が変わった時。
   // 「最後に選択されたノード」は配列順では分からないため、直近クリックが選択集合に
   // 残っていればそれを優先し、無ければ（矩形選択など）配列末尾で妥協する
