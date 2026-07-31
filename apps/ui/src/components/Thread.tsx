@@ -14,7 +14,17 @@ interface Props {
   onMutated: () => void;
 }
 
-const AUTHOR_LABEL: Record<string, string> = { human: "人間", agent: "AI", system: "system" };
+/** 発言者の表示名。生の帰属文字列（task-ai:opus 等）ではなく AI の名前で出す
+ *  （2026-07-31 本人指定: ノードの会話欄に Task AI の名前を出す） */
+function authorLabel(author: { kind: string; name?: string | null }): string {
+  if (author.kind === "human") return "人間";
+  if (author.kind === "system") return "system";
+  const n = author.name ?? "";
+  if (n.startsWith("task-ai")) return "Task AI";
+  if (n.startsWith("chat") || n === "mcp") return "Workflow AI";
+  if (n.startsWith("executor") || n === "engine") return "実行AI";
+  return n || "AI";
+}
 
 // B-11: 返信下書きの保持。NodePanel は key={node.id} で再マウントされるため React state は
 // ノード切替のたびに消える。モジュールレベルの Map に退避し、戻ってきたら復元する（送信で消す）
@@ -107,10 +117,7 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
               )}
             >
               <div className="mb-1 flex gap-2 text-xs text-muted-foreground">
-                <span>
-                  {AUTHOR_LABEL[m.author.kind] ?? m.author.kind}
-                  {m.author.name ? `:${m.author.name}` : ""}
-                </span>
+                <span>{authorLabel(m.author)}</span>
                 <span>{m.via}</span>
                 <span>{new Date(m.ts).toLocaleString("ja-JP")}</span>
               </div>
