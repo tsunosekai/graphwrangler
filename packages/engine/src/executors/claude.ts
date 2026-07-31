@@ -100,6 +100,29 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
  * 同じ理由。docs/agent-contracts.md・zinsei CLAUDE.md 参照）。extraArgs 経由でもこの安全装置は
  * sanitizeExtraArgs で剥がすため上書きできない。
  */
+/**
+ * 子の claude に渡す環境変数の掃除。CLI方式（claude -p）は**ログイン済み資格情報
+ * （サブスクリプション）経路に固定**する（2026-07-31 本人方針「APIキー利用じゃダメ」。
+ * APIキー従量課金で使いたい場合は設定の接続方式 "api" を選ぶ、という切り分けに一致）。
+ * 落とすもの:
+ * - ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN: 継承されると claude がAPIキー課金経路に
+ *   流れてしまう
+ * - CLAUDE_CODE_* / CLAUDECODE / ANTHROPIC_BASE_URL 等: Claude Code セッション内から
+ *   起動された場合に継承され、ホストのプロキシ/セッション認証経路を有効にして
+ *   「OAuth session expired」で死ぬ（2026-07-31 実測）
+ * CLAUDE_CONFIG_DIR はユーザーの意図した設定なので残す。
+ * server/src/chat_cli.ts と同じ規則（変えたら両方直す）。
+ */
+export function sanitizedClaudeEnv(): NodeJS.ProcessEnv {
+  const drop =
+    /^(CLAUDE_CODE_|CLAUDE_PREVIEW_|CLAUDE_AGENT_SDK)|^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|ANTHROPIC_BASE_URL|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|AI_AGENT|BAGGAGE)$/;
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!drop.test(k)) env[k] = v;
+  }
+  return env;
+}
+
 export interface RunClaudeOptions {
   timeoutMs?: number;
   /** 作業ディレクトリ。ワークスペースモードでは workspace root を渡す（AI の
@@ -136,7 +159,11 @@ export function runClaude(
     const isWindows = process.platform === "win32";
     let child;
     try {
-      child = spawn(config.cliPath, args, { ...(isWindows ? { shell: true } : {}), ...(cwd ? { cwd } : {}) });
+      child = spawn(config.cliPath, args, {
+        ...(isWindows ? { shell: true } : {}),
+        ...(cwd ? { cwd } : {}),
+        env: sanitizedClaudeEnv(),
+      });
     } catch (err) {
       resolve({ success: false, output: "", error: `${config.cliPath} -p 起動失敗: ${String(err)}` });
       return;

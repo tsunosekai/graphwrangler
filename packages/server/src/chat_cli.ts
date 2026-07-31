@@ -23,6 +23,23 @@ const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
 const CLI_TIMEOUT_MS = 5 * 60 * 1000; // 5分
 const MAX_HISTORY_MESSAGES = 20; // 「最大10往復」= user+assistant で20件
 
+/**
+ * 子の claude に渡す環境変数の掃除。CLI方式はログイン済み資格情報（サブスクリプション）
+ * 経路に固定する（APIキーで使いたい場合は接続方式 "api" を選ぶ）。継承された
+ * ANTHROPIC_API_KEY や、Claude Code セッション内から起動された場合の CLAUDE_CODE_* /
+ * ANTHROPIC_BASE_URL は子の claude を誤経路・認証失敗に落とすため除去する（2026-07-31 実測）。
+ * packages/engine/src/executors/claude.ts の sanitizedClaudeEnv と同じ規則（変えたら両方直す）。
+ */
+function sanitizedClaudeEnv(): NodeJS.ProcessEnv {
+  const drop =
+    /^(CLAUDE_CODE_|CLAUDE_PREVIEW_|CLAUDE_AGENT_SDK)|^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|ANTHROPIC_BASE_URL|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|AI_AGENT|BAGGAGE)$/;
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!drop.test(k)) env[k] = v;
+  }
+  return env;
+}
+
 function sseChunk(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
@@ -221,7 +238,7 @@ function runCli(
     const isWindows = process.platform === "win32";
     let child;
     try {
-      child = spawn(cliPath, args, isWindows ? { shell: true } : undefined);
+      child = spawn(cliPath, args, { ...(isWindows ? { shell: true } : {}), env: sanitizedClaudeEnv() });
     } catch (err) {
       push({ type: "error", errorText: `${cliPath} の起動に失敗しました: ${String(err)}` });
       finish();
