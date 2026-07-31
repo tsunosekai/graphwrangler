@@ -128,11 +128,11 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       onClick={() => data.onSelect(node.id)}
       onDoubleClick={() => data.onDoubleClick(node.id)}
     >
-      {/* 担当の色帯（本人選定「A+D」2026-07-31）: カード左端4px。一覧を走査したとき
-          「誰の仕事か」が色で読める。色は exec-* クラスの --active-color を継承 */}
+      {/* 担当の丸タブ（本人選定 2026-07-31: 帯(A)は「ダサい」→ 形案2へ変更）:
+          左辺中央の小さな舌片。色は exec-* クラスの --active-color を継承 */}
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-l-[5px]"
+        className="pointer-events-none absolute -left-[3px] top-1/2 h-[22px] w-[6px] -translate-y-1/2 rounded-[4px]"
         style={{ background: "var(--active-color)" }}
       />
       {/* trigger は parents を持てない=グラフの起点（docs/design.md 3.4）。
