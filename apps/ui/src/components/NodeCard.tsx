@@ -90,12 +90,16 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // 破線=draft のカードに「完了」が出るのは筋が通らない（2026-07-31 本人指摘の紛れ）。
   // 「プラン済みにする」は lifecycle:"committed" まで含めた patch（status だけ変えても
   // draft+pending のノードでは何も起きない、が実際に起きたバグの修正）
+  // トリガーは進捗を持たない（3.8）が lifecycle は持つ。下書きトリガーの確定導線が
+  // 無かったため、カードにも「プラン済みにする」を出す（2026-07-31 本人報告）
   const phaseAction =
-    actionable && (node.status === "unplanned" || node.lifecycle === "draft")
-      ? { label: "プラン済みにする", patch: { status: "pending", lifecycle: "committed" } as const }
-      : actionable && node.status === "pending"
-        ? { label: "完了", patch: { status: "done" } as const }
-        : null;
+    !isTemplate && node.kind === "trigger" && node.lifecycle === "draft"
+      ? { label: "プラン済みにする", patch: { lifecycle: "committed" } as const }
+      : actionable && (node.status === "unplanned" || node.lifecycle === "draft")
+        ? { label: "プラン済みにする", patch: { status: "pending", lifecycle: "committed" } as const }
+        : actionable && node.status === "pending"
+          ? { label: "完了", patch: { status: "done" } as const }
+          : null;
 
   return (
     <div

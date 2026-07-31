@@ -599,6 +599,18 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                 質問が開いている（pendingRequest あり）間は status が何であれ「あなたの番」を優先して
                 描き、進捗ボタンも出さない（NodeCard の visualStatus / PageList の effStatus と同じ保険。
                 回答は上の判断カードから行う） */}
+            {/* トリガーは進捗を持たないが lifecycle は持つ。下書きの間だけ確定導線を出す
+                （2026-07-31 本人報告「トリガーをプラン済みにする方法がUIに無い」） */}
+            {node.kind === "trigger" && node.lifecycle === "draft" && (
+              <div className="col-span-2 flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">下書き（未確定）</span>
+                <span className="flex-1" />
+                <Button type="button" variant="outline" size="sm"
+                  onClick={() => patch({ lifecycle: "committed" })}>
+                  プラン済みにする
+                </Button>
+              </div>
+            )}
             {node.kind !== "trigger" &&
               (() => {
                 const vs = node.pendingRequest ? ("waiting" as const) : node.status;
