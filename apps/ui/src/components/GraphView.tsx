@@ -787,7 +787,9 @@ function GraphViewInner({
       }
       if (key === "F2") {
         const ids = getSelectedNodeIds();
-        if (ids.length === 1) {
+        // Fix済み（やり方確定）のノードはF2でのタイトル編集も開始しない
+        // （docs/design.md 3.5 実効化。NodeCard のダブルクリック編集と同じガード）
+        if (ids.length === 1 && !nodes.find((n) => n.id === ids[0])?.fixed) {
           e.preventDefault();
           setEditingId(ids[0]);
         }

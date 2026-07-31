@@ -12,12 +12,14 @@ import {
   type Actor,
   type Node,
   type NodeBranch,
+  type NodeImpl,
   NodeInputSchema,
   type NodeInput,
   NodePatchSchema,
   type NodePatch,
   type OpRecord,
   OpRecordSchema,
+  type ScriptParam,
   type WorkspaceFile,
   WorkspaceFileSchema,
 } from "./schema.js";
@@ -115,6 +117,65 @@ export function collectDescendantsAmong(nodes: Node[], id: string): Set<string> 
     }
   }
   return seen;
+}
+
+// ---- Fix（= ロック。やり方の確定）の実効化（docs/design.md 3.5）----
+//
+// Fix 中に守るのは「やり方」であって進捗ではない。保護対象は
+// title/detail/kind/executor/impact/parents/group/branches/parentOptions/schedule/impl
+// （impl は params[].value の変更だけ例外で許可——値は実行時入力でありやり方ではない）。
+// status/lifecycle/fixed/pendingRequest/implTrial/order/choice は進捗・ロック自体の
+// 操作なので常に変更できる（許可リストではなく、保護リストに載っていないもの全て、という形で表す）。
+
+const FIXED_PROTECTED_SIMPLE_FIELDS = [
+  "title",
+  "detail",
+  "kind",
+  "executor",
+  "impact",
+  "parents",
+  "group",
+  "branches",
+  "parentOptions",
+  "schedule",
+] as const satisfies readonly (keyof NodePatch)[];
+
+const FIXED_PATCH_MESSAGE = "Fix済みのノードのやり方は変更できません（先にロックを解除してください）";
+const FIXED_REMOVE_MESSAGE = "Fix済みのノードは削除できません（先にロックを解除してください）";
+const FIXED_UNDO_MESSAGE = "Fix済みのノードに関わる操作は元に戻せません（先にロックを解除してください）";
+
+/** impl の実質比較: script の params は value（実行時に人間が入力する値）を除いて比較する。
+ *  command・type・params の宣言（name/label/example）が同じで value だけ違う場合は
+ *  「やり方としては同じ」とみなす（docs/design.md 3.5 実効化）。graph.test.ts から直接検証する */
+export function implEqualIgnoringParamValues(a: NodeImpl | null, b: NodeImpl | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.type !== b.type) return false;
+  if (a.type === "doc") {
+    const other = b as Extract<NodeImpl, { type: "doc" }>;
+    return (a.text ?? null) === (other.text ?? null) && (a.path ?? null) === (other.path ?? null);
+  }
+  const other = b as Extract<NodeImpl, { type: "script" }>;
+  if (a.command !== other.command) return false;
+  const stripValues = (params: ScriptParam[] | null | undefined) =>
+    (params ?? []).map(({ value: _value, ...rest }) => rest);
+  return stableStringify(stripValues(a.params)) === stableStringify(stripValues(other.params));
+}
+
+/** 対象ノードが fixed のとき、patch が「やり方」フィールドを実質的に変更していないか検証する。
+ *  同値の patch（no-opの再送）は許可する。message は呼び出し文脈（直接 patch / undo の補償）で
+ *  使い分ける（docs/design.md 3.5 実効化）。fixed でなければ常に許可（早期return） */
+function assertPatchAllowedWhileFixed(current: Node, patch: NodePatch, message: string): void {
+  if (!current.fixed) return;
+  for (const field of FIXED_PROTECTED_SIMPLE_FIELDS) {
+    const next = patch[field];
+    if (next === undefined) continue;
+    if (stableStringify(next) !== stableStringify(current[field])) {
+      throw new GraphError(message, 409);
+    }
+  }
+  if (patch.impl !== undefined && !implEqualIgnoringParamValues(current.impl, patch.impl)) {
+    throw new GraphError(message, 409);
+  }
 }
 
 export class GraphStore {
@@ -219,6 +280,7 @@ export class GraphStore {
   patchNode(id: string, patch: NodePatch, meta: OpMeta = {}): Node {
     const current = this.get(id);
     const parsed = NodePatchSchema.parse(patch);
+    assertPatchAllowedWhileFixed(current, parsed, FIXED_PATCH_MESSAGE);
     if (parsed.parents) this.validateParents(id, parsed.parents);
     if (parsed.group !== undefined) this.validateGroup(id, parsed.group ?? null);
     if (parsed.kind !== undefined || parsed.branches !== undefined) {
@@ -319,9 +381,13 @@ export class GraphStore {
     }
   }
 
-  /** MVP: 子（依存の後続）またはメンバー（group で自分を指すノード）を持つノードは消せない */
+  /** MVP: 子（依存の後続）またはメンバー（group で自分を指すノード）を持つノードは消せない。
+   *  Fix済みのノードも消せない（docs/design.md 3.5 実効化: ロック中は削除できない） */
   removeNode(id: string, meta: OpMeta = {}): void {
-    this.get(id);
+    const node = this.get(id);
+    if (node.fixed) {
+      throw new GraphError(FIXED_REMOVE_MESSAGE, 409);
+    }
     const children = [...this.nodes.values()].filter((n) => n.parents.includes(id));
     if (children.length > 0) {
       throw new GraphError(
@@ -529,6 +595,11 @@ export class GraphStore {
         if (!this.nodes.has(id)) {
           throw new GraphError(`undo できません: ${id} は既に存在しません`, 409);
         }
+        // Fix済みノードの削除は補償でも拒否（docs/design.md 3.5 実効化。add の undo = 削除）
+        const existing = this.nodes.get(id)!;
+        if (existing.fixed) {
+          throw new GraphError(FIXED_UNDO_MESSAGE, 409);
+        }
         this.commit({ op: "node.remove", payload: { nodeId: id } }, meta, target.id);
         break;
       }
@@ -544,8 +615,12 @@ export class GraphStore {
         for (const key of Object.keys(target.payload.patch)) {
           inverse[key] = (prev as unknown as Record<string, unknown>)[key];
         }
+        const inversePatch = NodePatchSchema.parse(inverse);
+        // 現在 fixed なノードの「やり方」フィールドを戻す補償は拒否（fixed 自体の付け外しの
+        // 戻しだけは許可。docs/design.md 3.5 実効化）
+        assertPatchAllowedWhileFixed(cur, inversePatch, FIXED_UNDO_MESSAGE);
         this.commit(
-          { op: "node.patch", payload: { nodeId: id, patch: NodePatchSchema.parse(inverse) } },
+          { op: "node.patch", payload: { nodeId: id, patch: inversePatch } },
           meta,
           target.id,
         );
@@ -557,6 +632,11 @@ export class GraphStore {
         if (!prev) throw new GraphError(`undo できません: ${id} の削除前の状態が不明です`, 409);
         if (this.nodes.has(id)) {
           throw new GraphError(`undo できません: ${id} は既に再作成されています`, 409);
+        }
+        // 削除前に fixed だったノードの復活も拒否（現行の removeNode は fixed を消せないため
+        // 通常は起こらないが、過去ログ互換のための保険。docs/design.md 3.5 実効化）
+        if (prev.fixed) {
+          throw new GraphError(FIXED_UNDO_MESSAGE, 409);
         }
         this.commit({ op: "node.add", payload: { node: prev } }, meta, target.id);
         break;

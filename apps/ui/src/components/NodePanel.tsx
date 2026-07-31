@@ -94,11 +94,14 @@ function nextBranchId(existing: NodeBranch[]): string {
 function BranchRow({
   branch,
   disableRemove,
+  disabled,
   onCommit,
   onRemove,
 }: {
   branch: NodeBranch;
   disableRemove: boolean;
+  /** Fix済み（やり方確定=ロック）のノードでは枝編集自体を止める（docs/design.md 3.5 実効化） */
+  disabled?: boolean;
   onCommit: (label: string) => void;
   onRemove: () => void;
 }) {
@@ -113,6 +116,7 @@ function BranchRow({
       <Input
         className="h-8 flex-1"
         value={draft}
+        disabled={disabled}
         onFocus={() => setFocused(true)}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => {
@@ -128,8 +132,8 @@ function BranchRow({
         type="button"
         variant="ghost"
         size="icon-sm"
-        disabled={disableRemove}
-        title={disableRemove ? "分岐は最低2つ必要です" : "この枝を削除"}
+        disabled={disabled || disableRemove}
+        title={disabled ? "ロック中は編集できません" : disableRemove ? "分岐は最低2つ必要です" : "この枝を削除"}
         onClick={onRemove}
       >
         <Trash2 className="size-3.5" />
@@ -499,6 +503,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
         <Input
           className="flex-1 border-transparent bg-transparent text-lg font-semibold hover:border-input focus-visible:border-input"
           value={titleDraft}
+          disabled={node.fixed}
           onFocus={() => setTitleFocused(true)}
           onChange={(e) => setTitleDraft(e.target.value)}
           onBlur={saveTitle}
@@ -535,11 +540,18 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" onClick={handleDelete}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={node.fixed}
+              title={node.fixed ? "ロック中は削除できません" : undefined}
+              onClick={handleDelete}
+            >
               <Trash2 />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>このノードを削除</TooltipContent>
+          <TooltipContent>{node.fixed ? "ロック中は削除できません" : "このノードを削除"}</TooltipContent>
         </Tooltip>
         <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="閉じる">
           <X />
@@ -601,9 +613,18 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
           既定は会話が広い状態（メタ非表示）で、切替はタブ行の右端のボタンが担う */}
       {metaOpen && (
         <>
+          {/* Fix実効化の注記（docs/design.md 3.5）: ロック中は「やり方」フィールドの編集UIを
+              disabled にする。進捗（status）・params の値・試走・Fixトグル自体は生かしたまま */}
+          {node.fixed && (
+            <p className="text-xs text-muted-foreground">
+              🔒 Fix済み（やり方はロック中。編集するには解除）
+            </p>
+          )}
+
           <Textarea
             placeholder="detail / 補足"
             value={detailDraft}
+            disabled={node.fixed}
             onFocus={() => setDetailFocused(true)}
             onChange={(e) => setDetailDraft(e.target.value)}
             onBlur={saveDetail}
@@ -614,6 +635,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
             <Input
               placeholder="例: daily 09:00（v1は記録のみ）"
               value={scheduleDraft}
+              disabled={node.fixed}
               onFocus={() => setScheduleFocused(true)}
               onChange={(e) => setScheduleDraft(e.target.value)}
               onBlur={saveSchedule}
@@ -636,6 +658,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                     : "every 15m / daily 09:00 / weekly mon 09:00"
                 }
                 value={scheduleDraft}
+                disabled={node.fixed}
                 onFocus={() => setScheduleFocused(true)}
                 onChange={(e) => setScheduleDraft(e.target.value)}
                 onBlur={saveSchedule}
@@ -650,6 +673,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
               種別
               <Select
                 value={node.kind}
+                disabled={node.fixed}
                 onValueChange={(v) => {
                   const kind = v as Node["kind"];
                   // decision に切り替えた時、branches が未設定なら既定2枝を立てる（docs/design.md 3.9）
@@ -680,7 +704,11 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
             </label>
             <label className="flex flex-col gap-1 text-sm text-muted-foreground">
               担当
-              <Select value={node.executor} onValueChange={(v) => handleExecutorChange(v as Node["executor"])}>
+              <Select
+                value={node.executor}
+                disabled={node.fixed}
+                onValueChange={(v) => handleExecutorChange(v as Node["executor"])}
+              >
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {EXECUTOR_OPTIONS.map((k) => (
@@ -708,6 +736,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
               </span>
               <Switch
                 checked={node.impact === "irreversible"}
+                disabled={node.fixed}
                 onCheckedChange={(v) => patch({ impact: v ? "irreversible" : "safe" })}
               />
             </label>
@@ -855,6 +884,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
             </span>
             <Select
               value={node.impl === null ? "none" : node.impl.type}
+              disabled={node.fixed}
               onValueChange={(v) => setImplType(v as ImplTypeOption)}
             >
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -870,6 +900,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 <Input
                   placeholder="ワークスペース相対パス（例: docs/how-to.md）。text と両方あれば text 優先"
                   value={implPathDraft}
+                  disabled={node.fixed}
                   onFocus={() => setImplPathFocused(true)}
                   onChange={(e) => setImplPathDraft(e.target.value)}
                   onBlur={saveImplPath}
@@ -880,6 +911,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 <Textarea
                   placeholder="本文（path と両方あれば省略可。どちらか片方があればよい）"
                   value={implTextDraft}
+                  disabled={node.fixed}
                   onFocus={() => setImplTextFocused(true)}
                   onChange={(e) => setImplTextDraft(e.target.value)}
                   onBlur={saveImplText}
@@ -893,6 +925,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 <Input
                   placeholder="実行コマンド（引数が要るなら {name} プレースホルダを使う）"
                   value={implCommandDraft}
+                  disabled={node.fixed}
                   onFocus={() => setImplCommandFocused(true)}
                   onChange={(e) => setImplCommandDraft(e.target.value)}
                   onBlur={saveImplCommand}
@@ -902,6 +935,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 />
 
                 {/* パラメータ宣言（docs/design.md 3.5.1）: 宣言=AI、値=人間がここで入力。
+                    Fix中でも値の入力だけは活かす（docs/design.md 3.5 実効化: 値は実行時入力でやり方ではない）。
                     宣言の追加/削除UIはv1では作らない（Workflow AIが command と一緒に書く想定） */}
                 {(node.impl.params?.length ?? 0) > 0 && (
                   <div className="flex flex-col gap-1.5">
@@ -987,6 +1021,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                   key={b.id}
                   branch={b}
                   disableRemove={(node.branches?.length ?? 0) <= 2}
+                  disabled={node.fixed}
                   onCommit={(label) =>
                     patch({
                       branches: (node.branches ?? []).map((x) => (x.id === b.id ? { ...x, label } : x)),
@@ -999,6 +1034,8 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={node.fixed}
+                title={node.fixed ? "ロック中は編集できません" : undefined}
                 onClick={() =>
                   patch({
                     branches: [

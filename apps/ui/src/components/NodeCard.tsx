@@ -172,7 +172,11 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         ringOn && "is-selected border-border-strong shadow-[0_0_0_1px_var(--border-strong)]",
       )}
       onClick={() => data.onSelect(node.id)}
-      onDoubleClick={() => data.onDoubleClick(node.id)}
+      // Fix済み（やり方確定）のノードはタイトルのダブルクリック編集も無効にする
+      // （docs/design.md 3.5 実効化。編集してもサーバの409で弾かれるが、UI側でも入口を塞ぐ）
+      onDoubleClick={() => {
+        if (!node.fixed) data.onDoubleClick(node.id);
+      }}
     >
       {/* 担当の丸タブ（本人選定 2026-07-31: 帯(A)は「ダサい」→ 形案2へ変更）:
           左辺中央の小さな舌片。色は exec-* クラスの --active-color を継承 */}

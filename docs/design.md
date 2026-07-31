@@ -129,6 +129,19 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
   （s-tech の観察 2026-07-29: 面倒な作業のスクリプト化は各自やっている。やられていないのは
   進捗追跡・状態更新・受け渡し・トリガー=エッジ側。本ツールの価値の本体はフロー制御と
   状態追跡のほう）
+- **Fix はソフトな印ではなく実効的なロック**（2026-07-31 実装）: 保護対象は「やり方」
+  フィールド（title/detail/kind/executor/impact/parents/group/branches/parentOptions/
+  schedule/impl）で、fixed=true の間はサーバ（`GraphStore.patchNode`）がこれらの実質的な
+  変更を 409 で拒否する（同値の patch=no-op は許可）。impl だけ params[].value の変更は
+  例外で許可する——値は実行時入力であってやり方ではないため
+  （`implEqualIgnoringParamValues`、packages/core/src/graph.ts）。`removeNode` は fixed
+  ノードを拒否し、`undoLast`/`redoLast` の補償も fixed ノードの保護フィールドを変える・
+  削除する・復活させる操作は拒否する（ただし fixed フラグ自体の付け外しを戻す undo/redo は
+  許可——ロックは解除できる必要がある）。**進捗（status）と params の値・試走・fixed
+  自体はロック中も自由に動く**——ロックが守るのは「やり方」であって進捗ではない
+  （3.3 の梯子でいう「未計画→プラン済み→Fix」の最後の段。UI（NodePanel/NodeCard/
+  GraphView）はこれを反映して保護フィールドの編集UIを disabled にするが、実効性の根拠は
+  常にサーバ側の拒否である）
 
 ### 3.5.1 担当×実装の対応表と試走ゲート（2026-07-31 決定 → 同日実装済み）
 
