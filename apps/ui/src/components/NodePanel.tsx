@@ -957,27 +957,25 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 )}
 
                 <div className="flex flex-wrap items-center gap-2">
+                  {/* ラベルは「試走」だけにし、説明はツールチップへ（2026-07-31 本人指定）。
+                      試走=常に--dry-runの予告編なので、実行前承認ノードでも試走できる
+                      （旧「承認ノードは試走不可」ルールは撤廃） */}
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={node.impact === "irreversible" || trialRunning || missingParams.length > 0}
+                    disabled={trialRunning || missingParams.length > 0}
                     title={
-                      node.impact === "irreversible"
-                        ? "実行前承認が必要なノードは試走できません"
-                        : missingParams.length > 0
-                          ? `未入力: ${missingParams.join(", ")}`
-                          : undefined
+                      missingParams.length > 0
+                        ? `未入力: ${missingParams.join(", ")}`
+                        : "--dry-run 付きで実行します（何も変えず、やる予定の操作を表示するだけ）"
                     }
                     onClick={runTrial}
                   >
                     {trialRunning && <Loader2 className="size-3.5 animate-spin" />}
-                    試走（--dry-run 付き・副作用なし）
+                    試走
                   </Button>
-                  {node.impact === "irreversible" && (
-                    <span className="text-xs text-muted-foreground">実行前承認が必要なノードは試走できません</span>
-                  )}
-                  {node.impact !== "irreversible" && missingParams.length > 0 && (
+                  {missingParams.length > 0 && (
                     <span className="text-xs text-destructive">未入力: {missingParams.join(", ")}</span>
                   )}
                   {implStatus === "ok" && node.implTrial && (

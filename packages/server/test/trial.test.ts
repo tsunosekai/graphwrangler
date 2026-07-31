@@ -127,18 +127,11 @@ test("assertTrialAllowed: impl.type が doc なら 400", () => {
   );
 });
 
-test("assertTrialAllowed: impact が irreversible なら 400（不可逆ノードは試走できない）", () => {
-  assert.throws(
-    () =>
-      assertTrialAllowed(
-        fixedNode({ impl: { type: "script", command: "echo hi" }, impact: "irreversible" }),
-      ),
-    (err: unknown) => {
-      assert.ok(err instanceof GraphError);
-      assert.equal(err.status, 400);
-      assert.match((err as GraphError).message, /実行前承認/);
-      return true;
-    },
+test("assertTrialAllowed: impact が irreversible でも試走できる（試走=常に--dry-runの予告編。2026-07-31 旧ルール撤廃）", () => {
+  assert.doesNotThrow(() =>
+    assertTrialAllowed(
+      fixedNode({ impl: { type: "script", command: "echo hi" }, impact: "irreversible" }),
+    ),
   );
 });
 

@@ -314,7 +314,14 @@ function GraphViewInner({
             editing: n.id === editingId,
             isTemplate: isRoutine,
             isFrontier: isFrontierOf(n),
-            runItem: runItem ? { runId: activeRun!.id, status: runItem.status, note: runItem.note } : null,
+            // トリガーはランのアイテムを持たないが、ラン投影中は「発火済み=完了」として描く
+            // （2026-07-31 本人指示「トリガーも完了になれるように」。ランが存在する時点で
+            // トリガーの仕事=発火は済んでいる）
+            runItem: runItem
+              ? { runId: activeRun!.id, status: runItem.status, note: runItem.note }
+              : activeRun && n.kind === "trigger"
+                ? { runId: activeRun.id, status: "done" as const, note: null }
+                : null,
             isRunFrontier: isRunFrontierOf(n),
             unread,
             onSelect: (id: string) => onSelect(id),

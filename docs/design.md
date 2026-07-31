@@ -170,8 +170,9 @@ UI はこれを2種類の⚠として明示する:
 
 - `POST /api/nodes/:id/trial`（実装 `packages/server/src/trial.ts`）が command を実際に
   1回子プロセスで実行し、結果を `node.implTrial = {hash, success, ts}` としてノードへ記録する
-  （hash は command の sha256 hex）。impact="irreversible" のノードは試走できない
-  （承認ゲートの外で不可逆な副作用を走らせてしまうため）
+  （hash は command の sha256 hex）。impact="irreversible"（実行前承認）でも試走は可能
+  （試走は常に --dry-run の予告編で副作用が無いため。2026-07-31 に旧「承認ノードは
+  試走不可」ルールを撤廃——dry-run 固定化以前の名残だった）
 - **hash は鮮度チェック**: command を編集すると hash が変わり、過去の試走結果は
   「stale」（コマンドが変更されています）に落ちる。`implStatus(node)` が
   ok（hash一致+成功） / stale（hash不一致） / unverified（未試走、または hash一致でも

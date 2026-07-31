@@ -67,17 +67,15 @@ export function implStatus(node: Pick<Node, "impl" | "implTrial">): ImplStatus {
  * node.impl が {type:"script",command} であることが以降の型で保証される）。
  * 許可されなければ GraphError(400) を投げる。
  * - impl.type !== "script" のノードは試走できない（何を動かすか無い）
- * - impact === "irreversible" のノードは試走できない（承認ゲートの外で不可逆な副作用を
- *   走らせてしまうため。docs/design.md 3.4「不可逆な外部副作用は承認ゲートを通す」）
+ * - impact === "irreversible"（実行前承認）でも試走は**できる**: 試走は常に --dry-run の
+ *   予告編で副作用が無いため、承認ゲートと矛盾しない（2026-07-31 本人指示で旧ルール撤廃。
+ *   dry-run 固定化以前の名残だった）
  */
 export function assertTrialAllowed(
   node: Node,
 ): asserts node is Node & { impl: { type: "script"; command: string } } {
   if (!node.impl || node.impl.type !== "script") {
     throw new GraphError(`node ${node.id} の実装はスクリプトではありません（impl.type!=="script"）`, 400);
-  }
-  if (node.impact === "irreversible") {
-    throw new GraphError("実行前承認が必要なノードは試走できません", 400);
   }
 }
 
