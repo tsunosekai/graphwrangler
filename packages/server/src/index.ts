@@ -65,6 +65,11 @@ let runs: RunStore;
 let settings: SettingsStore;
 let serverModeLabel: string;
 
+/** Workflow AI の会話履歴の保存先（sidecar/chats/ または dataDir/chats/。threads と同じく
+ *  コミット対象＝gitignore に入れない。2026-07-31 本人要望「会話履歴も見れるように」で
+ *  localStorage からサーバ保存へ移行） */
+let chatsDir: string;
+
 if (workspaceArg) {
   const canonicalFile = resolveCanonicalFile(workspaceArg);
   const workspaceRoot = path.dirname(canonicalFile);
@@ -78,6 +83,7 @@ if (workspaceArg) {
   threads = new ThreadStore(sidecarDir);
   runs = new RunStore(sidecarDir);
   settings = new SettingsStore(sidecarDir); // settings.json は sidecar 配下＝gitignore 済みなのでAPIキーは漏れない
+  chatsDir = path.join(sidecarDir, "chats");
   serverModeLabel = `workspace: ${canonicalFile}`;
 } else {
   const dataDir = process.env.GRAPHWRANGLER_DATA ?? path.join(repoRoot, "data");
@@ -85,7 +91,16 @@ if (workspaceArg) {
   threads = new ThreadStore(dataDir);
   runs = new RunStore(dataDir);
   settings = new SettingsStore(dataDir);
+  chatsDir = path.join(dataDir, "chats");
   serverModeLabel = `data: ${dataDir}`;
+}
+
+// ---- Workflow AI 会話履歴の保存/取得（ページ単位の UIMessage[] スナップショット） ----
+
+function chatHistoryPath(pageId: string): string | null {
+  // ファイル名に使うのはノードid（n-... 形式）か "global" のみ。パス脱出を構造で防ぐ
+  if (!/^[A-Za-z0-9_-]+$/.test(pageId)) return null;
+  return path.join(chatsDir, `${pageId}.json`);
 }
 
 /** ラン既定タイトル「MM/DD HH:mm のラン」（docs/design.md 3.8） */
@@ -585,6 +600,31 @@ app.post("/api/settings", async (c) => {
   const body = SettingsPatchSchema.parse(await c.req.json());
   settings.update(body);
   return c.json(settings.publicView());
+});
+
+// Workflow AI の会話履歴（GET=読み込み / PUT=丸ごと保存。UIMessage[] はサーバでは
+// 不透明なJSONとして扱う。threads と同じくコミット対象）
+app.get("/api/chats/:pageId", (c) => {
+  const file = chatHistoryPath(c.req.param("pageId"));
+  if (!file) throw new GraphError("不正なページidです", 400);
+  if (!fs.existsSync(file)) return c.json({ messages: [] });
+  try {
+    return c.json({ messages: JSON.parse(fs.readFileSync(file, "utf8")) });
+  } catch {
+    return c.json({ messages: [] });
+  }
+});
+
+app.put("/api/chats/:pageId", async (c) => {
+  const file = chatHistoryPath(c.req.param("pageId"));
+  if (!file) throw new GraphError("不正なページidです", 400);
+  const body = await c.req.json();
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  fs.mkdirSync(chatsDir, { recursive: true });
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(messages, null, 2), "utf8");
+  fs.renameSync(tmp, file);
+  return c.json({ ok: true, count: messages.length });
 });
 
 // ---- チャット（M4: グラフ整理の Workflow AI。実装は chat.ts / chat_cli.ts） ----

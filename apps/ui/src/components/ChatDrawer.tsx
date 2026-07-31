@@ -21,18 +21,32 @@ interface Props {
   onClose: () => void;
 }
 
-// B-7: チャット履歴の永続化。ページ（or グローバル）ごとに localStorage へ保存する
-function storageKey(pageId: string | null): string {
-  return `gw.chat.${pageId ?? "global"}`;
+// B-7改: チャット履歴の永続化はサーバ（sidecar/chats/<pageId>.json、コミット対象）。
+// localStorage 保存は廃止（2026-07-31 本人要望「会話履歴も見れるように」——ブラウザ縛りを
+// やめ、スレッドと同じく経緯ごと版管理する）
+function chatKeyOf(pageId: string | null): string {
+  return pageId ?? "global";
 }
 
-function loadHistory(pageId: string | null): UIMessage[] {
+async function loadHistory(pageId: string | null): Promise<UIMessage[]> {
   try {
-    const raw = localStorage.getItem(storageKey(pageId));
-    return raw ? (JSON.parse(raw) as UIMessage[]) : [];
+    const res = await fetch(`/api/chats/${chatKeyOf(pageId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.messages) ? (data.messages as UIMessage[]) : [];
   } catch {
     return [];
   }
+}
+
+function saveHistory(pageId: string | null, messages: UIMessage[]): void {
+  void fetch(`/api/chats/${chatKeyOf(pageId)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ messages }),
+  }).catch(() => {
+    // 保存失敗は無視（履歴の永続化は補助機能）
+  });
 }
 
 /** 400等のJSONエラー本文（{error:"..."}）なら中身を、そうでなければそのまま返す */
@@ -70,10 +84,23 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   // 読み込み直す」に相当する
   const { messages, setMessages, sendMessage, status, error, stop } = useChat({
     id: pageId ?? "global",
-    messages: loadHistory(pageId),
     transport,
     onFinish: () => onMutated(),
   });
+
+  // ページ切替時にサーバから履歴を読み込む（保存は下の messages 変更 effect が担う。
+  // 読み込み完了までの間に古いページの内容を保存しないよう、ロード済みキーを追跡する）
+  const loadedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = chatKeyOf(pageId);
+    loadedKeyRef.current = null;
+    void loadHistory(pageId).then((history) => {
+      setMessages(history);
+      loadedKeyRef.current = key;
+    });
+    // setMessages は useChat の安定参照
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId]);
 
   const busy = status === "submitted" || status === "streaming";
 
@@ -96,22 +123,17 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, busy]);
 
-  // メッセージが変わるたびに該当ページの履歴として保存する
+  // メッセージが変わるたびに該当ページの履歴としてサーバへ保存する（応答中は流れるので
+  // 完了時=busyでない時だけ。ロード完了前のページは保存しない）
   useEffect(() => {
-    try {
-      localStorage.setItem(storageKey(pageId), JSON.stringify(messages));
-    } catch {
-      // 容量超過等は無視（履歴の永続化は補助機能）
-    }
-  }, [messages, pageId]);
+    if (busy) return;
+    if (loadedKeyRef.current !== chatKeyOf(pageId)) return;
+    saveHistory(pageId, messages);
+  }, [messages, pageId, busy]);
 
   const clearHistory = () => {
     setMessages([]);
-    try {
-      localStorage.removeItem(storageKey(pageId));
-    } catch {
-      // 無視
-    }
+    saveHistory(pageId, []);
   };
 
   const send = () => {
