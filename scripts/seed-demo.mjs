@@ -1,4 +1,7 @@
 // デモデータ投入スクリプト。空のデータディレクトリに対して実行する。
+// README のスクリーンショットはこのデータで撮っている。
+// 題材は「AIに任せる部分・人間が判断する部分・スクリプトに固める部分」が
+// 自然に混ざる実務ワークフロー（LP公開プロジェクト + 週次の競合ウォッチ）。
 // 注意: GraphWrangler 自身の開発タスクをデモに使わない（再帰的で頭がバグる）。
 // 使い方: node scripts/seed-demo.mjs [baseUrl]
 const BASE = process.argv[2] ?? "http://localhost:8770";
@@ -13,20 +16,21 @@ async function post(path, body) {
   return res.json();
 }
 
-// ---- ゴール1: 伝説のカレーを作る ----
+// ---- プロジェクト1: 新サービスのLPを公開する ----
+// AIが調査・起草を進め、人間は訴求軸の決定とレビューだけを返す構図。
 
-const curry = await post("/api/nodes", {
-  title: "伝説のカレーを作る",
+const lp = await post("/api/nodes", {
+  title: "新サービスのLPを公開する",
   kind: "goal",
-  detail: "近所で語り草になるレベルのカレー。妥協しない。",
+  detail: "リリースに合わせてランディングページを作って公開する。",
   lifecycle: "committed",
 });
 
 // ゴールは「先頭ノード」ではなく「ノード群のフォルダ」。メンバーは group で所属し、
 // 依存(parents)はメンバー同士の順序だけを表す。
 const research = await post("/api/nodes", {
-  title: "世界のカレーレシピを調査する",
-  group: curry.id,
+  title: "競合のLPを10本調査する",
+  group: lp.id,
   executor: "ai",
   status: "done",
   lifecycle: "committed",
@@ -34,309 +38,300 @@ const research = await post("/api/nodes", {
   via: "engine",
 });
 
-// status は指定しない（後で開く判断リクエストが waiting にする。以前ここで "running" を
-// 作為していたが、status と pendingRequest の食い違いの種になるのでやめた。2026-07-31）
-const blend = await post("/api/nodes", {
-  title: "スパイス配合を決める",
-  group: curry.id,
+// status は指定しない（後で開く判断リクエストが waiting にする）
+const axis = await post("/api/nodes", {
+  title: "訴求軸を決める",
+  group: lp.id,
   parents: [research.id],
   executor: "ai",
   lifecycle: "committed",
 });
 
-const shopping = await post("/api/nodes", {
-  title: "スパイスを買い出しに行く",
-  group: curry.id,
-  parents: [blend.id],
-  executor: "human",
-  detail: "大津屋かカルダモンの量り売りがある店。ガラムマサラは自作するので単品で。",
+const draft = await post("/api/nodes", {
+  title: "構成案とコピーを起草する",
+  group: lp.id,
+  parents: [axis.id],
+  executor: "ai",
+  detail: "決まった訴求軸でファーストビュー〜CTAまでの構成とコピーを書く",
   lifecycle: "committed",
 });
 
+// 未計画（やり方未定）の例
+const assets = await post("/api/nodes", {
+  title: "画像素材を用意する",
+  group: lp.id,
+  parents: [axis.id],
+  executor: "human",
+  status: "unplanned",
+  detail: "製品スクショと利用シーン写真。誰が撮るかまだ決めていない",
+  lifecycle: "draft",
+});
+
 // Fix（ロック）済み + impl=script の例: やり方が確定していて中身も決定的
-const scorer = await post("/api/nodes", {
-  title: "味見スコアを記録するスクリプト",
-  group: curry.id,
-  parents: [research.id],
+const build = await post("/api/nodes", {
+  title: "LPをビルドして検品する",
+  group: lp.id,
+  parents: [draft.id, assets.id],
   executor: "script",
-  detail: "試作ごとに辛さ・コク・香りを5段階で記録して回帰を検出する",
-  impl: { type: "script", command: "echo 記録完了: 辛さ3 コク4 香り5" },
+  detail: "静的ビルド + リンク切れ・画像欠けの機械チェック",
+  impl: { type: "script", command: "echo ビルド完了: リンク切れ0 画像欠け0" },
   fixed: true,
   lifecycle: "committed",
 });
 
-const cook = await post("/api/nodes", {
-  title: "試作1号を仕込む",
-  group: curry.id,
-  parents: [shopping.id, scorer.id],
-  executor: "human",
-  status: "unplanned", // やり方未定（「ここだけまだ考えてない」）の例
-  detail: "圧力鍋か土鍋か、仕込み方をまだ決めていない",
-  lifecycle: "draft",
-});
-
-const serve = await post("/api/nodes", {
-  title: "近所に振る舞う",
-  group: curry.id,
-  parents: [cook.id],
-  executor: "human",
-  impact: "irreversible",
-  detail: "一度振る舞ったら評判は取り消せない",
-  lifecycle: "draft",
-});
-
-// 分岐ノード（kind=decision。docs/design.md 3.9）の実例: 試食の評価。
-// 「試作1号を仕込む」の後続として置き、合格なら既存の「近所に振る舞う」へ、
-// 再調整なら新設の「配合を見直す」へ進む。
-// lifecycle は committed にする（親の「試作1号を仕込む」が unplanned=未完のままなので、
-// 実行フェーズゲート（docs/design.md 3.9）が「前のノードが終わっていない」で分岐を選ばせない
-// デモになる）
-const tasteCheck = await post("/api/nodes", {
-  title: "試食の評価",
-  group: curry.id,
-  parents: [cook.id],
+// 分岐ノード（kind=decision）: 公開前レビュー。OKなら公開、ダメなら構成へ差し戻し
+const review = await post("/api/nodes", {
+  title: "公開前レビュー",
+  group: lp.id,
+  parents: [build.id],
   kind: "decision",
   executor: "human",
-  detail: "味見して、このまま振る舞うか配合をやり直すかを決める",
+  detail: "ビルド結果を見て、公開するか構成へ差し戻すかを決める",
   branches: [
-    { id: "pass", label: "合格", then: "このまま近所に振る舞う" },
-    { id: "retry", label: "再調整", then: "配合を見直してもう一度仕込む" },
+    { id: "ship", label: "公開OK", then: "本番へ公開する" },
+    { id: "back", label: "差し戻し", then: "構成案からやり直す" },
   ],
   lifecycle: "committed",
 });
 
-// 既存の「近所に振る舞う」を、cook の直接の後続から「試食の評価」の合格枝の後続へ付け替える
-await post(`/api/nodes/${serve.id}`, {
-  parents: [tasteCheck.id],
-  parentOptions: { [tasteCheck.id]: "pass" },
+await post("/api/nodes", {
+  title: "本番へ公開する",
+  group: lp.id,
+  parents: [review.id],
+  parentOptions: { [review.id]: "ship" },
+  executor: "script",
+  impact: "irreversible", // 公開は取り消しても「見られた」事実は戻らない → 実行前承認
+  detail: "デプロイスクリプトで公開。実行前に必ず人間の承認を挟む",
+  impl: { type: "script", command: "echo デプロイ完了: https://example.com/lp" },
+  lifecycle: "draft",
 });
 
 await post("/api/nodes", {
-  title: "配合を見直す",
-  group: curry.id,
-  parents: [tasteCheck.id],
-  parentOptions: { [tasteCheck.id]: "retry" },
+  title: "構成案を修正する",
+  group: lp.id,
+  parents: [review.id],
+  parentOptions: { [review.id]: "back" },
   executor: "ai",
-  detail: "試食のフィードバックを踏まえてスパイス配合をやり直す",
+  detail: "レビューの指摘を反映して構成とコピーを直す",
   lifecycle: "draft",
 });
 
 // 調査ノードのスレッド（完了済みAIの仕事の跡）
 await post(`/api/nodes/${research.id}/messages`, {
   kind: "status",
-  body: "調査開始: 北インド/南インド/欧風/スリランカの4系統で情報収集",
+  body: "調査開始: 同価格帯のSaaS 10社のLPを構成・訴求・CTAの3点で比較",
   actor: { kind: "agent", name: "executor:claude" },
   via: "engine",
 });
 await post(`/api/nodes/${research.id}/messages`, {
   kind: "say",
-  body: "調査完了。スリランカ系のロースト深煎りが「伝説」方向に一番伸びしろがあります。モルディブフィッシュの代わりに鰹節が使える点も日本の台所と相性good。",
+  body: "調査完了。10本中7本が機能列挙型で、導入後の変化を見せているのは2本だけでした。「導入した後の1日」を見せる構成は差別化になります。",
   actor: { kind: "agent", name: "executor:claude" },
   via: "engine",
 });
 
-// 配合ノードに判断リクエスト（open のまま = 受信箱に載る）
-const req = await post(`/api/nodes/${blend.id}/request`, {
+// 訴求軸ノードに判断リクエスト（open のまま = あなたの番）
+const req = await post(`/api/nodes/${axis.id}/request`, {
   via: "engine",
   actor: { kind: "agent", name: "executor:claude" },
   request: {
     context:
-      "カレーの配合を詰めている。辛さの方針で唐辛子の種類と量が根本から変わるので、先に決めてほしい。",
-    question: "辛さはどのレベルにする？",
+      "競合調査の結果、刺さりそうな訴求軸は3つに絞れた。どれを主軸にするかで構成もコピーも根本から変わるので、先に決めてほしい。",
+    question: "LPの主軸はどの訴求で行く？",
     options: [
-      { id: "mild", label: "甘口", then: "家族全員が食べられる。伝説性は香りで稼ぐ" },
       {
-        id: "medium",
-        label: "中辛",
-        then: "辛さと香りのバランス型。万人向けの伝説",
+        id: "time",
+        label: "時短",
+        then: "「導入した後の1日」を見せる構成に。競合7割の機能列挙型と差別化できる",
         recommended: true,
       },
-      { id: "hot", label: "激辛", then: "明日を捨てる覚悟の配合になる。振る舞う相手を選ぶ" },
+      { id: "trust", label: "安心", then: "導入実績とサポート体制を前面に。堅い業界に刺さる" },
+      { id: "price", label: "価格", then: "最安級を打ち出す。比較サイト経由の流入には強い" },
     ],
     impact: "safe",
-    undo: "次の試作から変えられる",
+    undo: "構成案の段階なら差し替えは1日で済む",
     expires: null,
     on_expire: null,
   },
 });
 
 // ラリー（聞き返し）を1往復入れておく
-await post(`/api/nodes/${blend.id}/answer`, {
+await post(`/api/nodes/${axis.id}/answer`, {
   requestId: req.id,
   option: null,
-  note: "子どもも食べる可能性ある？",
+  note: "時短と安心って両方は無理なの？",
 });
-await post(`/api/nodes/${blend.id}/messages`, {
+await post(`/api/nodes/${axis.id}/messages`, {
   kind: "say",
-  body: "振る舞い先リストに小学生が2人います。甘口ベース+後がけ辛味オイルの二段構えも設計できます。",
+  body: "主軸は1つに絞るのが定石ですが、両立はできます。主軸=時短で構成を作り、安心は導入実績バッジとサポートの一行で「補強」に回す案を推します。",
   actor: { kind: "agent", name: "executor:claude" },
   via: "engine",
 });
 
-// ---- ゴール2: ベランダ菜園を軌道に乗せる ----
+// ---- プロジェクト2: ヘルプセンターを立ち上げる ----
 
-const garden = await post("/api/nodes", {
-  title: "ベランダ菜園を軌道に乗せる",
+const help = await post("/api/nodes", {
+  title: "ヘルプセンターを立ち上げる",
   kind: "goal",
   lifecycle: "committed",
 });
 
-const watering = await post("/api/nodes", {
-  title: "水やりリマインダーを自動化する",
-  group: garden.id,
-  executor: "script",
+const faq = await post("/api/nodes", {
+  title: "問い合わせ履歴からFAQを洗い出す",
+  group: help.id,
+  executor: "ai",
   status: "done",
   lifecycle: "committed",
 });
 
-await post("/api/nodes", {
-  title: "バジルの徒長を診断してもらう",
-  group: garden.id,
-  parents: [watering.id],
+const articles = await post("/api/nodes", {
+  title: "FAQ記事の下書きを書く",
+  group: help.id,
+  parents: [faq.id],
   executor: "ai",
-  detail: "写真を撮って原因(日照不足?水のやりすぎ?)を切り分ける",
+  detail: "洗い出した上位20問ぶん。トーンは既存ドキュメントに合わせる",
+  lifecycle: "committed",
+});
+
+await post("/api/nodes", {
+  title: "記事をレビューして公開する",
+  group: help.id,
+  parents: [articles.id],
+  executor: "human",
   lifecycle: "draft",
 });
 
-// 中止(dropped)の例
-await post("/api/nodes", {
-  title: "LED育成ライトを導入する",
-  group: garden.id,
-  executor: "human",
-  status: "dropped",
-  detail: "ベランダの日照で十分と判明したのでやめた",
-  lifecycle: "committed",
-});
+// ---- 完了済みプロジェクト（左レールのアーカイブ節に入る例） ----
 
-// ---- 完了済みゴール（左レールのアーカイブ節に入る例） ----
-
-const syrup = await post("/api/nodes", {
-  title: "梅シロップを仕込む",
+const logo = await post("/api/nodes", {
+  title: "社名ロゴを刷新する",
   kind: "goal",
   status: "done",
   lifecycle: "committed",
 });
 await post("/api/nodes", {
-  title: "青梅1kgを氷砂糖と漬ける",
-  group: syrup.id,
+  title: "デザイン案を選んで入稿する",
+  group: logo.id,
   executor: "human",
   status: "done",
   lifecycle: "committed",
 });
 
-// ---- ルーティーンページ: 毎朝のベランダ見回り（繰り返し、ランが流れる）。
-// docs/design.md 3.8 新モデル: 「ルーティーンであること」はページ種別(procedure)でなく、
-// 先頭に置く trigger ノードから導出される。ページ自体は goal のまま ----
+// ---- ルーティーン1: 週次の競合ウォッチ（トリガー起点。ランが流れる） ----
+// 収集=スクリプト、要約と影響度判定=AI、共有の判断=人間、という分担の定番形。
 
-const patrol = await post("/api/nodes", {
-  title: "毎朝のベランダ見回り",
+const watch = await post("/api/nodes", {
+  title: "週次の競合ウォッチ",
   kind: "goal",
-  detail: "起きたらベランダの状態を確認して記録する定例。",
+  detail: "競合の動きを毎週まとめて、重要なものだけチームに共有する。",
   lifecycle: "committed",
 });
 
-// トリガー（kind=trigger）: フロー先頭に置く起点ノード。parents は持てない。
-// executor=script + schedule="daily 07:30" = 毎朝7:30に発火するcron的な定期実行
-const patrolTrigger = await post("/api/nodes", {
-  title: "毎朝の起動",
-  group: patrol.id,
+const watchTrigger = await post("/api/nodes", {
+  title: "毎週月曜9時",
+  group: watch.id,
   kind: "trigger",
   executor: "script",
-  schedule: "daily 07:30",
+  schedule: "weekly mon 09:00",
   fixed: true,
   lifecycle: "committed",
 });
 
-const sensor = await post("/api/nodes", {
-  title: "土の乾き具合を記録する",
-  group: patrol.id,
-  parents: [patrolTrigger.id],
+const collect = await post("/api/nodes", {
+  title: "競合サイトの更新を収集する",
+  group: watch.id,
+  parents: [watchTrigger.id],
   executor: "script",
-  impl: { type: "script", command: "echo 土壌湿度: 34%（センサー読み取りのダミー）" },
+  impl: { type: "script", command: "echo 新着3件: 競合Aが料金改定、競合Bが新機能、競合Cが採用強化" },
+  fixed: true,
   lifecycle: "committed",
 });
 
-const diagnose = await post("/api/nodes", {
-  title: "様子から今日の世話を判断する",
-  group: patrol.id,
-  parents: [sensor.id],
+const summarize = await post("/api/nodes", {
+  title: "要約して影響度を判定する",
+  group: watch.id,
+  parents: [collect.id],
   executor: "ai",
   impl: {
     type: "doc",
-    text: "記録された土壌湿度と季節から、今日の水やり・肥料の要否を1〜2行で判断する。40%未満なら水やりを推奨。",
+    text: "収集された更新を各3行で要約し、自社への影響を高/中/低で判定する。「高」があればチーム共有を提案する。",
   },
   lifecycle: "committed",
 });
 
-await post("/api/nodes", {
-  title: "水やりする",
-  group: patrol.id,
-  parents: [diagnose.id],
+const share = await post("/api/nodes", {
+  title: "チームに共有する",
+  group: watch.id,
+  parents: [summarize.id],
   executor: "human",
+  detail: "影響「高」のときだけ。共有文はAIの要約をそのまま使ってよい",
   lifecycle: "committed",
 });
 
-// ラン1本を開始して、最初のワークアイテムだけ完了済みにしておく（台帳のデモ用）。
-// 発火はトリガーノードの /fire で行う（旧ラン作成APIは使わない。docs/design.md 3.8 新モデル）
-const run = await post(`/api/nodes/${patrolTrigger.id}/fire`, { via: "manual" });
-await post(`/api/runs/${run.id}/items/${sensor.id}`, {
+// ランを3本流しておく（台帳のデモ用）: 過去2本は完走、最新はAIが人間の番まで進めた状態
+for (let i = 0; i < 2; i++) {
+  const run = await post(`/api/nodes/${watchTrigger.id}/fire`, { via: "manual" });
+  for (const n of [collect, summarize]) {
+    await post(`/api/runs/${run.id}/items/${n.id}`, {
+      status: "done",
+      actor: { kind: "agent", name: "engine" },
+      via: "engine",
+    });
+  }
+  await post(`/api/runs/${run.id}/items/${share.id}`, {
+    status: "done",
+    actor: { kind: "human" },
+    via: "ui",
+  });
+}
+
+const runNow = await post(`/api/nodes/${watchTrigger.id}/fire`, { via: "manual" });
+await post(`/api/runs/${runNow.id}/items/${collect.id}`, {
   status: "done",
-  note: "土壌湿度: 34%",
+  note: "新着3件",
   actor: { kind: "agent", name: "executor:script" },
   via: "engine",
 });
+await post(`/api/runs/${runNow.id}/items/${summarize.id}`, {
+  status: "waiting",
+  note: "競合Aの料金改定は影響「高」。共有文を作ったので確認してほしい",
+  actor: { kind: "agent", name: "executor:claude" },
+  via: "engine",
+});
 
-// ---- ルーティーンページ2: AIトリガーの例（executor=ai + チェック間隔。
-// 発火するかどうか自体をAIが判断する。docs/design.md 3.8） ----
+// ---- ルーティーン2: 問い合わせの一次対応（AIトリガーの例。発火の判断自体をAIがする） ----
 
-const laundry = await post("/api/nodes", {
-  title: "洗濯物を雨から守る",
+const inbox = await post("/api/nodes", {
+  title: "問い合わせの一次対応",
   kind: "goal",
   lifecycle: "committed",
 });
-const rainCheck = await post("/api/nodes", {
-  title: "雨雲チェック",
-  group: laundry.id,
+const inboxTrigger = await post("/api/nodes", {
+  title: "未対応が溜まったら",
+  group: inbox.id,
   kind: "trigger",
   executor: "ai",
-  schedule: "every 3h",
-  detail: "予報と空模様から「そろそろ降る」と判断したら発火する",
+  schedule: "every 1h",
+  detail: "サポート宛の未対応メールが3件以上溜まっていたら発火する",
+  lifecycle: "committed",
+});
+const reply = await post("/api/nodes", {
+  title: "返信の下書きを作る",
+  group: inbox.id,
+  parents: [inboxTrigger.id],
+  executor: "ai",
+  impl: {
+    type: "doc",
+    text: "過去の回答例とヘルプ記事を根拠に、各問い合わせへの返信下書きを作る。判断がつかないものは人間へ回す。",
+  },
   lifecycle: "committed",
 });
 await post("/api/nodes", {
-  title: "ベランダの洗濯物を取り込む",
-  group: laundry.id,
-  parents: [rainCheck.id],
+  title: "確認して送信する",
+  group: inbox.id,
+  parents: [reply.id],
   executor: "human",
-  lifecycle: "committed",
-});
-
-// ---- ルーティーンページ3: 人間トリガーの例（executor=human = ▶手動発火が唯一の起動経路） ----
-
-const guests = await post("/api/nodes", {
-  title: "来客前の家リセット",
-  kind: "goal",
-  lifecycle: "committed",
-});
-const guestTrigger = await post("/api/nodes", {
-  title: "来客が決まったら",
-  group: guests.id,
-  kind: "trigger",
-  executor: "human",
-  lifecycle: "committed",
-});
-const tidy = await post("/api/nodes", {
-  title: "リビングを片付ける",
-  group: guests.id,
-  parents: [guestTrigger.id],
-  executor: "human",
-  lifecycle: "committed",
-});
-await post("/api/nodes", {
-  title: "トイレと洗面台を磨く",
-  group: guests.id,
-  parents: [tidy.id],
-  executor: "human",
+  impact: "irreversible", // 送ったメールは取り消せない → 実行前承認
   lifecycle: "committed",
 });
 
