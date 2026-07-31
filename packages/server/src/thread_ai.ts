@@ -6,6 +6,7 @@
 // 返した直後、await せずに maybeTriggerThreadAi を呼ぶ）。
 import type { Actor, GraphStore, Node, ThreadStore } from "@graphwrangler/core";
 import { spawn } from "node:child_process";
+import os from "node:os";
 import { chatKeyMissing, completeText } from "./chat.js";
 import { CLI_TIMEOUT_MS, sanitizedClaudeEnv } from "./chat_cli.js";
 import type { SettingsStore } from "./settings.js";
@@ -57,6 +58,7 @@ export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): stri
   const { node, parentTitles, pageTitle, history, newMessage } = input;
   const lines: string[] = [
     "あなたは Wrangler AI。タスクノードのスレッドで相談に乗る相棒として、簡潔に日本語で答えてください。",
+    "話題は以下のタスクノードそのもの。作業ディレクトリのソースコードやリポジトリの話はしない。",
     "",
     `ノード: ${node.title || "（無題）"}`,
   ];
@@ -92,13 +94,20 @@ export interface PlainCliResult {
  *  プロンプトは stdin 渡し（Windows の cmd.exe が改行入り argv を切り捨てる問題を避けるため。
  *  packages/engine/src/executors/claude.ts runClaude と同型）。sanitizedClaudeEnv・
  *  Windows の shell:true 判定・タイムアウト値は chat_cli.ts と共通化している */
-export function runPlainClaude(cliPath: string, cliModel: string, prompt: string): Promise<PlainCliResult> {
+export function runPlainClaude(
+  cliPath: string,
+  cliModel: string,
+  prompt: string,
+  cwd: string,
+): Promise<PlainCliResult> {
   return new Promise((resolve) => {
     const args = ["-p", "--model", cliModel];
     const isWindows = process.platform === "win32";
     let child;
     try {
-      child = spawn(cliPath, args, { ...(isWindows ? { shell: true } : {}), env: sanitizedClaudeEnv() });
+      // cwd 明示: サーバの cwd のまま起動すると claude が graphwrangler リポジトリを
+      // 自分のプロジェクトと誤認する（chat_cli.ts と同じ対策。2026-07-31 実測）
+      child = spawn(cliPath, args, { ...(isWindows ? { shell: true } : {}), env: sanitizedClaudeEnv(), cwd });
     } catch (err) {
       resolve({ success: false, output: "", error: `${cliPath} -p 起動失敗: ${String(err)}` });
       return;
@@ -188,7 +197,12 @@ async function respondInThread(
 
   if (chat.mode === "cli") {
     modelLabel = chat.cliModel;
-    const result = await runPlainClaude(chat.cliPath, chat.cliModel, prompt);
+    const result = await runPlainClaude(
+      chat.cliPath,
+      chat.cliModel,
+      prompt,
+      graph.workspaceInfo().root ?? os.tmpdir(),
+    );
     if (!result.success) {
       console.error(`[thread-ai] node ${node.id}: ヘッドレスCLIの起動に失敗しました: ${result.error}`);
       return;

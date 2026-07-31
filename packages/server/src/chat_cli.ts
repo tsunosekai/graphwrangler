@@ -290,6 +290,7 @@ function runCli(
   cliModel: string,
   prompt: string,
   system: string,
+  cwd: string,
   mcpConfigFile: string,
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
@@ -317,17 +318,22 @@ function runCli(
       resolve();
     };
 
+    // プロンプトは argv でなく **stdin** で渡す（複数行をそのまま渡せる。旧 cliSafeArg で
+    // 改行を潰す妥協を撤廃）。Windows の shell:true は引数を自前でクォートしないと
+    // **空白で分解される**ため、空白を含みうる引数（system）は winQuote で囲む
+    // （2026-07-31 実測: システムプロンプトが最初の空白でちぎれて文脈が届いていなかった）
+    const isWindows = process.platform === "win32";
+    const q = (s: string) => (isWindows ? `"${s.replace(/"/g, '\\"')}"` : s);
     const args = [
       "-p",
-      cliSafeArg(prompt),
       "--model",
       cliModel,
       "--mcp-config",
-      mcpConfigFile,
+      q(mcpConfigFile),
       "--allowedTools",
       "mcp__graphwrangler__*",
       "--append-system-prompt",
-      cliSafeArg(system),
+      q(cliSafeArg(system)),
       "--output-format",
       "stream-json",
       "--include-partial-messages",
@@ -337,15 +343,20 @@ function runCli(
 
     // Windows では claude が .cmd シム（cmd.exe 経由でないと直接起動できない）のため、
     // その場合だけ shell:true にする（packages/engine/src/executors/claude.ts と同型）
-    const isWindows = process.platform === "win32";
     let child;
     try {
-      child = spawn(cliPath, args, { ...(isWindows ? { shell: true } : {}), env: sanitizedClaudeEnv() });
+      // cwd を明示する: サーバの cwd（graphwrangler リポジトリ）のまま起動すると、
+      // claude がそのリポジトリを自分のプロジェクトだと思い込み、画面のグラフでなく
+      // ソースコードの話を始める（2026-07-31 実測）。ワークスペースモードなら
+      // workspace root、それ以外は中立な tmp
+      child = spawn(cliPath, args, { ...(isWindows ? { shell: true } : {}), env: sanitizedClaudeEnv(), cwd });
     } catch (err) {
       push({ type: "error", errorText: `${cliPath} の起動に失敗しました: ${String(err)}` });
       finish();
       return;
     }
+    child.stdin?.write(prompt);
+    child.stdin?.end();
 
     let stdoutBuf = "";
     let stderrBuf = "";
@@ -435,7 +446,16 @@ export function handleChatCli(
         controller.close();
         return;
       }
-      runCli(cliPath, cliModel, prompt, system, mcpConfigFile, controller, encoder).catch((err) => {
+      runCli(
+        cliPath,
+        cliModel,
+        prompt,
+        system,
+        graph.workspaceInfo().root ?? os.tmpdir(),
+        mcpConfigFile,
+        controller,
+        encoder,
+      ).catch((err) => {
         try {
           controller.enqueue(
             encoder.encode(sseChunk({ type: "error", errorText: `予期しないエラー: ${String(err)}` })),
