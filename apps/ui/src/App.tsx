@@ -13,11 +13,33 @@ import { isRoutinePage } from "./lib/routine";
 import { pushToast } from "./lib/toast";
 import type { Run } from "./types";
 
+/** localStorage の安全な読み書き（UI状態の永続化。2026-07-31 本人要望
+ *  「リロードしても開閉や幅を保持」。幅とテーマ・レール開閉は各コンポーネントで保存済み） */
+function loadUiState(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function saveUiState(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    // 無視（永続化は補助機能）
+  }
+}
+
 export default function App() {
   const { data, refresh } = usePolling(() => api.getState(), 3000);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [pageIdRaw, setPageId] = useState<string | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(() => loadUiState("gw.selectedId"));
+  const [pageIdRaw, setPageId] = useState<string | null>(() => loadUiState("gw.pageId"));
+  const [chatOpen, setChatOpen] = useState(() => loadUiState("gw.chatOpen") === "1");
+
+  useEffect(() => saveUiState("gw.selectedId", selectedId), [selectedId]);
+  useEffect(() => saveUiState("gw.pageId", pageIdRaw), [pageIdRaw]);
+  useEffect(() => saveUiState("gw.chatOpen", chatOpen ? "1" : "0"), [chatOpen]);
   // ノードエディタ標準の複数選択（QOL）: グラフ上での選択件数。NodePanel の「他N件選択中」表示に使う
   const [selectionCount, setSelectionCount] = useState(0);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);

@@ -138,8 +138,25 @@ function BranchRow({
 export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, selectedCount }: Props) {
   const [tab, setTab] = useState<"talk" | "history">("talk");
   // ノード詳細は既定で開いておく（2026-07-31 本人指定）。会話に集中したいときだけ
-  // タブ行右端の「会話を広げる」で閉じる
-  const [metaOpen, setMetaOpen] = useState(true);
+  // タブ行右端の「会話を広げる」で閉じる。開閉はリロードを跨いで保持
+  // （key={node.id} で再マウントされるため、ノード横断のグローバル設定として保存）
+  const [metaOpen, setMetaOpenRaw] = useState(() => {
+    try {
+      return localStorage.getItem("gw.metaOpen") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const setMetaOpen = (updater: (v: boolean) => boolean) =>
+    setMetaOpenRaw((v) => {
+      const next = updater(v);
+      try {
+        localStorage.setItem("gw.metaOpen", next ? "1" : "0");
+      } catch {
+        // 無視
+      }
+      return next;
+    });
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
   const { data: thread, refresh: refreshThread } = usePolling(() => api.getThread(node.id), 10000);
 
