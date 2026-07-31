@@ -118,6 +118,10 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）
   const fire = async () => {
     if (firing) return;
+    // 多重ラン防止（2026-07-31 本人事象: エンジン不在時に▶連打→幽霊ランが溜まり、
+    // 最新ラン完了後に投影が古いランへ切り替わって「完了が戻った」ように見えた）。
+    // アクティブなランがある間（=トリガーに投影 runItem が付いている間）は確認を挟む
+    if (runItem && !window.confirm("進行中のランがあります。もう1本開始しますか？")) return;
     setFiring(true);
     try {
       const run = await api.fireTrigger(node.id);
