@@ -137,14 +137,15 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder={
-              openRequests.length > 0 ? "聞き返す・相談する... (Ctrl/Cmd+Enter)" : "返信... (Ctrl/Cmd+Enter で送信)"
+              openRequests.length > 0
+                ? "聞き返す・相談する…（Enter で送信 / Shift+Enter で改行）"
+                : "返信…（Enter で送信 / Shift+Enter で改行）"
             }
             rows={2}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                sendReply();
-              }
+              if (e.key !== "Enter" || e.nativeEvent.isComposing || e.shiftKey) return;
+              e.preventDefault();
+              sendReply();
             }}
           />
           <Button type="button" variant="secondary" disabled={sending || !reply.trim()} onClick={sendReply}>

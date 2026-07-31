@@ -1,28 +1,13 @@
-// 内蔵チャット（M4）のメッセージ型 + 1メッセージ分の表示。
-// UIMessage(AI SDK v5系)の最小形（id/role/parts）を手で再現している。
-// ai パッケージは apps/ui の依存に無い（pnpm add 禁止）ため、SSE パースも含め自前実装。
+// 内蔵チャット（M4）の1メッセージ分の表示。
+// 型は自前定義をやめ、AI SDK v5系（ai / @ai-sdk/react）の UIMessage / UIMessagePart をそのまま使う
+// （B-x: useChat 移行に伴い、自前の ChatMessage/ChatPart 型は廃止。ai パッケージは apps/ui の
+// 依存としてこのタスクで追加した。docs/agent-contracts.md の「pnpm add 禁止」は既定の規律で、
+// 依頼元プロンプトで明示許可された例外。toolSummary の要約ロジックは従来のまま流用）
+import type { UIMessage, UIMessagePart, UIDataTypes, UITools } from "ai";
 import { cn } from "../lib/utils";
 import { Badge } from "./ui/badge";
 
-export type ChatTextPart = { type: "text"; text: string; state?: "streaming" | "done" };
-
-export type ChatToolPart = {
-  type: "dynamic-tool";
-  toolCallId: string;
-  toolName: string;
-  state: "input-streaming" | "input-available" | "output-available" | "output-error";
-  input?: unknown;
-  output?: unknown;
-  errorText?: string;
-};
-
-export type ChatPart = ChatTextPart | ChatToolPart;
-
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  parts: ChatPart[];
-}
+type ChatToolPart = Extract<UIMessagePart<UIDataTypes, UITools>, { type: "dynamic-tool" }>;
 
 function str(v: unknown): string {
   if (typeof v === "string") return v;
@@ -70,7 +55,7 @@ function toolSummary(part: ChatToolPart): string {
   return label;
 }
 
-export function ChatMessageView({ message }: { message: ChatMessage }) {
+export function ChatMessageView({ message }: { message: UIMessage }) {
   const isUser = message.role === "user";
   return (
     <div className={cn("flex max-w-[90%] flex-col gap-1.5", isUser ? "self-end" : "self-start")}>
@@ -89,20 +74,32 @@ export function ChatMessageView({ message }: { message: ChatMessage }) {
             </div>
           );
         }
-        return (
-          <Badge
-            key={part.toolCallId}
-            variant="outline"
-            className={cn(
-              "self-start",
-              part.state === "output-error"
-                ? "border-destructive/35 bg-destructive/[0.08] text-destructive"
-                : "border-ai/25 bg-ai/[0.08] text-muted-foreground",
-            )}
-          >
-            ⚙ {toolSummary(part)}
-          </Badge>
-        );
+        if (part.type === "reasoning") {
+          // 独り言（思考の合間のテキスト）。Claude Code に寄せ、吹き出しにはせず減光イタリックで流す
+          if (!part.text) return null;
+          return (
+            <div key={i} className="whitespace-pre-wrap break-words px-3 py-0.5 text-sm italic text-text-lo">
+              {part.text}
+            </div>
+          );
+        }
+        if (part.type === "dynamic-tool") {
+          return (
+            <Badge
+              key={part.toolCallId}
+              variant="outline"
+              className={cn(
+                "self-start",
+                part.state === "output-error"
+                  ? "border-destructive/35 bg-destructive/[0.08] text-destructive"
+                  : "border-ai/25 bg-ai/[0.08] text-muted-foreground",
+              )}
+            >
+              ⚙ {toolSummary(part)}
+            </Badge>
+          );
+        }
+        return null;
       })}
     </div>
   );

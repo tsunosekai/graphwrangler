@@ -130,14 +130,109 @@ function toolResultText(content: unknown): string {
   return content == null ? "" : JSON.stringify(content);
 }
 
+interface StreamEventContentBlock {
+  type: string;
+  text?: string;
+}
+
+interface StreamEventDelta {
+  type: string;
+  text?: string;
+  thinking?: string;
+}
+
+interface StreamEventPayload {
+  type: string;
+  index?: number;
+  content_block?: StreamEventContentBlock;
+  delta?: StreamEventDelta;
+  message?: { id?: string };
+}
+
+/** stream_event（--include-partial-messages）の content_block_start〜stop を跨いで
+ *  ブロックID・種別を追いかけるための状態。runCli の呼び出し1回（=1往復）につき1つ持つ */
+interface StreamJsonState {
+  messageId: string | null;
+  /** content_block の index → 発行済みのUIMessageStreamブロックID・種別 */
+  activeBlocks: Map<number, { id: string; kind: "text" | "reasoning" }>;
+}
+
+export function createStreamJsonState(): StreamJsonState {
+  return { messageId: null, activeBlocks: new Map() };
+}
+
+/** stream_event（トークン単位の部分メッセージ）を UIMessageStream チャンクへ変換する。
+ *  text/thinking(reasoning) 以外の content_block（tool_use等）は追跡対象に含めないため、
+ *  対応する content_block_delta（input_json_delta）は activeBlocks に見つからず自然に無視される */
+function emitStreamEvent(
+  event: StreamEventPayload,
+  state: StreamJsonState,
+  push: (chunk: Record<string, unknown>) => void,
+): void {
+  switch (event.type) {
+    case "message_start": {
+      state.messageId = event.message?.id ?? null;
+      state.activeBlocks.clear();
+      break;
+    }
+    case "content_block_start": {
+      const index = event.index;
+      const block = event.content_block;
+      if (index === undefined || !block) break;
+      const base = state.messageId ?? "msg";
+      if (block.type === "text") {
+        const id = `${base}-${index}`;
+        state.activeBlocks.set(index, { id, kind: "text" });
+        push({ type: "text-start", id });
+      } else if (block.type === "thinking") {
+        const id = `${base}-${index}`;
+        state.activeBlocks.set(index, { id, kind: "reasoning" });
+        push({ type: "reasoning-start", id });
+      }
+      // tool_use 等は追跡しない（ツールはフルメッセージ行=assistant/userイベント側で確定表示する）
+      break;
+    }
+    case "content_block_delta": {
+      const index = event.index;
+      if (index === undefined) break;
+      const active = state.activeBlocks.get(index);
+      if (!active) break; // tool_use の input_json_delta 等はここで無視される
+      const delta = event.delta;
+      if (active.kind === "text" && delta?.type === "text_delta" && typeof delta.text === "string") {
+        push({ type: "text-delta", id: active.id, delta: delta.text });
+      } else if (
+        active.kind === "reasoning" &&
+        delta?.type === "thinking_delta" &&
+        typeof delta.thinking === "string"
+      ) {
+        push({ type: "reasoning-delta", id: active.id, delta: delta.thinking });
+      }
+      break;
+    }
+    case "content_block_stop": {
+      const index = event.index;
+      if (index === undefined) break;
+      const active = state.activeBlocks.get(index);
+      if (!active) break;
+      push({ type: active.kind === "text" ? "text-end" : "reasoning-end", id: active.id });
+      state.activeBlocks.delete(index);
+      break;
+    }
+    default:
+      // message_delta / message_stop / ping 等は表示に不要なので無視する
+      break;
+  }
+}
+
 /** stream-json の1行を UIMessageStream(SSE) チャンクへ変換し、controller に enqueue する。
- *  claude -p はトークン単位ではなく「1メッセージ分まとまって」出力するため、テキストは
- *  text-start→text-delta(全文)→text-end を1セットとして流す（妥協点。ChatDrawer 側は
- *  差分の逐次結合なので害はない） */
-function emitStreamJsonLine(
+ *  --include-partial-messages 有効時は stream_event でトークン単位のテキスト/独り言(reasoning)
+ *  を先行して流し、確定済みの assistant/user フルメッセージ行からはツール呼び出しだけを
+ *  拾う（テキストブロックは stream_event 側で流し済みのため二重表示になるので出さない） */
+export function emitStreamJsonLine(
   line: string,
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
+  state: StreamJsonState,
 ): void {
   let event: Record<string, unknown>;
   try {
@@ -148,16 +243,19 @@ function emitStreamJsonLine(
 
   const push = (chunk: Record<string, unknown>) => controller.enqueue(encoder.encode(sseChunk(chunk)));
 
+  if (event.type === "stream_event") {
+    const inner = event.event as StreamEventPayload | undefined;
+    if (inner) emitStreamEvent(inner, state, push);
+    return;
+  }
+
   if (event.type === "assistant" || event.type === "user") {
     const message = event.message as { content?: ContentBlock[] } | undefined;
     const blocks = message?.content ?? [];
     for (const block of blocks) {
-      if (block.type === "text" && block.text) {
-        const id = `text-${randomUUID()}`;
-        push({ type: "text-start", id });
-        push({ type: "text-delta", id, delta: block.text });
-        push({ type: "text-end", id });
-      } else if (block.type === "tool_use" && block.id) {
+      // block.type === "text" は stream_event（content_block_start/delta/stop）で流し済みなので
+      // ここでは出さない（二重表示防止）。ツール呼び出し・結果はここでしか来ないので従来どおり処理する
+      if (block.type === "tool_use" && block.id) {
         push({
           type: "tool-input-available",
           toolCallId: block.id,
@@ -197,6 +295,8 @@ function runCli(
 ): Promise<void> {
   return new Promise((resolve) => {
     const push = (chunk: Record<string, unknown>) => controller.enqueue(encoder.encode(sseChunk(chunk)));
+    // stream_event（トークン単位の部分メッセージ）のブロック追跡状態。この呼び出し=1往復で使い切り
+    const streamState = createStreamJsonState();
     const finish = () => {
       try {
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -229,6 +329,7 @@ function runCli(
       cliSafeArg(system),
       "--output-format",
       "stream-json",
+      "--include-partial-messages",
       "--verbose",
       // --dangerously-skip-permissions は使わない（MCPツールは --allowedTools で許可済み）
     ];
@@ -262,7 +363,7 @@ function runCli(
       for (const line of lines) {
         if (!line.trim()) continue;
         sawAnyOutput = true;
-        emitStreamJsonLine(line, controller, encoder);
+        emitStreamJsonLine(line, controller, encoder, streamState);
       }
     });
     child.stderr?.on("data", (d: Buffer) => {
@@ -277,7 +378,7 @@ function runCli(
 
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (stdoutBuf.trim()) emitStreamJsonLine(stdoutBuf, controller, encoder);
+      if (stdoutBuf.trim()) emitStreamJsonLine(stdoutBuf, controller, encoder, streamState);
       if (timedOut) {
         push({ type: "error", errorText: "ヘッドレスCLIの応答がタイムアウトしました（5分）" });
         finish();
