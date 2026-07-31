@@ -56,7 +56,7 @@ export interface BuildThreadReplyPromptInput {
 export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): string {
   const { node, parentTitles, pageTitle, history, newMessage } = input;
   const lines: string[] = [
-    "あなたはタスクノードのスレッドで相談に乗る相棒。簡潔に日本語で答えてください。",
+    "あなたは Wrangler AI。タスクノードのスレッドで相談に乗る相棒として、簡潔に日本語で答えてください。",
     "",
     `ノード: ${node.title || "（無題）"}`,
   ];

@@ -56,7 +56,7 @@ test("buildThreadReplyPrompt はノード文脈・履歴・新しい発言を含
     newMessage: "この方針で進めていい？",
   });
 
-  assert.match(prompt, /あなたはタスクノードのスレッドで相談に乗る相棒/);
+  assert.match(prompt, /あなたは Wrangler AI。タスクノードのスレッドで相談に乗る相棒/);
   assert.match(prompt, /ノード: 設計を詰める/);
   assert.match(prompt, /詳細: M4のUI設計/);
   assert.match(prompt, /種別\(kind\): task/);

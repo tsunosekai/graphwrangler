@@ -1,4 +1,4 @@
-// 内蔵チャット（M4: グラフ整理の相棒AI）。
+// 内蔵チャット（M4: グラフ整理の Wrangler AI）。
 // Vercel AI SDK の streamText + tool-calling を使い、AIは人間のUI操作と同じ書き込み経路
 // （GraphStore/ThreadStore を直接呼ぶ）でグラフを変更する。帰属は docs/agent-contracts.md の
 // 規約どおり via:"chat" / actor:{kind:"agent", name:"chat:<model>"} に統一する。
@@ -76,7 +76,7 @@ function describeImpl(impl: Node["impl"]): string {
 }
 
 /** 表示中ページ（group=pageId）のメンバーノード一覧。多い場合は先頭 MEMBER_LIST_LIMIT 件
- *  + 「他N件」にする（相棒AIに「この画面に何があるか」を把握させるための文脈、機能2） */
+ *  + 「他N件」にする（Wrangler AI に「この画面に何があるか」を把握させるための文脈、機能2） */
 function pageMemberLines(graph: GraphStore, pageId: string | null): string[] {
   if (!pageId) return [];
   const members = graph.state().nodes.filter((n) => n.group === pageId);
@@ -101,7 +101,7 @@ function selectedNodeThreadLines(threads: ThreadStore, nodeId: string): string[]
   });
 }
 
-/** chat_cli.ts（chat.mode="cli"）でも同じ相棒AI人格を使うため export する。
+/** chat_cli.ts（chat.mode="cli"）でも同じ Wrangler AI 人格を使うため export する。
  *  機能2（2026-07-31）: 選択ノードの詳細文脈とページのメンバー一覧を加え、AIが
  *  「今開いている画面に何があるか」を把握できるようにする */
 export function systemPrompt(
@@ -136,7 +136,7 @@ export function systemPrompt(
   }
 
   return [
-    "あなたはタスクグラフ整理の相棒。ユーザーと会話しながらノードを作成・整理する。",
+    "あなたは Wrangler AI。タスクグラフ整理の相棒として、ユーザーと会話しながらノードを作成・整理する。",
     "勝手に大量のノードを作らず、分解は3〜8個の人間粒度で行うこと。",
     "ユーザーが明示した手順を勝手に変えない。削除は確認してから実行すること。",
     `現在表示中のページ: ${pageTitle}`,
