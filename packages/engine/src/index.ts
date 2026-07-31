@@ -74,7 +74,7 @@ const SETTINGS_REFRESH_MS = 10 * 60 * 1000; // 10分
 
 const DEFAULT_ENGINE_CONFIG: ClaudeExecutorConfig = {
   cliPath: "claude",
-  model: process.env.GW_ENGINE_CLAUDE_MODEL ?? "sonnet",
+  model: process.env.GW_ENGINE_CLAUDE_MODEL ?? "opus",
   extraArgs: [],
 };
 

@@ -23,7 +23,7 @@ export const ChatSettingsSchema = z.object({
   /** mode="cli" のときのヘッドレスCLI実行ファイル */
   cliPath: z.string().default("claude"),
   /** mode="cli" のときの --model */
-  cliModel: z.string().default("sonnet"),
+  cliModel: z.string().default("opus"),
 });
 
 export const EngineSettingsSchema = z.object({
@@ -31,7 +31,7 @@ export const EngineSettingsSchema = z.object({
   mode: z.enum(["cli", "api"]).default("cli"),
   /** AI executor の CLI。claude 以外（codex 等）も同じ形で差し替えられる。mode="cli" のときのみ使う */
   cliPath: z.string().default("claude"),
-  model: z.string().default("sonnet"),
+  model: z.string().default("opus"),
   extraArgs: z.array(z.string()).default([]),
   /** mode="api" のときのモデル。null = チャット側の既定モデルと同じ */
   apiModel: z.string().nullable().default(null),

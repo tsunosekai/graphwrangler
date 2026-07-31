@@ -32,7 +32,7 @@ function modelId(settings: SettingsStore): string {
   const configured = settings.get().chat.model;
   if (configured) return configured;
   if (process.env.GW_CHAT_MODEL) return process.env.GW_CHAT_MODEL;
-  return provider(settings) === "openai" ? "gpt-5" : "claude-sonnet-5";
+  return provider(settings) === "openai" ? "gpt-5" : "claude-opus-5";
 }
 
 /** APIキー未設定なら案内文を返す（ある場合は null）。index.ts のルートが 400 に変換する */

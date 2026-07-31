@@ -24,9 +24,33 @@ type ChatMode = "api" | "cli";
 type EngineMode = "cli" | "api";
 
 const CHAT_DEFAULT_MODEL: Record<"anthropic" | "openai", string> = {
-  anthropic: "claude-sonnet-5",
+  anthropic: "claude-opus-5",
   openai: "gpt-5",
 };
+
+// CLI（claude -p）のモデルは選択式（本人指定 2026-07-31。既定は Opus 5）。
+// claude CLI のエイリアス名をそのまま値にする。保存済みの値がリストに無い場合は
+// 「カスタム」として選択肢に足し、既存設定を壊さない
+const CLI_MODELS = [
+  { value: "opus", label: "Opus 5（高性能・既定）" },
+  { value: "sonnet", label: "Sonnet 5（標準）" },
+  { value: "haiku", label: "Haiku 4.5（高速）" },
+];
+
+function CliModelSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isCustom = value !== "" && !CLI_MODELS.some((m) => m.value === value);
+  return (
+    <Select value={value || "opus"} onValueChange={onChange}>
+      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        {CLI_MODELS.map((m) => (
+          <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+        ))}
+        {isCustom && <SelectItem value={value}>{value}（カスタム）</SelectItem>}
+      </SelectContent>
+    </Select>
+  );
+}
 
 const CHAT_MODE_DESC: Record<ChatMode, string> = {
   api: "APIキーで直接呼び出します。",
@@ -76,12 +100,12 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           provider,
           model: model.trim() || null,
           cliPath: chatCliPath.trim() || "claude",
-          cliModel: chatCliModel.trim() || "sonnet",
+          cliModel: chatCliModel.trim() || "opus",
         },
         engine: {
           mode: engineMode,
           cliPath: cliPath.trim() || "claude",
-          model: engineModel.trim() || "sonnet",
+          model: engineModel.trim() || "opus",
           extraArgs: extraArgs.trim() ? extraArgs.trim().split(/\s+/) : [],
           apiModel: engineApiModel.trim() || null,
         },
@@ -202,11 +226,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
               </label>
               <label className={field}>
                 <span>モデル</span>
-                <Input
-                  value={chatCliModel}
-                  onChange={(e) => setChatCliModel(e.target.value)}
-                  placeholder="sonnet"
-                />
+                <CliModelSelect value={chatCliModel} onChange={setChatCliModel} />
               </label>
             </>
           )}
@@ -234,11 +254,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
               </label>
               <label className={field}>
                 <span>モデル</span>
-                <Input
-                  value={engineModel}
-                  onChange={(e) => setEngineModel(e.target.value)}
-                  placeholder="sonnet"
-                />
+                <CliModelSelect value={engineModel} onChange={setEngineModel} />
               </label>
               <label className={field}>
                 <span>追加引数</span>
