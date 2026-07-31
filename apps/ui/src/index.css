@@ -393,3 +393,10 @@ body {
 .chat-md table { border-collapse: collapse; margin: 0.5em 0; display: block; overflow-x: auto; }
 .chat-md th, .chat-md td { border: 1px solid var(--border); padding: 0.25em 0.6em; }
 .chat-md hr { border: none; border-top: 1px solid var(--border); margin: 0.7em 0; }
+
+/* スクロールバーをシンプルな細い形に（本人指定: 既定のバーがダサい）。
+   Chromium 121+ / Firefox 対応の標準プロパティで統一する */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-lo) 55%, transparent) transparent;
+}

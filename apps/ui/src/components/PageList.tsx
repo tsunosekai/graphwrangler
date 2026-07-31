@@ -218,7 +218,9 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
 
   return (
     <div
-      className="relative flex flex-shrink-0 flex-col gap-px overflow-y-auto border-r border-border bg-muted p-1.5"
+      // overflow-x-hidden: リサイズハンドル（right:-3px）等のはみ出しが微小な横スクロールを
+      // 生む不具合の抑止（2026-07-31 本人報告）
+      className="relative flex flex-shrink-0 flex-col gap-px overflow-y-auto overflow-x-hidden border-r border-border bg-muted p-1.5"
       style={{ width }}
     >
       <div className="resize-handle resize-handle-right" onPointerDown={(e) => startResize(e, 1)} />
