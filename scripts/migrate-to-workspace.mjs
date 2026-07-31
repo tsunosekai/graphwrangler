@@ -67,6 +67,29 @@ function writeTextAtomic(file, content) {
   fs.renameSync(tmp, file);
 }
 
+// NodeSchema の .default() 付きフィールド（packages/core/src/schema.ts が正。**変えたら両方直す**）。
+// 旧スキーマ時代の snapshot はこれらのキーを欠いたノードを含みうる。欠いたまま書き出すと、
+// サーバ起動時に zod が補完した状態で「次の1コミット目」に全ノードへ一斉付与される
+// 無関係な全行diffが出る（2026-07-31 整合レビューで検出）ため、移行時点で補完しておく。
+const NODE_DEFAULTS = {
+  detail: null,
+  impl: null,
+  parents: [],
+  group: null,
+  kind: "task",
+  executor: "human",
+  impact: "safe",
+  lifecycle: "draft",
+  status: "unplanned",
+  fixed: false,
+  pendingRequest: null,
+  order: null,
+  schedule: null,
+  branches: null,
+  choice: null,
+  parentOptions: {},
+};
+
 const snapshotPath = path.join(dataDir, "snapshot.json");
 let nodes = [];
 if (fs.existsSync(snapshotPath)) {
@@ -75,6 +98,7 @@ if (fs.existsSync(snapshotPath)) {
 } else {
   console.warn(`警告: snapshot.json が見つかりません（空グラフとして続行します）: ${snapshotPath}`);
 }
+nodes = nodes.map((n) => ({ ...NODE_DEFAULTS, ...n }));
 // graph.ts の sortNodesById と同じ比較（id 昇順）
 nodes = [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 

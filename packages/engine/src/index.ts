@@ -107,17 +107,27 @@ async function refreshEngineConfig(force = false): Promise<void> {
   }
 }
 
-// ---- ワークスペース=1ファイル化: サーバの動作モード（起動時に1回取得。M-workspace） ----
-// script executor の cwd 決定（workspace root を渡す）と impl={type:"doc",path} の解決に使う。
-// 取得失敗時は null のまま（従来の data-dir モードと同じ挙動で継続する）
+// ---- ワークスペース=1ファイル化: サーバの動作モード（M-workspace） ----
+// script/AI executor の cwd 決定（workspace root を渡す）と impl={type:"doc",path} の解決に使う。
+// 取得失敗時は null のまま（従来の data-dir モードと同じ挙動で継続する）。
+// 起動時1回きりだとエンジンがサーバより先に起動したとき恒久的に null 固定になるため
+// （2026-07-31 整合レビューで検出）、未取得の間は毎 tick 再試行し、成功後は
+// refreshEngineConfig と同じ 10 分間隔で追随する（サーバのモード切替再起動にも追従）
 
 let workspaceRoot: string | null = null;
+let workspaceFetchedOk = false;
+let lastWorkspaceFetchAt = 0;
 
 async function refreshWorkspaceInfo(): Promise<void> {
+  const now = Date.now();
+  if (workspaceFetchedOk && now - lastWorkspaceFetchAt < SETTINGS_REFRESH_MS) return;
   try {
     const info = await getWorkspace();
+    workspaceFetchedOk = true;
+    lastWorkspaceFetchAt = now;
+    const prev = workspaceRoot;
     workspaceRoot = info.mode === "workspace" ? info.root : null;
-    if (workspaceRoot) log(`ワークスペースモードで接続: root=${workspaceRoot}`);
+    if (workspaceRoot && workspaceRoot !== prev) log(`ワークスペースモードで接続: root=${workspaceRoot}`);
   } catch (err) {
     log(`ワークスペース情報の取得に失敗（data-dirモード相当で継続）: ${String(err)}`);
   }
@@ -228,7 +238,7 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
         result = await runApi(built.prompt);
       } else {
         executorName = "executor:claude";
-        result = await runClaude(built.prompt, engineConfig);
+        result = await runClaude(built.prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
       }
     }
   }
@@ -355,7 +365,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       const node = action.node;
       const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
       const prompt = buildDecisionPrompt(node);
-      const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig);
+      const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
       if (!result.success) {
         const reason = result.error || "不明なエラー";
         await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
@@ -415,7 +425,7 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
         result = await runApi(built.prompt);
       } else {
         executorName = "executor:claude";
-        result = await runClaude(built.prompt, engineConfig);
+        result = await runClaude(built.prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
       }
     }
   }
@@ -681,7 +691,7 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
   // executor=ai
   const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
   const prompt = buildDecisionPrompt(node);
-  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig);
+  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
   if (!result.success) {
     const reason = result.error || "不明なエラー";
     await postMessage(
@@ -828,7 +838,7 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
 
   const prompt = buildTriggerPrompt(trigger, new Date(now));
   const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
-  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig);
+  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
 
   if (!result.success) {
     log(`AIトリガー判定に失敗（次周に持ち越し）: trigger=${trigger.id} title=${trigger.title} reason=${result.error}`);
@@ -893,6 +903,7 @@ async function triggerTick(nodes: Node[]): Promise<void> {
 
 async function tick(): Promise<void> {
   await refreshEngineConfig(); // 起動時+10分ごと（内部で throttle。M7）
+  await refreshWorkspaceInfo(); // 未取得なら毎tick再試行、取得後は10分ごと（内部で throttle）
 
   // UIの稼働インジケータ用ハートビート（失敗しても実行は続ける）
   void heartbeat().catch(() => {});

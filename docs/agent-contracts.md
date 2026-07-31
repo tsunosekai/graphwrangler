@@ -19,9 +19,11 @@ pnpm add / pnpm install を実行しない（依存は準備済み）。コー�
 - `POST /api/nodes/:id/answer` `{requestId, option, note?}`（option=null はラリー＝open のまま）
 
 ノードの形（apps/ui/src/types.ts / packages/core/src/schema.ts が正）:
-kind: goal|task|procedure / executor: human|ai|script / impact: safe|reversible|irreversible /
-lifecycle: draft|committed / status: unplanned|pending|running|waiting|done|dropped /
-impl: null | {type:"doc",text} | {type:"script",command} / group: 所属フォルダ / parents: 依存
+kind: goal|task|procedure|decision|trigger / executor: human|ai|script / impact: safe|reversible|irreversible /
+lifecycle: draft|committed / status: unplanned|pending|running|waiting|done|dropped|skipped /
+impl: null | {type:"doc",text,path} | {type:"script",command} / group: 所属フォルダ / parents: 依存 /
+schedule: kind=trigger(procedureも旧互換で)の起動方式 / branches: kind=decision の選択肢 /
+choice: kind=decision が確定した枝id / parentOptions: 親が decision のときどの枝から生えるか
 
 ## 帰属の規約
 

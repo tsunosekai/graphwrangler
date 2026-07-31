@@ -273,7 +273,9 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
                 <td
                   className={cn(
                     "sticky left-0 z-[1] flex min-w-40 items-center gap-1.5 border-b border-border bg-muted px-2.5 py-1.5",
-                    run.id === selectedRunId && "bg-[#131a22]",
+                    // sticky セルは不透明背景が必要なのでテーマ色 popover を使う
+                    // （旧: ダーク直書き #131a22。ライトモードで黒い行が浮いていた）
+                    run.id === selectedRunId && "bg-popover",
                   )}
                 >
                   <StatusCircle status={RUN_STATUS_TO_DISPLAY[run.status]} size={12} />

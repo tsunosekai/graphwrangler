@@ -100,11 +100,21 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
  * 同じ理由。docs/agent-contracts.md・zinsei CLAUDE.md 参照）。extraArgs 経由でもこの安全装置は
  * sanitizeExtraArgs で剥がすため上書きできない。
  */
+export interface RunClaudeOptions {
+  timeoutMs?: number;
+  /** 作業ディレクトリ。ワークスペースモードでは workspace root を渡す（AI の
+   *  Read/Grep/Glob がリポジトリ内の資料を素で読めるように。2026-07-31 整合レビューで
+   *  script executor だけ cwd 対応して AI 側が漏れていた穴を塞いだ）。省略時は
+   *  エンジンプロセスの cwd（従来挙動） */
+  cwd?: string;
+}
+
 export function runClaude(
   prompt: string,
   config: ClaudeExecutorConfig,
-  timeoutMs: number = CLAUDE_TIMEOUT_MS,
+  opts: RunClaudeOptions = {},
 ): Promise<ExecResult> {
+  const { timeoutMs = CLAUDE_TIMEOUT_MS, cwd } = opts;
   return new Promise((resolve) => {
     // プロンプトは argv ではなく **stdin** で渡す。Windows の shell:true は cmd.exe を経由し、
     // cmd.exe は改行を含む引数を黙って切り捨てる（2026-07-29 に chat_cli 側で実測）。
@@ -126,7 +136,7 @@ export function runClaude(
     const isWindows = process.platform === "win32";
     let child;
     try {
-      child = spawn(config.cliPath, args, isWindows ? { shell: true } : undefined);
+      child = spawn(config.cliPath, args, { ...(isWindows ? { shell: true } : {}), ...(cwd ? { cwd } : {}) });
     } catch (err) {
       resolve({ success: false, output: "", error: `${config.cliPath} -p 起動失敗: ${String(err)}` });
       return;

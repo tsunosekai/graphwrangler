@@ -44,8 +44,10 @@ pnpm --filter @graphwrangler/server start
 # 実行エンジン（committed なタスク/ランのアイテムを自動処理。claude CLI 必要）
 pnpm --filter @graphwrangler/engine start
 
-# 内蔵チャット: ANTHROPIC_API_KEY（または OPENAI_API_KEY + GW_CHAT_PROVIDER=openai）を
-# 設定してサーバを起動すると、UI右上の💬から相棒AIとグラフを整理できる
+# 内蔵チャット・実行エンジンとも既定の接続方式は CLI（ログイン済み claude CLI を
+# ヘッドレス起動）。APIキー方式を使いたい場合は UI右上の⚙「AI設定」で接続方式を
+# API に切り替えてキーを設定する（環境変数 ANTHROPIC_API_KEY / OPENAI_API_KEY +
+# GW_CHAT_PROVIDER=openai はその設定が無いときのフォールバック）
 
 # Claude Code から使う（MCP）:
 claude mcp add graphwrangler -- npx tsx <このリポジトリ>/packages/mcp/src/index.ts

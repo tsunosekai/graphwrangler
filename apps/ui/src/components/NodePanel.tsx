@@ -477,38 +477,45 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                 onCheckedChange={(v) => patch({ impact: v ? "irreversible" : "safe" })}
               />
             </label>
-            {/* トリガーに進捗はない（docs/design.md 3.8。発火はあってもステータス遷移という概念が無い） */}
-            {node.kind !== "trigger" && (
-              <div className="col-span-2 flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">進捗:</span>
-                <span className="inline-flex items-center gap-1.5">
-                  <StatusCircle status={node.status} />
-                  {STATUS_JA[node.status]}
-                </span>
-                <span className="flex-1" />
-                {node.status === "unplanned" && (
-                  <Button type="button" variant="outline" size="sm"
-                    onClick={() => patch({ status: "pending", lifecycle: "committed" })}>
-                    プラン済みにする
-                  </Button>
-                )}
-                {node.status === "pending" && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
-                    着手
-                  </Button>
-                )}
-                {(node.status === "pending" || node.status === "running") && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "done" })}>
-                    完了
-                  </Button>
-                )}
-                {node.status === "done" && (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => patch({ status: "pending" })}>
-                    戻す
-                  </Button>
-                )}
-              </div>
-            )}
+            {/* トリガーに進捗はない（docs/design.md 3.8。発火はあってもステータス遷移という概念が無い）。
+                質問が開いている（pendingRequest あり）間は status が何であれ「あなたの番」を優先して
+                描き、進捗ボタンも出さない（NodeCard の visualStatus / PageList の effStatus と同じ保険。
+                回答は上の判断カードから行う） */}
+            {node.kind !== "trigger" &&
+              (() => {
+                const vs = node.pendingRequest ? ("waiting" as const) : node.status;
+                return (
+                  <div className="col-span-2 flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">進捗:</span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <StatusCircle status={vs} />
+                      {STATUS_JA[vs]}
+                    </span>
+                    <span className="flex-1" />
+                    {vs === "unplanned" && (
+                      <Button type="button" variant="outline" size="sm"
+                        onClick={() => patch({ status: "pending", lifecycle: "committed" })}>
+                        プラン済みにする
+                      </Button>
+                    )}
+                    {vs === "pending" && (
+                      <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
+                        着手
+                      </Button>
+                    )}
+                    {(vs === "pending" || vs === "running") && (
+                      <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "done" })}>
+                        完了
+                      </Button>
+                    )}
+                    {vs === "done" && (
+                      <Button type="button" variant="ghost" size="sm" onClick={() => patch({ status: "pending" })}>
+                        戻す
+                      </Button>
+                    )}
+                  </div>
+                );
+              })()}
           </div>
 
           {/* decision の枝エディタ: ラベル編集+削除（最低2枝）+追加。id は既存のものを変更しない

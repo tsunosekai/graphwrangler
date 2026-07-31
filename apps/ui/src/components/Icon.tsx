@@ -1,7 +1,6 @@
 // zinsei desk のモノクロ・ストロークSVGアイコンを移植（絵文字不使用）。
 // stroke:currentColor なので色は親の color で決まる。
 const PATHS: Record<string, string> = {
-  cpu: 'M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3',
   user: 'M5 20c.8-3.5 3.5-5 7-5s6.2 1.5 7 5',
   gear: 'M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1',
   laptop: 'M2 19h20',
@@ -41,12 +40,6 @@ const PATHS: Record<string, string> = {
 
 // パスだけでは表せない形状（rect/circle）を含むアイコン
 const EXTRA: Record<string, React.ReactNode> = {
-  cpu: (
-    <>
-      <rect x="5" y="5" width="14" height="14" rx="2" />
-      <rect x="9.5" y="9.5" width="5" height="5" />
-    </>
-  ),
   user: <circle cx="12" cy="8" r="3.5" />,
   gear: <circle cx="12" cy="12" r="3.5" />,
   laptop: <rect x="4" y="5" width="16" height="11" rx="1.5" />,

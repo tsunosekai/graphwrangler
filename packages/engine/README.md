@@ -65,13 +65,19 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加�
    - 失敗リカバリ・承認ゲートいずれの場面でも `option=abort`/`skip` は `status=dropped` にする
 3. 実行:
    - **script**: `node.impl={type:"script",command}` を `shell:true` の子プロセスで実行
-     （cwd はリポジトリ外の `os.tmpdir()`、タイムアウト5分）。`impl` が script でない script
+     （タイムアウト5分）。cwd は data-dir モードではリポジトリ外の `os.tmpdir()`、
+     ワークスペースモード（正データファイルのあるディレクトリを開いている場合）では
+     ワークスペースルートに切り替わる。`impl` が script でない script
      ノードは「実装がない」として失敗扱い
    - **ai**: `<cliPath> -p <prompt> --model <model> [...extraArgs] --allowedTools Read Grep Glob WebSearch WebFetch`
      を子プロセスで起動（タイムアウト10分。cliPath/model/extraArgs は上記「エンジンAI設定」参照）。
      プロンプトはゴール(group先ノード)の title/detail、親ノードのスレッド末尾の say メッセージ、
      自ノードの title/detail、`impl={type:"doc"}` ならその全文を含む（`src/executors/claude.ts` の
-     `buildAiPrompt`。実際に組み込んだ文脈名は `sources: string[]` としても返す）
+     `buildAiPrompt`。実際に組み込んだ文脈名は `sources: string[]` としても返す）。
+     `impl={type:"doc"}` が `text` でなく `path`（ワークスペースモードでのリポジトリ内
+     ドキュメント参照）のときは、サーバの `GET /api/files`（ワークスペースルート基準で
+     解決・脱出ガード付き）で読んでからプロンプトへインラインする（`text` と `path` が
+     両方あれば `text` を優先）
 4. 結果の記録: 成功なら `status`+`say` メッセージを投稿して `status=done`。失敗/タイムアウトなら
    `status` メッセージを投稿して `status=waiting` にし、`POST /request` で
    もう一度/内容を変える/中止 の判断カードを開く。ai executor が投稿する `say` メッセージの
@@ -106,6 +112,8 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加�
   人間向けの理由文にしている
 - Windows では `claude` が `.cmd` シムのため `spawn` に `shell:true` を付けている
   （POSIX 側は argv をそのまま渡すため付けない）
+- Windows では子プロセスの標準出力/標準エラーをまず UTF-8 で厳密デコードし、失敗したら
+  Shift_JIS にフォールバックして読む（2026-07-31、日本語を含む出力が文字化けする問題への対策）
 
 ## 手順ページ（ラン）対応（M6後半）
 
