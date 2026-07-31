@@ -56,6 +56,7 @@ import {
   shouldFireScriptTrigger,
 } from "./trigger.js";
 import { runScript } from "./executors/script.js";
+import { missingParamsReason, substituteParams } from "./params.js";
 import { buildAiPrompt, runClaude, type ClaudeExecutorConfig } from "./executors/claude.js";
 import { runApi } from "./executors/api.js";
 import type { Actor, Message, Node, Run } from "./types.js";
@@ -221,7 +222,12 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     if (!node.impl || node.impl.type !== "script") {
       result = { success: false, output: "", error: "実装がない（impl が script 形式ではない）" };
     } else {
-      result = await runScript(node.impl.command, { cwd: workspaceRoot ?? undefined });
+      const sub = substituteParams(node.impl.command, node.impl.params);
+      if (!sub.ok) {
+        result = { success: false, output: "", error: missingParamsReason(sub.missing) };
+      } else {
+        result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
+      }
     }
   } else {
     const goal = node.group ? (nodes.find((n) => n.id === node.group) ?? null) : null;
@@ -338,7 +344,16 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
         );
         return true;
       }
-      const result = await runScript(node.impl.command, { cwd: workspaceRoot ?? undefined });
+      const sub = substituteParams(node.impl.command, node.impl.params);
+      if (!sub.ok) {
+        const reason = missingParamsReason(sub.missing);
+        await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
+        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
+        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+        log(`分岐: パラメータ未入力 id=${node.id} missing=${sub.missing.join(",")}`);
+        return true;
+      }
+      const result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
       if (!result.success) {
         const reason = result.error || "不明なエラー";
         await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
@@ -409,7 +424,12 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
     if (!node.impl || node.impl.type !== "script") {
       result = { success: false, output: "", error: "実装がない（impl が script 形式ではない）" };
     } else {
-      result = await runScript(node.impl.command, { cwd: workspaceRoot ?? undefined });
+      const sub = substituteParams(node.impl.command, node.impl.params);
+      if (!sub.ok) {
+        result = { success: false, output: "", error: missingParamsReason(sub.missing) };
+      } else {
+        result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
+      }
     }
   } else {
     const procedureNode = nodes.find((n) => n.id === run.procedure) ?? null;
@@ -644,7 +664,21 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
       );
       return;
     }
-    const result = await runScript(node.impl.command, { cwd: workspaceRoot ?? undefined });
+    const sub = substituteParams(node.impl.command, node.impl.params);
+    if (!sub.ok) {
+      const reason = missingParamsReason(sub.missing);
+      await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, payload }, actor, VIA);
+      await patchRunItem(
+        run.id,
+        node.id,
+        { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      log(`ラン分岐: パラメータ未入力 run=${run.id} node=${node.id} missing=${sub.missing.join(",")}`);
+      return;
+    }
+    const result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
     if (!result.success) {
       const reason = result.error || "不明なエラー";
       await postMessage(

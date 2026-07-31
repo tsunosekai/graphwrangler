@@ -29,7 +29,7 @@ import { handleChatCli } from "./chat_cli.js";
 import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema } from "./settings.js";
 import { resolveWorkspacePath } from "./files.js";
 import { maybeTriggerThreadAi } from "./thread_ai.js";
-import { assertTrialAllowed, runTrial, sha256Hex, trialCwd } from "./trial.js";
+import { assertTrialAllowed, runTrial, sha256Hex, substituteParams, trialCwd } from "./trial.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -260,21 +260,31 @@ app.post("/api/nodes/:id/remove", async (c) => {
 // impl.type==="script" の command を実際に1回動かし、implTrial（hash/success/ts）を
 // ノードに記録する。「実装をscriptにするのは宣言であって証明ではない」を埋めるための
 // ソフトゲート（ハードブロックはしない。人間が主導権を持つ思想）。
+// 2026-07-31: 試走は常に --dry-run 付きで実行する「予告編」に固定（AIが書くスクリプトは
+// --dry-run 実装が規約。docs/design.md 3.5.1）。パラメータ宣言（同節）があれば
+// substituteParams で {name} を値へ置換してから実行する。未入力があれば実行せず400。
 
 app.post("/api/nodes/:id/trial", async (c) => {
   const id = c.req.param("id");
   const node = graph.get(id);
   assertTrialAllowed(node); // 400: impl.type!=="script" または impact==="irreversible"
-  const command = node.impl.command;
+  const sub = substituteParams(node.impl.command, node.impl.params);
+  if (!sub.ok) {
+    throw new GraphError(`パラメータが未入力です: ${sub.missing.join(", ")}`, 400);
+  }
+  const resolvedCommand = `${sub.command} --dry-run`;
   const cwd = trialCwd(graph.workspaceInfo().root);
-  const result = await runTrial(command, cwd);
-  const implTrial = { hash: sha256Hex(command), success: result.success, ts: nowIso() };
+  const result = await runTrial(resolvedCommand, cwd);
+  // hash は command テンプレートのまま（値の変更だけでは stale にしない。既存挙動を維持）
+  const implTrial = { hash: sha256Hex(node.impl.command), success: result.success, ts: nowIso() };
   const updated = graph.patchNode(id, { implTrial }, { actor: { kind: "system" }, via: "ui" });
   const resultLabel = result.success ? "試走成功" : `試走失敗（exit ${result.exitCode}）`;
   threads.post(id, {
     kind: "status",
-    body: `${resultLabel}\n${result.output.slice(0, 500)}`.trim(),
-    payload: { implTrial },
+    // resolvedCommand（パラメータ置換後 + --dry-run の実コマンド）を本文に含めて、
+    // 追加UI無しでスレッド経由で見えるようにする（docs/design.md 3.5.1）
+    body: `${resultLabel}（--dry-run）\n実行: ${resolvedCommand}\n${result.output.slice(0, 500)}`.trim(),
+    payload: { implTrial, resolvedCommand },
     author: { kind: "system" },
     via: "ui",
   });
@@ -283,6 +293,7 @@ app.post("/api/nodes/:id/trial", async (c) => {
     exitCode: result.exitCode,
     output: result.output.slice(0, 2000),
     implTrial: updated.implTrial,
+    resolvedCommand,
   });
 });
 

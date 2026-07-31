@@ -4,13 +4,43 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import os from "node:os";
-import type { Node } from "@graphwrangler/core";
+import type { Node, ScriptParam } from "@graphwrangler/core";
 import { GraphError } from "@graphwrangler/core";
 
 /** command 文字列の sha256 hex（implTrial.hash の鮮度チェックに使う。UI 側は
  *  Web Crypto の crypto.subtle.digest("SHA-256", ...) で同じ値を計算する） */
 export function sha256Hex(command: string): string {
   return createHash("sha256").update(command, "utf8").digest("hex");
+}
+
+// ---- パラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1） ----
+
+export type SubstituteParamsResult = { ok: true; command: string } | { ok: false; missing: string[] };
+
+/**
+ * command 中の `{name}` プレースホルダを対応する params[].value へ置換する。
+ * 値は二重引用符で囲み、内部の `"` は `\"` にエスケープする（シェルへそのまま渡せる形）。
+ * 宣言に無い `{xxx}` や、value が未入力（null/空文字）の宣言が残っていれば
+ * `{ok:false, missing:[名前...]}` を返す（重複名は1回だけ）。
+ * packages/engine/src/params.ts に同じロジックを複製している（**変えたら両方直す**）。
+ */
+export function substituteParams(
+  command: string,
+  params: ScriptParam[] | null | undefined,
+): SubstituteParamsResult {
+  const declared = new Map((params ?? []).map((p) => [p.name, p]));
+  const missing: string[] = [];
+  const substituted = command.replace(/\{([^{}]+)\}/g, (_match, name: string) => {
+    const p = declared.get(name);
+    if (!p || p.value === null || p.value === undefined || p.value === "") {
+      if (!missing.includes(name)) missing.push(name);
+      return `{${name}}`;
+    }
+    const escaped = p.value.replace(/"/g, '\\"');
+    return `"${escaped}"`;
+  });
+  if (missing.length > 0) return { ok: false, missing };
+  return { ok: true, command: substituted };
 }
 
 export type ImplStatus = "ok" | "stale" | "unverified" | "not-script";

@@ -39,20 +39,38 @@ export const StatusSchema = z.enum([
   "skipped",
 ]);
 
+/** スクリプトのパラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1）。
+ *  宣言（name/label/example）は Workflow AI が書き、値（value）は人間がパネルで入力する。
+ *  command 中の `{name}` プレースホルダに対応する（server: substituteParams / engine: 複製、
+ *  UI: NodePanel が同じ規約で表示・編集する）。value が null/空文字のままだと未入力扱い */
+export const ScriptParamSchema = z.object({
+  name: z.string().min(1),
+  label: z.string().nullable().optional(),
+  example: z.string().nullable().optional(),
+  value: z.string().nullable().optional(),
+});
+export type ScriptParam = z.infer<typeof ScriptParamSchema>;
+
 /** ノードの実装形態（Fix3段階の後ろ2つ。null=会話段=AIの裁量で実行）
  *  - doc: 手順書。AI executor がこれを読んで実行する。text はインライン本文、path は
  *    ワークスペースモード（ワークスペース=1ファイル化）でリポジトリ内ファイルを指す相対パス
  *    （docs/design.md 「ワークスペース=1ファイル化」仕様）。どちらか片方があれば良く、
  *    両方あるときは text を優先する（engine 側の規約）。両方 null は実装未記入と同義で、
  *    既存データ（text だけ）はそのまま通る後方互換を維持する
- *  - script: 決定的スクリプト（シェルコマンド）。script executor が実行する */
+ *  - script: 決定的スクリプト（シェルコマンド）。script executor が実行する。command は
+ *    パラメータ宣言があれば `{name}` プレースホルダ入りのテンプレートになる。params は
+ *    無し/空配列/未指定のいずれでも旧データ互換で通る（既存データに params フィールドは無い） */
 export const NodeImplSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("doc"),
     text: z.string().min(1).nullable().optional(),
     path: z.string().min(1).nullable().optional(),
   }),
-  z.object({ type: z.literal("script"), command: z.string().min(1) }),
+  z.object({
+    type: z.literal("script"),
+    command: z.string().min(1),
+    params: z.array(ScriptParamSchema).nullable().optional(),
+  }),
 ]);
 export type NodeImpl = z.infer<typeof NodeImplSchema>;
 

@@ -5,7 +5,14 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import { GraphError } from "@graphwrangler/core";
 import type { Node } from "@graphwrangler/core";
-import { assertTrialAllowed, implStatus, runTrial, sha256Hex, trialCwd } from "../src/trial.js";
+import {
+  assertTrialAllowed,
+  implStatus,
+  runTrial,
+  sha256Hex,
+  substituteParams,
+  trialCwd,
+} from "../src/trial.js";
 
 /** テスト用の完全な Node フィクスチャ。必要なフィールドだけ上書きして使う */
 function fixedNode(overrides: Partial<Node> = {}): Node {
@@ -133,6 +140,58 @@ test("assertTrialAllowed: impact が irreversible なら 400（不可逆ノー�
       return true;
     },
   );
+});
+
+// ---- substituteParams（パラメータ宣言の置換。docs/design.md 3.5.1） ----
+
+test("substituteParams: 宣言なし・プレースホルダなしのcommandはそのまま通る", () => {
+  const result = substituteParams("echo hi", null);
+  assert.deepEqual(result, { ok: true, command: "echo hi" });
+});
+
+test("substituteParams: {name} を対応する value に置換し、二重引用符で囲む", () => {
+  const result = substituteParams("node run.mjs {target}", [
+    { name: "target", value: "foo" },
+  ]);
+  assert.deepEqual(result, { ok: true, command: 'node run.mjs "foo"' });
+});
+
+test("substituteParams: 複数のプレースホルダをそれぞれ置換する", () => {
+  const result = substituteParams("cp {src} {dest}", [
+    { name: "src", value: "a.txt" },
+    { name: "dest", value: "b.txt" },
+  ]);
+  assert.deepEqual(result, { ok: true, command: 'cp "a.txt" "b.txt"' });
+});
+
+test("substituteParams: value 内の二重引用符は \\\" にエスケープする", () => {
+  const result = substituteParams("echo {msg}", [{ name: "msg", value: 'say "hi"' }]);
+  assert.deepEqual(result, { ok: true, command: 'echo "say \\"hi\\""' });
+});
+
+test("substituteParams: value が未入力（null）の宣言が残っていれば missing に入る", () => {
+  const result = substituteParams("node run.mjs {target}", [{ name: "target", value: null }]);
+  assert.deepEqual(result, { ok: false, missing: ["target"] });
+});
+
+test("substituteParams: value が空文字の宣言も未入力扱い", () => {
+  const result = substituteParams("node run.mjs {target}", [{ name: "target", value: "" }]);
+  assert.deepEqual(result, { ok: false, missing: ["target"] });
+});
+
+test("substituteParams: 宣言に無い {xxx} は missing に入る", () => {
+  const result = substituteParams("node run.mjs {target}", []);
+  assert.deepEqual(result, { ok: false, missing: ["target"] });
+});
+
+test("substituteParams: missing は重複しない（同名プレースホルダが複数回出ても1回）", () => {
+  const result = substituteParams("echo {a} {a}", []);
+  assert.deepEqual(result, { ok: false, missing: ["a"] });
+});
+
+test("substituteParams: 未入力と成功が混在するときは未入力の名前だけ集める", () => {
+  const result = substituteParams("cp {src} {dest}", [{ name: "src", value: "a.txt" }]);
+  assert.deepEqual(result, { ok: false, missing: ["dest"] });
 });
 
 // ---- trialCwd ----

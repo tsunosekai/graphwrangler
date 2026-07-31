@@ -37,6 +37,7 @@ export type {
   RunItem,
   RunStatus,
   Run,
+  ScriptParam,
 } from "@graphwrangler/core";
 
 // engine 側は GET /thread が返す MaterializedMessage（requestStatus/answeredBy 導出済み）を

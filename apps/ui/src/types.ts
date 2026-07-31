@@ -19,12 +19,22 @@ export interface Actor {
  *  parents を持てない=グラフの起点であることを構造的に保証する） */
 export type NodeKind = "goal" | "task" | "procedure" | "decision" | "trigger";
 
+/** スクリプトのパラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1）。
+ *  宣言（name/label/example）は Workflow AI が書き、値（value）は人間がパネルで入力する。
+ *  command 中の `{name}` プレースホルダに対応する（packages/core/src/schema.ts ScriptParamSchema と同形） */
+export interface ScriptParam {
+  name: string;
+  label?: string | null;
+  example?: string | null;
+  value?: string | null;
+}
+
 /** ノードの実装形態（Fix3段階の後ろ2つ）。null = 会話段（AIの裁量で実行）。
  *  doc は text（インライン本文）/ path（ワークスペース内ファイルへの相対パス）のどちらか
  *  片方があればよい（両方あれば text 優先。packages/core/src/schema.ts NodeImplSchema と同形） */
 export type NodeImpl =
   | { type: "doc"; text?: string | null; path?: string | null }
-  | { type: "script"; command: string };
+  | { type: "script"; command: string; params?: ScriptParam[] | null };
 export type Executor = "human" | "ai" | "script";
 export type Impact = "safe" | "reversible" | "irreversible";
 export type Lifecycle = "draft" | "committed";

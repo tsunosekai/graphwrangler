@@ -16,8 +16,9 @@ import { api, type NodePatchInput } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
+import { missingParamNames } from "../lib/params";
 import { pushToast } from "../lib/toast";
-import type { Node, NodeBranch } from "../types";
+import type { Node, NodeBranch, ScriptParam } from "../types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -134,6 +135,42 @@ function BranchRow({
   );
 }
 
+/** パラメータ宣言(1件)の値入力行（docs/design.md 3.5.1）。宣言（name/label/example）は
+ *  Workflow AI が書く前提で v1 では追加/削除UIを持たず、値の編集だけを行う。
+ *  blur で確定する流儀は title/detail/BranchRow と同じ */
+function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState(param.value ?? "");
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(param.value ?? "");
+  }, [param.value, focused]);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className="w-24 flex-shrink-0 truncate text-xs text-muted-foreground"
+        title={param.name}
+      >
+        {param.label ?? param.name}
+      </span>
+      <Input
+        className="h-8 flex-1"
+        value={draft}
+        placeholder={param.example ?? undefined}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setFocused(false);
+          if (draft !== (param.value ?? "")) onCommit(draft);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+      />
+    </div>
+  );
+}
+
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
 export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, selectedCount }: Props) {
@@ -240,6 +277,12 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
     if (node.implTrial.hash !== scriptHash) return "stale";
     return node.implTrial.success ? "ok" : "unverified";
   }, [node.impl, node.implTrial, scriptHash]);
+
+  // パラメータ宣言の未入力チェック（docs/design.md 3.5.1）。試走ボタンの disabled 判定に使う
+  const missingParams = useMemo(
+    () => (node.impl?.type === "script" ? missingParamNames(node.impl.command, node.impl.params) : []),
+    [node.impl],
+  );
 
   const [trialRunning, setTrialRunning] = useState(false);
   const runTrial = async () => {
@@ -741,7 +784,7 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
             {node.impl?.type === "script" && (
               <>
                 <Input
-                  placeholder="実行コマンド"
+                  placeholder="実行コマンド（引数が要るなら {name} プレースホルダを使う）"
                   value={implCommandDraft}
                   onFocus={() => setImplCommandFocused(true)}
                   onChange={(e) => setImplCommandDraft(e.target.value)}
@@ -750,20 +793,51 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                   }}
                 />
+
+                {/* パラメータ宣言（docs/design.md 3.5.1）: 宣言=AI、値=人間がここで入力。
+                    宣言の追加/削除UIはv1では作らない（Workflow AIが command と一緒に書く想定） */}
+                {(node.impl.params?.length ?? 0) > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">パラメータ</span>
+                    {node.impl.params!.map((p) => (
+                      <ParamRow
+                        key={p.name}
+                        param={p}
+                        onCommit={(value) => {
+                          if (node.impl?.type !== "script") return;
+                          const params = (node.impl.params ?? []).map((x) =>
+                            x.name === p.name ? { ...x, value: value || null } : x,
+                          );
+                          patch({ impl: { type: "script", command: node.impl.command, params } });
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={node.impact === "irreversible" || trialRunning}
-                    title={node.impact === "irreversible" ? "不可逆ノードは試走できません" : undefined}
+                    disabled={node.impact === "irreversible" || trialRunning || missingParams.length > 0}
+                    title={
+                      node.impact === "irreversible"
+                        ? "不可逆ノードは試走できません"
+                        : missingParams.length > 0
+                          ? `未入力: ${missingParams.join(", ")}`
+                          : undefined
+                    }
                     onClick={runTrial}
                   >
                     {trialRunning && <Loader2 className="size-3.5 animate-spin" />}
-                    試走
+                    試走（--dry-run 付き・副作用なし）
                   </Button>
                   {node.impact === "irreversible" && (
                     <span className="text-xs text-muted-foreground">不可逆ノードは試走できません</span>
+                  )}
+                  {node.impact !== "irreversible" && missingParams.length > 0 && (
+                    <span className="text-xs text-destructive">未入力: {missingParams.join(", ")}</span>
                   )}
                   {implStatus === "ok" && node.implTrial && (
                     <span className="text-xs text-ok">

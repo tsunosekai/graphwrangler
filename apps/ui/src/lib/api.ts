@@ -121,10 +121,14 @@ export const api = {
   // ---- スクリプト試走（試走ゲート。docs/design.md 3.5 近く。実装は packages/server/src/trial.ts） ----
 
   trialNode: (id: string) =>
-    request<{ success: boolean; exitCode: number | null; output: string; implTrial: ImplTrial | null }>(
-      `/nodes/${id}/trial`,
-      { method: "POST", body: "{}" },
-    ),
+    request<{
+      success: boolean;
+      exitCode: number | null;
+      output: string;
+      implTrial: ImplTrial | null;
+      /** 実際に実行した実コマンド（パラメータ置換後 + --dry-run。docs/design.md 3.5.1） */
+      resolvedCommand: string;
+    }>(`/nodes/${id}/trial`, { method: "POST", body: "{}" }),
 
   getThread: (id: string) => request<{ messages: MaterializedMessage[] }>(`/nodes/${id}/thread`),
 
