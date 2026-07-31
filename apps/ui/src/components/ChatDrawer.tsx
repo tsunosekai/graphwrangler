@@ -9,7 +9,7 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
-import { ChatMessageView } from "./ChatMessage";
+import { ChatMessageView, toolActivityLabel } from "./ChatMessage";
 import { Icon } from "./Icon";
 
 interface Props {
@@ -76,6 +76,21 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   });
 
   const busy = status === "submitted" || status === "streaming";
+
+  // 「考え中」の文言を、実行中のツールに応じた進行形にする（2026-07-31 本人要望
+  // 「ファイルを読んでます、とか出せない？」）。最後のアシスタントメッセージ末尾から、
+  // まだ結果が返っていないツールパートを探す
+  const workingLabel = (() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return "考え中";
+    for (let i = last.parts.length - 1; i >= 0; i--) {
+      const p = last.parts[i];
+      if (p.type === "dynamic-tool" && p.state !== "output-available" && p.state !== "output-error") {
+        return toolActivityLabel(p.toolName);
+      }
+    }
+    return "考え中";
+  })();
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
@@ -146,7 +161,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
         {busy && (
           <div className="flex items-center gap-1.5 self-start px-1 py-1 text-sm text-text-lo">
             <span className="animate-pulse">✳</span>
-            <span>考え中</span>
+            <span>{workingLabel}</span>
             <span className="inline-flex items-center gap-0.5">
               <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "0ms" }} />
               <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "150ms" }} />

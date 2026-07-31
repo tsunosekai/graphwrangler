@@ -24,6 +24,41 @@ function idOf(v: unknown): string {
   return "?";
 }
 
+/** Read / read_file の入力からファイル名（末尾要素）を取り出す */
+function fileLabel(input: unknown): string {
+  const o = input as Record<string, unknown> | undefined;
+  const p = (o?.file_path ?? o?.path) as string | undefined;
+  if (typeof p !== "string" || !p) return "?";
+  return p.split(/[\\/]/).pop() ?? p;
+}
+
+/** 「考え中」インジケータ用: 実行中ツールの進行形ラベル（2026-07-31 本人要望
+ *  「ファイルを読んでます、とか出せない？」）。ChatDrawer が使う */
+export function toolActivityLabel(toolName: string): string {
+  switch (toolName) {
+    case "Read":
+    case "read_file":
+      return "ファイルを読んでいます";
+    case "Grep":
+    case "Glob":
+      return "ファイルを探しています";
+    case "get_state":
+      return "グラフを確認しています";
+    case "get_thread":
+      return "スレッドを確認しています";
+    case "add_node":
+      return "ノードを作成しています";
+    case "patch_node":
+      return "ノードを更新しています";
+    case "remove_node":
+      return "ノードを削除しています";
+    case "post_message":
+      return "スレッドに投稿しています";
+    default:
+      return `${toolName} を実行しています`;
+  }
+}
+
 /** ツール呼び出しを「⚙ ノードを作成: タイトル」のような1行サマリに要約する */
 function toolSummary(part: ChatToolPart): string {
   const input = part.input as Record<string, unknown> | undefined;
@@ -46,6 +81,17 @@ function toolSummary(part: ChatToolPart): string {
       break;
     case "post_message":
       label = `スレッドに投稿: ${input && typeof input.nodeId === "string" ? input.nodeId : "?"}`;
+      break;
+    // CLI 方式で許可している読み取り専用ツール（chat_cli.ts の --allowedTools）
+    case "Read":
+    case "read_file":
+      label = `ファイルを読む: ${fileLabel(input)}`;
+      break;
+    case "Grep":
+      label = `検索: ${input && typeof input.pattern === "string" ? input.pattern : "?"}`;
+      break;
+    case "Glob":
+      label = `ファイル探索: ${input && typeof input.pattern === "string" ? input.pattern : "?"}`;
       break;
     default:
       label = part.toolName;

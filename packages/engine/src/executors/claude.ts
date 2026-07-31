@@ -13,7 +13,10 @@ export interface ExecResult {
 export const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000; // 10分
 
 /** 実行を許可するツール（読み取り・調査系のみ。Bash/Edit/Write は含めない） */
-export const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
+// Write/Edit は 2026-07-31 追加（本人指示: スクリプトや手順書をAIに書かせるため。
+// cwd=workspace root なので書き先はワークスペース内が既定。Bash はあえて許可しない——
+// コマンド実行は試走ボタン（server の /trial）と script executor の管轄）
+export const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "Write", "Edit", "WebSearch", "WebFetch"];
 
 /** 設定(GET /api/settings)経由の extraArgs で安全装置を上書きされないためのブロックリスト。
  *  --dangerously-skip-permissions と --allowedTools 系は設定に含まれていても常に無視する */

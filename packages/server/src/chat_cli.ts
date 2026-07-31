@@ -333,11 +333,14 @@ function runCli(
       "--allowedTools",
       "mcp__graphwrangler__*",
       // ワークスペース内のドキュメント（impl.path の手順書等）を「確認を求めず先に読む」ための
-      // 読み取り専用ツール（cwd=workspace root。2026-07-31 本人指摘「読んでいいですか、に
-      // なってしまう」への対応。書き込み系は引き続き MCP 経由のみ）
+      // 読み取りツールと、スクリプト/手順書をAIに書かせるための Write/Edit
+      // （2026-07-31 本人指示。cwd=workspace root。Bash はあえて許可しない——
+      // コマンド実行は試走ボタンの管轄で、グラフ操作は MCP 経由のみ）
       "Read",
       "Grep",
       "Glob",
+      "Write",
+      "Edit",
       "--append-system-prompt",
       q(cliSafeArg(system)),
       "--output-format",
