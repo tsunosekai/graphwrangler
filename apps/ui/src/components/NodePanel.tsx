@@ -700,6 +700,13 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
             {node.kind !== "trigger" &&
               (() => {
                 const vs = node.pendingRequest ? ("waiting" as const) : node.status;
+                // 実行フェーズの原則（docs/design.md 3.9）: 前へ進める操作（着手・完了）は
+                // 順番が来ている（親が全部 done|skipped）ノードだけ。プラン済み化（計画系）と
+                // 戻す（修復系）はいつでも可（2026-07-31 本人報告のバグ修正）
+                const frontier = node.parents.every((pid) => {
+                  const s = allNodes.find((n) => n.id === pid)?.status;
+                  return s === "done" || s === "skipped";
+                });
                 return (
                   <div className="col-span-2 flex items-center gap-2 text-sm">
                     <span className="text-muted-foreground">進捗:</span>
@@ -717,18 +724,27 @@ export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, select
                         プラン済みにする
                       </Button>
                     )}
-                    {vs === "pending" && (
+                    {vs === "pending" && node.lifecycle === "committed" && !frontier && (
+                      <span className="text-xs text-muted-foreground">前のノードが終わると着手できます</span>
+                    )}
+                    {vs === "pending" && frontier && (
                       <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
                         着手
                       </Button>
                     )}
-                    {(vs === "pending" || vs === "running") && (
+                    {((vs === "pending" && frontier) || vs === "running") && (
                       <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "done" })}>
                         完了
                       </Button>
                     )}
-                    {vs === "done" && (
-                      <Button type="button" variant="ghost" size="sm" onClick={() => patch({ status: "pending" })}>
+                    {(vs === "running" || vs === "done") && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        title={vs === "running" ? "着手前（待ち）に戻す" : "未完了（待ち）に戻す"}
+                        onClick={() => patch({ status: "pending" })}
+                      >
                         戻す
                       </Button>
                     )}
