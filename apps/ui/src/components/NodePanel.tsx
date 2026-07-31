@@ -601,8 +601,10 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
 
       {/* 担当×実装の不整合⚠（docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）:
           担当=script なのに impl が script でない=実行すると失敗する組み合わせ。
-          常に見えるようにする（メタ折りたたみの外）。NodeCard 側にも同じ理由で⚠バッジを出す */}
-      {node.executor === "script" && node.impl?.type !== "script" && (
+          常に見えるようにする（メタ折りたたみの外）。NodeCard 側にも同じ理由で⚠バッジを出す。
+          kind=trigger は対象外——トリガーの executor=script は「schedule で発火する」の意味で
+          あって command 実行ではない（docs/design.md 3.8）ため、impl 不要 */}
+      {node.executor === "script" && node.kind !== "trigger" && node.impl?.type !== "script" && (
         <div className="flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <Icon name="alert" size={13} />
           実装が未接続（実行すると失敗します）

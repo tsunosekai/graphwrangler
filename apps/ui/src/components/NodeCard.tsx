@@ -303,8 +303,10 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         )}
         {/* 担当×実装の不整合⚠（docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）:
             担当=script なのに impl が script でない=実行すると失敗する。既存の不可逆⚠と
-            同じ Icon name="alert" を使い、title で理由を区別する（NodePanel にも同じ警告を出す） */}
-        {node.executor === "script" && node.impl?.type !== "script" && (
+            同じ Icon name="alert" を使い、title で理由を区別する（NodePanel にも同じ警告を出す）。
+            kind=trigger は対象外——トリガーの executor=script は「schedule で発火する」の意味で
+            あって command 実行ではない（docs/design.md 3.8）ため、impl 不要 */}
+        {node.executor === "script" && node.kind !== "trigger" && node.impl?.type !== "script" && (
           <span className="flex-shrink-0 text-destructive" title="実装が未接続（実行すると失敗します）">
             <Icon name="alert" size={12} />
           </span>

@@ -890,7 +890,12 @@ function GraphViewInner({
         )}
       </div>
       {showLedger && pageNode ? (
-        <LedgerView procedure={pageNode} members={nodes} onMutated={onMutated} />
+        // 左上のツールバー（ページ名 + グラフ/台帳タブ）は absolute でキャンバスに重ねる設計。
+        // グラフは下が無限キャンバスなので重ねてよいが、台帳は表なのでツールバーの高さぶん
+        // 下げて描く（重ねると「N件のラン」がページ名の下に潜る）
+        <div className="flex h-full flex-col pt-[52px]">
+          <LedgerView procedure={pageNode} members={nodes} onMutated={onMutated} />
+        </div>
       ) : (
         <ReactFlow
           nodes={rfNodes}
