@@ -4,6 +4,8 @@
 // 依存としてこのタスクで追加した。docs/agent-contracts.md の「pnpm add 禁止」は既定の規律で、
 // 依頼元プロンプトで明示許可された例外。toolSummary の要約ロジックは従来のまま流用）
 import type { UIMessage, UIMessagePart, UIDataTypes, UITools } from "ai";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "../lib/utils";
 import { Badge } from "./ui/badge";
 
@@ -108,15 +110,17 @@ export function ChatMessageView({ message }: { message: UIMessage }) {
       {message.parts.map((part, i) => {
         if (part.type === "text") {
           if (!part.text) return null;
+          // アシスタントの本文はマークダウンで描画（2026-07-31 本人要望）。
+          // ユーザー発言は入力そのまま（whitespace-pre-wrap）
           return (
             <div
               key={i}
               className={cn(
-                "whitespace-pre-wrap break-words rounded-md border bg-card px-3 py-2 text-sm",
-                isUser ? "border-human/40" : "border-ai/40",
+                "break-words rounded-md border bg-card px-3 py-2 text-sm",
+                isUser ? "whitespace-pre-wrap border-human/40" : "chat-md border-ai/40",
               )}
             >
-              {part.text}
+              {isUser ? part.text : <Markdown remarkPlugins={[remarkGfm]}>{part.text}</Markdown>}
             </div>
           );
         }
