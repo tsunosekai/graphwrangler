@@ -332,6 +332,12 @@ function runCli(
       q(mcpConfigFile),
       "--allowedTools",
       "mcp__graphwrangler__*",
+      // ワークスペース内のドキュメント（impl.path の手順書等）を「確認を求めず先に読む」ための
+      // 読み取り専用ツール（cwd=workspace root。2026-07-31 本人指摘「読んでいいですか、に
+      // なってしまう」への対応。書き込み系は引き続き MCP 経由のみ）
+      "Read",
+      "Grep",
+      "Glob",
       "--append-system-prompt",
       q(cliSafeArg(system)),
       "--output-format",

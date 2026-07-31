@@ -3,11 +3,13 @@
 // （GraphStore/ThreadStore を直接呼ぶ）でグラフを変更する。帰属は docs/agent-contracts.md の
 // 規約どおり via:"chat" / actor:{kind:"agent", name:"chat:<model>"} に統一する。
 // 会話履歴はステートレス（クライアントが毎回全履歴を送る。永続化はしない、design.md M4）。
+import fs from "node:fs";
 import { streamText, generateText, stepCountIs, convertToModelMessages, tool, type UIMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { SettingsStore } from "./settings.js";
+import { resolveWorkspacePath } from "./files.js";
 import {
   GraphStore,
   ThreadStore,
@@ -138,6 +140,7 @@ export function systemPrompt(
   return [
     "あなたは Wrangler AI。タスクグラフ整理の相棒として、ユーザーと会話しながらノードを作成・整理する。",
     "話題は常に画面のタスクグラフ（下記のページとノード）。作業ディレクトリのソースコードやリポジトリの話はしない。",
+    "ノードの impl.path やユーザーが言及したドキュメントは、読んでいいか確認を求めず、先に読んでから（Read / read_file ツール）内容を踏まえて答えること。",
     "勝手に大量のノードを作らず、分解は3〜8個の人間粒度で行うこと。",
     "ユーザーが明示した手順を勝手に変えない。削除は確認してから実行すること。",
     `現在表示中のページ: ${pageTitle}`,
@@ -200,6 +203,18 @@ function buildTools(graph: GraphStore, threads: ThreadStore, pageId: string | nu
       execute: async ({ id }) => {
         graph.removeNode(id, { actor, via: VIA });
         return { removed: true, id };
+      },
+    }),
+    read_file: tool({
+      description:
+        "ワークスペース内のドキュメントを読む（ルートからの相対パス。ノードの impl.path の手順書など）。確認を求めず必要なら先に読むこと",
+      inputSchema: z.object({ path: z.string() }),
+      execute: async ({ path: rel }) => {
+        const info = graph.workspaceInfo();
+        if (!info.root) throw new Error("ワークスペースモードではないためファイルは読めません");
+        const abs = resolveWorkspacePath(info.root, rel);
+        if (!abs) throw new Error(`不正なパスです（ワークスペース内の相対パスのみ）: ${rel}`);
+        return fs.readFileSync(abs, "utf8").slice(0, 20000);
       },
     }),
     get_thread: tool({

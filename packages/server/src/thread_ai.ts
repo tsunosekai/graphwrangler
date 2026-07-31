@@ -31,8 +31,9 @@ export interface ThreadAiNodeContext {
   kind: string;
   executor: string;
   status: string;
-  /** impl の「有無と種類」だけ渡す（doc の全文などは含めない。相談AIは概況が分かれば十分） */
-  impl: { type: "doc" | "script" } | null;
+  /** impl の「有無と種類」+ doc の path だけ渡す（doc の全文は含めない。path があれば
+   *  AI 自身が Read で読む。相談AIは概況が分かれば十分） */
+  impl: { type: "doc" | "script"; path?: string | null } | null;
 }
 
 export interface ThreadAiHistoryEntry {
@@ -59,6 +60,7 @@ export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): stri
   const lines: string[] = [
     "あなたは Wrangler AI。タスクノードのスレッドで相談に乗る相棒として、簡潔に日本語で答えてください。",
     "話題は以下のタスクノードそのもの。作業ディレクトリのソースコードやリポジトリの話はしない。",
+    "実装(impl)の path やドキュメントに言及するときは、読んでいいか確認を求めず Read で先に読んでから答えること。",
     "",
     `ノード: ${node.title || "（無題）"}`,
   ];
@@ -67,7 +69,13 @@ export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): stri
     `種別(kind): ${node.kind}`,
     `実行者(executor): ${node.executor}`,
     `状態(status): ${node.status}`,
-    `実装(impl): ${node.impl ? `あり（${node.impl.type}）` : "未設定"}`,
+    `実装(impl): ${
+      node.impl
+        ? node.impl.type === "doc" && node.impl.path
+          ? `あり（doc, path: ${node.impl.path}）`
+          : `あり（${node.impl.type}）`
+        : "未設定"
+    }`,
   );
   if (parentTitles.length > 0) lines.push(`親ノード: ${parentTitles.join(", ")}`);
   if (pageTitle) lines.push(`ページ: ${pageTitle}`);
@@ -101,7 +109,9 @@ export function runPlainClaude(
   cwd: string,
 ): Promise<PlainCliResult> {
   return new Promise((resolve) => {
-    const args = ["-p", "--model", cliModel];
+    // 読み取り専用ツールを許可（cwd=workspace root で impl.path の手順書を読める。
+    // chat_cli.ts と同じ方針: 書き込み系ツールは持たせない）
+    const args = ["-p", "--model", cliModel, "--allowedTools", "Read", "Grep", "Glob"];
     const isWindows = process.platform === "win32";
     let child;
     try {
