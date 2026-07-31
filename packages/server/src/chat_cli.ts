@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
-import type { GraphStore } from "@graphwrangler/core";
+import type { GraphStore, ThreadStore } from "@graphwrangler/core";
 import type { SettingsStore } from "./settings.js";
 import { systemPrompt, type ChatRequestBody } from "./chat.js";
 
@@ -20,7 +20,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
 
-const CLI_TIMEOUT_MS = 5 * 60 * 1000; // 5分
+export const CLI_TIMEOUT_MS = 5 * 60 * 1000; // 5分（thread_ai.ts のスレッド相談AIも同じ値を使う）
 const MAX_HISTORY_MESSAGES = 20; // 「最大10往復」= user+assistant で20件
 
 /**
@@ -29,8 +29,9 @@ const MAX_HISTORY_MESSAGES = 20; // 「最大10往復」= user+assistant で20�
  * ANTHROPIC_API_KEY や、Claude Code セッション内から起動された場合の CLAUDE_CODE_* /
  * ANTHROPIC_BASE_URL は子の claude を誤経路・認証失敗に落とすため除去する（2026-07-31 実測）。
  * packages/engine/src/executors/claude.ts の sanitizedClaudeEnv と同じ規則（変えたら両方直す）。
+ * thread_ai.ts（スレッド相談AI、機能1）もこの関数をそのまま import して使う。
  */
-function sanitizedClaudeEnv(): NodeJS.ProcessEnv {
+export function sanitizedClaudeEnv(): NodeJS.ProcessEnv {
   const drop =
     /^(CLAUDE_CODE_|CLAUDE_PREVIEW_|CLAUDE_AGENT_SDK)|^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|ANTHROPIC_BASE_URL|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|AI_AGENT|BAGGAGE)$/;
   const env: NodeJS.ProcessEnv = {};
@@ -405,6 +406,7 @@ function runCli(
  */
 export function handleChatCli(
   graph: GraphStore,
+  threads: ThreadStore,
   settings: SettingsStore,
   body: ChatRequestBody,
   serverPort: number,
@@ -412,7 +414,7 @@ export function handleChatCli(
   const pageId = body.pageId ?? null;
   const { cliPath, cliModel } = settings.get().chat;
   const system = [
-    systemPrompt(graph, pageId, body.selectedNodeId ?? null),
+    systemPrompt(graph, threads, pageId, body.selectedNodeId ?? null),
     "グラフの操作（ノード作成・更新・削除・スレッド投稿等）は graphwrangler の MCP ツールで行うこと。",
   ].join("\n");
   const prompt = buildPrompt(body.messages ?? []);

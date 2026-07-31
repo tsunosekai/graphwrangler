@@ -17,6 +17,7 @@ import {
   LifecycleSchema,
   StatusSchema,
   type Actor,
+  type Node,
 } from "@graphwrangler/core";
 
 const VIA = "chat";
@@ -63,28 +64,85 @@ function summarizeNodes(graph: GraphStore) {
   }));
 }
 
-/** chat_cli.ts（chat.mode="cli"）でも同じ相棒AI人格を使うため export する */
+const MEMBER_LIST_LIMIT = 30;
+const SELECTED_NODE_THREAD_LIMIT = 5;
+const SELECTED_NODE_THREAD_BODY_CHARS = 120;
+
+/** impl の「有無と種類」を短く表す（doc は path があれば添える。text 本文は含めない） */
+function describeImpl(impl: Node["impl"]): string {
+  if (!impl) return "未設定";
+  if (impl.type === "doc") return impl.path ? `doc (path: ${impl.path})` : "doc";
+  return "script";
+}
+
+/** 表示中ページ（group=pageId）のメンバーノード一覧。多い場合は先頭 MEMBER_LIST_LIMIT 件
+ *  + 「他N件」にする（相棒AIに「この画面に何があるか」を把握させるための文脈、機能2） */
+function pageMemberLines(graph: GraphStore, pageId: string | null): string[] {
+  if (!pageId) return [];
+  const members = graph.state().nodes.filter((n) => n.group === pageId);
+  if (members.length === 0) return [];
+  const shown = members.slice(0, MEMBER_LIST_LIMIT);
+  const lines = shown.map(
+    (n) => `- ${n.title || "（無題）"} (kind:${n.kind} executor:${n.executor} status:${n.status})`,
+  );
+  const rest = members.length - shown.length;
+  if (rest > 0) lines.push(`- 他${rest}件`);
+  return lines;
+}
+
+/** 選択中ノードのスレッド直近 SELECTED_NODE_THREAD_LIMIT 件を「kind: 本文先頭120字」形式で要約する */
+function selectedNodeThreadLines(threads: ThreadStore, nodeId: string): string[] {
+  const messages = threads.list(nodeId).slice(-SELECTED_NODE_THREAD_LIMIT);
+  return messages.map((m) => {
+    const snippet = m.body.length > SELECTED_NODE_THREAD_BODY_CHARS
+      ? `${m.body.slice(0, SELECTED_NODE_THREAD_BODY_CHARS)}…`
+      : m.body;
+    return `- ${m.kind}: ${snippet}`;
+  });
+}
+
+/** chat_cli.ts（chat.mode="cli"）でも同じ相棒AI人格を使うため export する。
+ *  機能2（2026-07-31）: 選択ノードの詳細文脈とページのメンバー一覧を加え、AIが
+ *  「今開いている画面に何があるか」を把握できるようにする */
 export function systemPrompt(
   graph: GraphStore,
+  threads: ThreadStore,
   pageId: string | null,
   selectedNodeId: string | null = null,
 ): string {
   let pageTitle = "(なし)";
   if (pageId && graph.has(pageId)) pageTitle = graph.get(pageId).title;
   else if (pageId) pageTitle = pageId;
+
+  const memberLines = pageMemberLines(graph, pageId);
+
   // ユーザーが今選択しているノードを文脈として渡す（「これ分解して」の「これ」が通じるように）
-  let selectedLine = "";
+  const selectedLines: string[] = [];
   if (selectedNodeId && graph.has(selectedNodeId)) {
     const sel = graph.get(selectedNodeId);
-    selectedLine = `ユーザーが選択中のノード: 「${sel.title || "（無題）"}」(id: ${sel.id})。「これ」「このタスク」はこのノードを指す。`;
+    const parentTitles = sel.parents.map((pid) => (graph.has(pid) ? graph.get(pid).title : pid));
+    selectedLines.push(
+      `ユーザーが選択中のノード: 「${sel.title || "（無題）"}」(id: ${sel.id})。「これ」「このタスク」はこのノードを指す。`,
+      `  詳細: ${sel.detail ?? "(なし)"}`,
+      `  kind: ${sel.kind} / executor: ${sel.executor} / status: ${sel.status} / lifecycle: ${sel.lifecycle} / fixed: ${sel.fixed}`,
+      `  impl: ${describeImpl(sel.impl)}`,
+      `  親ノード: ${parentTitles.length > 0 ? parentTitles.join(", ") : "(なし)"}`,
+      `  open な判断リクエスト: ${sel.pendingRequest ? "あり" : "なし"}`,
+    );
+    const threadLines = selectedNodeThreadLines(threads, sel.id);
+    if (threadLines.length > 0) {
+      selectedLines.push("  スレッド直近の発言:", ...threadLines.map((l) => `  ${l}`));
+    }
   }
+
   return [
     "あなたはタスクグラフ整理の相棒。ユーザーと会話しながらノードを作成・整理する。",
     "勝手に大量のノードを作らず、分解は3〜8個の人間粒度で行うこと。",
     "ユーザーが明示した手順を勝手に変えない。削除は確認してから実行すること。",
     `現在表示中のページ: ${pageTitle}`,
+    ...(memberLines.length > 0 ? ["このページのノード一覧:", ...memberLines] : []),
     "新規ノードは原則そのページ（group=現在のページ）に作ること。",
-    ...(selectedLine ? [selectedLine] : []),
+    ...selectedLines,
     "整理の提案としてノードを作るときは lifecycle:\"draft\"（既定のまま）で作り、" +
       "作り終えたら「下書きとして N 件作りました。各ノードの「プラン済みにする」で確定できます」と案内する。" +
       "ユーザーが明示的に確定を頼んだ場合のみ lifecycle:\"committed\" で作る。",
@@ -175,7 +233,7 @@ export async function handleChat(
 
   const result = streamText({
     model: resolveModel(settings),
-    system: systemPrompt(graph, pageId, body.selectedNodeId ?? null),
+    system: systemPrompt(graph, threads, pageId, body.selectedNodeId ?? null),
     messages: await convertToModelMessages(body.messages ?? []),
     tools: buildTools(graph, threads, pageId, actor),
     stopWhen: stepCountIs(8),

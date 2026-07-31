@@ -27,6 +27,7 @@ import { chatKeyMissing, completeText, handleChat } from "./chat.js";
 import { handleChatCli } from "./chat_cli.js";
 import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema } from "./settings.js";
 import { resolveWorkspacePath } from "./files.js";
+import { maybeTriggerThreadAi } from "./thread_ai.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -235,6 +236,9 @@ app.post("/api/nodes/:id/messages", async (c) => {
   const input = PostMessageSchema.parse(body);
   const m = meta(body);
   const message = threads.post(id, { ...input, author: m.actor, via: m.via });
+  // スレッド相談AI（機能1）: 人間の say かつ open な判断リクエストが無いノードにのみ、
+  // 応答を待たず非同期でAI応答ジョブを起動する（thread_ai.ts 参照。レスポンスはブロックしない）
+  maybeTriggerThreadAi({ graph, threads, settings, nodeId: id, kind: input.kind, actor: m.actor });
   return c.json(message);
 });
 
@@ -560,7 +564,7 @@ app.post("/api/settings", async (c) => {
 app.post("/api/chat", async (c) => {
   const body = await c.req.json();
   if (settings.get().chat.mode === "cli") {
-    return handleChatCli(graph, settings, body, port);
+    return handleChatCli(graph, threads, settings, body, port);
   }
   const missing = chatKeyMissing(settings);
   if (missing) return c.json({ error: missing }, 400);
