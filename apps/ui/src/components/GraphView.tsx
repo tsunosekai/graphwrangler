@@ -258,8 +258,14 @@ function GraphViewInner({
       }
     }
     // 複数選択(rn.selected)はポーリングのたびに rfNodes を作り直しても消えないよう、
-    // 直前の React Flow 内部状態から id ベースで引き継ぐ（本人指定）
-    const prevSelected = new Set(getNodes().filter((n) => n.selected).map((n) => n.id));
+    // 直前の React Flow 内部状態から id ベースで引き継ぐ（本人指定）。
+    // ただし選択解除中（selectedId=null）は引き継がない——内部ストアへの反映は非同期のため、
+    // ✕で閉じた直後の再構築が古い selected を復活させ、後続の操作でパネルが勝手に開き直す
+    // （2026-07-31 本人報告・1回目の修正で残った経路）
+    const prevSelected =
+      selectedId === null
+        ? new Set<string>()
+        : new Set(getNodes().filter((n) => n.selected).map((n) => n.id));
     // 貼り付け/複製で作った新規ノードが今回のポーリングで初めて出現したら、選択状態にする
     const pending = pendingSelectRef.current;
     let pendingMatched: string[] = [];
