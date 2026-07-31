@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
-import { Loader2, Lock, Play, Unlock, Zap } from "lucide-react";
+import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
@@ -12,6 +12,14 @@ const EXEC_ICON: Record<Node["executor"], "user" | "bot" | "terminal"> = {
   human: "user",
   ai: "bot",
   script: "terminal",
+};
+// 種別の文字チップ（本人選定「A+D」）。goal/procedure はカードとして描かれないが型のため網羅
+const KIND_CHIP: Record<Node["kind"], string> = {
+  task: "実行",
+  decision: "判断",
+  trigger: "トリガー",
+  goal: "ゴール",
+  procedure: "ルーティーン",
 };
 const STATUS_LABEL: Record<Node["status"], string> = {
   unplanned: "未計画",
@@ -120,6 +128,13 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       onClick={() => data.onSelect(node.id)}
       onDoubleClick={() => data.onDoubleClick(node.id)}
     >
+      {/* 担当の色帯（本人選定「A+D」2026-07-31）: カード左端4px。一覧を走査したとき
+          「誰の仕事か」が色で読める。色は exec-* クラスの --active-color を継承 */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 left-0 w-1 rounded-l-[5px]"
+        style={{ background: "var(--active-color)" }}
+      />
       {/* trigger は parents を持てない=グラフの起点（docs/design.md 3.4）。
           入力ハンドルを構造的に持たせないことで、他ノードの後続へドラッグ接続できないようにする */}
       {node.kind !== "trigger" && <Handle type="target" position={Position.Top} />}
@@ -191,23 +206,14 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         <span className={cn("inline-flex flex-shrink-0", EXEC_TEXT[node.executor])}>
           <Icon name={EXEC_ICON[node.executor]} />
         </span>
-        {/* 2個目スロットは種別専任で常時表示（本人選定「B」2026-07-31: 実行=▷ 判断=⑂ トリガー=⚡）。
-            実装(impl)バッジは別軸なのでタイトル右端へ分離 */}
-        {node.kind === "task" && (
-          <span className="inline-flex flex-shrink-0 text-muted-foreground" title="実行ノード">
-            <Play className="size-3" />
-          </span>
-        )}
-        {node.kind === "decision" && (
-          <span className="inline-flex flex-shrink-0 text-muted-foreground" title="判断ノード（分岐）">
-            <Icon name="branch" size={12} />
-          </span>
-        )}
-        {node.kind === "trigger" && (
-          <span className="inline-flex flex-shrink-0 text-muted-foreground" title="起点ノード（トリガー）">
-            <Zap className="size-3" />
-          </span>
-        )}
+        {/* 2個目スロットは種別の文字チップ（本人選定「A+D」2026-07-31: アイコンをやめて
+            実行/判断/トリガー の文字で誤読ゼロに）。実装(impl)バッジは別軸なのでタイトル右端 */}
+        <span
+          className="flex-shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground"
+          title="種別"
+        >
+          {KIND_CHIP[node.kind]}
+        </span>
         {data.editing ? (
           <input
             autoFocus
