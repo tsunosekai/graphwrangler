@@ -19,6 +19,7 @@ function node(partial: Partial<Node> = {}): Node {
     status: partial.status ?? "pending", // ランには関係しない（テンプレートは status を持たない扱い）
     fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
+    implTrial: partial.implTrial ?? null,
     order: partial.order ?? null,
     schedule: partial.schedule ?? null,
     branches: partial.branches ?? null,

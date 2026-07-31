@@ -29,6 +29,7 @@ function node(partial: Partial<Node> = {}): Node {
     status: partial.status ?? "pending",
     fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
+    implTrial: partial.implTrial ?? null,
     order: partial.order ?? null,
     schedule: partial.schedule ?? null,
     branches: partial.branches ?? null,
