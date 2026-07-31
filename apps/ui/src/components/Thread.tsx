@@ -90,7 +90,7 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1" ref={bodyRef}>
         {flow.length === 0 && openRequests.length === 0 && (
-          <div className="py-2 text-sm text-muted-foreground">まだありません</div>
+          <div className="py-2 text-sm text-muted-foreground">タスクを計画・実行しましょう</div>
         )}
         {flow.map((m) => {
           if (m.kind === "decision_request") {
