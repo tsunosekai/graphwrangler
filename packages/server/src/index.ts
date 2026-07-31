@@ -587,7 +587,7 @@ app.post("/api/settings", async (c) => {
   return c.json(settings.publicView());
 });
 
-// ---- チャット（M4: グラフ整理の Wrangler AI。実装は chat.ts / chat_cli.ts） ----
+// ---- チャット（M4: グラフ整理の Workflow AI。実装は chat.ts / chat_cli.ts） ----
 // chat.mode="cli" ならヘッドレスCLI（chat_cli.ts、MCP経由でグラフ操作）へ、
 // "api" なら従来どおりプロバイダAPIキー方式（chat.ts）へ分岐する。
 // APIキー未設定の400判定は api モードのときだけ行う（cliモードにAPIキーは無関係）。

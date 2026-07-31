@@ -1,5 +1,5 @@
 // 初回セットアップ + いつでも開ける⚙設定（OpenClaw のプロバイダ設定画面を参考に）。
-// 「チャットAI」（Wrangler AI）と「実行AI＝エンジン」それぞれについて、まず「接続方式」
+// 「チャットAI」（Workflow AI）と「実行AI＝エンジン」それぞれについて、まず「接続方式」
 // （APIキー / ヘッドレスエージェントCLI）をドロップダウンで選ばせ、選んだ方式に応じて
 // 入力欄を出し分ける（docs/design.md: LLM選択は「APIキーの差し替え」でなく
 // 「エージェントごと差し替え」。2026-07-29 本人フィードバック「どっちを使う設定か分からない」対応）。
@@ -160,7 +160,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
         </DialogHeader>
 
         <section className={section}>
-          <h3 className={heading}>チャットAI（Wrangler AI）</h3>
+          <h3 className={heading}>チャットAI（Workflow AI）</h3>
           <label className={field}>
             <span>接続方式</span>
             <Select value={chatMode} onValueChange={(v) => setChatMode(v as ChatMode)}>

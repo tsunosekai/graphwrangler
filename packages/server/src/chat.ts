@@ -1,4 +1,4 @@
-// 内蔵チャット（M4: グラフ整理の Wrangler AI）。
+// 内蔵チャット（M4: グラフ整理の Workflow AI）。
 // Vercel AI SDK の streamText + tool-calling を使い、AIは人間のUI操作と同じ書き込み経路
 // （GraphStore/ThreadStore を直接呼ぶ）でグラフを変更する。帰属は docs/agent-contracts.md の
 // 規約どおり via:"chat" / actor:{kind:"agent", name:"chat:<model>"} に統一する。
@@ -78,7 +78,7 @@ function describeImpl(impl: Node["impl"]): string {
 }
 
 /** 表示中ページ（group=pageId）のメンバーノード一覧。多い場合は先頭 MEMBER_LIST_LIMIT 件
- *  + 「他N件」にする（Wrangler AI に「この画面に何があるか」を把握させるための文脈、機能2） */
+ *  + 「他N件」にする（Workflow AI に「この画面に何があるか」を把握させるための文脈、機能2） */
 function pageMemberLines(graph: GraphStore, pageId: string | null): string[] {
   if (!pageId) return [];
   const members = graph.state().nodes.filter((n) => n.group === pageId);
@@ -103,7 +103,7 @@ function selectedNodeThreadLines(threads: ThreadStore, nodeId: string): string[]
   });
 }
 
-/** chat_cli.ts（chat.mode="cli"）でも同じ Wrangler AI 人格を使うため export する。
+/** chat_cli.ts（chat.mode="cli"）でも同じ Workflow AI 人格を使うため export する。
  *  機能2（2026-07-31）: 選択ノードの詳細文脈とページのメンバー一覧を加え、AIが
  *  「今開いている画面に何があるか」を把握できるようにする */
 export function systemPrompt(
@@ -138,10 +138,10 @@ export function systemPrompt(
   }
 
   return [
-    "あなたは Wrangler AI。タスクグラフ整理の相棒として、ユーザーと会話しながらノードを作成・整理する。",
+    "あなたは Workflow AI。タスクグラフ整理の相棒として、ユーザーと会話しながらノードを作成・整理する。",
     "話題は常に画面のタスクグラフ（下記のページとノード）。作業ディレクトリのソースコードやリポジトリの話はしない。",
     "ノードの impl.path やユーザーが言及したドキュメントは、読んでいいか確認を求めず、先に読んでから（Read / read_file ツール）内容を踏まえて答えること。",
-    "スクリプト化を頼まれたら: スクリプトファイルは**そのノードの impl.path の手順書と同じフォルダ**に、同じ番号接頭辞で置くこと（例: 00_作品概要決定/01_フォルダ作成・ツール理解.md → 00_作品概要決定/01_フォルダ作成.ps1。手順書とスクリプトは同じ知識の別素材なので同じ場所に育てる）。書いたら（Write/Edit）ノードの impl を {type:\"script\", command:\"<ワークスペースルートからの相対パスで実行するコマンド>\"} で接続し、最後に「パネルの試走ボタンで動作確認してください」と案内すること（実行は自分ではしない）。",
+    "スクリプト化を頼まれたら: 言語は **Node.js（.mjs）か Python（.py）を優先**する（ps1/bat 等のOS依存スクリプトは避ける。クロスプラットフォームで動くこと）。ファイルは**そのノードの impl.path の手順書と同じフォルダ**に、同じ番号接頭辞で置くこと（例: 00_作品概要決定/01_フォルダ作成・ツール理解.md → 00_作品概要決定/01_フォルダ作成.mjs。手順書とスクリプトは同じ知識の別素材なので同じ場所に育てる）。書いたら（Write/Edit）ノードの impl を {type:\"script\", command:\"node 00_作品概要決定/01_フォルダ作成.mjs\" のようにワークスペースルートからの相対パス} で接続し、最後に「パネルの試走ボタンで動作確認してください」と案内すること（実行は自分ではしない）。",
     "勝手に大量のノードを作らず、分解は3〜8個の人間粒度で行うこと。",
     "ユーザーが明示した手順を勝手に変えない。削除は確認してから実行すること。",
     `現在表示中のページ: ${pageTitle}`,

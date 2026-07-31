@@ -126,7 +126,7 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo }: Props
       <IconButton title="AI設定" onClick={onOpenSettings}>
         <Settings />
       </IconButton>
-      <IconButton title="Wrangler AI とチャット" onClick={onToggleChat} active={chatOpen}>
+      <IconButton title="Workflow AI とチャット" onClick={onToggleChat} active={chatOpen}>
         <Icon name="chat" size={16} />
       </IconButton>
     </header>

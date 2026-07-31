@@ -1,4 +1,4 @@
-// 内蔵チャット（M4: グラフ整理の Wrangler AI）。TopBar の 💬 から開く右ドロワー。
+// 内蔵チャット（M4: グラフ整理の Workflow AI）。TopBar の 💬 から開く右ドロワー。
 // @ai-sdk/react の useChat + ai の DefaultChatTransport で UIMessageStream(SSE) を処理する
 // （B-x: Claude Code 風UX化に伴い、自前の fetch+ReadableStream パース(readSse/applyChunk)から
 // 移行。ai / @ai-sdk/react は apps/ui の依存としてこのタスクで追加した。
@@ -132,7 +132,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
       <div className="flex flex-shrink-0 items-center gap-2 border-b px-4 py-3">
         <span className="inline-flex items-center gap-2 font-semibold">
-          <Icon name="chat" size={15} /> Wrangler AI
+          <Icon name="chat" size={15} /> Workflow AI
         </span>
         {pageTitle && (
           <span className="min-w-0 flex-1 truncate text-right text-sm text-muted-foreground">{pageTitle}</span>

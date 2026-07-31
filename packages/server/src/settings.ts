@@ -1,5 +1,5 @@
 // AI設定の保存（dataDir/settings.json）。OpenClaw のプロバイダ設定の思想を参考に、
-// チャットAI（Wrangler AI）と実行AI（エンジン）それぞれについて「接続方式（API / CLI）」を
+// チャットAI（Workflow AI）と実行AI（エンジン）それぞれについて「接続方式（API / CLI）」を
 // ドロップダウンで選ばせる。方式ごとに必要な項目だけを使う:
 //   chat.mode="api"  → provider/model/apiKey を使う（APIキーで直接プロバイダを呼ぶ）
 //   chat.mode="cli"  → cliPath/cliModel を使う（claude 等のヘッドレスCLIを使う。APIキー不要）
