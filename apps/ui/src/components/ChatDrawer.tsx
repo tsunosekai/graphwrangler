@@ -263,7 +263,8 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
           <Icon name="x" size={15} />
         </Button>
       </div>
-      <div className="flex flex-shrink-0 items-center border-b px-4 py-2">
+      {/* タブ行に下線は付けない（NodePanel=Task AI 側と見た目を揃える。本人指定） */}
+      <div className="flex flex-shrink-0 items-center px-4 py-2">
         <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history")}>
           <TabsList>
             <TabsTrigger value="talk">
