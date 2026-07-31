@@ -137,8 +137,9 @@ function BranchRow({
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
 export function NodePanel({ node, allNodes, onMutated, onClose, onSelect, selectedCount }: Props) {
   const [tab, setTab] = useState<"talk" | "history">("talk");
-  // 会話に縦幅を使うため、メタ情報（detail/種別/担当…）は既定で折りたたむ
-  const [metaOpen, setMetaOpen] = useState(false);
+  // ノード詳細は既定で開いておく（2026-07-31 本人指定）。会話に集中したいときだけ
+  // タブ行右端の「会話を広げる」で閉じる
+  const [metaOpen, setMetaOpen] = useState(true);
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
   const { data: thread, refresh: refreshThread } = usePolling(() => api.getThread(node.id), 10000);
 
