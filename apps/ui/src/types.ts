@@ -33,11 +33,18 @@ export type NodeImpl =
   | { type: "doc"; text?: string | null; path?: string | null }
   | { type: "script"; command: string; params?: ScriptParam[] | null };
 export type Executor = "human" | "ai" | "script";
-export type Impact = "safe" | "reversible" | "irreversible";
+/** ノードの影響度。irreversible = 実行前承認（人間の承認ゲートを通る） */
+export type Impact = "safe" | "irreversible";
+/** 判断リクエスト自身の影響度（ノードの impact とは別の3値） */
+export type RequestImpact = "safe" | "reversible" | "irreversible";
 export type Lifecycle = "draft" | "committed";
 /** unplanned = やり方未定（実行エンジンは拾わない）。
- *  skipped = 分岐で選ばれなかった枝を通ったため、その回は対象外になった正常状態（dropped=中止とは別物） */
-export type Status = "unplanned" | "pending" | "running" | "waiting" | "done" | "dropped" | "skipped";
+ *  skipped = 分岐で選ばれなかった枝を通ったため、その回は対象外になった正常状態（dropped=中止とは別物）。
+ *  「あなたの番（waiting）」は保存されない: pendingRequest の有無から導出する */
+export type NodeStatus = "unplanned" | "pending" | "running" | "done" | "dropped" | "skipped";
+/** 表示用ステータス。ノードの保存値（NodeStatus）に、導出値の waiting
+ *  （pendingRequest あり / ランアイテムの waiting）を加えた和集合 */
+export type Status = NodeStatus | "waiting";
 
 /** 分岐ノード(kind=decision)の選択肢。判断リクエストの options と同形だが、
  *  then は省略可（docs/design.md 3.9） */
@@ -69,11 +76,11 @@ export interface Node {
   executor: Executor;
   impact: Impact;
   lifecycle: Lifecycle;
-  status: Status;
+  status: NodeStatus;
   /** Fix（=ロック）。やり方が確定したか。AIは fixed ノードの impl を書き換えない */
   fixed: boolean;
+  /** open な判断リクエストの message id。あれば「あなたの番」（waiting 表示を導出する） */
   pendingRequest: string | null;
-  order: number | null;
   /** kind=trigger 用の起動方式記述（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等）。
    *  executor=script なら cron 的な発火判定、executor=ai なら「発火要否を判定させる間隔」
    *  （everyのみ解釈、無指定は既定1時間）、executor=human では使わない（手動発火のみ） */
@@ -85,7 +92,6 @@ export interface Node {
   /** 子側: どの親decisionのどの枝から生えるか（親decisionId → 枝id） */
   parentOptions: Record<string, string>;
   created: string;
-  updated: string;
 }
 
 export interface DecisionOption {
@@ -100,7 +106,7 @@ export interface DecisionRequest {
   context: string;
   question: string;
   options: DecisionOption[];
-  impact: Impact;
+  impact: RequestImpact;
   undo: string | null;
 }
 
@@ -143,7 +149,6 @@ export type RunItemStatus =
 export interface RunItem {
   status: RunItemStatus;
   note: string | null;
-  updated: string;
   /** テンプレートが kind=decision のとき、そのランで確定した枝id。それ以外は null */
   choice: string | null;
 }
@@ -162,7 +167,6 @@ export interface Run {
   /** テンプレートノード id → ワークアイテム */
   items: Record<string, RunItem>;
   created: string;
-  updated: string;
 }
 
 /** トレース再生（GET /api/runs/:id/trace の1件）。ノードスレッドのメッセージに

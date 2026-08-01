@@ -326,7 +326,8 @@ app.post("/api/nodes/:id/messages", async (c) => {
   return c.json(message);
 });
 
-/** 判断リクエストを開く（主に agent 側が使う）。ノードは waiting になる */
+/** 判断リクエストを開く（主に agent 側が使う）。pendingRequest がセットされ、ボールが人間に渡る
+ *  （「あなたの番（waiting）」表示は UI が pendingRequest の有無から導出する） */
 app.post("/api/nodes/:id/request", async (c) => {
   const id = c.req.param("id");
   const node = graph.get(id);
@@ -342,7 +343,7 @@ app.post("/api/nodes/:id/request", async (c) => {
   );
   graph.patchNode(
     id,
-    { pendingRequest: message.id, status: "waiting" },
+    { pendingRequest: message.id },
     { actor: { kind: "system" }, via: m.via },
   );
   return c.json(message);

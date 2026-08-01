@@ -121,8 +121,9 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
 
 - **executor**: `human` / `ai` / `script` — 誰にディスパッチするか
 - **決定性**: script は決定的、ai は非決定的
-- **impact**: `safe` / `reversible` / `irreversible` — 不可逆な外部副作用は承認ゲートを通す
-  （UI上の名称は「実行前承認」トグル）
+- **impact**: `safe` / `irreversible` — 不可逆な外部副作用は承認ゲートを通す
+  （UI上の名称は「実行前承認」トグル。判断リクエスト自身の impact は中間の
+  reversible を含む3値で、これとは別の軸——5.4）
 
 新しいノード種を足したくなったら「スケジューラはそれで挙動を変えるか？」と問う。
 変えないならタグでよい。エンジンが自動実行するのは lifecycle=committed のノードだけ
@@ -369,19 +370,17 @@ impl.command はワークスペースルートからの相対パスで書く。�
   "group": null,                  // 包含（所属ページのid）。parents とは独立な軸（3.1）
   "kind": "task",                 // goal(ページ) / task / decision(分岐 3.9) / trigger(起点 3.8)
   "executor": "ai",               // human / ai / script
-  "impact": "safe",               // safe / reversible / irreversible（UI名「実行前承認」）
+  "impact": "safe",               // safe / irreversible（UI名「実行前承認」）
   "lifecycle": "draft",           // draft / committed（= プラン済み）
-  "status": "pending",            // unplanned / pending / running / waiting / done /
-                                  //   dropped / skipped
+  "status": "pending",            // unplanned / pending / running / done / dropped / skipped
   "fixed": false,                 // Fix（やり方の確定=ロック）。未Fixで生まれる
-  "pendingRequest": null,         // open な判断リクエストの message id
-  "order": null,                  // 兄弟内の表示順
+  "pendingRequest": null,         // open な判断リクエストの message id（あれば「あなたの番」）
   "schedule": null,               // kind=trigger の起動方式（"every 15m"/"daily 09:00"/
                                   //   "weekly mon 09:00"）。パース不能な文字列は無視される
   "branches": null,               // kind=decision の選択肢 [{id, label, then?}]（3.9）
   "choice": null,                 // decision が確定した枝id（プロジェクト層。ラン層は RunItem.choice）
   "parentOptions": {},            // 親decisionId → 枝id（どの枝から生えるか）
-  "created": "…", "updated": "…"
+  "created": "…"
 }
 ```
 
@@ -391,10 +390,13 @@ impl.command はワークスペースルートからの相対パスで書く。�
 持つページ。
 
 **status の哲学**: 人間の語彙は「未計画か」「終わったか」だけ。
-pending/running/waiting/skipped は機械の内部状態で、UIでは絵（スピナー・橙ドット・
+pending/running/skipped は機械の内部状態で、UIでは絵（スピナー・橙ドット・
 チェック・斜線円）で表し名前を見せない。パネルの進捗ボタンが見せる語彙は
 **未計画 →[プラン済みにする]→ 待ち →[着手]→ 進行中 →[完了]** の一本道（unplanned は
 「ここだけまだ考えてない」印で、依存が揃っていてもエンジンは拾わない）。
+**「あなたの番（waiting）」は保存しない**: pendingRequest の有無から UI・エンジンが
+導出する（open なリクエストの存在 ⇔ ボールが人間、を二重に保存しない。
+ランのワークアイテムは pendingRequest を持たないため RunItemStatus に waiting が残る）。
 
 ### 5.2 操作ログ（ops.jsonl の1行）
 
@@ -442,7 +444,8 @@ open/answered は後続の decision_answer から導出する（過去行を書�
       { "id": "go", "label": "投稿する", "then": "選ぶと何が起きるか",
         "recommended": true }
     ],
-    "impact": "irreversible",     // この判断自体の影響
+    "impact": "irreversible",     // この判断自体の影響（safe/reversible/irreversible の3値。
+                                  //   ノードの impact とは別の軸）
     "undo": "戻し方 or null"
   }
 }
@@ -470,10 +473,9 @@ open なリクエストの存在 ⇔ ボールが人間、が機械的に対応�
   "items": {                      // テンプレートノードid → ワークアイテム
     "n-…": { "status": "pending", // pending/running/waiting/done/dropped/skipped
               "note": null,
-              "updated": "…",
               "choice": null }    // テンプレートが decision のとき確定した枝id
   },
-  "created": "…", "updated": "…"
+  "created": "…"
 }
 ```
 

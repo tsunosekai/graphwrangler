@@ -187,7 +187,7 @@ try {
   await step("tools/call node_add (task, groupあり)", async () => {
     const result = await rpc("tools/call", {
       name: "node_add",
-      arguments: { title: "E2Eテストタスク", group: goalId, executor: "ai", impact: "reversible" },
+      arguments: { title: "E2Eテストタスク", group: goalId, executor: "ai", impact: "irreversible" },
     });
     const node = toolResultJson(result);
     assert.equal(node.group, goalId);
@@ -269,8 +269,9 @@ try {
     assert.equal(message.kind, "decision_request");
     requestMsgId = message.id;
 
+    // 「あなたの番」は status ではなく pendingRequest で表す（status は変わらない）
     const node = toolResultJson(await rpc("tools/call", { name: "node_get", arguments: { nodeId: taskId } }));
-    assert.equal(node.status, "waiting");
+    assert.equal(node.status, "running");
     assert.equal(node.pendingRequest, requestMsgId);
   });
 

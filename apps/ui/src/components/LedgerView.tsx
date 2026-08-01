@@ -39,7 +39,7 @@ function truncateTitle(title: string): string {
   return t.length > 8 ? `${t.slice(0, 8)}…` : t;
 }
 
-/** parents を辿った層順（トポロジカル順）。同層は order → created */
+/** parents を辿った層順（トポロジカル順）。同層は created 順 */
 function topoOrder(members: Node[]): Node[] {
   const idSet = new Set(members.map((n) => n.id));
   const byId = new Map(members.map((n) => [n.id, n] as const));
@@ -64,9 +64,6 @@ function topoOrder(members: Node[]): Node[] {
     const la = layer.get(a.id) ?? 0;
     const lb = layer.get(b.id) ?? 0;
     if (la !== lb) return la - lb;
-    const oa = a.order ?? Number.MAX_SAFE_INTEGER;
-    const ob = b.order ?? Number.MAX_SAFE_INTEGER;
-    if (oa !== ob) return oa - ob;
     return a.created < b.created ? -1 : a.created > b.created ? 1 : 0;
   });
 }

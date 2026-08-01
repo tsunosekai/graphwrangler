@@ -59,14 +59,12 @@ export interface NodeCreateInput {
   lifecycle?: Node["lifecycle"];
   status?: Node["status"];
   fixed?: boolean;
-  order?: number | null;
   /** kind=decision のみ意味を持つ選択肢一覧（docs/design.md 3.9） */
   branches?: Node["branches"];
-  choice?: Node["choice"];
   parentOptions?: Node["parentOptions"];
 }
 
-export type NodePatchInput = Partial<Omit<Node, "id" | "created" | "updated">>;
+export type NodePatchInput = Partial<Omit<Node, "id" | "created">>;
 
 // ---- AI設定（初回セットアップ + ⚙。実装は packages/server/src/settings.ts） ----
 

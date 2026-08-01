@@ -79,8 +79,8 @@ export function selectAction(
 
   for (const node of sorted) {
     if (!isSchedulableKind(node, triggerPages)) continue;
-    if (node.status !== "pending") continue; // unplanned/running/waiting/done/dropped は除外
-    if (node.pendingRequest) continue; // open request があるなら人間待ち（本来 pending とは両立しない想定だが念のため）
+    if (node.status !== "pending") continue; // unplanned/running/done/dropped/skipped は除外
+    if (node.pendingRequest) continue; // open な判断リクエスト中は人間待ち
     if (!isFrontier(node, byId)) continue;
 
     const option = lastAnswerOption(lastMessages[node.id]);

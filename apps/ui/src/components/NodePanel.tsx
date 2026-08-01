@@ -18,7 +18,7 @@ import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
 import { missingParamNames } from "../lib/params";
 import { pushToast } from "../lib/toast";
-import type { Node, NodeBranch, Run, RunItemStatus, ScriptParam } from "../types";
+import type { Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -71,8 +71,9 @@ const TRIAL_CONFIRM_MESSAGE = "スクリプトの試走が成功していませ�
 // 進捗はドロップダウンでなくボタン遷移（2026-07-31 本人指定）。
 // 人間の語彙: 未計画 →[プラン済みにする]→ 待ち →[着手]→ 進行中 →[完了]。
 // 待ち/進行中は人間ノードでは「やってるかどうかの目印」、AI/スクリプトでは機械が動かす。
-// 中止(dropped)は選択肢から廃止（消すならノード削除。Ctrl+Zで戻せる）
-const STATUS_JA: Record<Node["status"], string> = {
+// 中止(dropped)は選択肢から廃止（消すならノード削除。Ctrl+Zで戻せる）。
+// waiting は保存値でなく導出値（pendingRequest あり / ランアイテムの waiting）
+const STATUS_JA: Record<Status, string> = {
   unplanned: "未計画",
   pending: "待ち",
   running: "進行中",

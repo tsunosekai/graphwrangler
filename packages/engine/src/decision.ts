@@ -42,10 +42,10 @@ function lastAnswerOption(message: Message | undefined): string | undefined {
 /**
  * 実行可能な decision ノードを1件選ぶ（純粋関数）。
  *
- * 対象条件: lifecycle=committed, kind=decision, 手順メンバーでない, frontier（parents が
- * 全て done|skipped）, status=pending（done/dropped/skipped/waiting/running/unplanned は除外。
- * pick.ts の「status=waiting は候補にならない」と同じ理由: human への判断リクエストや
- * 失敗リカバリの間は node.status=waiting になり、そのまま自然に除外される）。created 昇順で最初の1件。
+ * 対象条件: lifecycle=committed, kind=decision, ルーティーンメンバーでない, frontier
+ * （parents が全て done|skipped）, status=pending, pendingRequest なし（human への判断
+ * リクエストや失敗リカバリの間は open なリクエストがあり、そのまま自然に除外される。
+ * 回答が来ると server の /answer が pendingRequest を解除する）。created 昇順で最初の1件。
  *
  * - 直前のdecision_answerが option="abort"（失敗リカバリ）なら drop（pick.ts と同じ規約）
  * - executor=human は、直前のスレッドメッセージ(lastMessages)が decision_answer で有効な
@@ -67,6 +67,7 @@ export function selectDecisionAction(
   for (const node of sorted) {
     if (!isDecisionCandidateKind(node, triggerPages)) continue;
     if (node.status !== "pending") continue;
+    if (node.pendingRequest) continue; // open な判断リクエスト中は人間待ち
     if (!isFrontierForDecision(node, byId)) continue;
 
     const option = lastAnswerOption(lastMessages[node.id]);

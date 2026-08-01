@@ -25,13 +25,11 @@ function node(partial: Partial<Node> = {}): Node {
     fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
     implTrial: partial.implTrial ?? null,
-    order: partial.order ?? null,
     schedule: partial.schedule ?? null,
     branches: partial.branches ?? null,
     choice: partial.choice ?? null,
     parentOptions: partial.parentOptions ?? {},
     created: partial.created ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
-    updated: partial.updated ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
   };
 }
 
@@ -133,9 +131,9 @@ describe("selectAction: irreversible除外と承認後許可", () => {
   });
 });
 
-describe("selectAction: waiting復帰判定", () => {
-  it("status=waiting のノードは（pendingRequestの有無に関わらず）候補にならない", () => {
-    const n = node({ status: "waiting", pendingRequest: "m-1" });
+describe("selectAction: 人間待ち（open な判断リクエスト）の除外と復帰", () => {
+  it("pendingRequest があるノードは status=pending でも候補にならない", () => {
+    const n = node({ status: "pending", pendingRequest: "m-1" });
     expect(selectAction([n])).toEqual({ type: "none" });
   });
 

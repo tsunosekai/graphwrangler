@@ -168,7 +168,7 @@ server.registerTool(
   {
     description:
       "既存ノードを部分更新する。patch には変えたいフィールドだけを渡す（title/detail/impl/parents/group/kind/" +
-      "executor/impact/lifecycle/status/fixed/pendingRequest/order の部分集合）。更新後のノードを返す。",
+      "executor/impact/lifecycle/status/fixed/pendingRequest の部分集合）。更新後のノードを返す。",
     inputSchema: {
       nodeId: z.string().describe("更新対象のノードid"),
       patch: z.object(NodePatchShape).describe("変更したいフィールドだけを含む部分オブジェクト"),
@@ -229,7 +229,7 @@ server.registerTool(
   "request_open",
   {
     description:
-      "人間への構造化された判断リクエストを開く。ノードは waiting になり pendingRequest がセットされる（=ボールが人間に渡る）。" +
+      "人間への構造化された判断リクエストを開く。ノードの pendingRequest がセットされる（=ボールが人間に渡る。UIは「あなたの番」表示になる）。" +
       "context は3行以内・専門用語禁止でゴールの言葉での要約（文脈税）。options は2〜4個、各選択肢に" +
       "「選ぶと何が起きるか(then)」を必ず書く。impact はこの判断自体の影響、undo は戻し方（無ければnull）。" +
       "同一ノードに既に open なリクエストがある場合は失敗する。",
@@ -251,7 +251,7 @@ server.registerTool(
   "request_answer",
   {
     description:
-      "開いている判断リクエストに回答する。option に選択肢idを渡すと決着し、ノードのpendingRequestが解けてstatusがpendingに戻る。" +
+      "開いている判断リクエストに回答する。option に選択肢idを渡すと決着し、ノードの pendingRequest が解けて status が pending に戻る（=エンジンが再び拾える）。" +
       "option を null にすると選択肢を選ばず自由文(note)で返す＝ラリー継続（リクエストはopenのまま）。",
     inputSchema: {
       nodeId: z.string().describe("対象ノードid"),
@@ -332,7 +332,7 @@ server.registerTool(
   {
     description:
       "ラン1件の全フィールドを取得する: procedure(属するページのid)・title・trigger・status(running/done/cancelled)・" +
-      "items（テンプレートノードid→{status,note,updated}の全件）・created・updated。runId は run_list / trigger_fire から得る。",
+      "items（テンプレートノードid→{status,note,choice}の全件）・created。runId は run_list / trigger_fire から得る。",
     inputSchema: { runId: z.string().describe("取得したいランid") },
   },
   safe(async ({ runId }: { runId: string }) => apiGet(`/api/runs/${encodeURIComponent(runId)}`)),

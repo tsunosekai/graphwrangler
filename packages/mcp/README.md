@@ -52,7 +52,7 @@ claude mcp add graphwrangler -- npx tsx D:/VSCodeProject/infra-tools/graphwrangl
 | `node_remove` | ノード削除（子がいると失敗） |
 | `thread_get` | ノードスレッドのメッセージ一覧 |
 | `message_post` | スレッドへの投稿（say/status/artifact） |
-| `request_open` | 判断リクエストを開く（ノードが waiting になる） |
+| `request_open` | 判断リクエストを開く（pendingRequest がセットされ、ボールが人間に渡る） |
 | `request_answer` | 判断リクエストへの回答（option=null でラリー継続） |
 | `trigger_fire` | トリガーノード（kind=trigger）を手動発火し、その group（所属ページ）でランを1本作成する |
 | `run_list` | ページの過去のラン一覧（要約: id/title/status/trigger/created + ワークアイテム状態内訳カウント） |

@@ -30,13 +30,11 @@ function fixedNode(overrides: Partial<Node> = {}): Node {
     status: "pending",
     fixed: false,
     pendingRequest: null,
-    order: null,
     schedule: null,
     branches: null,
     choice: null,
     parentOptions: {},
     created: "2026-01-01T00:00:00.000Z",
-    updated: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
 }

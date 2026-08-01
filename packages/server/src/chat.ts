@@ -180,7 +180,6 @@ function buildTools(graph: GraphStore, threads: ThreadStore, pageId: string | nu
         impact: ImpactSchema.optional(),
         lifecycle: LifecycleSchema.optional(),
         status: StatusSchema.optional(),
-        order: z.number().nullable().optional(),
       }),
       execute: async (input) =>
         graph.addNode({ ...input, group: input.group ?? pageId ?? null }, { actor, via: VIA }),
@@ -198,7 +197,6 @@ function buildTools(graph: GraphStore, threads: ThreadStore, pageId: string | nu
         impact: ImpactSchema.optional(),
         lifecycle: LifecycleSchema.optional(),
         status: StatusSchema.optional(),
-        order: z.number().nullable().optional(),
       }),
       execute: async ({ id, ...patch }) => graph.patchNode(id, patch, { actor, via: VIA }),
     }),

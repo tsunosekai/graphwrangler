@@ -28,13 +28,11 @@ function node(partial: Partial<Node> = {}): Node {
     fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
     implTrial: partial.implTrial ?? null,
-    order: partial.order ?? null,
     schedule: partial.schedule ?? null,
     branches: partial.branches ?? null,
     choice: partial.choice ?? null,
     parentOptions: partial.parentOptions ?? {},
     created: partial.created ?? `2026-01-01T00:00:${String(nodeSeq).padStart(2, "0")}Z`,
-    updated: partial.updated ?? `2026-01-01T00:00:${String(nodeSeq).padStart(2, "0")}Z`,
   };
 }
 
@@ -43,7 +41,6 @@ function item(partial: Partial<RunItem> = {}): RunItem {
     status: partial.status ?? "waiting",
     note: partial.note ?? APPROVAL_WAITING_NOTE,
     choice: partial.choice ?? null,
-    updated: partial.updated ?? "2026-01-01T00:00:00Z",
   };
 }
 
@@ -58,7 +55,6 @@ function run(items: Record<string, RunItem>, partial: Partial<Run> = {}): Run {
     status: partial.status ?? "running",
     items,
     created: partial.created ?? `2026-01-01T01:00:${String(runSeq).padStart(2, "0")}Z`,
-    updated: partial.updated ?? `2026-01-01T01:00:${String(runSeq).padStart(2, "0")}Z`,
   };
 }
 
@@ -174,7 +170,7 @@ describe("selectRunApprovalAction: go後に1回実行", () => {
   it("実行後(アイテムがwaiting/承認待ちでなくなった)は対象から外れる", () => {
     const n = node({ id: "irr1" });
     // 実行済みを模して item.status が done に変わった状態
-    const r = run({ irr1: { status: "done", note: null, choice: null, updated: "2026-01-01T02:00:00Z" } });
+    const r = run({ irr1: { status: "done", note: null, choice: null } });
     const gateStates = { [gateKey(r.id, "irr1")]: { status: "answered" as const, option: "go" } };
     const action = selectRunApprovalAction([n], [r], gateStates);
     expect(action).toEqual({ type: "none" });

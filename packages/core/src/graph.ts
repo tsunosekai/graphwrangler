@@ -124,7 +124,7 @@ export function collectDescendantsAmong(nodes: Node[], id: string): Set<string> 
 // Fix 中に守るのは「やり方」であって進捗ではない。保護対象は
 // title/detail/kind/executor/impact/parents/group/branches/parentOptions/schedule/impl
 // （impl は params[].value の変更だけ例外で許可——値は実行時入力でありやり方ではない）。
-// status/lifecycle/fixed/pendingRequest/implTrial/order/choice は進捗・ロック自体の
+// status/lifecycle/fixed/pendingRequest/implTrial/choice は進捗・ロック自体の
 // 操作なので常に変更できる（許可リストではなく、保護リストに載っていないもの全て、という形で表す）。
 
 const FIXED_PROTECTED_SIMPLE_FIELDS = [
@@ -262,7 +262,6 @@ export class GraphStore {
     this.validateGroup(null, parsed.group);
     this.validateBranches(parsed.kind, parsed.branches);
     this.validateParentOptions(parsed.parents, parsed.parentOptions);
-    const ts = nowIso();
     const node: Node = {
       ...parsed,
       id: nextId("n", this.nodes.keys()),
@@ -270,8 +269,7 @@ export class GraphStore {
       // 試走記録は新規作成時は必ず未試走（NodeInputSchema には含めない。desk と同じく
       // 「作成時に指定できるものではなく、試走APIだけが書く」フィールド）
       implTrial: null,
-      created: ts,
-      updated: ts,
+      created: nowIso(),
     };
     this.commit({ op: "node.add", payload: { node } }, meta);
     return node;
@@ -507,7 +505,7 @@ export class GraphStore {
       case "node.patch": {
         const cur = this.nodes.get(record.payload.nodeId);
         if (!cur) throw new GraphError(`node not found: ${record.payload.nodeId}`, 404);
-        this.nodes.set(cur.id, { ...cur, ...record.payload.patch, updated: record.ts });
+        this.nodes.set(cur.id, { ...cur, ...record.payload.patch });
         break;
       }
       case "node.remove": {

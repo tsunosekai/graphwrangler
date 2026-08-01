@@ -83,12 +83,21 @@ const NODE_DEFAULTS = {
   status: "unplanned",
   fixed: false,
   pendingRequest: null,
-  order: null,
   schedule: null,
   branches: null,
   choice: null,
   parentOptions: {},
 };
+
+/** 旧スキーマの値を現行 enum へ正規化する（waiting は pendingRequest からの導出値に、
+ *  impact の中間値 reversible は safe 扱いに変わった）。旧フィールド（order/updated 等）は
+ *  サーバ読込時に zod が捨てるためここでは触らない */
+function normalizeNode(n) {
+  const out = { ...n };
+  if (out.status === "waiting") out.status = "pending";
+  if (out.impact === "reversible") out.impact = "safe";
+  return out;
+}
 
 const snapshotPath = path.join(dataDir, "snapshot.json");
 let nodes = [];
@@ -98,7 +107,7 @@ if (fs.existsSync(snapshotPath)) {
 } else {
   console.warn(`警告: snapshot.json が見つかりません（空グラフとして続行します）: ${snapshotPath}`);
 }
-nodes = nodes.map((n) => ({ ...NODE_DEFAULTS, ...n }));
+nodes = nodes.map((n) => normalizeNode({ ...NODE_DEFAULTS, ...n }));
 // graph.ts の sortNodesById と同じ比較（id 昇順）
 nodes = [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 

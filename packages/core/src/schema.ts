@@ -22,15 +22,20 @@ export const ViaSchema = z.string().min(1);
  *  メンバーに持つかどうかから導出する */
 export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
-export const ImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
+/** ノードの影響度。irreversible = 実行前に人間の承認ゲートを通る（UI名「実行前承認」） */
+export const ImpactSchema = z.enum(["safe", "irreversible"]);
+/** 判断リクエスト自身の影響度（5.4）。ノードの impact とは別の軸で、中間の
+ *  reversible（戻せるが軽くない）を持つ */
+export const RequestImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
 export const LifecycleSchema = z.enum(["draft", "committed"]);
 /** unplanned = やり方未定（「ここだけまだ考えてない」）。依存が揃っていても実行エンジンは拾わない。
- *  skipped = 分岐で選ばれなかった枝を通ったため、その回は対象外になった正常状態（dropped=中止とは別物） */
+ *  skipped = 分岐で選ばれなかった枝を通ったため、その回は対象外になった正常状態（dropped=中止とは別物）。
+ *  「あなたの番（waiting）」は保存しない: pendingRequest の有無から導出する（open な
+ *  リクエストの存在 ⇔ ボールが人間。ランのワークアイテムは別で、RunItemStatus が waiting を持つ） */
 export const StatusSchema = z.enum([
   "unplanned",
   "pending",
   "running",
-  "waiting",
   "done",
   "dropped",
   "skipped",
@@ -117,10 +122,9 @@ export const NodeSchema = z.object({
    *  中身がスクリプトでも手順書でも「人間が判断する」でもよい — Fix はやり方の確定であって
    *  スクリプト化ではない（2026-07-31 本人定義）。ノードは未Fix（改善中）で生まれる */
   fixed: z.boolean(),
-  /** open な判断リクエストの message id。open の存在 ⇔ ボールが人間 */
+  /** open な判断リクエストの message id。open の存在 ⇔ ボールが人間（=「あなたの番」）。
+   *  UI・エンジンはこれの有無から waiting 表示/実行除外を導出する */
   pendingRequest: z.string().nullable(),
-  /** 兄弟内の表示順（小さいほど上）。null は末尾扱い */
-  order: z.number().nullable(),
   /** kind=trigger 用の起動方式記述（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等）。
    *  executor=script なら cron 的な発火判定にそのまま使う。executor=ai なら「AIに発火要否を
    *  判定させる間隔」として使う（every系のみ解釈、無指定は既定1時間）。executor=human では
@@ -135,7 +139,6 @@ export const NodeSchema = z.object({
    *  検証: キーが parents に含まれ、その親が kind=decision であること。値がその親の branches に存在すること */
   parentOptions: z.record(z.string(), z.string()).default({}),
   created: z.string(),
-  updated: z.string(),
 });
 export type Node = z.infer<typeof NodeSchema>;
 
@@ -152,7 +155,6 @@ export const NodeInputSchema = z.object({
   lifecycle: LifecycleSchema.default("draft"),
   status: StatusSchema.default("pending"),
   fixed: z.boolean().default(false),
-  order: z.number().nullable().default(null),
   schedule: z.string().nullable().default(null),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   choice: z.string().nullable().default(null),
@@ -164,7 +166,6 @@ export type NodeInput = z.input<typeof NodeInputSchema>;
 export const NodePatchSchema = NodeSchema.omit({
   id: true,
   created: true,
-  updated: true,
 }).partial();
 export type NodePatch = z.infer<typeof NodePatchSchema>;
 
@@ -213,8 +214,8 @@ export const DecisionRequestSchema = z.object({
   context: z.string().min(1),
   question: z.string().min(1),
   options: z.array(DecisionOptionSchema).min(2).max(4),
-  /** この判断自体の影響（ノードの impact とは別） */
-  impact: ImpactSchema,
+  /** この判断自体の影響（ノードの impact とは別の3値） */
+  impact: RequestImpactSchema,
   /** 戻し方の説明。null=特になし */
   undo: z.string().nullable().default(null),
 });
@@ -280,7 +281,6 @@ export type RunItemStatus = z.infer<typeof RunItemStatusSchema>;
 export const RunItemSchema = z.object({
   status: RunItemStatusSchema,
   note: z.string().nullable(),
-  updated: z.string(),
   /** テンプレートが kind=decision のとき、そのランで確定した枝id。それ以外は null */
   choice: z.string().nullable().default(null),
 });
@@ -301,7 +301,6 @@ export const RunSchema = z.object({
   /** テンプレートノード id → ワークアイテム */
   items: z.record(z.string(), RunItemSchema),
   created: z.string(),
-  updated: z.string(),
 });
 export type Run = z.infer<typeof RunSchema>;
 

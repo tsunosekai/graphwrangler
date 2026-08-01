@@ -27,7 +27,6 @@ function node(partial: Partial<Node> = {}): Node {
     fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
     implTrial: partial.implTrial ?? null,
-    order: partial.order ?? null,
     schedule: partial.schedule ?? null,
     branches: partial.branches ?? [
       { id: "a", label: "Aへ" },
@@ -36,7 +35,6 @@ function node(partial: Partial<Node> = {}): Node {
     choice: partial.choice ?? null,
     parentOptions: partial.parentOptions ?? {},
     created: partial.created ?? `2026-01-01T00:00:${String(nodeSeq).padStart(2, "0")}Z`,
-    updated: partial.updated ?? `2026-01-01T00:00:${String(nodeSeq).padStart(2, "0")}Z`,
   };
 }
 
@@ -45,7 +43,6 @@ function item(partial: Partial<RunItem> = {}): RunItem {
     status: partial.status ?? "pending",
     note: partial.note ?? null,
     choice: partial.choice ?? null,
-    updated: partial.updated ?? "2026-01-01T00:00:00Z",
   };
 }
 
@@ -60,7 +57,6 @@ function run(items: Record<string, RunItem>, partial: Partial<Run> = {}): Run {
     status: partial.status ?? "running",
     items,
     created: partial.created ?? `2026-01-01T01:00:${String(runSeq).padStart(2, "0")}Z`,
-    updated: partial.updated ?? `2026-01-01T01:00:${String(runSeq).padStart(2, "0")}Z`,
   };
 }
 

@@ -80,7 +80,6 @@ export class RunStore {
         status: n.status === "unplanned" ? "skipped" : "pending",
         note: null,
         choice: null,
-        updated: ts,
       };
     }
     const via = opts.via ?? "manual";
@@ -92,7 +91,6 @@ export class RunStore {
       status: "running",
       items,
       created: ts,
-      updated: ts,
     });
     this.write(run);
     return run;
@@ -121,19 +119,17 @@ export class RunStore {
     if (!item) {
       throw new GraphError(`run ${runId} has no work item for node ${nodeId}`, 404);
     }
-    const ts = nowIso();
     const updatedItem: RunItem = {
       status: patch.status ?? item.status,
       note: patch.note !== undefined ? patch.note : item.note,
       choice: patch.choice !== undefined ? patch.choice : item.choice,
-      updated: ts,
     };
     const items = { ...run.items, [nodeId]: updatedItem };
     const allSettled = Object.values(items).every(
       (it) => it.status === "done" || it.status === "dropped" || it.status === "skipped",
     );
     const status = run.status === "cancelled" ? run.status : allSettled ? "done" : run.status;
-    const updated: Run = { ...run, items, status, updated: ts };
+    const updated: Run = { ...run, items, status };
     this.write(updated);
     return updated;
   }
@@ -174,10 +170,9 @@ export class RunStore {
       throw new GraphError(`unknown choice: ${choice}`);
     }
 
-    const ts = nowIso();
     let items: Record<string, RunItem> = {
       ...run.items,
-      [nodeId]: { ...item, status: "done", choice, updated: ts },
+      [nodeId]: { ...item, status: "done", choice },
     };
 
     // 直接規則: このdecisionを親に持ち、選ばれなかった枝のitemをskippedにする
@@ -187,7 +182,7 @@ export class RunStore {
       if (!tmpl) continue;
       const branchId = tmpl.parentOptions[nodeId];
       if (branchId !== undefined && branchId !== choice) {
-        items = { ...items, [id]: { ...it, status: "skipped", updated: ts } };
+        items = { ...items, [id]: { ...it, status: "skipped" } };
       }
     }
 
@@ -203,7 +198,7 @@ export class RunStore {
         if (relevantParents.length === 0) continue; // ラン内に親が居なければ連鎖の対象外
         const allSkipped = relevantParents.every((pid) => items[pid]?.status === "skipped");
         if (allSkipped) {
-          items = { ...items, [id]: { ...it, status: "skipped", updated: ts } };
+          items = { ...items, [id]: { ...it, status: "skipped" } };
           changed = true;
         }
       }
@@ -213,14 +208,14 @@ export class RunStore {
       (it) => it.status === "done" || it.status === "dropped" || it.status === "skipped",
     );
     const status = run.status === "cancelled" ? run.status : allSettled ? "done" : run.status;
-    const updated: Run = { ...run, items, status, updated: ts };
+    const updated: Run = { ...run, items, status };
     this.write(updated);
     return updated;
   }
 
   cancel(runId: string): Run {
     const run = this.get(runId);
-    const updated: Run = { ...run, status: "cancelled", updated: nowIso() };
+    const updated: Run = { ...run, status: "cancelled" };
     this.write(updated);
     return updated;
   }

@@ -76,8 +76,10 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加�
      ときはサーバの `GET /api/files` で読んでインラインする。実際に含めた文脈名は
      `sources` として `say` メッセージの payload に載る（UIの出典バッジ用）
 5. 結果の記録: 成功なら `status`+`say` を投稿して `status=done`。失敗/タイムアウトなら
-   `status` を投稿して `status=waiting` にし、`POST /request` で
-   もう一度/内容を変える/中止 の判断カードを開く
+   `status` を投稿し、`POST /request` で もう一度/内容を変える/中止 の判断カードを開く
+   （pendingRequest がセットされ人間待ちになる。「あなたの番（waiting）」は保存値ではなく
+   pendingRequest からの導出。回答が来ると server が pendingRequest を解いて status を
+   pending に戻す）
 6. プロジェクト側に候補が無ければ、**分岐ノード**（`src/decision.ts`）→
    **ランのワークアイテム**（下記）の順で1件処理する
 

@@ -28,13 +28,11 @@ function node(partial: Partial<Node> = {}): Node {
     fixed: partial.fixed ?? false,
     pendingRequest: partial.pendingRequest ?? null,
     implTrial: partial.implTrial ?? null,
-    order: partial.order ?? null,
     schedule: partial.schedule ?? null,
     branches: partial.branches ?? null,
     choice: partial.choice ?? null,
     parentOptions: partial.parentOptions ?? {},
     created: partial.created ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
-    updated: partial.updated ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
   };
 }
 

@@ -24,7 +24,6 @@ const STATUS_LABEL: Record<Node["status"], string> = {
   unplanned: "未計画",
   pending: "待機",
   running: "実行中",
-  waiting: "回答待ち",
   done: "完了",
   dropped: "中止",
   skipped: "スキップ",

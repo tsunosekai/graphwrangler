@@ -149,12 +149,11 @@ describe("GraphStore: fixed ノードの patch 拒否", () => {
     expect(updated.detail).toBe("メモ");
   });
 
-  it("status/lifecycle/fixed/pendingRequest/order/choice の変更は許可される", () => {
+  it("status/lifecycle/fixed/pendingRequest/choice の変更は許可される", () => {
     const a = g.addNode({ title: "a", lifecycle: "committed" });
     g.patchNode(a.id, { fixed: true });
-    const updated = g.patchNode(a.id, { status: "done", order: 3 });
+    const updated = g.patchNode(a.id, { status: "done" });
     expect(updated.status).toBe("done");
-    expect(updated.order).toBe(3);
     // fixed 自体を落とすことができる（解除できる必要がある）
     const unlocked = g.patchNode(a.id, { fixed: false });
     expect(unlocked.fixed).toBe(false);

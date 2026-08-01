@@ -274,7 +274,6 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     actor,
     VIA,
   );
-  await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
   await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
   log(`実行失敗: id=${node.id} reason=${reason}`);
 }
@@ -294,6 +293,7 @@ function decisionCandidateIdsNeedingThread(nodes: Node[]): string[] {
         n.kind === "decision" &&
         n.lifecycle === "committed" &&
         n.status === "pending" &&
+        !n.pendingRequest && // open な判断リクエスト中は人間待ち（回答が来ると server が解除する）
         !isRunManagedMember(n, triggerPages) &&
         n.parents.every((pid) => {
           const s = byId.get(pid)?.status;
@@ -335,8 +335,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
           actor,
           VIA,
         );
-        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
-        await openRequest(
+              await openRequest(
           node.id,
           buildFailureRecoveryRequest(node, "impl が script 形式ではない"),
           ENGINE_ACTOR,
@@ -348,8 +347,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       if (!sub.ok) {
         const reason = missingParamsReason(sub.missing);
         await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
-        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
-        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
         log(`分岐: パラメータ未入力 id=${node.id} missing=${sub.missing.join(",")}`);
         return true;
       }
@@ -357,8 +355,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       if (!result.success) {
         const reason = result.error || "不明なエラー";
         await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
-        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
-        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
         log(`分岐の script 実行失敗: id=${node.id} reason=${reason}`);
         return true;
       }
@@ -366,8 +363,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       if (!choice) {
         const reason = `script出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
         await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
-        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
-        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
         log(`分岐の script 出力が不正: id=${node.id}`);
         return true;
       }
@@ -384,8 +380,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       if (!result.success) {
         const reason = result.error || "不明なエラー";
         await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
-        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
-        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
         log(`分岐の ai 実行失敗: id=${node.id} reason=${reason}`);
         return true;
       }
@@ -393,8 +388,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       if (!choice) {
         const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
         await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
-        await patchNode(node.id, { status: "waiting" }, ENGINE_ACTOR, VIA);
-        await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
         log(`分岐の ai 出力が不正: id=${node.id}`);
         return true;
       }

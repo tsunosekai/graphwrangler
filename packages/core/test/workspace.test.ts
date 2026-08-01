@@ -105,13 +105,11 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
       fixed: false,
       pendingRequest: null,
       implTrial: null,
-      order: null,
       schedule: null,
       branches: null,
       choice: null,
       parentOptions: {},
       created: "2026-01-01T00:00:00.000Z",
-      updated: "2026-01-01T00:00:00.000Z",
     });
     const a = fixedNode("n-20260101-0001", "a");
     const b = fixedNode("n-20260101-0002", "b");
