@@ -31,6 +31,9 @@ interface Props {
   latestRuns: Record<string, Run | null>;
   /** ページ id → 実行中ラン数（並走中の世界線の数。0は非表示） */
   runningCounts: Record<string, number>;
+  /** モバイル（一覧ビューが画面を専有）では畳み状態を無視して常に展開表示する
+   *  （2026-08-02 モバイル4ビュー化。畳む/開くはデスクトップのレール専用の概念） */
+  forceExpanded?: boolean;
   onSelectPage: (id: string) => void;
 }
 
@@ -64,7 +67,7 @@ function seatColor(status: Status, executor: Node["executor"]): string {
 const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
-export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, runningCounts, onSelectPage }: Props) {
+export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, runningCounts, forceExpanded, onSelectPage }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -162,12 +165,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, ru
           pageId === f.id && "bg-accent text-foreground",
           archived && "opacity-70",
         )}
-        onClick={() => {
-          onSelectPage(f.id);
-          // モバイル（<768px）ではレールが全画面オーバーレイ（index.css）なので、
-          // 選んだら自動で閉じてキャンバスを見せる（2026-08-02 レスポンシブ対応）
-          if (window.innerWidth < 768) setRailOpen(false);
-        }}
+        onClick={() => onSelectPage(f.id)}
       >
         <span className="flex min-w-0 items-center gap-2">
           {routine ? (
@@ -213,7 +211,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, ru
     );
   };
 
-  if (!railOpen) {
+  if (!railOpen && !forceExpanded) {
     return (
       <div className="flex flex-shrink-0 flex-col items-center border-r border-border bg-muted py-1.5">
         <Button

@@ -351,28 +351,20 @@ body {
   border-style: dashed;
 }
 
-/* ---- モバイル（<768px）対応（2026-08-02 本人要望「スマホでも快適に」） ----
-   デスクトップの3ペイン（左レール / キャンバス / 右パネル・チャット）は横幅が足りないため、
-   各ペインを「開いている間だけ全画面オーバーレイ」に切り替える。開閉の導線は既存のまま
-   （レール: ＋の隣の開閉ボタン / パネル: ×で閉じる / チャット: ヘッダーの💬）。
-   width はコンポーネントがインライン style で持つ（リサイズ可能幅）ため !important で上書きする */
+/* ---- モバイル（<768px）対応（2026-08-02 本人指定の4ビュー専有設計） ----
+   ヘッダーと下部タブバー（MobileNav）を除き、一覧/グラフ/ノード詳細/チャットの
+   どれか1つだけが画面を専有する（表示制御は App.tsx の mobileView）。
+   各ペインの幅はコンポーネントがインライン style で持つ（デスクトップのリサイズ可能幅）ため
+   !important で全幅に上書きする */
 @media (max-width: 767px) {
   [data-mobile-panel] {
-    position: fixed !important;
-    top: 3.5rem; /* TopBar の h-14 */
-    bottom: 0;
-    height: auto !important;
-    width: 100vw !important;
-    max-width: 100vw !important;
-    z-index: 40;
+    width: 100% !important;
+    max-width: 100%;
+    flex: 1 1 auto;
+    border-left: none;
+    border-right: none;
   }
-  [data-mobile-panel="left"] {
-    left: 0;
-  }
-  [data-mobile-panel="right"] {
-    right: 0;
-  }
-  /* 幅リサイズはタッチと相性が悪く、全画面なので不要 */
+  /* 幅リサイズはタッチと相性が悪く、全幅固定なので不要 */
   [data-mobile-panel] .resize-handle {
     display: none;
   }

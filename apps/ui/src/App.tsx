@@ -9,8 +9,11 @@ import { PageList } from "./components/PageList";
 import { SetupModal } from "./components/SetupModal";
 import { ToastHost } from "./components/ToastHost";
 import { TopBar, type RunWaitItem } from "./components/TopBar";
+import { MobileNav, type MobileView } from "./components/MobileNav";
 import { api, type SettingsView } from "./lib/api";
+import { cn } from "./lib/utils";
 import { usePolling } from "./hooks/usePolling";
+import { useIsMobile } from "./hooks/useIsMobile";
 import { isRoutinePage } from "./lib/routine";
 import { pushToast } from "./lib/toast";
 import type { Run } from "./types";
@@ -38,6 +41,10 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(() => loadUiState("gw.selectedId"));
   const [pageIdRaw, setPageId] = useState<string | null>(() => loadUiState("gw.pageId"));
   const [chatOpen, setChatOpen] = useState(() => loadUiState("gw.chatOpen") === "1");
+  // モバイル（<768px）はヘッダー+下部タブバーを除き、一覧/グラフ/ノード/チャットの
+  // どれか1つが画面を専有する（2026-08-02 本人指定）。永続化しない（開くたびグラフから）
+  const isMobile = useIsMobile();
+  const [mobileView, setMobileView] = useState<MobileView>("graph");
 
   useEffect(() => saveUiState("gw.selectedId", selectedId), [selectedId]);
   useEffect(() => saveUiState("gw.pageId", pageIdRaw), [pageIdRaw]);
@@ -200,6 +207,7 @@ export default function App() {
         refresh();
         setPageId(created.id);
         setSelectedId(created.id);
+        setMobileView("graph"); // モバイル: 作ったプロジェクトのグラフへ
         pushToast(`プロジェクト「${title}」を作りました`, "info");
       } catch {
         // api() 側でエラートースト表示済み
@@ -224,83 +232,120 @@ export default function App() {
     (id: string | null) => {
       setSelectedId(id);
       if (!id) return;
+      // モバイル: ノードを選んだらノード詳細ビューへ（タップ→詳細の自動遷移）
+      if (isMobile) setMobileView("node");
       const n = nodes.find((x) => x.id === id);
       if (!n) return;
       if (folders.some((f) => f.id === id)) setPageId(id);
       else if (n.group) setPageId(n.group);
     },
-    [nodes, folders],
+    [nodes, folders, isMobile],
   );
+
+  // モバイルの実効ビュー: 「ノード」ビューで表示できるものが無ければグラフへ倒す
+  // （選択解除・削除直後に空画面へ取り残されないように）。デスクトップは null（全ペイン共存）
+  const hasNodeView = selectedIds.length > 1 || selectedNode !== null;
+  const mv: MobileView | null = isMobile ? (mobileView === "node" && !hasNodeView ? "graph" : mobileView) : null;
 
   return (
     // 背景色は body が持つ（格子と一体）。ここに不透明背景を敷くと格子が隠れる
     <div className="flex h-full flex-col text-foreground">
       <TopBar
-        chatOpen={chatOpen}
-        onToggleChat={() => setChatOpen((v) => !v)}
+        chatOpen={mv !== null ? mv === "chat" : chatOpen}
+        onToggleChat={() =>
+          isMobile
+            ? setMobileView((v) => (v === "chat" ? "graph" : "chat"))
+            : setChatOpen((v) => !v)
+        }
         onOpenSettings={() => setSettingsOpen(true)}
         onUndo={handleUndo}
         onCaptureGoal={handleCaptureGoal}
       />
+      {/* モバイル（mv ≠ null）はどれか1つのビューだけを表示する。
+          - 一覧/ノード詳細: 非表示時はアンマウント（ノード詳細は表示中に既読化する副作用が
+            あるため、隠れたまま既読が進まないように）
+          - グラフ/チャット: マウントは維持して display:none（グラフはビュー切替のたびの
+            再レイアウトを避け、チャットは応答ストリーミングを切らないため） */}
       <div className="flex min-h-0 flex-1">
-        <PageList
-          folders={folders}
-          allNodes={nodes}
-          pageId={pageId}
-          threadMeta={threadMeta}
-          latestRuns={latestRuns}
-          runningCounts={runningCounts}
-          onSelectPage={(id) => {
-            setPageId(id);
-            setSelectedId(id);
-          }}
-        />
-        <GraphView
-          nodes={pageNodes}
-          pageNode={pageNode}
-          selectedId={selectedId}
-          threadMeta={threadMeta}
-          activeRun={activeRun}
-          runningRuns={runningRuns}
-          onProjectRun={setProjectedRunId}
-          onSelect={selectNode}
-          onMutated={handleMutated}
-          onSelectionIdsChange={setSelectedIds}
-        />
-        {selectedIds.length > 1 ? (
-          <BulkPanel
-            nodes={nodes.filter((n) => selectedIds.includes(n.id))}
+        {(mv === null || mv === "pages") && (
+          <PageList
             folders={folders}
+            allNodes={nodes}
             pageId={pageId}
-            onMutated={handleMutated}
-            onClose={() => {
-              setSelectedIds([]);
-              setSelectedId(null);
+            threadMeta={threadMeta}
+            latestRuns={latestRuns}
+            runningCounts={runningCounts}
+            forceExpanded={isMobile}
+            onSelectPage={(id) => {
+              setPageId(id);
+              setSelectedId(id);
+              setMobileView("graph"); // モバイル: プロジェクトを選んだらグラフへ
             }}
           />
-        ) : (
-          selectedNode && (
-            <NodePanel
-              key={selectedNode.id}
-              node={selectedNode}
-              allNodes={nodes}
-              activeRun={activeRun}
-              onMutated={handleMutated}
-              onClose={() => setSelectedId(null)}
-              onSelect={selectNode}
-            />
-          )
         )}
-        {chatOpen && (
-          <ChatDrawer
-            pageId={pageId}
-            pageTitle={pageNode?.title ?? null}
-            selectedNodeId={selectedId}
+        <div className={cn("contents", mv !== null && mv !== "graph" && "hidden")}>
+          <GraphView
+            nodes={pageNodes}
+            pageNode={pageNode}
+            selectedId={selectedId}
+            threadMeta={threadMeta}
+            activeRun={activeRun}
+            runningRuns={runningRuns}
+            onProjectRun={setProjectedRunId}
+            onSelect={selectNode}
             onMutated={handleMutated}
-            onClose={() => setChatOpen(false)}
+            onSelectionIdsChange={setSelectedIds}
           />
+        </div>
+        {(mv === null || mv === "node") &&
+          (selectedIds.length > 1 ? (
+            <BulkPanel
+              nodes={nodes.filter((n) => selectedIds.includes(n.id))}
+              folders={folders}
+              pageId={pageId}
+              onMutated={handleMutated}
+              onClose={() => {
+                setSelectedIds([]);
+                setSelectedId(null);
+                setMobileView("graph");
+              }}
+            />
+          ) : (
+            selectedNode && (
+              <NodePanel
+                key={selectedNode.id}
+                node={selectedNode}
+                allNodes={nodes}
+                activeRun={activeRun}
+                onMutated={handleMutated}
+                onClose={() => {
+                  setSelectedId(null);
+                  setMobileView("graph");
+                }}
+                onSelect={selectNode}
+              />
+            )
+          ))}
+        {(mv === null ? chatOpen : true) && (
+          <div className={cn("contents", mv !== null && mv !== "chat" && "hidden")}>
+            <ChatDrawer
+              pageId={pageId}
+              pageTitle={pageNode?.title ?? null}
+              selectedNodeId={selectedId}
+              onMutated={handleMutated}
+              onClose={() => (isMobile ? setMobileView("graph") : setChatOpen(false))}
+            />
+          </div>
         )}
       </div>
+      {isMobile && (
+        <MobileNav
+          view={mv ?? "graph"}
+          nodeEnabled={hasNodeView}
+          nodeLabel={selectedIds.length > 1 ? `${selectedIds.length}件選択` : (selectedNode?.title || null)}
+          onChange={setMobileView}
+        />
+      )}
       <CommandPalette nodes={nodes} folders={folders} onSelect={selectNode} />
       {settingsOpen && settings && (
         <SetupModal
