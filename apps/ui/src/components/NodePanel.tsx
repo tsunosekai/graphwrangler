@@ -8,6 +8,7 @@ import {
   Loader2,
   Lock,
   MessageSquare,
+  ScrollText,
   Trash2,
   Unlock,
   X,
@@ -20,7 +21,7 @@ import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
 import { missingParamNames } from "../lib/params";
 import { pushToast } from "../lib/toast";
-import type { Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
+import type { MaterializedMessage, Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -181,7 +182,10 @@ function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: s
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
 export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSelect }: Props) {
-  const [tab, setTab] = useState<"talk" | "history">("talk");
+  // 会話=今の会話 / 履歴=過去の会話（Workflow AI の「履歴」と同じ意味） / 実行記録=status・artifact
+  // （2026-08-02 本人要望「会話の履歴と実行の履歴を分けてほしい」で2タブ→3タブ化。
+  // それまで「新しい会話」で区切った過去の会話は UI のどこからも見えなくなっていた）
+  const [tab, setTab] = useState<"talk" | "history" | "log">("talk");
   // ノード詳細は既定で開いておく（2026-07-31 本人指定）。会話に集中したいときだけ
   // タブ行右端の「会話を広げる」で閉じる。開閉はリロードを跨いで保持
   // （key={node.id} で再マウントされるため、ノード横断のグローバル設定として保存）
@@ -495,18 +499,34 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
 
   const messages = thread?.messages ?? [];
   // 「新しい会話」区切り（payload.chatBreak）以降だけを会話タブに出す（2026-07-31 本人要望。
-  // スレッドは経緯の正史なので消さない——履歴タブには区切りを含め全部残る。
-  // Task AI の応答文脈も server 側で同じ区切りを尊重する）
+  // スレッドは経緯の正史なので消さない。Task AI の応答文脈も server 側で同じ区切りを尊重する）
   const lastBreak = messages.reduce(
     (acc, m, i) => ((m.payload as { chatBreak?: boolean } | null)?.chatBreak ? i : acc),
     -1,
   );
   const talkSource = lastBreak >= 0 ? messages.slice(lastBreak + 1) : messages;
-  const filtered = (tab === "talk" ? talkSource : messages).filter((m) =>
-    tab === "talk"
-      ? m.kind === "say" || m.kind === "decision_request" || m.kind === "decision_answer"
-      : m.kind === "status" || m.kind === "artifact",
-  );
+  const isChatBreak = (m: MaterializedMessage) =>
+    Boolean((m.payload as { chatBreak?: boolean } | null)?.chatBreak);
+  // タブごとの表示対象（2026-08-02 3タブ化）:
+  //   会話(talk)      = 区切り以降の say + 判断のやりとり
+  //   履歴(history)   = 過去分も含む全ての会話（say + 判断）。「―― 新しい会話 ――」の
+  //                     区切り行も挟んで表示する（どこで区切ったか分かるように）
+  //   実行記録(log)   = status + artifact（エンジン実行・試走・状態変化・移行記録）。
+  //                     会話の区切り行は実行記録ではないので除く
+  const filtered = (tab === "talk" ? talkSource : messages).filter((m) => {
+    if (tab === "talk") {
+      return m.kind === "say" || m.kind === "decision_request" || m.kind === "decision_answer";
+    }
+    if (tab === "history") {
+      return (
+        m.kind === "say" ||
+        m.kind === "decision_request" ||
+        m.kind === "decision_answer" ||
+        isChatBreak(m)
+      );
+    }
+    return (m.kind === "status" || m.kind === "artifact") && !isChatBreak(m);
+  });
 
   const startNewTalk = async () => {
     await fetch(`/api/nodes/${node.id}/messages`, {
@@ -645,9 +665,11 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
       )}
 
       {/* 操作の主役は「詳細をたたむ」ではなく「会話を広げる」（2026-07-31 本人指定）。
-          既定は会話が広い状態（メタ非表示）で、切替はタブ行の右端のボタンが担う */}
+          既定は会話が広い状態（メタ非表示）で、切替はタブ行の右端のボタンが担う。
+          セクション全体が縦に長くなってもパネル（overflow-hidden）から溢れないよう
+          スクロール容器で包む（2026-08-02 スクロール不能バグ修正の一環） */}
       {metaOpen && (
-        <>
+        <div className="flex min-h-0 flex-shrink-0 basis-auto flex-col gap-3 overflow-y-auto" style={{ maxHeight: "60%" }}>
           {/* Fix実効化の注記（docs/design.md 3.5）: ロック中は「やり方」フィールドの編集UIを
               disabled にする。進捗（status）・params の値・試走・Fixトグル自体は生かしたまま */}
           {node.fixed && (
@@ -656,7 +678,12 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
             </p>
           )}
 
+          {/* max-h + overflow: Textarea は field-sizing-content で中身に合わせて伸び続けるため、
+              長文だとパネル（overflow-hidden）からはみ出て下半分に到達できなくなる
+              （2026-08-02 本人報告「本文が長い場合スクロールが効かない」）。上限を付けて
+              内部スクロールに切り替える */}
           <Textarea
+            className="max-h-48 overflow-y-auto"
             placeholder="detail / 補足"
             value={detailDraft}
             disabled={node.fixed}
@@ -1032,7 +1059,10 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                   }}
                 />
+                {/* 手順書の本文は長くなりがち。field-sizing-content の伸び放題を止めて
+                    内部スクロールにする（detail 欄と同じ理由。2026-08-02） */}
                 <Textarea
+                  className="max-h-72 overflow-y-auto"
                   placeholder="本文（path と両方あれば省略可。どちらか片方があればよい）"
                   value={implTextDraft}
                   disabled={node.fixed}
@@ -1171,7 +1201,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
               </Button>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {openRequests.map((m) => (
@@ -1187,13 +1217,16 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
       ))}
 
       <div className="flex items-center justify-between">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history")} className="gap-3">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history" | "log")} className="gap-3">
           <TabsList>
             <TabsTrigger value="talk">
               <MessageSquare className="size-3.5" /> 会話
             </TabsTrigger>
             <TabsTrigger value="history">
               <History className="size-3.5" /> 履歴
+            </TabsTrigger>
+            <TabsTrigger value="log">
+              <ScrollText className="size-3.5" /> 実行記録
             </TabsTrigger>
           </TabsList>
         </Tabs>
