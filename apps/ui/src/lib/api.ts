@@ -135,6 +135,13 @@ export const api = {
   patchNode: (id: string, patch: NodePatchInput) =>
     withSelfRead(id, request<Node>(`/nodes/${id}`, { method: "POST", body: JSON.stringify(patch) })),
 
+  /** 手順書のインライン本文をワークスペース内ファイルへ書き出し、impl を path 参照に切り替える */
+  implToFile: (id: string, filePath: string, opts: { overwrite?: boolean } = {}) =>
+    withSelfRead(id, request<{ ok: boolean; path: string }>(`/nodes/${id}/impl/to-file`, {
+      method: "POST",
+      body: JSON.stringify({ path: filePath, ...(opts.overwrite ? { overwrite: true } : {}) }),
+    })),
+
   removeNode: (id: string, opts: { force?: boolean } = {}) =>
     request<{ removed: boolean }>(`/nodes/${id}/remove`, {
       method: "POST",

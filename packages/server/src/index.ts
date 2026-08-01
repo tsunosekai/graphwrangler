@@ -303,6 +303,61 @@ app.post("/api/nodes/:id/trial", async (c) => {
   });
 });
 
+// ---- 手順書のファイル化（2026-08-02 本人要望「実装の手順をドキュメント化（ファイル化）する
+// 機能が欲しい」） ----
+// impl.type==="doc" のインライン本文（text）を、ワークスペース内のファイルへ書き出して
+// impl を path 参照に切り替える。手順書がリポジトリの普通のファイルになるので、
+// エディタで開ける・git で版管理される・スクリプトと同じ場所で育てられる。
+// パスは resolveWorkspacePath でルート外への脱出を拒否。fixed ノードは impl 変更が
+// patchNode の Fix ガードで 409 になる（＝ロック中はファイル化できない。先に解除）。
+
+const ImplToFileSchema = z.object({
+  /** 書き出し先（ワークスペースルートからの相対パス。例: docs/手順.md） */
+  path: z.string().min(1),
+  /** 既存ファイルがあるとき上書きするか（省略時は 409 で拒否） */
+  overwrite: z.boolean().optional(),
+});
+
+app.post("/api/nodes/:id/impl/to-file", async (c) => {
+  const id = c.req.param("id");
+  const node = graph.get(id);
+  if (node.impl?.type !== "doc" || !node.impl.text || !node.impl.text.trim()) {
+    throw new GraphError("インライン本文を持つ手順書がありません（impl.type=doc で text が必要）", 400);
+  }
+  const info = graph.workspaceInfo();
+  if (info.mode !== "workspace" || !info.root) {
+    throw new GraphError("ファイル化はワークスペースモードでのみ使えます", 400);
+  }
+  const body = await c.req.json();
+  const { path: relPathRaw, overwrite } = ImplToFileSchema.parse(body);
+  const relPath = relPathRaw.replace(/\\/g, "/");
+  const abs = resolveWorkspacePath(info.root, relPath);
+  if (!abs) throw new GraphError(`ワークスペース外のパスは指定できません: ${relPath}`, 400);
+  if (fs.existsSync(abs) && !overwrite) {
+    throw new GraphError(`既にファイルがあります: ${relPath}`, 409);
+  }
+  const m = meta(body);
+  const text = node.impl.text.endsWith("\n") ? node.impl.text : `${node.impl.text}\n`;
+  // 先に impl の patch を通す（fixed の 409 をファイル書き込み前に踏むため。
+  // patch が通ってから書き込みに失敗した場合は impl を書き戻す）
+  graph.patchNode(id, { impl: { type: "doc", path: relPath, text: null } }, m);
+  try {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, text, "utf8");
+  } catch (err) {
+    graph.patchNode(id, { impl: node.impl }, m); // 書き込み失敗: インライン本文へ戻す
+    throw new GraphError(`ファイルの書き込みに失敗しました: ${String(err)}`, 500);
+  }
+  threads.post(id, {
+    kind: "status",
+    body: `手順書をファイル化: ${relPath}`,
+    payload: { implToFile: relPath },
+    author: m.actor,
+    via: m.via,
+  });
+  return c.json({ ok: true, path: relPath });
+});
+
 // ---- スレッド ----
 
 app.get("/api/nodes/:id/thread", (c) => {

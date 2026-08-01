@@ -200,6 +200,13 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
 - 試走の実行結果はノードスレッドに kind:"status" で記録される（成功/失敗(exit N) +
   実コマンド + 出力先頭500字）
 
+**手順書のファイル化**（2026-08-02）: impl.type==="doc" のインライン本文（text）は、
+NodePanel の「本文をファイル化」ボタン（`POST /api/nodes/:id/impl/to-file`）でワークスペース内の
+ファイルへ書き出し、impl を path 参照へ切り替えられる。手順書がリポジトリの普通のファイルになり、
+エディタで開ける・git で版管理される・スクリプトと同じ場所で育てられる。パスは
+resolveWorkspacePath でルート外脱出を拒否し、既存ファイルへの上書きは overwrite 明示時のみ。
+fixed ノードは impl 変更の Fix ガードにかかるためファイル化できない（先に解除）。
+
 **パラメータ宣言**: impl.type==="script" の command は、引数が要る場合 `{name}`
 プレースホルダ入りのテンプレートとして書ける。宣言（`impl.params: {name, label?, example?,
 value?}[]`）は **Workflow AI が書き、値（value）は人間が NodePanel の実装欄で入力する**。

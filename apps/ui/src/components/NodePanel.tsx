@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { api, type NodePatchInput } from "../lib/api";
-import { confirmDialog } from "../lib/dialogs";
+import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
@@ -373,6 +373,37 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
     if (node.impl?.type !== "doc") return;
     const v = implTextDraft || null;
     if (v !== (node.impl.text ?? null)) await patch({ impl: { type: "doc", text: v, path: node.impl.path ?? null } });
+  };
+
+  // 手順書の本文をワークスペース内ファイルへ書き出し、path 参照へ切り替える
+  // （2026-08-02 本人要望「実装の手順をドキュメント化（ファイル化）する機能」）。
+  // 未保存の下書きがあれば先に保存してから、サーバの to-file を呼ぶ
+  const fileifyImplDoc = async () => {
+    await saveImplText();
+    if (!implTextDraft.trim()) return;
+    const safeName = (node.title || node.id).replace(/[\\/:*?"<>|]/g, "_").trim() || node.id;
+    const filePath = await promptDialog(
+      "ファイル化先のパス（ワークスペースルートからの相対）",
+      { defaultValue: `docs/${safeName}.md`, confirmLabel: "ファイル化" },
+    );
+    if (!filePath) return;
+    try {
+      await api.implToFile(node.id, filePath);
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes("既にファイル"))) return; // トーストは api() 側
+      const ok = await confirmDialog(`「${filePath}」は既にあります。上書きしますか？`, {
+        danger: true,
+        confirmLabel: "上書き",
+      });
+      if (!ok) return;
+      try {
+        await api.implToFile(node.id, filePath, { overwrite: true });
+      } catch {
+        return;
+      }
+    }
+    pushToast(`手順書をファイル化しました: ${filePath}`, "info");
+    onMutated();
   };
 
   const saveImplCommand = async () => {
@@ -1071,6 +1102,23 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                   onBlur={saveImplText}
                   rows={4}
                 />
+                {implTextDraft.trim() && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="self-start"
+                    disabled={node.fixed}
+                    title={
+                      node.fixed
+                        ? "ロック中はファイル化できません（先に解除）"
+                        : "本文をワークスペース内の .md ファイルへ書き出し、path 参照に切り替える（git で版管理される）"
+                    }
+                    onClick={() => void fileifyImplDoc()}
+                  >
+                    <Icon name="doc" size={13} /> 本文をファイル化
+                  </Button>
+                )}
               </>
             )}
 
