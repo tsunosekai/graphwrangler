@@ -230,16 +230,20 @@ export default function App() {
   // どこから選択されても、そのノードのページへ移動する（受信箱ジャンプ用）
   const selectNode = useCallback(
     (id: string | null) => {
+      // モバイル: **選択が変わったときだけ**ノード詳細ビューへ遷移する。
+      // onSelect は React Flow の selection-change 経由でポーリング再描画のたびに
+      // 同じ id で再発火するため、無条件に遷移すると開いているタブから数秒で
+      // 勝手にノード詳細へ飛ばされる（2026-08-02 本人報告）。キャンバス上の実タップは
+      // 同じ id でも GraphView の onNodeTap 経由で遷移する
+      if (isMobile && id && id !== selectedId) setMobileView("node");
       setSelectedId(id);
       if (!id) return;
-      // モバイル: ノードを選んだらノード詳細ビューへ（タップ→詳細の自動遷移）
-      if (isMobile) setMobileView("node");
       const n = nodes.find((x) => x.id === id);
       if (!n) return;
       if (folders.some((f) => f.id === id)) setPageId(id);
       else if (n.group) setPageId(n.group);
     },
-    [nodes, folders, isMobile],
+    [nodes, folders, isMobile, selectedId],
   );
 
   // モバイルの実効ビュー: 「ノード」ビューで表示できるものが無ければグラフへ倒す
@@ -293,6 +297,9 @@ export default function App() {
             runningRuns={runningRuns}
             onProjectRun={setProjectedRunId}
             onSelect={selectNode}
+            onNodeTap={() => {
+              if (isMobile) setMobileView("node"); // 実タップは同じノードでも詳細へ
+            }}
             onMutated={handleMutated}
             onSelectionIdsChange={setSelectedIds}
           />

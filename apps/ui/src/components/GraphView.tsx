@@ -85,6 +85,11 @@ interface Props {
   runningRuns?: Run[];
   onProjectRun?: (runId: string) => void;
   onSelect: (id: string | null) => void;
+  /** ユーザーが**キャンバス上でノードを実際にタップ/クリックした**ときだけ呼ばれる。
+   *  onSelect は React Flow の selection-change（ポーリング再描画でも再発火する）からも
+   *  呼ばれるため、モバイルの「タップでノード詳細ビューへ」の判定にはこちらを使う
+   *  （2026-08-02 本人報告「開いて2秒後ぐらいに勝手にノード詳細に行く」の修正） */
+  onNodeTap?: (id: string) => void;
   onMutated: () => void;
   /** 選択中ノードの id 一覧（複数選択）。App が一括編集パネル（BulkPanel）の表示に使う */
   onSelectionIdsChange?: (ids: string[]) => void;
@@ -99,6 +104,7 @@ function GraphViewInner({
   runningRuns = [],
   onProjectRun,
   onSelect,
+  onNodeTap,
   onMutated,
   onSelectionIdsChange,
 }: Props) {
@@ -985,6 +991,7 @@ function GraphViewInner({
           onNodeClick={(_, n) => {
             lastClickedRef.current = n.id;
             onSelect(n.id);
+            onNodeTap?.(n.id); // 実タップだけ（モバイルのビュー遷移用。selection-change とは区別）
           }}
           onEdgeClick={(_, edge) => setSelectedEdgeId(edge.id)}
           onSelectionChange={handleSelectionChange}
