@@ -94,7 +94,8 @@ if (workspaceArg) {
   serverModeLabel = `data: ${dataDir}`;
 }
 
-// ---- Workflow AI 会話履歴の保存/取得（ページ単位の UIMessage[] スナップショット） ----
+// ---- Workflow AI 会話履歴の保存/取得（UIMessage[] スナップショット。UI は 2026-08-02 から
+// キー "global" の1本だけを使う。エンドポイントはキー汎用のまま=旧ページ単位ファイルも読める） ----
 
 function chatHistoryPath(pageId: string): string | null {
   // ファイル名に使うのはノードid（n-... 形式）か "global" のみ。パス脱出を構造で防ぐ
@@ -695,6 +696,17 @@ app.post("/api/ai/complete", async (c) => {
 const uiDist = path.join(repoRoot, "apps", "ui", "dist");
 if (fs.existsSync(uiDist)) {
   const root = path.relative(process.cwd(), uiDist).split(path.sep).join("/");
+  // キャッシュ規律（2026-08-02）: index.html はデプロイで差し替わるため no-cache
+  // （ブラウザのヒューリスティックキャッシュで古いUIが配信され続ける実害があった）。
+  // ハッシュ付き /assets/ は内容が変われば名前も変わるので長期キャッシュしてよい
+  app.use("/*", async (c, next) => {
+    await next();
+    if (c.req.path.startsWith("/assets/")) {
+      c.header("Cache-Control", "public, max-age=31536000, immutable");
+    } else {
+      c.header("Cache-Control", "no-cache");
+    }
+  });
   app.use("/*", serveStatic({ root }));
   app.get("*", serveStatic({ root, path: "index.html" }));
 }

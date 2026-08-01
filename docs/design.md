@@ -58,7 +58,7 @@ data/
 ├── snapshot.json        … 現在のグラフ状態（操作適用後に毎回書く。ops.jsonl から再構築可能）
 ├── settings.json        … AI設定（接続方式・モデル・APIキー。キーは書き込み専用で読み出さない）
 ├── threads/<node>.jsonl … ノードスレッド（追記専用）
-├── chats/<page>.json    … Workflow AI の会話履歴（ページ単位。archive で過去分を退避）
+├── chats/global.json    … Workflow AI の会話履歴（1本のグローバル会話。archive で過去分を退避。2026-08-02 にページ単位を廃止、旧 chats/<page>.json は遺構）
 └── runs/<run>.json      … ラン（実行インスタンス。5.5）
 ```
 
@@ -314,7 +314,7 @@ impl.command はワークスペースルートからの相対パスで書く。�
 ├── .graphwrangler/         ← サイドカー（サーバが自動生成）
 │   ├── .gitignore          ← 自動生成（ops.jsonl / runs/ / settings.json を除外）
 │   ├── threads/*.jsonl     ← 会話・判断の経緯。コミットする
-│   ├── chats/*.json        ← Workflow AI の会話履歴（ページ単位）。同じ理由でコミットする
+│   ├── chats/global.json   ← Workflow AI の会話履歴（グローバル1本）。同じ理由でコミットする
 │   ├── runs/*.json         ← ラン履歴。gitignore
 │   ├── ops.jsonl           ← セッション内 undo 用の作業記録。gitignore
 │   └── settings.json       ← AI設定（APIキー含む）。gitignore

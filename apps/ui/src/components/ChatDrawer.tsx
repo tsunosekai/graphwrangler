@@ -21,16 +21,18 @@ interface Props {
   onClose: () => void;
 }
 
-// チャット履歴の永続化はサーバ（sidecar/chats/<pageId>.json、コミット対象）。
+// チャット履歴の永続化はサーバ（sidecar/chats/global.json、コミット対象）。
 // localStorage 保存は廃止（2026-07-31 本人要望「会話履歴も見れるように」——ブラウザ縛りを
-// やめ、スレッドと同じく経緯ごと版管理する）
-function chatKeyOf(pageId: string | null): string {
-  return pageId ?? "global";
-}
+// やめ、スレッドと同じく経緯ごと版管理する）。
+// 2026-08-02 本人要望「プロジェクトを別でチャットが別れないようにして」: 会話はページ別に
+// 分けず、常に1本のグローバル会話にする（chats/global.json のみ使用。旧 chats/<pageId>.json は
+// 遺構として残るが読み書きしない）。ページの文脈は送信のたびに body.pageId で渡るため、
+// 会話を切り替えなくても「今見ているページの話」として続けられる
+const CHAT_KEY = "global";
 
-async function loadHistory(pageId: string | null): Promise<UIMessage[]> {
+async function loadHistory(): Promise<UIMessage[]> {
   try {
-    const res = await fetch(`/api/chats/${chatKeyOf(pageId)}`);
+    const res = await fetch(`/api/chats/${CHAT_KEY}`);
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data.messages) ? (data.messages as UIMessage[]) : [];
@@ -39,8 +41,8 @@ async function loadHistory(pageId: string | null): Promise<UIMessage[]> {
   }
 }
 
-function saveHistory(pageId: string | null, messages: UIMessage[]): void {
-  void fetch(`/api/chats/${chatKeyOf(pageId)}`, {
+function saveHistory(messages: UIMessage[]): void {
+  void fetch(`/api/chats/${CHAT_KEY}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ messages }),
@@ -57,9 +59,9 @@ interface ArchiveSession {
 }
 
 /** 現行の会話をアーカイブへ1件追記する。成否を返す（失敗時は呼び出し側で会話を消さない） */
-async function archiveCurrentChat(pageId: string | null, messages: UIMessage[]): Promise<boolean> {
+async function archiveCurrentChat(messages: UIMessage[]): Promise<boolean> {
   try {
-    const res = await fetch(`/api/chats/${chatKeyOf(pageId)}/archive`, {
+    const res = await fetch(`/api/chats/${CHAT_KEY}/archive`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ messages }),
@@ -70,9 +72,9 @@ async function archiveCurrentChat(pageId: string | null, messages: UIMessage[]):
   }
 }
 
-async function loadArchive(pageId: string | null): Promise<ArchiveSession[]> {
+async function loadArchive(): Promise<ArchiveSession[]> {
   try {
-    const res = await fetch(`/api/chats/${chatKeyOf(pageId)}/archive`);
+    const res = await fetch(`/api/chats/${CHAT_KEY}/archive`);
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data.sessions) ? (data.sessions as ArchiveSession[]) : [];
@@ -124,69 +126,56 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   // で渡す（最新値を確実に反映するため。transport生成時のクロージャに古い値を焼き込まない）
   const transport = useMemo(() => new DefaultChatTransport({ api: "/api/chat", fetch: chatFetch }), []);
 
-  // id を pageId に紐づけることで、ページ切替時に useChat 内部が Chat インスタンスを
-  // 作り直す（=履歴を loadHistory(pageId) で読み込み直す）。旧実装の「pageId変更→useEffectで
-  // 読み込み直す」に相当する
+  // 会話は1本のグローバル会話（2026-08-02 本人要望「プロジェクトを別でチャットが
+  // 別れないようにして」）。id を固定することでページを切り替えても useChat の
+  // Chat インスタンスは作り直されず、会話がそのまま続く。ページの文脈は send() が
+  // 送信のたびに body.pageId で渡す
   const { messages, setMessages, sendMessage, status, error, stop } = useChat({
-    id: pageId ?? "global",
+    id: CHAT_KEY,
     transport,
     onFinish: () => onMutated(),
   });
 
-  // ページ切替時にサーバから履歴を読み込む（保存は下の messages 変更 effect が担う。
-  // 読み込み完了までの間に古いページの内容を保存しないよう、ロード済みキーを追跡する。
-  // cancelled ガード: 素早くページを渡り歩くと前ページの loadHistory が遅れて resolve し、
-  // 新ページのチャットへ前ページの履歴を注入してしまうため、離脱済みなら捨てる）
-  const loadedKeyRef = useRef<string | null>(null);
+  // マウント時にサーバから履歴を読み込む（保存は下の messages 変更 effect が担う。
+  // 読み込み完了までの間に保存しないよう、ロード済みフラグを追跡する）
+  const loadedRef = useRef(false);
   useEffect(() => {
-    const key = chatKeyOf(pageId);
     let cancelled = false;
-    loadedKeyRef.current = null;
-    setTab("talk"); // ページ切替時は会話タブに戻す
-    void loadHistory(pageId).then((history) => {
+    loadedRef.current = false;
+    void loadHistory().then((history) => {
       if (cancelled) return;
       setMessages(history);
-      loadedKeyRef.current = key;
+      loadedRef.current = true;
     });
     return () => {
       cancelled = true;
     };
     // setMessages は useChat の安定参照
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageId]);
+  }, []);
 
-  // ページごとの「最後に見た messages」の控え。ストリーミング中は下の保存 effect が
-  // スキップするため、応答中にページを切り替える（or ドロワーを閉じる）と会話が
-  // どこにも保存されないまま useChat がチャットを作り直して消えていた（2026-08-01
-  // 本人報告「プロジェクトを変えたらチャット履歴（今の会話も）が消える」）。
-  // 離脱クリーンアップの時点では useChat の messages は既に新ページのものに
-  // すり替わっているので、レンダーごとにキー付きで控えておき、クリーンアップは
-  // 旧キーの控えを保存する（クリーンアップ→新レンダーの effect の順で走るため、
-  // 控えが新ページの内容に上書きされる前に読める）
-  const lastByKeyRef = useRef<Record<string, UIMessage[]>>({});
+  // 「最後に見た messages」の控え。ストリーミング中は下の保存 effect がスキップするため、
+  // 応答中にドロワーを閉じる（アンマウント）と会話が未保存のまま消えることがある
+  // （2026-08-01 の会話消失バグの同型）。アンマウントのクリーンアップで必ず保存する。
+  // 応答ストリーミング中なら途中までの内容が保存される（何も残らないより途中まで
+  // 残るほうがよい。ストリームの残りはサーバ側で完走するが本文は拾えない既知の制限）
+  const lastMessagesRef = useRef<UIMessage[]>([]);
   useEffect(() => {
-    lastByKeyRef.current[chatKeyOf(pageId)] = messages;
-  }, [messages, pageId]);
-
-  // ページを離れる瞬間（切替・ドロワーを閉じる・アンマウント）に、去るページの会話を
-  // 必ず保存する。応答ストリーミング中なら途中までの内容が保存される（何も残らないより
-  // 途中まで残るほうがよい。ストリームの残りはサーバ側で完走するが本文は拾えない既知の制限）
+    lastMessagesRef.current = messages;
+  }, [messages]);
   useEffect(() => {
-    const key = chatKeyOf(pageId);
-    const pid = pageId;
     return () => {
-      if (loadedKeyRef.current !== key) return; // ロード完了前に離れた（上書き事故を防ぐ）
-      const msgs = lastByKeyRef.current[key];
-      if (msgs) saveHistory(pid, msgs);
+      if (!loadedRef.current) return; // ロード完了前に閉じた（上書き事故を防ぐ）
+      if (lastMessagesRef.current.length > 0) saveHistory(lastMessagesRef.current);
     };
-  }, [pageId]);
+  }, []);
 
   // 履歴タブを開くたびにサーバから最新のアーカイブ一覧を読み込む
   useEffect(() => {
     if (tab !== "history") return;
     let cancelled = false;
     setArchiveLoading(true);
-    void loadArchive(pageId).then((sessions) => {
+    void loadArchive().then((sessions) => {
       if (cancelled) return;
       setArchiveSessions(sessions);
       setArchiveLoading(false);
@@ -194,7 +183,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     return () => {
       cancelled = true;
     };
-  }, [tab, pageId]);
+  }, [tab]);
 
   const busy = status === "submitted" || status === "streaming";
 
@@ -217,13 +206,13 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, busy]);
 
-  // メッセージが変わるたびに該当ページの履歴としてサーバへ保存する（応答中は流れるので
-  // 完了時=busyでない時だけ。ロード完了前のページは保存しない）
+  // メッセージが変わるたびにグローバル履歴としてサーバへ保存する（応答中は流れるので
+  // 完了時=busyでない時だけ。ロード完了前は保存しない）
   useEffect(() => {
     if (busy) return;
-    if (loadedKeyRef.current !== chatKeyOf(pageId)) return;
-    saveHistory(pageId, messages);
-  }, [messages, pageId, busy]);
+    if (!loadedRef.current) return;
+    saveHistory(messages);
+  }, [messages, busy]);
 
   // 「新しい会話」: 現在の会話が空でなければアーカイブへ退避してから空にする
   // （2026-07-31 本人要望。旧「履歴をクリア」は消して終わりだったが、アーカイブして
@@ -233,7 +222,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     setStartingNewChat(true);
     try {
       if (messages.length > 0) {
-        const ok = await archiveCurrentChat(pageId, messages);
+        const ok = await archiveCurrentChat(messages);
         if (!ok) {
           pushToast("履歴の保存に失敗しました", "error");
           return;
@@ -241,7 +230,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
         pushToast("会話を履歴へ移しました", "info");
       }
       setMessages([]);
-      saveHistory(pageId, []);
+      saveHistory([]);
       setTab("talk");
     } finally {
       setStartingNewChat(false);
