@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage } from "../types";
@@ -121,9 +123,18 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
                 <span>{m.via}</span>
                 <span>{new Date(m.ts).toLocaleString("ja-JP")}</span>
               </div>
-              <div className="whitespace-pre-wrap break-words text-sm">
-                {m.body || (m.kind === "decision_answer" ? "(選択のみ)" : "")}
-              </div>
+              {/* AI（agent）の本文はマークダウンで描画（2026-08-01 本人要望「Task AI でも
+                  markdown が正しくレンダリングされるように」。スタイルは Workflow AI と共通の
+                  .chat-md）。人間・システムの本文は入力そのまま */}
+              {m.author.kind === "agent" && m.body ? (
+                <div className="chat-md break-words text-sm">
+                  <Markdown remarkPlugins={[remarkGfm]}>{m.body}</Markdown>
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap break-words text-sm">
+                  {m.body || (m.kind === "decision_answer" ? "(選択のみ)" : "")}
+                </div>
+              )}
               {sources && sources.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {sources.map((s, i) => (

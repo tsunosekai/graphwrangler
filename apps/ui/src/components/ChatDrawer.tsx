@@ -134,18 +134,51 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   });
 
   // ページ切替時にサーバから履歴を読み込む（保存は下の messages 変更 effect が担う。
-  // 読み込み完了までの間に古いページの内容を保存しないよう、ロード済みキーを追跡する）
+  // 読み込み完了までの間に古いページの内容を保存しないよう、ロード済みキーを追跡する。
+  // cancelled ガード: 素早くページを渡り歩くと前ページの loadHistory が遅れて resolve し、
+  // 新ページのチャットへ前ページの履歴を注入してしまうため、離脱済みなら捨てる）
   const loadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const key = chatKeyOf(pageId);
+    let cancelled = false;
     loadedKeyRef.current = null;
     setTab("talk"); // ページ切替時は会話タブに戻す
     void loadHistory(pageId).then((history) => {
+      if (cancelled) return;
       setMessages(history);
       loadedKeyRef.current = key;
     });
+    return () => {
+      cancelled = true;
+    };
     // setMessages は useChat の安定参照
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId]);
+
+  // ページごとの「最後に見た messages」の控え。ストリーミング中は下の保存 effect が
+  // スキップするため、応答中にページを切り替える（or ドロワーを閉じる）と会話が
+  // どこにも保存されないまま useChat がチャットを作り直して消えていた（2026-08-01
+  // 本人報告「プロジェクトを変えたらチャット履歴（今の会話も）が消える」）。
+  // 離脱クリーンアップの時点では useChat の messages は既に新ページのものに
+  // すり替わっているので、レンダーごとにキー付きで控えておき、クリーンアップは
+  // 旧キーの控えを保存する（クリーンアップ→新レンダーの effect の順で走るため、
+  // 控えが新ページの内容に上書きされる前に読める）
+  const lastByKeyRef = useRef<Record<string, UIMessage[]>>({});
+  useEffect(() => {
+    lastByKeyRef.current[chatKeyOf(pageId)] = messages;
+  }, [messages, pageId]);
+
+  // ページを離れる瞬間（切替・ドロワーを閉じる・アンマウント）に、去るページの会話を
+  // 必ず保存する。応答ストリーミング中なら途中までの内容が保存される（何も残らないより
+  // 途中まで残るほうがよい。ストリームの残りはサーバ側で完走するが本文は拾えない既知の制限）
+  useEffect(() => {
+    const key = chatKeyOf(pageId);
+    const pid = pageId;
+    return () => {
+      if (loadedKeyRef.current !== key) return; // ロード完了前に離れた（上書き事故を防ぐ）
+      const msgs = lastByKeyRef.current[key];
+      if (msgs) saveHistory(pid, msgs);
+    };
   }, [pageId]);
 
   // 履歴タブを開くたびにサーバから最新のアーカイブ一覧を読み込む

@@ -122,11 +122,13 @@ export function ChatMessageView({ message }: { message: UIMessage }) {
           );
         }
         if (part.type === "reasoning") {
-          // 独り言（思考の合間のテキスト）。Claude Code に寄せ、吹き出しにはせず減光イタリックで流す
+          // 独り言（思考の合間のテキスト）。Claude Code に寄せ、吹き出しにはせず減光イタリックで
+          // 流す。中身はマークダウンとして描画する（2026-08-01 本人要望「markdown が正しく
+          // レンダリングされるように」——見出しやリストが記号のまま見えていた）
           if (!part.text) return null;
           return (
-            <div key={i} className="whitespace-pre-wrap break-words px-3 py-0.5 text-sm italic text-text-lo">
-              {part.text}
+            <div key={i} className="chat-md break-words px-3 py-0.5 text-sm italic text-text-lo">
+              <Markdown remarkPlugins={[remarkGfm]}>{part.text}</Markdown>
             </div>
           );
         }
