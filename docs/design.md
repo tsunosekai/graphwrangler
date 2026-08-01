@@ -153,7 +153,10 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
   fixed=true の間はサーバ（`GraphStore.patchNode`）がこれらの実質的な変更を 409 で拒否する
   （同値の patch=no-op は許可）。impl だけ params[].value の変更は例外で許可する——
   値は実行時入力であってやり方ではないため（`implEqualIgnoringParamValues`、
-  packages/core/src/graph.ts）。`removeNode` は fixed ノードを拒否し、`undoLast`/`redoLast`
+  packages/core/src/graph.ts）。`removeNode` は既定では fixed ノード・メンバー持ち・
+  子持ちを拒否するが、**force=true（UI の確認モーダル通過後）なら消せる**——メンバーは
+  巻き添え削除、残る子は parents/parentOptions から切り離す（2026-08-01 本人指摘
+  「消せないのは違う。ロックはモーダルで確認」）。`undoLast`/`redoLast`
   の補償も fixed ノードの保護フィールドを変える・削除する・復活させる操作は拒否する
   （fixed フラグ自体の付け外しを戻す undo/redo は許可——ロックは解除できる必要がある）。
   **進捗（status）と params の値・試走・fixed 自体はロック中も自由に動く**。UI は保護

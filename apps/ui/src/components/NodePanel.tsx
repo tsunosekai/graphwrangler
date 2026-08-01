@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { api, type NodePatchInput } from "../lib/api";
 import { confirmDialog } from "../lib/dialogs";
+import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
@@ -472,17 +473,23 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   };
 
   const handleDelete = async () => {
-    const ok = await confirmDialog(`「${node.title || "（無題）"}」を削除しますか？`, {
-      danger: true,
-      confirmLabel: "削除",
-    });
+    // ロック・メンバー持ち・子持ちでも削除は常にできる。危ないケースは削除前に
+    // モーダルで教える（2026-08-01 本人指摘「消せないのは違う。ロックはモーダルで確認」）
+    const impact = computeRemoveImpact([node.id], allNodes);
+    const ok = await confirmDialog(
+      buildRemoveMessage(
+        `「${node.title || "（無題）"}」を削除しますか？（Ctrl+Z で戻せます）`,
+        removeImpactWarnings(impact),
+      ),
+      { danger: true, confirmLabel: "削除" },
+    );
     if (!ok) return;
     try {
-      await api.removeNode(node.id);
+      await api.removeNode(node.id, { force: true });
       onMutated();
       onClose();
     } catch {
-      // 子ノードが残っている等のエラーは api() 側でトースト表示済み
+      // エラーは api() 側でトースト表示済み
     }
   };
 
@@ -566,14 +573,12 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
               type="button"
               variant="ghost"
               size="icon"
-              disabled={node.fixed}
-              title={node.fixed ? "ロック中は削除できません" : undefined}
               onClick={handleDelete}
             >
               <Trash2 />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{node.fixed ? "ロック中は削除できません" : "このノードを削除"}</TooltipContent>
+          <TooltipContent>{node.fixed ? "このノードを削除（ロック中なので確認します）" : "このノードを削除"}</TooltipContent>
         </Tooltip>
         <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="閉じる">
           <X />

@@ -135,8 +135,11 @@ export const api = {
   patchNode: (id: string, patch: NodePatchInput) =>
     withSelfRead(id, request<Node>(`/nodes/${id}`, { method: "POST", body: JSON.stringify(patch) })),
 
-  removeNode: (id: string) =>
-    request<{ removed: boolean }>(`/nodes/${id}/remove`, { method: "POST", body: "{}" }),
+  removeNode: (id: string, opts: { force?: boolean } = {}) =>
+    request<{ removed: boolean }>(`/nodes/${id}/remove`, {
+      method: "POST",
+      body: JSON.stringify(opts.force ? { force: true } : {}),
+    }),
 
   // ---- スクリプト試走（試走ゲート。docs/design.md 3.5 近く。実装は packages/server/src/trial.ts） ----
 

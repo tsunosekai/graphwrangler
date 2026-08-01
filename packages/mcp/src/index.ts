@@ -184,11 +184,17 @@ server.registerTool(
 server.registerTool(
   "node_remove",
   {
-    description: "ノードを削除する。子ノード（このノードをparentsに含むノード）が存在する場合は失敗する（MVP仕様）。",
-    inputSchema: { nodeId: z.string().describe("削除するノードid") },
+    description:
+      "ノードを削除する。既定では子ノード・メンバー持ち・Fix済みの場合は失敗する。" +
+      "force=true で全部消す（メンバーは巻き添え削除、残る子は依存から切り離し。" +
+      "人間の確認を取ってから使うこと）。",
+    inputSchema: {
+      nodeId: z.string().describe("削除するノードid"),
+      force: z.boolean().optional().describe("Fix済み・メンバー持ち・子持ちでも消す"),
+    },
   },
-  safe(async ({ nodeId }: { nodeId: string }) =>
-    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/remove`, withMeta({})),
+  safe(async ({ nodeId, force }: { nodeId: string; force?: boolean }) =>
+    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/remove`, withMeta(force ? { force: true } : {})),
   ),
 );
 

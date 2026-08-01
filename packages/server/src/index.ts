@@ -255,7 +255,9 @@ app.post("/api/nodes/:id", async (c) => {
 
 app.post("/api/nodes/:id/remove", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  graph.removeNode(c.req.param("id"), meta(body));
+  // force=true: Fix済み・メンバー持ち・子持ちでも消す（確認モーダルは UI の責務。
+  // メンバーは巻き添え削除、外の子は参照を切り離す。core の removeNode 参照）
+  graph.removeNode(c.req.param("id"), meta(body), { force: body?.force === true });
   return c.json({ removed: true });
 });
 

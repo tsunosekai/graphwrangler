@@ -66,6 +66,51 @@ describe("GraphStore", () => {
     expect(() => g.removeNode(a.id)).toThrow(/children/);
   });
 
+  it("force削除: fixed でも消える（確認は UI の責務）", () => {
+    const g = new GraphStore(dir);
+    const a = g.addNode({ title: "a" });
+    g.patchNode(a.id, { fixed: true });
+    expect(() => g.removeNode(a.id)).toThrow(GraphError);
+    g.removeNode(a.id, {}, { force: true });
+    expect(() => g.get(a.id)).toThrow(GraphError);
+  });
+
+  it("force削除: ページのメンバーは入れ子ごと巻き添え削除", () => {
+    const g = new GraphStore(dir);
+    const goal = g.addNode({ title: "ゴール", kind: "goal" });
+    const sub = g.addNode({ title: "サブページ", kind: "goal", group: goal.id });
+    const a = g.addNode({ title: "a", group: goal.id });
+    const b = g.addNode({ title: "b", group: sub.id });
+    g.removeNode(goal.id, {}, { force: true });
+    for (const id of [goal.id, sub.id, a.id, b.id]) {
+      expect(() => g.get(id)).toThrow(GraphError);
+    }
+  });
+
+  it("force削除: 削除集合の外の子は parents / parentOptions から切り離す（fixed の子でも）", () => {
+    const g = new GraphStore(dir);
+    const d = g.addNode({
+      title: "分岐",
+      kind: "decision",
+      branches: [
+        { id: "x", label: "X", then: "Xで進む" },
+        { id: "y", label: "Y", then: "Yで進む" },
+      ],
+    });
+    const a = g.addNode({ title: "a" });
+    const child = g.addNode({
+      title: "child",
+      parents: [d.id, a.id],
+      parentOptions: { [d.id]: "x" },
+    });
+    g.patchNode(child.id, { fixed: true });
+    g.removeNode(d.id, {}, { force: true });
+    const after = g.get(child.id);
+    expect(after.parents).toEqual([a.id]);
+    expect(after.parentOptions).toEqual({});
+    expect(after.fixed).toBe(true);
+  });
+
   it("frontier: 親が全てdoneの未完ノードだけ", () => {
     const g = new GraphStore(dir);
     const a = g.addNode({ title: "a" });

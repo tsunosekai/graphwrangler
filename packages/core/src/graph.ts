@@ -440,24 +440,69 @@ export class GraphStore {
     }
   }
 
-  /** MVP: 子（依存の後続）またはメンバー（group で自分を指すノード）を持つノードは消せない。
-   *  Fix済みのノードも消せない（docs/design.md 3.5 実効化: ロック中は削除できない） */
-  removeNode(id: string, meta: OpMeta = {}): void {
+  /** 既定は安全側: 子（依存の後続）またはメンバー（group で自分を指すノード）を持つ、
+   *  もしくは Fix済みのノードは消せない（409/エラー）。
+   *  force=true（UI が確認モーダルを通した後に使う。2026-08-01 本人指摘「消せないのは違う。
+   *  ロックはモーダルで確認」）なら全部消す:
+   *  - Fix済みでも消す（確認は UI の責務）
+   *  - メンバー（group で自分＝またはその子孫グループ＝を指すノード）は巻き添えで全削除
+   *  - 削除集合の外の子からは parents / parentOptions の参照を切り離す（fixed の子でも
+   *    切り離す——これは削除の後始末であって「やり方の変更」ではないため、patchNode の
+   *    fixed ガードを通さず直接 commit する） */
+  removeNode(id: string, meta: OpMeta = {}, opts: { force?: boolean } = {}): void {
     const node = this.get(id);
-    if (node.fixed) {
-      throw new GraphError(FIXED_REMOVE_MESSAGE, 409);
+    const force = opts.force === true;
+    if (!force) {
+      if (node.fixed) {
+        throw new GraphError(FIXED_REMOVE_MESSAGE, 409);
+      }
+      const children = [...this.nodes.values()].filter((n) => n.parents.includes(id));
+      if (children.length > 0) {
+        throw new GraphError(
+          `node ${id} has ${children.length} children; remove or reparent them first`,
+        );
+      }
+      const members = [...this.nodes.values()].filter((n) => n.group === id);
+      if (members.length > 0) {
+        throw new GraphError(
+          `node ${id} has ${members.length} members; ungroup or remove them first`,
+        );
+      }
+      this.commit({ op: "node.remove", payload: { nodeId: id } }, meta);
+      return;
     }
-    const children = [...this.nodes.values()].filter((n) => n.parents.includes(id));
-    if (children.length > 0) {
-      throw new GraphError(
-        `node ${id} has ${children.length} children; remove or reparent them first`,
-      );
+
+    // 削除集合: 自分 + メンバー（入れ子グループも辿る。不動点まで）
+    const toRemove = new Set<string>([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const n of this.nodes.values()) {
+        if (n.group !== null && toRemove.has(n.group) && !toRemove.has(n.id)) {
+          toRemove.add(n.id);
+          grew = true;
+        }
+      }
     }
-    const members = [...this.nodes.values()].filter((n) => n.group === id);
-    if (members.length > 0) {
-      throw new GraphError(
-        `node ${id} has ${members.length} members; ungroup or remove them first`,
-      );
+
+    // 集合の外の子から、消えるノードへの参照を切り離す
+    for (const n of [...this.nodes.values()]) {
+      if (toRemove.has(n.id)) continue;
+      const parents = n.parents.filter((p) => !toRemove.has(p));
+      const poEntries = Object.entries(n.parentOptions).filter(([d]) => !toRemove.has(d));
+      const patch: { parents?: string[]; parentOptions?: Record<string, string> } = {};
+      if (parents.length !== n.parents.length) patch.parents = parents;
+      if (poEntries.length !== Object.keys(n.parentOptions).length) {
+        patch.parentOptions = Object.fromEntries(poEntries);
+      }
+      if (Object.keys(patch).length > 0) {
+        this.commit({ op: "node.patch", payload: { nodeId: n.id, patch } }, meta);
+      }
+    }
+
+    // メンバー → 自分の順で削除（undo は逆順に1opずつ戻るため、グループが先に復活する）
+    for (const rid of [...toRemove].filter((x) => x !== id)) {
+      this.commit({ op: "node.remove", payload: { nodeId: rid } }, meta);
     }
     this.commit({ op: "node.remove", payload: { nodeId: id } }, meta);
   }

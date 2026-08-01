@@ -9,6 +9,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { api } from "../lib/api";
 import { confirmDialog } from "../lib/dialogs";
+import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { pushToast } from "../lib/toast";
 import type { Node } from "../types";
@@ -109,24 +110,34 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
     })).then(() => onClose());
   };
 
-  // 削除は依存の葉から順に試す（GraphView の Delete キーと同じ方針。子持ちは api 側のトーストに任せる）
+  // 削除は依存の葉から順に試す（GraphView の Delete キーと同じ方針）。force 付きなので
+  // ロック中も消える——巻き添え・切り離し・ロックは確認モーダルの警告行で事前に見せる
+  // （2026-08-01 本人指摘「消せないのは違う。ロックはモーダルで確認」。巻き添えの計算には
+  // ページ外の全ノードが要るため /api/state を取り直す）
   const deleteAll = async () => {
     if (busy) return;
-    const ok = await confirmDialog(`選択中の ${nodes.length} 件を削除しますか？（Ctrl+Z で戻せます）`, {
-      danger: true,
-      confirmLabel: "削除",
-    });
+    let warnings: string[] = [];
+    try {
+      const state = await api.getState();
+      warnings = removeImpactWarnings(computeRemoveImpact(nodes.map((n) => n.id), state.nodes));
+    } catch {
+      // 状態の取り直しに失敗しても削除自体は進める（api() 側でトースト表示済み）
+    }
+    const ok = await confirmDialog(
+      buildRemoveMessage(`選択中の ${nodes.length} 件を削除しますか？（Ctrl+Z で戻せます）`, warnings),
+      { danger: true, confirmLabel: "削除" },
+    );
     if (!ok) return;
     setBusy(true);
     try {
-      let remaining = nodes.filter((n) => !n.fixed).map((n) => n.id);
+      let remaining = nodes.map((n) => n.id);
       const deleted: string[] = [];
       while (remaining.length > 0) {
         let removedAny = false;
         const still: string[] = [];
         for (const id of remaining) {
           try {
-            await api.removeNode(id);
+            await api.removeNode(id, { force: true });
             deleted.push(id);
             removedAny = true;
           } catch {

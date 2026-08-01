@@ -12,7 +12,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api } from "../lib/api";
-import { promptDialog } from "../lib/dialogs";
+import { confirmDialog, promptDialog } from "../lib/dialogs";
+import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { subscribeOpenShortcuts } from "../lib/palette";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
@@ -574,8 +575,8 @@ function GraphViewInner({
   }, [onMutated]);
 
   // 依存の葉（選択集合内で自分を parents に持つノードがいない）から順に削除を試みる。
-  // 子持ちで消せないものは api() 側のトーストに任せ、次のパスへ回す。1周で1件も消えなければ打ち切る
-  // （ループが自然と葉順に収束するので、事前ソートは行わずAPIエラーに任せる。deleteSelectedNodes と共用）
+  // force 付きなので基本1周で全部消える。ページ（goal）削除の巻き添えで既に消えたものは
+  // 404 で次パスへ回り、1周で1件も消えなければ打ち切る（deleteSelectedNodes と共用）
   const removeLeafFirst = useCallback(async (ids: string[]): Promise<string[]> => {
     let remaining = [...ids];
     const deleted: string[] = [];
@@ -584,7 +585,7 @@ function GraphViewInner({
       const stillRemaining: string[] = [];
       for (const id of remaining) {
         try {
-          await api.removeNode(id);
+          await api.removeNode(id, { force: true });
           deleted.push(id);
           removedAny = true;
         } catch {
@@ -597,10 +598,30 @@ function GraphViewInner({
     return deleted;
   }, []);
 
-  // Delete/Backspace（選択エッジが無い時）: 選択中の全ノードを削除。confirm は無し（undo で戻せるため）
+  // Delete/Backspace（選択エッジが無い時）: 選択中の全ノードを削除。普通の削除は confirm 無し
+  // （undo で戻せるため）。ロック・巻き添え・切り離しがあるときだけモーダルで確認する
+  // （2026-08-01 本人指摘「消せないのは違う。ロックはモーダルで確認」。巻き添えの計算には
+  // ページ外の全ノードが要るため /api/state を取り直す）
   const deleteSelectedNodes = useCallback(async () => {
     const ids = getSelectedNodeIds();
     if (ids.length === 0) return;
+    let warnings: string[] = [];
+    try {
+      const state = await api.getState();
+      warnings = removeImpactWarnings(computeRemoveImpact(ids, state.nodes));
+    } catch {
+      // 状態の取り直しに失敗しても削除自体は進める（api() 側でトースト表示済み）
+    }
+    if (warnings.length > 0) {
+      const ok = await confirmDialog(
+        buildRemoveMessage(
+          `選択中の ${ids.length} 件を削除しますか？（Ctrl+Z で戻せます）`,
+          warnings,
+        ),
+        { danger: true, confirmLabel: "削除" },
+      );
+      if (!ok) return;
+    }
     const deleted = await removeLeafFirst(ids);
     applySelection([]);
     onMutated();
