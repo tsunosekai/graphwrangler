@@ -1,12 +1,14 @@
-// 初回セットアップ + いつでも開ける⚙設定（OpenClaw のプロバイダ設定画面を参考に）。
+// 初回セットアップ + いつでも開ける⚙設定。2026-08-02 本人指示「設定はモーダルじゃなくて
+// 全面表示に」でダイアログから全画面レイヤーへ変更（fixed inset-0。ヘッダー行 + スクロール本体）。
 // 「チャットAI」（Workflow AI）と「実行AI＝エンジン」それぞれについて、まず「接続方式」
 // （APIキー / ヘッドレスエージェントCLI）をドロップダウンで選ばせ、選んだ方式に応じて
 // 入力欄を出し分ける（docs/design.md: LLM選択は「APIキーの差し替え」でなく
 // 「エージェントごと差し替え」。2026-07-29 本人フィードバック「どっちを使う設定か分からない」対応）。
 import { useState } from "react";
 import { api, type SettingsPatch, type SettingsView } from "../lib/api";
+import { useTheme, type ThemeMode } from "../lib/theme";
 import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { X } from "lucide-react";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
@@ -64,6 +66,7 @@ const ENGINE_MODE_DESC: Record<EngineMode, string> = {
 };
 
 export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props) {
+  const [themeMode, setThemeMode] = useTheme();
   const [chatMode, setChatMode] = useState<ChatMode>(settings.chat.mode);
   const [provider, setProvider] = useState<"anthropic" | "openai">(settings.chat.provider);
   const [model, setModel] = useState(settings.chat.model ?? "");
@@ -140,24 +143,17 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const field = "flex flex-col gap-1 text-xs text-muted-foreground";
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next) => {
-        if (!next && !forced) onClose();
-        // forced 中は Escape/外側クリックでは閉じない（「あとで設定」か「保存」だけが抜け道）
-      }}
-    >
-      <DialogContent
-        showCloseButton={!forced}
-        // 元の実装は背景クリック/Escapeでは閉じず、×ボタン（または保存/あとで設定）だけが
-        // 閉じる導線だった。挙動を変えないためどちらも無効化する
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        onPointerDownOutside={(e) => e.preventDefault()}
-        className="max-h-[calc(100vh-48px)] max-w-[420px] overflow-y-auto gap-3.5"
-      >
-        <DialogHeader>
-          <DialogTitle>AI設定</DialogTitle>
-        </DialogHeader>
+    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+      <div className="flex flex-shrink-0 items-center gap-2 border-b px-4 py-3">
+        <h2 className="flex-1 text-lg font-semibold">設定</h2>
+        {!forced && (
+          <Button type="button" variant="ghost" size="icon" aria-label="閉じる" onClick={onClose}>
+            <X />
+          </Button>
+        )}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-3.5">
 
         <section className={section}>
           <h3 className={heading}>チャットAI（Workflow AI）</h3>
@@ -279,6 +275,26 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
         </section>
 
         <section className={section}>
+          <h3 className={heading}>表示</h3>
+          {/* テーマはヘッダーのアイコンから設定内へ移動（2026-08-02 本人指示
+              「ライト、ダークは設定の中に含めて。レスポンシブじゃなくても」）。
+              選択は即時反映+localStorage 永続化（useTheme） */}
+          <label className="flex items-center justify-between gap-2 text-sm text-foreground">
+            <span>テーマ</span>
+            <Select value={themeMode} onValueChange={(v) => setThemeMode(v as ThemeMode)}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="light">ライト</SelectItem>
+                <SelectItem value="dark">ダーク</SelectItem>
+                <SelectItem value="system">システムに合わせる</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+        </section>
+
+        <section className={section}>
           <h3 className={heading}>通知</h3>
           <label className="flex items-center gap-2 text-sm text-foreground">
             <Switch checked={notifyEnabled} onCheckedChange={toggleNotify} />
@@ -308,7 +324,8 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
             保存
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }

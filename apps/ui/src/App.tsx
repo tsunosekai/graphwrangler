@@ -69,6 +69,16 @@ export default function App() {
 
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
 
+  // グラフ（表示中ページ）と選択ノードの食い違いガード: 選択中ノードが表示中ページの
+  // メンバーでもページ自身でもなくなったら選択を落とす。ページ切替に選択が置き去りに
+  // なると「グラフはこっちなのにノード詳細タブは別プロジェクトのノード」という
+  // ねじれになる（2026-08-02 本人報告。localStorage 復元の組み合わせでも起きる）
+  useEffect(() => {
+    if (!selectedNode) return;
+    if (selectedNode.id === pageId || selectedNode.group === pageId) return;
+    setSelectedId(null);
+  }, [selectedNode, pageId]);
+
   // ---- ルーティーンページの最新ラン（PageList の左レールドット + TopBar のラン待ち統合の両方が使う。
   //      ページ数ぶんの N+1 取得を1箇所に集約する）。
   //      「ルーティーンであること」は isRoutinePage が判定する（docs/design.md 3.8。
@@ -282,7 +292,9 @@ export default function App() {
             forceExpanded={isMobile}
             onSelectPage={(id) => {
               setPageId(id);
-              setSelectedId(id);
+              // 選択はクリアする——ゴール自身を選択状態にするとプロジェクト詳細パネルが
+              // 開いてしまう（2026-08-02 本人指示「一覧から開いたときは詳細ではなくグラフ」）
+              setSelectedId(null);
               setMobileView("graph"); // モバイル: プロジェクトを選んだらグラフへ
             }}
           />

@@ -174,7 +174,12 @@ function GraphViewInner({
   // 残っていればそれを優先し、無ければ（矩形選択など）配列末尾で妥協する
   const handleSelectionChange = useCallback(
     ({ nodes: selNodes }: { nodes: RFNode<NodeCardData>[] }) => {
-      const ids = selNodes.map((n) => n.id);
+      // 表示中ページに実在するノードだけを選択として扱う。ページ切替の瞬間、React Flow は
+      // 旧ページの選択ノードを含んだまま selection-change を発火することがあり、それを
+      // onSelect に流すと selectNode が旧ノードのページへ引き戻す（「一覧からBを開いたのに
+      // Aのノード詳細に戻される」ねじれ。2026-08-02 本人報告）
+      const valid = new Set(nodes.map((n) => n.id));
+      const ids = selNodes.map((n) => n.id).filter((id) => valid.has(id));
       onSelectionIdsChange?.(ids);
       if (ids.length === 0) return;
       const primary =
@@ -183,7 +188,7 @@ function GraphViewInner({
           : ids[ids.length - 1];
       onSelect(primary);
     },
-    [onSelect, onSelectionIdsChange],
+    [nodes, onSelect, onSelectionIdsChange],
   );
 
   // 実測ノードサイズ（React Flow の measured）。整列時に渡すと、ノードの縦幅に

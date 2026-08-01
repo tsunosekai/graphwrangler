@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Keyboard, Monitor, Moon, Search, Settings, Sun, Undo2 } from "lucide-react";
+import { Keyboard, Search, Settings, Undo2 } from "lucide-react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { subscribeFocusGoalCapture } from "../lib/capture";
 import { openPalette, openShortcuts } from "../lib/palette";
-import { useTheme, type ThemeMode } from "../lib/theme";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { Icon } from "./Icon";
 
@@ -35,8 +28,6 @@ interface Props {
   onCaptureGoal: (title: string) => Promise<void>;
 }
 
-const THEME_ICON: Record<ThemeMode, typeof Sun> = { light: Sun, dark: Moon, system: Monitor };
-const THEME_LABEL: Record<ThemeMode, string> = { light: "ライト", dark: "ダーク", system: "システム" };
 
 function IconButton({
   title,
@@ -67,32 +58,6 @@ function IconButton({
   );
 }
 
-function ThemeToggle() {
-  const [mode, setMode] = useTheme();
-  const ActiveIcon = THEME_ICON[mode];
-  return (
-    <DropdownMenu>
-      {/* Tooltip と DropdownMenuTrigger は同じ要素へ二重に asChild すると
-         ref を橋渡しできず警告が出るため、ここは title 属性だけにする */}
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" title={`テーマ: ${THEME_LABEL[mode]}`}>
-          <ActiveIcon />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {(["light", "dark", "system"] as ThemeMode[]).map((m) => {
-          const ItemIcon = THEME_ICON[m];
-          return (
-            <DropdownMenuItem key={m} onSelect={() => setMode(m)} data-active={m === mode}>
-              <ItemIcon />
-              {THEME_LABEL[m]}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 /** ゴール捕獲欄（2026-08-01 本人指示で受信箱を置き換え）。zinsei の #inbox と同じ体験:
  *  思いついたゴールを一行書いて Enter を押すだけで、新しいプロジェクト（空の goal ページ）が
@@ -157,10 +122,13 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
       <div className="flex flex-1 items-center gap-3">
         {/* モバイルではロゴを隠して捕獲欄の幅を確保する */}
         <div className="font-semibold max-md:hidden">GraphWrangler</div>
-        {/* 元に戻すはタイトルの右（2026-08-01 本人指定。グラフ操作の直後に目が行く位置） */}
-        <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
-          <Undo2 />
-        </IconButton>
+        {/* 元に戻すはタイトルの右（2026-08-01 本人指定。グラフ操作の直後に目が行く位置）。
+            モバイルでは非表示（2026-08-02 本人指示「前のページに戻るボタンだと思って押してしまう」） */}
+        <span className="max-md:hidden">
+          <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
+            <Undo2 />
+          </IconButton>
+        </span>
         {engineDown && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -189,8 +157,7 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
             <Keyboard />
           </IconButton>
         </span>
-        <ThemeToggle />
-        <IconButton title="AI設定" onClick={onOpenSettings}>
+        <IconButton title="設定" onClick={onOpenSettings}>
           <Settings />
         </IconButton>
         {/* モバイルでは下部タブバーの「チャット」と重複するので隠す（2026-08-02 本人指示） */}
