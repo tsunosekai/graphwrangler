@@ -58,7 +58,8 @@ export interface BuildThreadReplyPromptInput {
 export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): string {
   const { node, parentTitles, pageTitle, history, newMessage } = input;
   const lines: string[] = [
-    "あなたは Task AI。タスクノードのスレッドで相談に乗る担当として、簡潔に日本語で答えてください。",
+    "あなたは Task AI。タスクノードのスレッドで相談に乗る担当として、簡潔に答えてください。" +
+      "**必ずユーザーが話しかけてきた言語で書くこと**（日本語で話しかけられたら日本語）。",
     "話題は以下のタスクノードそのもの。作業ディレクトリのソースコードやリポジトリの話はしない。",
     "実装(impl)の path やドキュメントに言及するときは、読んでいいか確認を求めず Read で先に読んでから答えること。",
     "",

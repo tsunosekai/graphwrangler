@@ -1,5 +1,6 @@
 // 内蔵チャット（Workflow AI）の1メッセージ分の表示。
 // 型は AI SDK v5系（ai / @ai-sdk/react）の UIMessage / UIMessagePart をそのまま使う。
+import { useState } from "react";
 import type { UIMessage, UIMessagePart, UIDataTypes, UITools } from "ai";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -100,6 +101,32 @@ function toolSummary(part: ChatToolPart): string {
   return label;
 }
 
+/** 独り言（思考トランスクリプト）。英語のまま流れてくることが多いため、Claude Code と
+ *  同じく既定で畳み、クリックで展開/再折りたたみできるようにする（2026-08-02 本人要望）。 */
+function ReasoningPart({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const firstLine = text.trim().split("\n")[0] ?? "";
+  const preview = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
+  return (
+    <div className="px-3 py-0.5 text-sm text-text-lo">
+      <button
+        type="button"
+        className="inline-flex max-w-full items-baseline gap-1 text-left italic transition-colors hover:text-foreground/80"
+        onClick={() => setOpen((v) => !v)}
+        title={open ? "思考を畳む" : "思考を開く"}
+      >
+        <span className={cn("inline-block text-[0.7em] transition-transform", open && "rotate-90")}>▶</span>
+        <span className="truncate">思考{open ? "" : `: ${preview}`}</span>
+      </button>
+      {open && (
+        <div className="chat-md mt-1 break-words border-l-2 border-border pl-2 italic">
+          <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatMessageView({ message }: { message: UIMessage }) {
   const isUser = message.role === "user";
   return (
@@ -122,15 +149,8 @@ export function ChatMessageView({ message }: { message: UIMessage }) {
           );
         }
         if (part.type === "reasoning") {
-          // 独り言（思考の合間のテキスト）。Claude Code に寄せ、吹き出しにはせず減光イタリックで
-          // 流す。中身はマークダウンとして描画する（2026-08-01 本人要望「markdown が正しく
-          // レンダリングされるように」——見出しやリストが記号のまま見えていた）
           if (!part.text) return null;
-          return (
-            <div key={i} className="chat-md break-words px-3 py-0.5 text-sm italic text-text-lo">
-              <Markdown remarkPlugins={[remarkGfm]}>{part.text}</Markdown>
-            </div>
-          );
+          return <ReasoningPart key={i} text={part.text} />;
         }
         if (part.type === "dynamic-tool") {
           return (

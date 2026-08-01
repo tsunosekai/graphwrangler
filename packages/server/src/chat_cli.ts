@@ -19,7 +19,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
 
-export const CLI_TIMEOUT_MS = 5 * 60 * 1000; // 5分（thread_ai.ts のスレッド相談AIも同じ値を使う）
+// thread_ai.ts（スレッド相談AI＝バックグラウンドで停止ボタンが無い）だけが使う上限。
+// チャット本体は 2026-08-02 本人要望「タイムアウトをなくして」でタイムアウト無しにした
+// （サブエージェント並列などの長い作業が5分で切られていた。中断したいときは UI の停止ボタン。
+// ドロワーを閉じてもサーバ側の子プロセスは完走する）
+export const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_HISTORY_MESSAGES = 20; // 「最大10往復」= user+assistant で20件
 
 /**
@@ -368,13 +372,7 @@ function runCli(
 
     let stdoutBuf = "";
     let stderrBuf = "";
-    let timedOut = false;
     let sawAnyOutput = false;
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-    }, CLI_TIMEOUT_MS);
 
     child.stdout?.on("data", (d: Buffer) => {
       stdoutBuf += d.toString();
@@ -391,19 +389,12 @@ function runCli(
     });
 
     child.on("error", (err) => {
-      clearTimeout(timer);
       push({ type: "error", errorText: `${cliPath} の起動に失敗しました: ${String(err)}` });
       finish();
     });
 
     child.on("close", (code) => {
-      clearTimeout(timer);
       if (stdoutBuf.trim()) emitStreamJsonLine(stdoutBuf, controller, encoder, streamState);
-      if (timedOut) {
-        push({ type: "error", errorText: "ヘッドレスCLIの応答がタイムアウトしました（5分）" });
-        finish();
-        return;
-      }
       if (code !== 0 && !sawAnyOutput) {
         // CLI 実装都合でエラー理由が stdout/stderr どちらに出るか一定しないため両方拾う
         // （packages/engine/src/executors/claude.ts と同じ事情）
