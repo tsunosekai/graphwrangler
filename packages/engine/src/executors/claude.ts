@@ -27,13 +27,12 @@ const BLOCKED_EXTRA_ARGS = new Set([
 ]);
 
 /** extraArgs から安全装置に関わるフラグを取り除く（設定はサーバ管理者が触れるものだが、
- *  M7の「サーバ設定をポーリングして反映する」経路を安全側に倒すための最終防御） */
+ *  「サーバ設定をポーリングして反映する」経路を安全側に倒すための最終防御） */
 export function sanitizeExtraArgs(extraArgs: string[]): string[] {
   return extraArgs.filter((a) => !BLOCKED_EXTRA_ARGS.has(a.toLowerCase()));
 }
 
-/** claude executor の実行時設定（cliPath/model は GET /api/settings + env で上書き可能。
- *  docs/design.md 3.8 M7「エンジンAI設定を server 設定から読む」） */
+/** claude executor の実行時設定（cliPath/model は GET /api/settings + env で上書き可能） */
 export interface ClaudeExecutorConfig {
   cliPath: string;
   model: string;
@@ -96,13 +95,6 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
   return { prompt: lines.join("\n"), sources };
 }
 
-/**
- * claude -p を起動する。cliPath/model/extraArgs は設定（GET /api/settings）由来（既定は
- * cliPath="claude" / model="sonnet"。env GW_ENGINE_CLAUDE_MODEL があれば呼び出し側で優先済み）。
- * --dangerously-skip-permissions は使わない（#inbox 経由のプロンプトインジェクション対策と
- * 同じ理由。docs/agent-contracts.md・zinsei CLAUDE.md 参照）。extraArgs 経由でもこの安全装置は
- * sanitizeExtraArgs で剥がすため上書きできない。
- */
 /**
  * 子の claude に渡す環境変数の掃除。CLI方式（claude -p）は**ログイン済み資格情報
  * （サブスクリプション）経路に固定**する（2026-07-31 本人方針「APIキー利用じゃダメ」。

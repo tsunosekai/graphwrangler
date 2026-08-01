@@ -7,7 +7,7 @@
 // done/dropped/skipped は暗く沈め、それ以外は担当(executor)の色で誰の手番かを見せる。
 // ルーティーン行は最新ランのワークアイテム内訳（テンプレート自身は status を持たないため、
 // 担当色はテンプレートノードの executor を allNodes から引く）。
-// 最新ランの取得は App 側でまとめてポーリングする（B-6: 受信箱のラン待ち統合と共有し、
+// 最新ランの取得は App 側でまとめてポーリングする（受信箱のラン待ち統合と共有し、
 // ページ数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
 import { useState } from "react";
 import { PanelLeft, PanelLeftClose } from "lucide-react";
@@ -27,7 +27,7 @@ interface Props {
   /** ノードid → 最終メッセージ時刻。ページ行の未読数バッジに使う（本人指定 2026-07-31:
    *  「未読は数字でプロジェクトに、あなたの番はちょぼに」） */
   threadMeta: Record<string, string>;
-  /** procedure id → 最新ラン（App 側でポーリング済み） */
+  /** ページ id → 最新ラン（App 側でポーリング済み） */
   latestRuns: Record<string, Run | null>;
   onSelectPage: (id: string) => void;
 }
@@ -64,7 +64,7 @@ const MAX_DOTS = 16;
 
 export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, onSelectPage }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
-  // QOL-3: アーカイブ節（done/dropped なゴール）は既定で閉じておく
+  // アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
   // レール自体の開閉（2026-07-31 本人要望）。閉じると細い縦帯だけ残す
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem("gw.railOpen") !== "0");

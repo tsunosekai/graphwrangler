@@ -7,7 +7,6 @@ import { GraphError } from "@graphwrangler/core";
 import type { Node } from "@graphwrangler/core";
 import {
   assertTrialAllowed,
-  implStatus,
   runTrial,
   sha256Hex,
   substituteParams,
@@ -55,49 +54,6 @@ test("sha256Hex は既知の入力に対し既知のハッシュを返す", () =
 
 test("sha256Hex は入力が変われば値も変わる", () => {
   assert.notEqual(sha256Hex("echo hi"), sha256Hex("echo hi2"));
-});
-
-// ---- implStatus ----
-
-test("implStatus: impl が null なら not-script", () => {
-  assert.equal(implStatus(fixedNode({ impl: null })), "not-script");
-});
-
-test("implStatus: impl.type が doc なら not-script", () => {
-  assert.equal(implStatus(fixedNode({ impl: { type: "doc", text: "手順" } })), "not-script");
-});
-
-test("implStatus: script だが implTrial が無ければ unverified", () => {
-  assert.equal(
-    implStatus(fixedNode({ impl: { type: "script", command: "echo hi" }, implTrial: null })),
-    "unverified",
-  );
-});
-
-test("implStatus: hash が一致し成功していれば ok", () => {
-  const command = "echo hi";
-  const node = fixedNode({
-    impl: { type: "script", command },
-    implTrial: { hash: sha256Hex(command), success: true, ts: "2026-01-01T00:00:00.000Z" },
-  });
-  assert.equal(implStatus(node), "ok");
-});
-
-test("implStatus: hash が一致しても失敗していれば unverified（成功が未証明）", () => {
-  const command = "echo hi";
-  const node = fixedNode({
-    impl: { type: "script", command },
-    implTrial: { hash: sha256Hex(command), success: false, ts: "2026-01-01T00:00:00.000Z" },
-  });
-  assert.equal(implStatus(node), "unverified");
-});
-
-test("implStatus: command が変わって hash が不一致なら stale（success の値によらず）", () => {
-  const node = fixedNode({
-    impl: { type: "script", command: "echo changed" },
-    implTrial: { hash: sha256Hex("echo original"), success: true, ts: "2026-01-01T00:00:00.000Z" },
-  });
-  assert.equal(implStatus(node), "stale");
 });
 
 // ---- assertTrialAllowed（試走ガード） ----

@@ -26,11 +26,11 @@ function authorLabel(author: { kind: string; name?: string | null }): string {
   return n || "AI";
 }
 
-// B-11: 返信下書きの保持。NodePanel は key={node.id} で再マウントされるため React state は
+// 返信下書きの保持。NodePanel は key={node.id} で再マウントされるため React state は
 // ノード切替のたびに消える。モジュールレベルの Map に退避し、戻ってきたら復元する（送信で消す）
 const replyDrafts = new Map<string, string>();
 
-/** payload が {sources: string[]} の形なら出典配列を返す（B-7: 出典バッジ） */
+/** payload が {sources: string[]} の形なら出典配列を返す（出典バッジ） */
 function extractSources(payload: unknown): string[] | null {
   if (!payload || typeof payload !== "object" || !("sources" in payload)) return null;
   const sources = (payload as { sources?: unknown }).sources;

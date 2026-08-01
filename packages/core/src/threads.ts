@@ -68,11 +68,6 @@ export class ThreadStore {
   /** 判断リクエストを開く。呼び出し側（server）が node.pendingRequest を更新する */
   openRequest(nodeId: string, request: DecisionRequest, meta: PostMeta = {}): Message {
     const parsed = DecisionRequestSchema.parse(request);
-    for (const opt of [parsed.on_expire].filter((x): x is string => x !== null)) {
-      if (!parsed.options.some((o) => o.id === opt)) {
-        throw new GraphError(`on_expire references unknown option: ${opt}`);
-      }
-    }
     return this.append(nodeId, {
       author: meta.author ?? { kind: "agent" },
       via: meta.via ?? "engine",

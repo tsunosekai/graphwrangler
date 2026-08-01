@@ -1,7 +1,6 @@
 // resolveWorkspacePath（GET /api/files のパス脱出ガード）のユニットテスト。
 // server パッケージには vitest 等のテストランナーが入っていないため、Node 標準の
-// node:test を tsx 経由で直接実行する（依存追加をせずに検証できる。docs/agent-contracts.md
-// 「pnpm add / pnpm install を実行しない」規律に合わせた選択）。
+// node:test を tsx 経由で直接実行する。
 // 実行: `pnpm --filter @graphwrangler/server test`（package.json 参照）
 import { test } from "node:test";
 import assert from "node:assert/strict";

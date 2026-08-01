@@ -1,7 +1,7 @@
-// 内蔵チャット（M4: グラフ整理の Workflow AI）。
+// 内蔵チャット（グラフ整理の Workflow AI）。
 // Vercel AI SDK の streamText + tool-calling を使い、AIは人間のUI操作と同じ書き込み経路
-// （GraphStore/ThreadStore を直接呼ぶ）でグラフを変更する。帰属は docs/agent-contracts.md の
-// 規約どおり via:"chat" / actor:{kind:"agent", name:"chat:<model>"} に統一する。
+// （GraphStore/ThreadStore を直接呼ぶ）でグラフを変更する。帰属は via:"chat" /
+// actor:{kind:"agent", name:"chat:<model>"} に統一する（docs/design.md 3.2）。
 // このエンドポイント自体はステートレス（クライアントが毎回全履歴を送る）。会話履歴の保存は
 // 別ルート（GET/PUT /api/chats/:pageId → sidecar または dataDir の chats/）が担う
 // （2026-07-31 に localStorage からサーバ保存へ移行。docs/design.md 2章のストレージ図）。

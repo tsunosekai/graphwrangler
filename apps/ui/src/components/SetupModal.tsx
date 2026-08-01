@@ -80,7 +80,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
 
   const [saving, setSaving] = useState(false);
 
-  // QOL-6: あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際の発火は App 側）
+  // あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際の発火は App 側）
   const [notifyEnabled, setNotifyEnabled] = useState(() => localStorage.getItem("gw.notify") === "1");
 
   const toggleNotify = async () => {

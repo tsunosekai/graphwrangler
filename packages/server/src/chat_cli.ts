@@ -1,8 +1,7 @@
 // 内蔵チャットの CLI 方式（chat.mode="cli"）。APIキーを使わず、ログイン済みのヘッドレス
 // エージェントCLI（claude -p 等）を起動して応答を作る。グラフ操作はチャット側の
 // tool-calling（chat.ts の add_node 等）ではなく、自前の MCP サーバ（packages/mcp）を
-// CLI に接続して行わせる。そのため via は "mcp"（帰属は docs/agent-contracts.md のとおり
-// actor:{kind:"agent",name:"mcp"}）になる。「チャットAI＝via:chat」という慣例からは外れるが、
+// CLI に接続して行わせる。そのため via は "mcp"（actor:{kind:"agent",name:"mcp"}）になる。「チャットAI＝via:chat」という慣例からは外れるが、
 // CLI 経由の唯一の操作口が MCP である以上この帰属が実態を正しく表しているので許容する。
 import { spawn } from "node:child_process";
 import fs from "node:fs";

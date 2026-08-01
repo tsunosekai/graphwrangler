@@ -150,8 +150,6 @@ const req = await post(`/api/nodes/${axis.id}/request`, {
     ],
     impact: "safe",
     undo: "構成案の段階なら差し替えは1日で済む",
-    expires: null,
-    on_expire: null,
   },
 });
 

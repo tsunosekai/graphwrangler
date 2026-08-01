@@ -65,7 +65,6 @@ export function DecisionCard({ message, nodeId, onMutated }: Props) {
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
         <span>影響: {request.impact}</span>
         {request.undo && <span>取消: {request.undo}</span>}
-        {request.expires && <span>期限: {new Date(request.expires).toLocaleString("ja-JP")}</span>}
         {!open && <span className="text-done">回答済み</span>}
       </div>
     </div>

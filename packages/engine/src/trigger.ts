@@ -1,9 +1,8 @@
 // トリガーノード（kind=trigger）の発火判定。docs/design.md 3.4/3.8/3.9 が仕様の正。
-// 新モデル: 「ルーティーンであること」はページ種別(procedure)の宣言ではなく、フロー先頭の
-// トリガーノードから導出する。Rx の思想を借りる: トリガー = Observable のソース、
-// ラン = イベントの伝搬。起動方式は executor 軸で一貫させる:
+// 「ルーティーンであること」はフロー先頭のトリガーノードから導出する。Rx の思想を借りる:
+// トリガー = Observable のソース、ラン = イベントの伝搬。起動方式は executor 軸で一貫させる:
 //   - script トリガー = cron的な定期実行（schedule文字列を発火判定に使う。
-//     既存の parseSchedule/shouldCreateScheduledRun をそのまま流用する）
+//     parseSchedule/shouldCreateScheduledRun で判定）
 //   - ai トリガー     = schedule をチェック間隔として使い、間隔ごとにエンジンがAIへ
 //     「今発火すべきか」を判定させる
 //   - human トリガー  = 手動発火(POST /fire)のみ。エンジンは何もしない
@@ -20,16 +19,9 @@ export function isFireableTrigger(node: Node): boolean {
   return node.kind === "trigger" && node.lifecycle === "committed";
 }
 
-/** human トリガーはエンジンが管理しない（手動 /fire のみ）。ai/script はエンジンが管理する */
-export function isEngineManagedTrigger(executor: Node["executor"]): boolean {
-  return executor === "script" || executor === "ai";
-}
-
 /**
- * script トリガーの発火判定。schedule.ts の parseSchedule/shouldCreateScheduledRun を
- * そのまま流用する（procedure の旧スケジュール判定と全く同じロジック。「script トリガー
- * =cron的な定期実行」という新モデルの位置づけどおり）。schedule が無い/未対応の書式は
- * null を返す（呼び出し側で警告ログを出す）。
+ * script トリガーの発火判定。schedule が無い/未対応の書式は null を返す
+ * （呼び出し側で警告ログを出す）。
  */
 export function shouldFireScriptTrigger(
   scheduleText: string | null,
@@ -56,21 +48,9 @@ export function resolveAiCheckIntervalMs(scheduleText: string | null): number {
 }
 
 /**
- * ai トリガーを今回チェックすべきか（純粋関数。実行中ランの有無は呼び出し側が別途見る）。
- * lastCheckedAt はエンジンのメモリ管理（プロセス再起動で即再チェックされるのは許容する）。
- */
-export function shouldCheckAiTrigger(
-  intervalMs: number,
-  lastCheckedAt: number | null,
-  now: number,
-): boolean {
-  if (lastCheckedAt === null) return true;
-  return now - lastCheckedAt >= intervalMs;
-}
-
-/**
- * ai トリガーを今回評価すべきか（重複防止込み）。実行中のランが既にあればチェック自体をしない
+ * ai トリガーを今回評価すべきか。実行中のランが既にあればチェック自体をしない
  * （script トリガーの hasRunningRun による重複防止と同じ発想）。
+ * lastCheckedAt はエンジンのメモリ管理（プロセス再起動で即再チェックされるのは許容する）。
  */
 export function shouldEvaluateAiTrigger(
   intervalMs: number,
@@ -79,7 +59,8 @@ export function shouldEvaluateAiTrigger(
   hasRunningRun: boolean,
 ): boolean {
   if (hasRunningRun) return false;
-  return shouldCheckAiTrigger(intervalMs, lastCheckedAt, now);
+  if (lastCheckedAt === null) return true;
+  return now - lastCheckedAt >= intervalMs;
 }
 
 /**

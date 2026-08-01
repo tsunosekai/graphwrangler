@@ -14,16 +14,13 @@ export const ViaSchema = z.string().min(1);
 
 // ---- ノード ----
 
-/** goal=プロジェクトページ（一回きりのDAG） / task=作業 /
- *  procedure=手順ページ（繰り返し、ランが流れる）。@deprecated 2026-07-31
- *  「ルーティーンであること」はページ種別ではなく先頭の trigger ノードから導出するモデルへ
- *  移行した（docs/design.md 3.8）。後方互換のため enum には残すが、新規作成 UI からは
- *  使わない想定 /
+/** goal=プロジェクトページ（ノード群のフォルダ） / task=作業 /
  *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） /
  *  trigger=起点ノード（Rx の Observable のソース。発火するとそのページ(group)でランが
  *  生成される。docs/design.md 3.4/3.8/3.9。parents を持てない=グラフの起点であることを
- *  構造的に保証する） */
-export const NodeKindSchema = z.enum(["goal", "task", "procedure", "decision", "trigger"]);
+ *  構造的に保証する）。「ルーティーンであること」はページ種別ではなく、trigger ノードを
+ *  メンバーに持つかどうかから導出する */
+export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
 export const ImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
 export const LifecycleSchema = z.enum(["draft", "committed"]);
@@ -109,8 +106,7 @@ export const NodeSchema = z.object({
   /** 先行ノードid。DAG。空=ルート。依存（順序）を表す */
   parents: z.array(z.string()),
   /** 所属するグループ（フォルダ）ノードの id。包含を表す。依存(parents)とは独立。
-   *  ゴールはグラフの先頭ノードではなく「ノード群のフォルダ」（Houdiniのネットワーク
-   *  ボックス、将来の入れ子ノード=HDAの土台） */
+   *  ゴールはグラフの先頭ノードではなく「ノード群のフォルダ」（Houdiniのネットワークボックス） */
   group: z.string().nullable(),
   kind: NodeKindSchema,
   executor: ExecutorSchema,
@@ -128,8 +124,7 @@ export const NodeSchema = z.object({
   /** kind=trigger 用の起動方式記述（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等）。
    *  executor=script なら cron 的な発火判定にそのまま使う。executor=ai なら「AIに発火要否を
    *  判定させる間隔」として使う（every系のみ解釈、無指定は既定1時間）。executor=human では
-   *  使わない（手動発火のみ）。kind=procedure（非推奨）でも旧来どおり同じ書式で解釈される。
-   *  書式は自由文字列で、パースできないものは無視される（ラン生成のtrigger文字列に転記されるだけ） */
+   *  使わない（手動発火のみ）。書式は自由文字列で、パースできないものは無視される */
   schedule: z.string().nullable(),
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個。elseなし・単一選択。docs/design.md 3.9）。
    *  それ以外の kind では null */
@@ -220,11 +215,8 @@ export const DecisionRequestSchema = z.object({
   options: z.array(DecisionOptionSchema).min(2).max(4),
   /** この判断自体の影響（ノードの impact とは別） */
   impact: ImpactSchema,
+  /** 戻し方の説明。null=特になし */
   undo: z.string().nullable().default(null),
-  /** 期限。null=無期限 */
-  expires: z.string().nullable().default(null),
-  /** 期限切れ時に自動選択する option id。null=保留のまま */
-  on_expire: z.string().nullable().default(null),
 });
 export type DecisionRequest = z.infer<typeof DecisionRequestSchema>;
 
@@ -269,8 +261,8 @@ export type MaterializedMessage = Message & {
   answeredBy?: string;
 };
 
-// ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
-// テンプレート（procedure のメンバーノード）自身は status を持たない。
+// ---- ラン（実行インスタンス。docs/design.md 3.8） ----
+// テンプレート（ルーティーンページのメンバーノード）自身は status を持たない。
 // 実行のたびに生成する Run 側のワークアイテムが status を持つ。
 
 /** ワークアイテムの状態。skipped = unplanned テンプレート等、その回は対象外だったもの
@@ -299,14 +291,11 @@ export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 export const RunSchema = z.object({
   id: z.string(),
-  /** ランが属するページ(group)のid。旧モデルでは常に kind=procedure のノード id だったが、
-   *  新モデル（trigger起点。docs/design.md 3.8）では任意のページ(goal等)のidになりうる。
-   *  フィールド名は後方互換のため procedure のまま残す */
+  /** ランが属するページ(group)のid。既存ランファイルとの互換のためキー名は procedure のまま */
   procedure: z.string(),
   title: z.string().min(1),
-  /** 発火元の記録。新モデルでは "trigger:<triggerノードid>:<via>" の形
-   *  （via は "manual" / "schedule:<原文>" / "ai" 等）。旧モデル互換の "manual" 単体や
-   *  "schedule:daily 09:00" もそのまま許容する自由文字列 */
+  /** 発火元の記録。"trigger:<triggerノードid>:<via>" の形
+   *  （via は "manual" / "schedule:<原文>" / "ai" 等の自由文字列） */
   trigger: z.string().min(1),
   status: RunStatusSchema,
   /** テンプレートノード id → ワークアイテム */

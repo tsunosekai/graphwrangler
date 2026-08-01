@@ -1,5 +1,4 @@
-// ラン（手順ページ）の不可逆ワークアイテムを人間の承認と連携させる。
-// docs/agent-contracts.md「1. ランの不可逆アイテムの承認連携」の実装。
+// ラン（ルーティーンページ）の不可逆ワークアイテムを人間の承認と連携させる。
 // pickRun.ts の selectRunAction が waiting-irreversible を返した後の続き:
 //   1) items patch {status:"waiting", note:APPROVAL_WAITING_NOTE} + テンプレートノードへ
 //      POST /request で承認カードを開く（呼び出し側=index.ts が行う。ここでは判定のみ）
@@ -32,8 +31,6 @@ export function buildRunApprovalRequest(node: Node, run: Run): DecisionRequest {
     ],
     impact: "irreversible",
     undo: null,
-    expires: null,
-    on_expire: null,
   };
 }
 

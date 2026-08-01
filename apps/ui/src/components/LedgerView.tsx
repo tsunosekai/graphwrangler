@@ -13,7 +13,8 @@ import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 
 interface Props {
-  procedure: Node;
+  /** このルーティーンページ自身のノード */
+  page: Node;
   /** このルーティーンページの全メンバー（テンプレートノード。draft含む） */
   members: Node[];
   onMutated: () => void;
@@ -88,17 +89,17 @@ function renderCell(item: RunItem | undefined, col: Node) {
   );
 }
 
-export function LedgerView({ procedure, members, onMutated }: Props) {
+export function LedgerView({ page, members, onMutated }: Props) {
   const columns = useMemo(() => topoOrder(members), [members]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  // B-11: トレース再生（1.1秒間隔でイベント行を順にハイライト+スクロール）
+  // トレース再生（1.1秒間隔でイベント行を順にハイライト+スクロール）
   const [replayIndex, setReplayIndex] = useState(-1);
   const [replaying, setReplaying] = useState(false);
   const traceBodyRef = useRef<HTMLDivElement>(null);
 
   const { data: runsData, refresh: refreshRuns } = usePolling(
-    () => api.listRuns(procedure.id),
+    () => api.listRuns(page.id),
     5000,
   );
   const runs = runsData?.runs ?? [];
@@ -163,9 +164,8 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
     setReplaying(true);
   }, [replaying, events.length]);
 
-  // 発火先: メンバー中のトリガーノード（created昇順で最初の1件。docs/design.md 3.8 新モデル）。
-  // トリガーが無い旧 kind=procedure ページは互換エイリアス(createRun)にフォールバックする
-  // （サーバ側 POST /api/procedures/:id/runs が同じ優先順位で解決するので実質同じ挙動）
+  // 発火先: メンバー中のトリガーノード（created昇順で最初の1件。docs/design.md 3.8）。
+  // ルーティーンページ ⇔ トリガーを持つページ なので、台帳が出ている時点で必ず存在する
   const triggerNode = useMemo(
     () =>
       members
@@ -175,9 +175,10 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
   );
 
   const startRun = useCallback(async () => {
+    if (!triggerNode) return;
     setStarting(true);
     try {
-      const run = triggerNode ? await api.fireTrigger(triggerNode.id) : await api.createRun(procedure.id, {});
+      const run = await api.fireTrigger(triggerNode.id);
       await refreshRuns();
       setSelectedRunId(run.id);
       onMutated();
@@ -185,7 +186,7 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
     } finally {
       setStarting(false);
     }
-  }, [triggerNode, procedure.id, refreshRuns, onMutated]);
+  }, [triggerNode, refreshRuns, onMutated]);
 
   const cancelSelected = useCallback(async () => {
     if (!selectedRunId) return;
@@ -229,9 +230,9 @@ export function LedgerView({ procedure, members, onMutated }: Props) {
             variant="outline"
             size="sm"
             className="border-ai/40 text-ai"
-            disabled={starting}
+            disabled={starting || !triggerNode}
             onClick={startRun}
-            title={triggerNode ? `トリガー「${triggerNode.title || "（無題）"}」を発火` : "ラン開始"}
+            title={triggerNode ? `トリガー「${triggerNode.title || "（無題）"}」を発火` : "トリガーがありません"}
           >
             ▶ 発火
           </Button>

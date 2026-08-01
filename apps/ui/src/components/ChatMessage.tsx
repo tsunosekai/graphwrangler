@@ -1,8 +1,5 @@
-// 内蔵チャット（M4）の1メッセージ分の表示。
-// 型は自前定義をやめ、AI SDK v5系（ai / @ai-sdk/react）の UIMessage / UIMessagePart をそのまま使う
-// （B-x: useChat 移行に伴い、自前の ChatMessage/ChatPart 型は廃止。ai パッケージは apps/ui の
-// 依存としてこのタスクで追加した。docs/agent-contracts.md の「pnpm add 禁止」は既定の規律で、
-// 依頼元プロンプトで明示許可された例外。toolSummary の要約ロジックは従来のまま流用）
+// 内蔵チャット（Workflow AI）の1メッセージ分の表示。
+// 型は AI SDK v5系（ai / @ai-sdk/react）の UIMessage / UIMessagePart をそのまま使う。
 import type { UIMessage, UIMessagePart, UIDataTypes, UITools } from "ai";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";

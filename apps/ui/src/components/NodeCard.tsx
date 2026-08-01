@@ -13,13 +13,12 @@ const EXEC_ICON: Record<Node["executor"], "user" | "bot" | "terminal"> = {
   ai: "bot",
   script: "terminal",
 };
-// 種別の文字チップ（本人選定「A+D」）。goal/procedure はカードとして描かれないが型のため網羅
+// 種別の文字チップ（本人選定「A+D」）。goal はカードとして描かれないが型のため網羅
 const KIND_CHIP: Record<Node["kind"], string> = {
   task: "実行",
   decision: "判断",
   trigger: "トリガー",
   goal: "ゴール",
-  procedure: "ルーティーン",
 };
 const STATUS_LABEL: Record<Node["status"], string> = {
   unplanned: "未計画",
@@ -54,7 +53,7 @@ export interface NodeCardData {
   /** runItem 版のフロンティア判定（親の「ランのアイテム」が全部 done|skipped か）。
    *  isFrontier のラン投影版。段階式アクションボタン（着手/完了）の表示条件 */
   isRunFrontier?: boolean;
-  /** QOL-7: 既読ts(localStorage gw.read.<id>)より新しいメッセージがあるか */
+  /** 既読ts(localStorage gw.read.<id>)より新しいメッセージがあるか */
   unread?: boolean;
   onSelect: (id: string) => void;
   onDoubleClick: (id: string) => void;

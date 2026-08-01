@@ -16,7 +16,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { Icon } from "./Icon";
 
-/** ルーティーンページのラン待ち項目。App がデスクトップ通知（QOL-6）の判定に使う
+/** ルーティーンページのラン待ち項目。App がデスクトップ通知の判定に使う
  *  （旧「あなたの番 N」ボタン=受信箱ドロップダウンは 2026-07-31 本人指示で廃止:
  *  「数字が出ると焦るから嫌」。導線はノード/レールのオレンジ表示が担う） */
 export interface RunWaitItem {
@@ -143,7 +143,7 @@ function GoalCapture({ onCapture }: { onCapture: (title: string) => Promise<void
 }
 
 export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptureGoal }: Props) {
-  // QOL-5: エンジン稼働インジケータ（5秒毎ポーリング）。平常時は何も出さず、
+  // エンジン稼働インジケータ（5秒毎ポーリング）。平常時は何も出さず、
   // 「AIが動いていない」ときだけ警告として表示する（2026-07-31 本人指示。
   // ノード数バッジも同時に廃止: 常時出る情報バッジは圧になるだけ）
   const { data: engineStatus } = usePolling(() => api.getEngineStatus(), 5000);

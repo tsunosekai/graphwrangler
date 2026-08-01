@@ -1,6 +1,5 @@
-// ラン（手順ページの実行インスタンス）のワークアイテム選択。src/pick.ts と同じ方針で
+// ラン（ルーティーンページの実行インスタンス）のワークアイテム選択。src/pick.ts と同じ方針で
 // ネットワークI/Oを一切持たない純粋関数のみを置く（vitest でユニットテストする対象）。
-// docs/agent-contracts.md F: エンジンのラン対応の担当領域。
 import type { Node, Run, RunItem } from "./types.js";
 
 export type RunAction =
@@ -40,13 +39,13 @@ interface RunnableEntry {
  *
  * - kind=decision のテンプレートは対象外（decisionRun.ts の selectRunDecisionAction が扱う。
  *   3.9: 分岐は choice 確定+skip伝搬という別の完了経路を持つため、ここでは拾わない）
- * - executor=human のテンプレートは対象外（人間待ちのまま。ランの承認/担当UIは将来）
- * - **lifecycle=draft のテンプレートは対象外**（items には入るが実行はされない。3.8新モデル
+ * - executor=human のテンプレートは対象外（人間待ちのまま）
+ * - **lifecycle=draft のテンプレートは対象外**（items には入るが実行はされない。3.8
  *   「Fix/committed をランの参加条件にしない」の裏側: 参加＝items に入ることと、
  *   自動実行されることは別の話。committedのみ自動実行、という3.4の原則はここで担保する）
  * - impact=irreversible のテンプレートは実行せず waiting-irreversible を返す
- *   （呼び出し側が items patch {status:"waiting", note:"不可逆のため人間の実行待ち"} する。
- *   pick.ts の承認カード連携はランには未接続 = 将来）
+ *   （呼び出し側が items patch {status:"waiting", note:"承認待ち"} し、以後の承認往復は
+ *   approval.ts が担当する）
  */
 export function selectRunAction(nodes: Node[], runs: Run[]): RunAction {
   const nodesById = new Map(nodes.map((n) => [n.id, n]));

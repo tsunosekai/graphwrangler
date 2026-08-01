@@ -1,4 +1,4 @@
-// スレッド相談AI（M4「会話はいつでも可」の実装漏れ。docs/design.md 3.9）。
+// スレッド相談AI（Task AI。「会話はいつでも可」の原則。docs/design.md 3.9）。
 // ノードのスレッドに人間が say を書いたら、非同期でAIが応答する。判断リクエストの
 // ラリー（POST /api/nodes/:id/answer, option:null）はエンジン側が拾うので、ここでは
 // 「open な判断リクエストが無いノードへの普通の相談」だけを相手にする。
@@ -164,7 +164,7 @@ export function runPlainClaude(
 // ---- オーケストレーション（副作用あり。ノードごとの簡潔な排他つき） ----
 
 /** 実行中のノードid集合。多重投稿されても「実行中なら今回はスキップ」という簡潔な排他で
- *  十分（docs/agent-contracts.md の担当外にある詳細なキューイングは持たない） */
+ *  十分（詳細なキューイングは持たない） */
 const runningThreadAiNodes = new Set<string>();
 
 async function respondInThread(

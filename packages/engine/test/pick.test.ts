@@ -180,46 +180,22 @@ describe("buildIrreversibleGateRequest / buildFailureRecoveryRequest", () => {
   });
 });
 
-// 手順テンプレートの二重実行防止（2026-07-29 発見の不具合の回帰テスト）
-import { describe as d2, expect as e2, it as i2 } from "vitest";
-import { selectAction as sa } from "../src/pick.js";
-
-d2("手順テンプレートの除外", () => {
-  i2("kind=procedure のメンバーはプロジェクト側エンジンに拾われない", () => {
-    const proc = {
-      id: "p1", title: "手順", detail: null, impl: null, parents: [], group: null,
-      kind: "procedure", executor: "human", impact: "safe", lifecycle: "committed",
-      status: "pending", fixed: false, pendingRequest: null, order: null,
-      schedule: null, created: "2026-01-01T00:00:00Z", updated: "2026-01-01T00:00:00Z",
-    } as never;
-    const tmpl = {
-      ...(proc as object),
-      id: "t1", title: "テンプレ", kind: "task", executor: "script", group: "p1",
+// ルーティーンテンプレートの二重実行防止（回帰テスト）。
+// 「ルーティーンであること」はページ先頭のトリガーノードから導出する（docs/design.md 3.4/3.8/3.9）。
+// トリガーを持つページのメンバーはプロジェクト側エンジンから除外されなければならない
+describe("ルーティーンテンプレートの除外", () => {
+  it("トリガーノードを持つページのメンバーはプロジェクト側エンジンに拾われない", () => {
+    const page = node({ id: "g1", kind: "goal", executor: "human" });
+    // トリガーは status=done にして frontier 条件を満たし、group 除外だけが効くようにする
+    const trigger = node({ id: "tr1", kind: "trigger", executor: "script", group: "g1", status: "done" });
+    const tmpl = node({
+      id: "t1",
+      kind: "task",
+      executor: "script",
+      group: "g1",
+      parents: ["tr1"],
       impl: { type: "script", command: "echo x" },
-    } as never;
-    e2(sa([proc, tmpl]).type).toBe("none");
-  });
-
-  // 新モデル（docs/design.md 3.4/3.8/3.9）: 「ルーティーンであること」はページ種別ではなく
-  // 先頭のトリガーノードから導出する。kind=goal でもトリガーを持つページのメンバーは同様に
-  // プロジェクト側エンジンから除外されなければならない（二重実行防止の穴を塞ぐ）
-  i2("トリガーノードを持つページ(kind=goal)のメンバーもプロジェクト側エンジンに拾われない", () => {
-    const page = {
-      id: "g1", title: "ゴール", detail: null, impl: null, parents: [], group: null,
-      kind: "goal", executor: "human", impact: "safe", lifecycle: "committed",
-      status: "pending", fixed: false, pendingRequest: null, order: null,
-      schedule: null, created: "2026-01-01T00:00:00Z", updated: "2026-01-01T00:00:00Z",
-    } as never;
-    const trigger = {
-      ...(page as object),
-      id: "tr1", title: "起点", kind: "trigger", executor: "script", group: "g1",
-      status: "done", // frontier判定で親条件が満たされた状態にし、group除外だけが効くようにする
-    } as never;
-    const tmpl = {
-      ...(page as object),
-      id: "t1", title: "テンプレ", kind: "task", executor: "script", group: "g1",
-      parents: ["tr1"], impl: { type: "script", command: "echo x" },
-    } as never;
-    e2(sa([page, trigger, tmpl]).type).toBe("none");
+    });
+    expect(selectAction([page, trigger, tmpl]).type).toBe("none");
   });
 });

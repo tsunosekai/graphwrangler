@@ -55,8 +55,7 @@ claude mcp add graphwrangler -- npx tsx D:/VSCodeProject/infra-tools/graphwrangl
 | `request_open` | 判断リクエストを開く（ノードが waiting になる） |
 | `request_answer` | 判断リクエストへの回答（option=null でラリー継続） |
 | `trigger_fire` | トリガーノード（kind=trigger）を手動発火し、その group（所属ページ）でランを1本作成する |
-| `run_create` | procedure（手順ページ）から新しいラン（実行インスタンス）を開始。トリガー起点モデル（`trigger_fire`）への後方互換エイリアス |
-| `run_list` | procedure の過去のラン一覧（要約: id/title/status/trigger/created + ワークアイテム状態内訳カウント） |
+| `run_list` | ページの過去のラン一覧（要約: id/title/status/trigger/created + ワークアイテム状態内訳カウント） |
 | `run_get` | ラン1件の全フィールド（items の詳細を含む） |
 | `run_item_patch` | ラン内の1ワークアイテムの状態/メモを更新 |
 | `run_cancel` | 実行中のランを中断（cancelled） |
@@ -65,7 +64,7 @@ claude mcp add graphwrangler -- npx tsx D:/VSCodeProject/infra-tools/graphwrangl
 | `redo` | 直前に undo した操作をやり直す |
 
 全ての書き込みは `via: "mcp"`, `actor: {kind: "agent", name: "mcp"}` を付けて HTTP API に送る
-（`docs/agent-contracts.md` の帰属規約）。HTTP API がエラー（4xx/5xx の `{error}`）を返した場合は、
+（帰属規約は `docs/design.md` 3.2）。HTTP API がエラー（4xx/5xx の `{error}`）を返した場合は、
 MCP のツールエラー（`isError: true` + メッセージ）として返す。プロセス自体は落ちない。
 
 ## テスト
@@ -77,17 +76,14 @@ MCP サーバの stdin/stdout に直接 JSON-RPC を流して全ツールを確�
 node packages/mcp/test/e2e.mjs
 ```
 
-## 妥協点
+## 補足
 
 - ツール入力の zod スキーマ（`src/schemas.ts`）は `@graphwrangler/core/schema`（core の中で
   node 依存を持たない zod スキーマだけを集めたサブパス）を import して組み立てている。
-  package.json に `"@graphwrangler/core": "workspace:*"` を追加済みで、このパッケージ自体は
-  `@graphwrangler/core` の他の実装（GraphStore/RunStore 等）には依存せず、HTTP API を叩くだけの
-  自己完結を保っている。以前あった「手動ミラー」（apps/ui/src/types.ts と同じ既知の妥協）は
-  このパッケージについては解消した
-- `state_get` の「ページ」判定は `kind=goal/procedure` または他ノードの `group` として参照されている
-  ノード、という設計文書どおりの定義。ページ種別ごとの追加メタ情報（procedure 用のラン情報等）は
-  M6 まで未実装
-- ラン関連ツールは HTTP API（`packages/server`）へのプロキシで、procedure=手順ページ・run=実行
-  インスタンスという用語は docs/design.md 3.7/3.8 に対応する。`run_cancel` に取り消し操作は無い
+  このパッケージ自体は `@graphwrangler/core` の他の実装（GraphStore/RunStore 等）には依存せず、
+  HTTP API を叩くだけの自己完結を保っている
+- `state_get` の「ページ」判定は `kind=goal` または他ノードの `group` として参照されている
+  ノード、という設計文書どおりの定義
+- ラン関連ツールは HTTP API（`packages/server`）へのプロキシ。run=実行インスタンスという
+  用語は docs/design.md 3.8 に対応する。`run_cancel` に取り消し操作は無い
   （undo/redo はグラフ本体の操作ログのみが対象）

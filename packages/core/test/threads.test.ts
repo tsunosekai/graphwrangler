@@ -20,8 +20,6 @@ const REQ: DecisionRequest = {
   ],
   impact: "irreversible",
   undo: null,
-  expires: null,
-  on_expire: null,
 };
 
 describe("ThreadStore", () => {
@@ -72,12 +70,6 @@ describe("ThreadStore", () => {
     expect(() =>
       t.answerRequest("n-1", { requestId: req.id, option: "nope", note: null }),
     ).toThrow(/unknown option/);
-  });
-
-  it("on_expire が options に無い id を指すのは拒否", () => {
-    expect(() => t.openRequest("n-1", { ...REQ, on_expire: "nope" })).toThrow(
-      /on_expire/,
-    );
   });
 
   it("スレッドはノードごとに独立", () => {

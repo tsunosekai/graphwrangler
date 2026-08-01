@@ -1,6 +1,6 @@
 // GraphWrangler の HTTP API（既定 http://localhost:8770）を薄く叩くクライアント。
 // packages/mcp/src/http.ts と同じ方針: server / core のコードには依存せず、
-// この HTTP API だけを唯一の統合点にする（docs/agent-contracts.md 担当領域）。
+// この HTTP API だけを唯一の統合点にする。
 import type {
   Actor,
   DecisionRequest,
@@ -54,7 +54,7 @@ export async function getState(): Promise<{ nodes: Node[]; now: string }> {
   return (await request("GET", "/api/state")) as { nodes: Node[]; now: string };
 }
 
-/** ノードの部分更新。actor/via で帰属を明示する（docs/agent-contracts.md の帰属の規約） */
+/** ノードの部分更新。actor/via で帰属を明示する */
 export async function patchNode(
   id: string,
   patch: NodePatch,
@@ -102,21 +102,11 @@ export async function openRequest(
   })) as Message;
 }
 
-// ---- 手順ページ: ラン（M6）----
-
-/** procedureId に属するラン一覧（server 側で created 降順。全 procedure を横断する
- *  一覧APIは無いので、呼び出し側が procedure ノードごとにこれを呼んで束ねる）。
- *  互換エイリアスの /api/procedures/:id/runs を叩く（新エンドポイントは listPageRuns 参照） */
-export async function listProcedureRuns(procedureId: string): Promise<Run[]> {
-  const res = (await request("GET", `/api/procedures/${procedureId}/runs`)) as { runs: Run[] };
-  return res.runs;
-}
-
-// ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9 新モデル） ----
+// ---- ラン / トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 
 /** pageId（トリガーノードの group、または他ノードから group として参照されるノードid）に
- *  属するラン一覧。中身は listProcedureRuns と同じ（GET /api/pages/:id/runs）。
- *  「ルーティーンであること」はページ種別ではないため、こちらを正の呼び出し先とする */
+ *  属するラン一覧（GET /api/pages/:id/runs。server 側で created 降順。全ページを横断する
+ *  一覧APIは無いので、呼び出し側がページごとにこれを呼んで束ねる） */
 export async function listPageRuns(pageId: string): Promise<Run[]> {
   const res = (await request("GET", `/api/pages/${pageId}/runs`)) as { runs: Run[] };
   return res.runs;
@@ -137,20 +127,6 @@ export async function fireTriggerNode(
   return (await request("POST", `/api/nodes/${nodeId}/fire`, {
     ...opts,
     actor,
-  })) as Run;
-}
-
-/** ランを作成する（手動 or スケジュール）。trigger 省略時は server 側で "manual" */
-export async function createRun(
-  procedureId: string,
-  opts: { title?: string; trigger?: string } = {},
-  actor?: Actor,
-  via?: string,
-): Promise<Run> {
-  return (await request("POST", `/api/procedures/${procedureId}/runs`, {
-    ...opts,
-    ...(actor ? { actor } : {}),
-    ...(via ? { via } : {}),
   })) as Run;
 }
 
@@ -185,7 +161,7 @@ export async function decideRunItem(
   })) as Run;
 }
 
-// ---- AI設定（M7: エンジンAI設定を server 設定から読む） ----
+// ---- AI設定（エンジンAI設定を server 設定から読む） ----
 
 /** GET /api/settings の公開ビュー。engine executor に必要な部分だけ型を持つ
  *  （chat/setupDone 等の他フィールドは無視する。取得失敗時の既定値継続は呼び出し側の責務） */

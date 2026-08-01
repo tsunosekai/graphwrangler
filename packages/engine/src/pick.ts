@@ -1,11 +1,9 @@
 // 実行候補の選択と承認フローの判定。ネットワークI/Oを一切持たない純粋関数のみを置く
-// （vitest でユニットテストする対象。docs/agent-contracts.md の担当領域どおり
-// packages/engine 内で完結させる）。
+// （vitest でユニットテストする対象）。
 import type { DecisionRequest, Node, Message } from "./types.js";
 
-/** kind=trigger ノードを持つページの id 一覧（新モデルのルーティーンページ。docs/design.md
- *  3.4/3.8/3.9）。「ルーティーンであること」はページ種別ではなくフロー先頭のトリガーノードから
- *  導出するため、旧来の「group.kind===procedure」判定をこれで一般化する */
+/** kind=trigger ノードを持つページの id 一覧（ルーティーンページ。docs/design.md 3.4/3.8/3.9）。
+ *  「ルーティーンであること」はページ種別ではなくフロー先頭のトリガーノードから導出する */
 export function triggerPageIds(nodes: Node[]): Set<string> {
   const ids = new Set<string>();
   for (const n of nodes) {
@@ -14,24 +12,16 @@ export function triggerPageIds(nodes: Node[]): Set<string> {
   return ids;
 }
 
-/** ノードが「手順ページ（kind=procedure。非推奨）」または「トリガーノードを持つページ
- *  （新モデルのルーティーンページ）」のメンバーか。そのメンバー＝テンプレートはプロジェクト側
- *  スケジューラの対象外（実行はラン側のワークアイテムが担う。ここで除外しないとプロジェクト側
- *  エンジンにも拾われて二重実行になる。2026-07-29 に kind=procedure で実際に発生した不具合と
- *  同じ穴を新モデルでも塞ぐ） */
-export function isRunManagedMember(
-  node: Node,
-  byId: Map<string, Node>,
-  triggerPages: Set<string>,
-): boolean {
-  if (!node.group) return false;
-  if (byId.get(node.group)?.kind === "procedure") return true;
-  return triggerPages.has(node.group);
+/** ノードがルーティーンページ（トリガーノードを持つページ）のメンバーか。そのメンバー＝
+ *  テンプレートはプロジェクト側スケジューラの対象外（実行はラン側のワークアイテムが担う。
+ *  ここで除外しないとプロジェクト側エンジンにも拾われて二重実行になる） */
+export function isRunManagedMember(node: Node, triggerPages: Set<string>): boolean {
+  return node.group !== null && triggerPages.has(node.group);
 }
 
 /** スケジューラの対象になりうる基本条件（frontier/status/メッセージ判定は別途 selectAction が見る）。 */
-function isSchedulableKind(node: Node, byId: Map<string, Node>, triggerPages: Set<string>): boolean {
-  if (isRunManagedMember(node, byId, triggerPages)) return false;
+function isSchedulableKind(node: Node, triggerPages: Set<string>): boolean {
+  if (isRunManagedMember(node, triggerPages)) return false;
   return (
     node.lifecycle === "committed" &&
     node.kind === "task" &&
@@ -88,7 +78,7 @@ export function selectAction(
   const sorted = [...nodes].sort((a, b) => a.created.localeCompare(b.created));
 
   for (const node of sorted) {
-    if (!isSchedulableKind(node, byId, triggerPages)) continue;
+    if (!isSchedulableKind(node, triggerPages)) continue;
     if (node.status !== "pending") continue; // unplanned/running/waiting/done/dropped は除外
     if (node.pendingRequest) continue; // open request があるなら人間待ち（本来 pending とは両立しない想定だが念のため）
     if (!isFrontier(node, byId)) continue;
@@ -128,8 +118,6 @@ export function buildIrreversibleGateRequest(node: Node): DecisionRequest {
     ],
     impact: "irreversible",
     undo: null,
-    expires: null,
-    on_expire: null,
   };
 }
 
@@ -146,7 +134,5 @@ export function buildFailureRecoveryRequest(node: Node, reason: string): Decisio
     ],
     impact: "reversible",
     undo: null,
-    expires: null,
-    on_expire: null,
   };
 }

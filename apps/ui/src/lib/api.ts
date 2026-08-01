@@ -128,7 +128,7 @@ async function withSelfRead<T>(nodeId: string, p: Promise<T>): Promise<T> {
 }
 
 export const api = {
-  // threadMeta: ノードごとの最終メッセージ時刻（未読バッジの判定に使う。QOL-7）
+  // threadMeta: ノードごとの最終メッセージ時刻（未読バッジの判定に使う）
   getState: () => request<{ nodes: Node[]; threadMeta: Record<string, string>; now: string }>("/state"),
 
   addNode: (input: NodeCreateInput) =>
@@ -189,11 +189,6 @@ export const api = {
     })),
 
   // ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----
-  // ラン作成は互換エイリアス（ページにトリガーノードがあればそれを発火、無ければ旧procedure仕様）。
-  // ラン一覧取得は新設の /api/pages/:id/runs を使う（どのページ種別でも同じ形で返る）
-
-  createRun: (procedureId: string, input: { title?: string; trigger?: string } = {}) =>
-    request<Run>(`/procedures/${procedureId}/runs`, { method: "POST", body: JSON.stringify(input) }),
 
   listRuns: (pageId: string) => request<{ runs: Run[] }>(`/pages/${pageId}/runs`),
 
@@ -207,7 +202,7 @@ export const api = {
 
   getRunTrace: (runId: string) => request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`),
 
-  // ---- 元に戻す / やり直す（B-8。操作ログの補償追記） ----
+  // ---- 元に戻す / やり直す（操作ログの補償追記） ----
 
   undo: () => request<{ undone: { id: string; op: string; ts: string } }>("/undo", {
     method: "POST",
@@ -219,7 +214,7 @@ export const api = {
     body: "{}",
   }),
 
-  // ---- エンジン稼働インジケータ（QOL-5） ----
+  // ---- エンジン稼働インジケータ ----
 
   getEngineStatus: () => request<{ alive: boolean; lastSeen: string | null }>("/engine/status"),
 
@@ -231,7 +226,7 @@ export const api = {
     request<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
 
   /**
-   * 内蔵チャット（M4）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側
+   * 内蔵チャット（Workflow AI）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側
    * (ChatDrawer) が行う — この関数は「api キー未設定 400」だけをエラーとして解釈する。
    */
   chatStream: async (

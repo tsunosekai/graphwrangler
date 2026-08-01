@@ -309,7 +309,7 @@ export class GraphStore {
    * 2) 直接規則: parentOptions[decisionId] を持つ子のうち、choice と不一致な枝は skipped
    * 3) 連鎖規則: 「全ての親」が skipped になったノードも skipped（再帰。done/dropped は触らない）
    * 複数の patch/commit の連続として行う（1つの巨大トランザクションopは持たない。undo は
-   * 「1opずつ戻る」ことで整合を保つ設計 — docs/agent-contracts.md の帰属規約どおり）。
+   * 「1opずつ戻る」ことで整合を保つ設計）。
    */
   applyDecision(nodeId: string, choice: string, meta: OpMeta = {}): Node {
     const node = this.get(nodeId);

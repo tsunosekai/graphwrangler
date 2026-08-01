@@ -1,6 +1,6 @@
-// graphwrangler 実行エンジン（M5）。常駐プロセスとして HTTP API をポーリングし、
-// 実行可能なノード（実行者=ai|script）を1並列で処理する。zinsei desk/engine.py の一般化。
-// docs/design.md 3.4/3.5/3.7、docs/agent-contracts.md が設計の正。
+// graphwrangler 実行エンジン。常駐プロセスとして HTTP API をポーリングし、
+// 実行可能なノード（実行者=ai|script）を1並列で処理する。
+// docs/design.md 3.4/3.5/3.8/3.9 が設計の正。
 import {
   decideNode,
   decideRunItem,
@@ -69,7 +69,7 @@ function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
-// ---- エンジンAI設定（M7: サーバ設定を起動時+10分ごとに読む） ----
+// ---- エンジンAI設定（サーバ設定を起動時+10分ごとに読む） ----
 // env GW_ENGINE_CLAUDE_MODEL があれば model はそれを優先する（取得失敗時は既定値で継続）。
 const SETTINGS_REFRESH_MS = 10 * 60 * 1000; // 10分
 
@@ -86,7 +86,7 @@ let engineMode: "cli" | "api" = "cli";
 let lastSettingsFetchAt = 0;
 
 /** GET /api/settings から engine executor の設定を反映する。10分未満は何もしない
- *  （force=true なら起動時など強制的に取得する）。取得失敗時は既定値のまま継続する */
+ *  （force=true なら起動時など強制的に取得する）。取得失敗時は前回値のまま継続する */
 async function refreshEngineConfig(force = false): Promise<void> {
   const now = Date.now();
   if (!force && now - lastSettingsFetchAt < SETTINGS_REFRESH_MS) return;
@@ -108,7 +108,7 @@ async function refreshEngineConfig(force = false): Promise<void> {
   }
 }
 
-// ---- ワークスペース=1ファイル化: サーバの動作モード（M-workspace） ----
+// ---- ワークスペースモード: サーバの動作モード ----
 // script/AI executor の cwd 決定（workspace root を渡す）と impl={type:"doc",path} の解決に使う。
 // 取得失敗時は null のまま（従来の data-dir モードと同じ挙動で継続する）。
 // 起動時1回きりだとエンジンがサーバより先に起動したとき恒久的に null 固定になるため
@@ -294,7 +294,7 @@ function decisionCandidateIdsNeedingThread(nodes: Node[]): string[] {
         n.kind === "decision" &&
         n.lifecycle === "committed" &&
         n.status === "pending" &&
-        !isRunManagedMember(n, byId, triggerPages) &&
+        !isRunManagedMember(n, triggerPages) &&
         n.parents.every((pid) => {
           const s = byId.get(pid)?.status;
           return s === "done" || s === "skipped";
@@ -406,10 +406,10 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
   }
 }
 
-// ---- 手順ページ: ランのワークアイテム実行（M6） ----
+// ---- ルーティーンページ: ランのワークアイテム実行 ----
 
-/** ランのワークアイテムを実行する。プロンプト文脈は手順ノード(procedure)の title/detail +
- *  テンプレートの title/detail/impl（claude.ts の buildAiPrompt を "goal=手順ノード" として再利用）。
+/** ランのワークアイテムを実行する。プロンプト文脈はページノードの title/detail +
+ *  テンプレートの title/detail/impl（claude.ts の buildAiPrompt を "goal=ページノード" として再利用）。
  *  実行ログ・成果はテンプレートノードのスレッドへ payload {runId} 付きで投稿する */
 async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void> {
   await patchRunItem(run.id, node.id, { status: "running" }, ENGINE_ACTOR, VIA);
@@ -432,13 +432,13 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
       }
     }
   } else {
-    const procedureNode = nodes.find((n) => n.id === run.procedure) ?? null;
+    const pageNode = nodes.find((n) => n.id === run.procedure) ?? null;
     const resolved = await resolveDocForPrompt(node);
     if (resolved.error) {
       executorName = engineMode === "api" ? "executor:api" : "executor:claude";
       result = { success: false, output: "", error: resolved.error };
     } else {
-      const built = buildAiPrompt({ node: resolved.node, goal: procedureNode, parentSayMessages: [] });
+      const built = buildAiPrompt({ node: resolved.node, goal: pageNode, parentSayMessages: [] });
       aiSources = built.sources;
       if (engineMode === "api") {
         executorName = "executor:api";
@@ -486,14 +486,12 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
   log(`ラン実行失敗: run=${run.id} node=${node.id} reason=${reason}`);
 }
 
-/** ランを持ちうる「ページ」の id 一覧: kind=goal/procedure のノード、または他ノードから
- *  group として参照されているノード（トリガーを持つ goal ページ等、新モデルのルーティーン
- *  ページを含む）。packages/mcp/src/index.ts の state_get の pages 算出と同じ考え方
- *  （docs/design.md 3.4/3.8 新モデル: 「ルーティーンであること」はページ種別で決まらない） */
+/** ランを持ちうる「ページ」の id 一覧: kind=goal のノード、または他ノードから group として
+ *  参照されているノード。packages/mcp/src/index.ts の state_get の pages 算出と同じ考え方 */
 function pageIds(nodes: Node[]): string[] {
   const ids = new Set<string>();
   for (const n of nodes) {
-    if (n.kind === "goal" || n.kind === "procedure") ids.add(n.id);
+    if (n.kind === "goal") ids.add(n.id);
     if (n.group) ids.add(n.group);
   }
   return [...ids];
@@ -516,7 +514,7 @@ async function fetchRunningRuns(nodes: Node[]): Promise<Run[]> {
   return runsByPage.flat().filter((r) => r.status === "running");
 }
 
-// ---- 手順ページ: 不可逆ランアイテムの承認連携（docs/agent-contracts.md 1.） ----
+// ---- ルーティーンページ: 不可逆ランアイテムの承認連携（approval.ts） ----
 
 /** 承認待ち（waiting/note=APPROVAL_WAITING_NOTE）のランアイテムについて、テンプレートノードの
  *  スレッドから承認ゲートの状態を集める（対象があるものだけスレッドを取得する） */
@@ -582,7 +580,7 @@ async function tickRunApprovals(nodes: Node[], runs: Run[]): Promise<boolean> {
   }
 }
 
-// ---- 手順ページ: ランの分岐アイテム（kind=decision。docs/design.md 3.8/3.9） ----
+// ---- ルーティーンページ: ランの分岐アイテム（kind=decision。docs/design.md 3.8/3.9） ----
 
 /** ラン内の human 分岐アイテムについて、テンプレートノードのスレッドから
  *  承認連携(approval.ts)と同じ方式でゲート状態を集める */
@@ -829,14 +827,14 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
 }
 
 // ---- トリガーノード（kind=trigger）: script/ai発火・ランの自動生成 ----
-// 旧 scheduleTick（procedure.scheduleベース）を置き換える。docs/design.md 3.4/3.8/3.9。
+// docs/design.md 3.4/3.8/3.9。
 // 「ルーティーンであること」はページ種別ではなく、フロー先頭のトリガーノードから導出する。
 
 /** ai トリガーの直近チェック時刻（エンジンのメモリ管理。プロセス再起動で即再チェックされるのは
  *  許容する。docs/design.md「チェック時刻はエンジンのメモリ管理」） */
 const aiTriggerLastCheckedAt = new Map<string, number>();
 
-/** script トリガーを1件処理する（schedule.ts の判定をそのまま流用。旧 scheduleTick と同じ判定） */
+/** script トリガーを1件処理する（判定は schedule.ts） */
 async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   const hasRunningRun = runsForPage.some((r) => r.status === "running");
   const latestRun = runsForPage[0] ?? null; // list は created 降順
@@ -936,7 +934,7 @@ async function triggerTick(nodes: Node[]): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  await refreshEngineConfig(); // 起動時+10分ごと（内部で throttle。M7）
+  await refreshEngineConfig(); // 起動時+10分ごと（内部で throttle）
   await refreshWorkspaceInfo(); // 未取得なら毎tick再試行、取得後は10分ごと（内部で throttle）
 
   // UIの稼働インジケータ用ハートビート（失敗しても実行は続ける）

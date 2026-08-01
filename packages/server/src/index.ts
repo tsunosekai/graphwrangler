@@ -1,5 +1,5 @@
 // graphwrangler API サーバ。コアの GraphStore / ThreadStore を HTTP で公開する。
-// UI も MCP も将来の executor も、全員がこの API（＝操作ログ）を通る。
+// UI も MCP もエンジンも、全員がこの API（＝操作ログ）を通る。
 import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -20,8 +20,6 @@ import {
   RunItemStatusSchema,
   nowIso,
   type Actor,
-  type Node,
-  type Run,
 } from "@graphwrangler/core";
 import { z } from "zod";
 import { chatKeyMissing, completeText, handleChat } from "./chat.js";
@@ -175,12 +173,17 @@ app.get("/api/state", (c) => {
 
 app.get("/api/export", (c) => {
   const nodes = graph.state().nodes;
+  const groupIds = new Set(nodes.map((n) => n.group).filter((g): g is string => g !== null));
   const threadDump: Record<string, unknown> = {};
   const runDump: Record<string, unknown> = {};
   for (const n of nodes) {
     const msgs = threads.list(n.id);
     if (msgs.length > 0) threadDump[n.id] = msgs;
-    if (n.kind === "procedure") runDump[n.id] = runs.list(n.id);
+    // ページ（goal またはメンバーを持つノード）だけがランを持ちうる
+    if (n.kind === "goal" || groupIds.has(n.id)) {
+      const list = runs.list(n.id);
+      if (list.length > 0) runDump[n.id] = list;
+    }
   }
   c.header("Content-Disposition", `attachment; filename="graphwrangler-export.json"`);
   return c.json({
@@ -394,19 +397,20 @@ app.post("/api/nodes/:id/decide", async (c) => {
   return c.json(updated);
 });
 
-// ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9 新モデル） ----
+// ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 // 「ルーティーンであること」はページ種別ではなく先頭のトリガーノードから導出する。
 // トリガーが発火すると、その group ページで createFromTrigger によりランが1本生成される。
 
-/** トリガーノードを発火し、その group ページでランを作成する（POST /fire・レガシー互換の
- *  POST /api/procedures/:id/runs 双方から呼ばれる共通処理）。トリガーのスレッドへ
+const FireSchema = z.object({ via: z.string().min(1).optional() });
+
+/** トリガーノードを発火し、その group ページでランを作成する。トリガーのスレッドへ
  *  「発火: <run.title>」を payload {runId} 付きで記録する */
-function fireTriggerNode(
-  trigger: Node,
-  via: string,
-  titleOverride: string | undefined,
-  m: { actor: Actor; via: string },
-): Run {
+app.post("/api/nodes/:id/fire", async (c) => {
+  const id = c.req.param("id");
+  const trigger = graph.get(id);
+  const body = await c.req.json().catch(() => ({}));
+  const { via } = FireSchema.parse(body);
+  const m = meta(body);
   if (trigger.kind !== "trigger") {
     throw new GraphError(`node ${trigger.id} is not a trigger (kind=${trigger.kind})`, 400);
   }
@@ -416,8 +420,8 @@ function fireTriggerNode(
   }
   const members = graph.state().nodes.filter((n) => n.group === pageId);
   const run = runs.createFromTrigger(pageId, trigger.id, members, {
-    title: titleOverride ?? defaultRunTitle(),
-    via,
+    title: defaultRunTitle(),
+    via: via ?? "manual",
   });
   threads.post(trigger.id, {
     kind: "status",
@@ -426,74 +430,12 @@ function fireTriggerNode(
     author: m.actor,
     via: m.via,
   });
-  return run;
-}
-
-const FireSchema = z.object({ via: z.string().min(1).optional() });
-
-app.post("/api/nodes/:id/fire", async (c) => {
-  const id = c.req.param("id");
-  const node = graph.get(id);
-  const body = await c.req.json().catch(() => ({}));
-  const { via } = FireSchema.parse(body);
-  const m = meta(body);
-  const run = fireTriggerNode(node, via ?? "manual", undefined, m);
   return c.json(run);
 });
 
-// ---- 手順ページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
+// ---- ラン（実行インスタンス。docs/design.md 3.8） ----
 
-const CreateRunSchema = z.object({
-  title: z.string().min(1).optional(),
-  trigger: z.string().min(1).optional(),
-});
-
-/** ラン開始（互換エイリアス）。ページ(:id)にトリガーノード（kind=trigger、created昇順で最初の
- *  1件）があればそれを発火する新方式に委譲する。トリガーが無ければ従来どおり
- *  kind=procedure のノードとして扱う（無ければ400。旧来の挙動を維持） */
-app.post("/api/procedures/:id/runs", async (c) => {
-  const id = c.req.param("id");
-  const node = graph.get(id);
-  const body = await c.req.json().catch(() => ({}));
-  const input = CreateRunSchema.parse(body);
-  const m = meta(body);
-  const members = graph.state().nodes.filter((n) => n.group === id);
-  const trigger = [...members]
-    .filter((n) => n.kind === "trigger")
-    .sort((a, b) => a.created.localeCompare(b.created))[0];
-
-  if (trigger) {
-    const run = fireTriggerNode(trigger, input.trigger ?? "manual", input.title, m);
-    return c.json(run);
-  }
-
-  if (node.kind !== "procedure") {
-    throw new GraphError(
-      `node ${id} is not a procedure (kind=${node.kind}) and has no trigger node`,
-      400,
-    );
-  }
-  const run = runs.create(id, members, {
-    title: input.title ?? defaultRunTitle(),
-    trigger: input.trigger ?? "manual",
-  });
-  threads.post(id, {
-    kind: "status",
-    body: `ラン開始: ${run.title}`,
-    payload: { runId: run.id },
-    author: m.actor,
-    via: m.via,
-  });
-  return c.json(run);
-});
-
-app.get("/api/procedures/:id/runs", (c) => {
-  const id = c.req.param("id");
-  graph.get(id);
-  return c.json({ runs: runs.list(id) });
-});
-
-/** GET /api/procedures/:id/runs の新名称（どのページ種別でも同じランを返す。中身は同じ） */
+/** ページ(:id)に属するラン一覧（どのページ種別でも同じ形で返る） */
 app.get("/api/pages/:id/runs", (c) => {
   const id = c.req.param("id");
   graph.get(id);
@@ -510,7 +452,7 @@ const PatchRunItemSchema = z.object({
 });
 
 /** ワークアイテム更新。テンプレートノードのスレッドへ状態遷移を記録し、
- *  ラン全体が done に転じたら procedure ノードのスレッドにも記録する */
+ *  ラン全体が done に転じたらページノードのスレッドにも記録する */
 app.post("/api/runs/:id/items/:nodeId", async (c) => {
   const runId = c.req.param("id");
   const nodeId = c.req.param("nodeId");
@@ -548,8 +490,8 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
 const DecideRunItemSchema = z.object({ choice: z.string().min(1) });
 
 /** ラン内の分岐アイテム(kind=decision)の choice を確定する（docs/design.md 3.9のラン内版）。
- *  templates は procedure の全メンバー（RunStore.applyItemDecision が parentOptions/branches の
- *  定義を引くのに必要。ラン作成時と同じ group=procedure フィルタ） */
+ *  templates はページの全メンバー（RunStore.applyItemDecision が parentOptions/branches の
+ *  定義を引くのに必要。ラン作成時と同じ group=ページ フィルタ） */
 app.post("/api/runs/:id/items/:nodeId/decide", async (c) => {
   const runId = c.req.param("id");
   const nodeId = c.req.param("nodeId");
@@ -584,7 +526,7 @@ app.post("/api/runs/:id/cancel", (c) => {
   return c.json(runs.cancel(c.req.param("id")));
 });
 
-/** トレース再生: procedure ノード+全メンバーのスレッドから payload.runId が一致する
+/** トレース再生: ページノード+全ワークアイテムのスレッドから payload.runId が一致する
  *  メッセージを集め、ts 昇順で返す（docs/design.md 3.8「トレース」） */
 app.get("/api/runs/:id/trace", (c) => {
   const runId = c.req.param("id");
@@ -684,7 +626,7 @@ app.get("/api/chats/:pageId/archive", (c) => {
   return c.json({ sessions: [...readChatArchive(file)].reverse() });
 });
 
-// ---- チャット（M4: グラフ整理の Workflow AI。実装は chat.ts / chat_cli.ts） ----
+// ---- チャット（グラフ整理の Workflow AI。実装は chat.ts / chat_cli.ts） ----
 // chat.mode="cli" ならヘッドレスCLI（chat_cli.ts、MCP経由でグラフ操作）へ、
 // "api" なら従来どおりプロバイダAPIキー方式（chat.ts）へ分岐する。
 // APIキー未設定の400判定は api モードのときだけ行う（cliモードにAPIキーは無関係）。

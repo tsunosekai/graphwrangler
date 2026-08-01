@@ -1,4 +1,4 @@
-// procedure（手順ページ）テンプレートが kind=decision の場合のランアイテム選択と human往復。
+// ルーティーンページのテンプレートが kind=decision の場合のランアイテム選択と human往復。
 // approval.ts の「waiting + 目印note」2段構え（承認カードと同型）を踏襲する: 同じテンプレート
 // ノードが複数のランに同時に登場しうるため、node.pendingRequest は使わず、ランIDを question
 // 文中のマーカーで束ねる（approval.ts の runGateMarker/findRunGate をそのまま再利用する）。
@@ -102,8 +102,6 @@ export function buildRunDecisionRequest(node: Node, run: Run): DecisionRequest {
     })),
     impact: node.impact,
     undo: null,
-    expires: null,
-    on_expire: null,
   };
 }
 

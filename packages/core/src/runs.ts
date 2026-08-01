@@ -1,5 +1,5 @@
-// ラン（実行インスタンス）ストア。手順ページ（docs/design.md 3.8）のテンプレートノードは
-// status を持たず、実行のたびに生成する Run 側のワークアイテムが status を持つ。
+// ラン（実行インスタンス）ストア。ルーティーンページ（docs/design.md 3.8）のテンプレート
+// ノードは status を持たず、実行のたびに生成する Run 側のワークアイテムが status を持つ。
 // 1ラン = 1ファイル（dataDir/runs/<runId>.json）。graph の snapshot と同じ atomic write。
 import fs from "node:fs";
 import path from "node:path";
@@ -13,11 +13,6 @@ import {
 import { nextId, nowIso } from "./ids.js";
 import { ensureDir, readJson, writeJsonAtomic } from "./storage.js";
 import { GraphError, collectDescendantsAmong } from "./graph.js";
-
-export interface RunCreateOpts {
-  title?: string;
-  trigger?: string;
-}
 
 export interface TriggerRunOpts {
   title?: string;
@@ -57,40 +52,7 @@ export class RunStore {
   }
 
   /**
-   * ランを作成する。ワークアイテムは渡されたメンバーのうち lifecycle=committed の
-   * テンプレートだけ（status は見ない = draft は素通りしない、というのが唯一のフィルタ）。
-   * その中で status=unplanned（やり方未定）のテンプレートは item.status を "skipped" にし、
-   * それ以外は "pending" にする。
-   */
-  create(procedureId: string, memberNodes: Node[], opts: RunCreateOpts = {}): Run {
-    const ts = nowIso();
-    const items: Record<string, RunItem> = {};
-    for (const n of memberNodes) {
-      if (n.lifecycle !== "committed") continue;
-      items[n.id] = {
-        status: n.status === "unplanned" ? "skipped" : "pending",
-        note: null,
-        choice: null,
-        updated: ts,
-      };
-    }
-    const run: Run = RunSchema.parse({
-      id: nextId("r", this.existingIds()),
-      procedure: procedureId,
-      title: opts.title ?? `ラン ${ts}`,
-      trigger: opts.trigger ?? "manual",
-      status: "running",
-      items,
-      created: ts,
-      updated: ts,
-    });
-    this.write(run);
-    return run;
-  }
-
-  /**
-   * トリガーノード（kind=trigger）の発火からランを作成する（docs/design.md 3.8 新モデル）。
-   * 「ルーティーンであること」はページ種別ではなく、フロー先頭のトリガーノードから導出する。
+   * トリガーノード（kind=trigger）の発火からランを作成する（docs/design.md 3.8）。
    *
    * - items = トリガーの子孫（parents を辿って allMembers 内で到達可能なメンバー。分岐・合流を
    *   含む）。トリガー自身は items に含めない
@@ -98,8 +60,7 @@ export class RunStore {
    *   子孫であれば items に入る。draft は status=pending のまま入る（実行するかどうかは
    *   engine 側が lifecycle=committed のみを対象にすることで担保する。3.4「committedのみ
    *   自動実行」の原則は engine 側で維持）
-   * - status=unplanned（やり方未定）のテンプレートは create() と同じく item.status を
-   *   "skipped" にする（それ以外は unplanned とは別物として維持）
+   * - status=unplanned（やり方未定）のテンプレートは item.status を "skipped" にする
    *
    * pageId は run.procedure（＝ランが属するページ）に記録するid。トリガーノードの group が
    * 通常これにあたる（呼び出し側=server が渡す）。
@@ -137,10 +98,10 @@ export class RunStore {
     return run;
   }
 
-  /** procedureId に属するラン一覧。created 降順（新しい順） */
-  list(procedureId: string): Run[] {
+  /** pageId に属するラン一覧。created 降順（新しい順） */
+  list(pageId: string): Run[] {
     return this.all()
-      .filter((r) => r.procedure === procedureId)
+      .filter((r) => r.procedure === pageId)
       .sort((a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0));
   }
 
@@ -183,7 +144,7 @@ export class RunStore {
    * 1) item.choice をセット + status=done
    * 2) 直接規則: templates の parentOptions[decisionId] が choice と不一致な item を skipped
    * 3) 連鎖規則: 「ラン内に存在する全ての親」が skipped な item も skipped（再帰）
-   * templates は procedure の全メンバー（branches/parentOptions の定義を引くため必要。
+   * templates はページの全メンバー（branches/parentOptions の定義を引くため必要。
    * pickRun.ts の dependenciesSettled と同じく、ラン内に存在しない親は無視する）。
    */
   applyItemDecision(runId: string, nodeId: string, choice: string, templates: Node[]): Run {

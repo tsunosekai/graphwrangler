@@ -6,6 +6,8 @@
 //   env GW_SERVER_PORT / GW_DATA_DIR / GW_SERVER_CMD で調整可（既定は下記）。
 
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
@@ -17,8 +19,7 @@ const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
 
 const port = process.env.GW_SERVER_PORT ?? "8771";
 const dataDir =
-  process.env.GW_DATA_DIR ??
-  "C:\\Users\\kazum\\AppData\\Local\\Temp\\claude\\D--VSCodeProject-zinsei\\9da31acd-8ca6-4bf4-b544-0f3c9832de3d\\scratchpad\\gw-mcp-test";
+  process.env.GW_DATA_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "gw-mcp-e2e-"));
 
 function log(...args) {
   console.log("[e2e]", ...args);
@@ -156,7 +157,7 @@ try {
       "message_post",
       "request_open",
       "request_answer",
-      "run_create",
+      "trigger_fire",
       "run_list",
       "run_get",
       "run_item_patch",
@@ -313,36 +314,52 @@ try {
     assert.equal(result.isError, true);
   });
 
-  // 12.5 ラン操作系: procedure ノード + committed なメンバーを作ってラン一式を回す
-  let procId, memberId, runId;
-  await step("tools/call node_add (procedure)", async () => {
+  // 12.5 ラン操作系: ルーティーンページ（goal + trigger + committed メンバー）を作ってラン一式を回す
+  let pageId, triggerId, memberId, runId;
+  await step("tools/call node_add (ルーティーンページ=goal)", async () => {
     const node = toolResultJson(
       await rpc("tools/call", {
         name: "node_add",
-        arguments: { title: "E2Eテスト手順", kind: "procedure" },
+        arguments: { title: "E2Eテストルーティーン", kind: "goal" },
       }),
     );
-    assert.equal(node.kind, "procedure");
-    procId = node.id;
+    assert.equal(node.kind, "goal");
+    pageId = node.id;
   });
 
-  await step("tools/call node_add (procedureメンバー, committed)", async () => {
+  await step("tools/call node_add (trigger)", async () => {
     const node = toolResultJson(
       await rpc("tools/call", {
         name: "node_add",
-        arguments: { title: "E2Eテスト手順アイテム", group: procId, lifecycle: "committed" },
+        arguments: { title: "E2Eテスト起点", kind: "trigger", group: pageId, lifecycle: "committed" },
       }),
     );
-    assert.equal(node.group, procId);
+    assert.equal(node.kind, "trigger");
+    triggerId = node.id;
+  });
+
+  await step("tools/call node_add (メンバー, committed)", async () => {
+    const node = toolResultJson(
+      await rpc("tools/call", {
+        name: "node_add",
+        arguments: {
+          title: "E2Eテスト手順アイテム",
+          group: pageId,
+          parents: [triggerId],
+          lifecycle: "committed",
+        },
+      }),
+    );
+    assert.equal(node.group, pageId);
     assert.equal(node.lifecycle, "committed");
     memberId = node.id;
   });
 
-  await step("tools/call run_create", async () => {
+  await step("tools/call trigger_fire", async () => {
     const run = toolResultJson(
-      await rpc("tools/call", { name: "run_create", arguments: { procedureId: procId, title: "E2Eテストラン" } }),
+      await rpc("tools/call", { name: "trigger_fire", arguments: { nodeId: triggerId } }),
     );
-    assert.equal(run.procedure, procId);
+    assert.equal(run.procedure, pageId);
     assert.equal(run.status, "running");
     assert.equal(run.items[memberId].status, "pending");
     runId = run.id;
@@ -350,11 +367,10 @@ try {
 
   await step("tools/call run_list (要約形であること)", async () => {
     const result = toolResultJson(
-      await rpc("tools/call", { name: "run_list", arguments: { procedureId: procId } }),
+      await rpc("tools/call", { name: "run_list", arguments: { pageId } }),
     );
     const summary = result.runs.find((r) => r.id === runId);
     assert.ok(summary, "作成したランが一覧に出る");
-    assert.equal(summary.title, "E2Eテストラン");
     assert.equal(summary.itemCounts.pending, 1);
     assert.equal(summary.items, undefined, "run_list はitems詳細を含まない（要約のみ）");
   });
@@ -388,7 +404,7 @@ try {
 
   await step("tools/call run_cancel (2本目のランを中断)", async () => {
     const secondRun = toolResultJson(
-      await rpc("tools/call", { name: "run_create", arguments: { procedureId: procId } }),
+      await rpc("tools/call", { name: "trigger_fire", arguments: { nodeId: triggerId } }),
     );
     const cancelled = toolResultJson(
       await rpc("tools/call", { name: "run_cancel", arguments: { runId: secondRun.id } }),
@@ -422,10 +438,11 @@ try {
     toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: scratch.id } }));
   });
 
-  // 12.7 後片付け: procedure まわり
-  await step("tools/call node_remove (procedureメンバー+procedure の後片付け)", async () => {
+  // 12.7 後片付け: ルーティーンページまわり
+  await step("tools/call node_remove (メンバー+trigger+ページ の後片付け)", async () => {
     toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: memberId } }));
-    toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: procId } }));
+    toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: triggerId } }));
+    toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: pageId } }));
   });
 
   // 13. node_remove

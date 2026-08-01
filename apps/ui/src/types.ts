@@ -10,14 +10,11 @@ export interface Actor {
   name?: string;
 }
 
-/** goal=プロジェクトページ（一回きりのDAG） / task=作業 /
- *  procedure=手順ページ（繰り返し、ランが流れる）。@deprecated 2026-07-31
- *  「ルーティーンであること」はページ種別ではなく先頭の trigger ノードから導出するモデルへ
- *  移行した（docs/design.md 3.8）。後方互換のため型には残すが、新規作成 UI からは使わない /
+/** goal=プロジェクトページ（ノード群のフォルダ） / task=作業 /
  *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） /
  *  trigger=起点ノード（発火するとそのページ(group)でランが生成される。3.4/3.8/3.9。
  *  parents を持てない=グラフの起点であることを構造的に保証する） */
-export type NodeKind = "goal" | "task" | "procedure" | "decision" | "trigger";
+export type NodeKind = "goal" | "task" | "decision" | "trigger";
 
 /** スクリプトのパラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1）。
  *  宣言（name/label/example）は Workflow AI が書き、値（value）は人間がパネルで入力する。
@@ -79,8 +76,7 @@ export interface Node {
   order: number | null;
   /** kind=trigger 用の起動方式記述（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等）。
    *  executor=script なら cron 的な発火判定、executor=ai なら「発火要否を判定させる間隔」
-   *  （everyのみ解釈、無指定は既定1時間）、executor=human では使わない（手動発火のみ）。
-   *  kind=procedure（非推奨）でも旧来どおり同じ書式で解釈される */
+   *  （everyのみ解釈、無指定は既定1時間）、executor=human では使わない（手動発火のみ） */
   schedule: string | null;
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個）。それ以外の kind では null */
   branches: NodeBranch[] | null;
@@ -106,8 +102,6 @@ export interface DecisionRequest {
   options: DecisionOption[];
   impact: Impact;
   undo: string | null;
-  expires: string | null;
-  on_expire: string | null;
 }
 
 export interface DecisionAnswer {
@@ -134,8 +128,8 @@ export type MaterializedMessage = Message & {
   answeredBy?: string;
 };
 
-// ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.7/3.8） ----
-// テンプレート（procedure のメンバーノード）自身は status を持たず、
+// ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----
+// テンプレート（ルーティーンページのメンバーノード）自身は status を持たず、
 // 実行のたびに生成する Run 側のワークアイテムが status を持つ。
 
 export type RunItemStatus =
@@ -158,13 +152,11 @@ export type RunStatus = "running" | "done" | "cancelled";
 
 export interface Run {
   id: string;
-  /** ランが属するページ(group)のid。新モデルでは任意のページ(goal等)のidになりうる。
-   *  フィールド名は後方互換のため procedure のまま */
+  /** ランが属するページ(group)のid。既存ランファイルとの互換のためキー名は procedure のまま */
   procedure: string;
   title: string;
-  /** 発火元の記録。新モデルでは "trigger:<triggerノードid>:<via>" の形
-   *  （via は "manual" / "schedule:<原文>" / "ai"）。旧モデル互換の "manual" 単体や
-   *  "schedule:daily 09:00" もそのまま許容する自由文字列 — 固定書式を仮定せず生表示する */
+  /** 発火元の記録。"trigger:<triggerノードid>:<via>" の形（via は "manual" /
+   *  "schedule:<原文>" / "ai" 等の自由文字列） — 固定書式を仮定せず生表示する */
   trigger: string;
   status: RunStatus;
   /** テンプレートノード id → ワークアイテム */

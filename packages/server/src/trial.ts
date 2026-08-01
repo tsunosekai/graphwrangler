@@ -43,25 +43,6 @@ export function substituteParams(
   return { ok: true, command: substituted };
 }
 
-export type ImplStatus = "ok" | "stale" | "unverified" | "not-script";
-
-/**
- * 試走状態の純関数判定。
- * - not-script: impl.type !== "script"（試走の対象外）
- * - unverified: impl.type==="script" だが implTrial が無い、または implTrial はあるが
- *   hash は一致しているのに前回失敗している（=まだ成功が証明されていない、という意味で
- *   unverified に含める。stale は「hash 不一致」専用）
- * - stale: implTrial はあるが command が変わっていて hash が一致しない（再試走を推奨）
- * - ok: hash 一致 かつ 最後の試走が成功
- */
-export function implStatus(node: Pick<Node, "impl" | "implTrial">): ImplStatus {
-  if (!node.impl || node.impl.type !== "script") return "not-script";
-  if (!node.implTrial) return "unverified";
-  const currentHash = sha256Hex(node.impl.command);
-  if (node.implTrial.hash !== currentHash) return "stale";
-  return node.implTrial.success ? "ok" : "unverified";
-}
-
 /**
  * 試走が許可されるノードかを検証する（TypeScript の assertion function。通れば
  * node.impl が {type:"script",command} であることが以降の型で保証される）。

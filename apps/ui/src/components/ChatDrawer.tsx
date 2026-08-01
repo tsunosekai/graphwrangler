@@ -1,8 +1,5 @@
-// 内蔵チャット（M4: グラフ整理の Workflow AI）。TopBar の 💬 から開く右ドロワー。
-// @ai-sdk/react の useChat + ai の DefaultChatTransport で UIMessageStream(SSE) を処理する
-// （B-x: Claude Code 風UX化に伴い、自前の fetch+ReadableStream パース(readSse/applyChunk)から
-// 移行。ai / @ai-sdk/react は apps/ui の依存としてこのタスクで追加した。
-// docs/agent-contracts.md の「pnpm add 禁止」は既定の規律で、依頼元プロンプトで明示許可された例外）。
+// 内蔵チャット（グラフ整理の Workflow AI）。TopBar の 💬 から開く右ドロワー。
+// @ai-sdk/react の useChat + ai の DefaultChatTransport で UIMessageStream(SSE) を処理する。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
@@ -24,7 +21,7 @@ interface Props {
   onClose: () => void;
 }
 
-// B-7改: チャット履歴の永続化はサーバ（sidecar/chats/<pageId>.json、コミット対象）。
+// チャット履歴の永続化はサーバ（sidecar/chats/<pageId>.json、コミット対象）。
 // localStorage 保存は廃止（2026-07-31 本人要望「会話履歴も見れるように」——ブラウザ縛りを
 // やめ、スレッドと同じく経緯ごと版管理する）
 function chatKeyOf(pageId: string | null): string {

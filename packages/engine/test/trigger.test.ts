@@ -2,11 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AI_CHECK_INTERVAL_MS,
   buildTriggerPrompt,
-  isEngineManagedTrigger,
   isFireableTrigger,
   parseAiFireDecision,
   resolveAiCheckIntervalMs,
-  shouldCheckAiTrigger,
   shouldEvaluateAiTrigger,
   shouldFireScriptTrigger,
 } from "../src/trigger.js";
@@ -76,7 +74,7 @@ describe("shouldFireScriptTrigger: script発火判定の流用", () => {
 });
 
 // 2. aiチェック間隔判定
-describe("resolveAiCheckIntervalMs / shouldCheckAiTrigger: aiチェック間隔判定", () => {
+describe("resolveAiCheckIntervalMs / shouldEvaluateAiTrigger: aiチェック間隔判定", () => {
   it("schedule無指定は既定1時間", () => {
     expect(resolveAiCheckIntervalMs(null)).toBe(DEFAULT_AI_CHECK_INTERVAL_MS);
   });
@@ -91,27 +89,18 @@ describe("resolveAiCheckIntervalMs / shouldCheckAiTrigger: aiチェック間隔�
   });
 
   it("lastCheckedAt=nullなら常にtrue（再起動後の即時チェックは許容）", () => {
-    expect(shouldCheckAiTrigger(60_000, null, Date.now())).toBe(true);
+    expect(shouldEvaluateAiTrigger(60_000, null, Date.now(), false)).toBe(true);
   });
 
   it("間隔未経過ならfalse、経過していればtrue", () => {
     const interval = 60_000;
     const last = 1_000_000;
-    expect(shouldCheckAiTrigger(interval, last, last + 30_000)).toBe(false);
-    expect(shouldCheckAiTrigger(interval, last, last + 60_000)).toBe(true);
+    expect(shouldEvaluateAiTrigger(interval, last, last + 30_000, false)).toBe(false);
+    expect(shouldEvaluateAiTrigger(interval, last, last + 60_000, false)).toBe(true);
   });
-});
 
-// 5. 重複防止（ai版: 実行中ランがあればチェックしない）
-describe("shouldEvaluateAiTrigger: 重複防止", () => {
-  it("実行中ランがあれば間隔条件を満たしていてもfalse", () => {
+  it("実行中ランがあれば間隔条件を満たしていてもfalse（重複防止）", () => {
     expect(shouldEvaluateAiTrigger(1000, null, Date.now(), true)).toBe(false);
-  });
-
-  it("実行中ランが無ければ間隔判定に委ねる", () => {
-    expect(shouldEvaluateAiTrigger(1000, null, Date.now(), false)).toBe(true);
-    const now = 1_000_000;
-    expect(shouldEvaluateAiTrigger(1000, now, now + 500, false)).toBe(false);
   });
 });
 
@@ -133,18 +122,6 @@ describe("parseAiFireDecision: fire/skipパース", () => {
   it("fire/skipのどちらでもない出力はnull（不正出力）", () => {
     expect(parseAiFireDecision("わかりません")).toBeNull();
     expect(parseAiFireDecision("")).toBeNull();
-  });
-});
-
-// 4. human無視（エンジンが管理するのはscript/aiのみ）
-describe("isEngineManagedTrigger: human無視", () => {
-  it("script/aiはエンジンが管理する", () => {
-    expect(isEngineManagedTrigger("script")).toBe(true);
-    expect(isEngineManagedTrigger("ai")).toBe(true);
-  });
-
-  it("humanはエンジンが管理しない（手動 /fire のみ）", () => {
-    expect(isEngineManagedTrigger("human")).toBe(false);
   });
 });
 

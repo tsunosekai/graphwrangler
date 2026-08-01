@@ -72,7 +72,7 @@ interface Props {
   /** ページ自身のノード（パンくず表示・新規ノードの所属先） */
   pageNode: Node | null;
   selectedId: string | null;
-  /** ノードid → 最終メッセージ時刻。未読ドット(QOL-7)の判定に使う */
+  /** ノードid → 最終メッセージ時刻。未読ドットの判定に使う */
   threadMeta: Record<string, string>;
   /** アクティブなラン（docs/design.md 3.8: トリガー起点のルーティーン）。
    *  status==="running" の最新1本。ルーティーンページでない/実行中のランが無い間は null
@@ -80,7 +80,7 @@ interface Props {
   activeRun: Run | null;
   onSelect: (id: string | null) => void;
   onMutated: () => void;
-  /** 複数選択件数。NodePanel の「他 N件選択中」表示に使う（QOL: 複数選択） */
+  /** 複数選択件数。NodePanel の「他 N件選択中」表示に使う */
   onSelectionCountChange?: (count: number) => void;
 }
 
@@ -104,7 +104,7 @@ function GraphViewInner({
   const sigRef = useRef<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rfNodes, setRfNodes] = useState<RFNode<NodeCardData>[]>([]);
-  // QOL-2: 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
+  // 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
@@ -207,9 +207,9 @@ function GraphViewInner({
     };
   }, [fitView]);
 
-  // ルーティーンページだけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8 新モデル）。
-  // 「ルーティーンであること」はページ種別(kind=procedure。非推奨)ではなく、
-  // フロー先頭の trigger ノードがメンバーにいるかどうかから導出する（isRoutinePage が判定を一元化）。
+  // ルーティーンページだけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8）。
+  // 「ルーティーンであること」は trigger ノードがメンバーにいるかどうかから導出する
+  // （isRoutinePage が判定を一元化）。
   // nodes は既に「このページのメンバー」だけに絞られているので、そのまま members として渡せる
   const isRoutine = pageNode ? isRoutinePage(pageNode, nodes) : false;
   const [viewMode, setViewMode] = useState<"graph" | "ledger">("graph");
@@ -231,11 +231,11 @@ function GraphViewInner({
     if (sig !== sigRef.current) {
       sigRef.current = sig;
       if (pageChanged) {
-        // ページ切替時だけ全体を再レイアウト（B-11: それ以外はドラッグ位置を保持する）
-        positionsRef.current = layoutGraph(nodes, measuredSizes()).positions;
+        // ページ切替時だけ全体を再レイアウト（それ以外はドラッグ位置を保持する）
+        positionsRef.current = layoutGraph(nodes, measuredSizes());
       } else {
         // 既存ノードの現在位置は保持し、新規に現れたノードだけレイアウト結果の位置を使う
-        const computed = layoutGraph(nodes, measuredSizes()).positions;
+        const computed = layoutGraph(nodes, measuredSizes());
         for (const n of nodes) {
           if (!positionsRef.current.has(n.id)) {
             const pos = computed.get(n.id);
@@ -294,7 +294,7 @@ function GraphViewInner({
       });
     setRfNodes(
       nodes.map((n) => {
-        // QOL-7: 未読バッジ。既読tsは NodePanel がスレッド表示のたびに書き込む
+        // 未読バッジ。既読tsは NodePanel がスレッド表示のたびに書き込む
         const lastMsgTs = threadMeta[n.id];
         const readTs = lastMsgTs ? localStorage.getItem(`gw.read.${n.id}`) : null;
         const unread = !!lastMsgTs && (!readTs || lastMsgTs > readTs);
@@ -349,7 +349,7 @@ function GraphViewInner({
     onSelectionCountChange,
   ]);
 
-  // QOL-2: 依存の切断。子ノードの parents から source を除く（Ctrl+Zで戻せる: undo は既存の操作ログ経由）。
+  // 依存の切断。子ノードの parents から source を除く（Ctrl+Zで戻せる: undo は既存の操作ログ経由）。
   // source が decision の枝だった場合、parentOptions からも該当エントリを削除する（docs/design.md 3.9）
   const cutEdge = useCallback(
     async (source: string, target: string) => {
@@ -507,7 +507,7 @@ function GraphViewInner({
     [nodes, pageNode, onMutated, onSelect, screenToFlowPosition],
   );
 
-  // QOL-9: ペイン空白部のダブルクリックでその位置にノードを作成+リネームモードへ
+  // ペイン空白部のダブルクリックでその位置にノードを作成+リネームモードへ
   // （React Flow の onPaneClick とは別に、ラッパー div へ渡る素の onDoubleClick を使う。
   //  ノード/エッジ/コントロール上のダブルクリックはここでは無視する）
   const handlePaneDoubleClick = useCallback(
@@ -536,7 +536,7 @@ function GraphViewInner({
     setRealigning(true);
     // クラスが付いた次フレームで位置を更新しないと transition が効かない
     requestAnimationFrame(() => {
-      positionsRef.current = layoutGraph(nodes, measuredSizes()).positions;
+      positionsRef.current = layoutGraph(nodes, measuredSizes());
       setRfNodes((prev) =>
         prev.map((rn) => ({ ...rn, position: positionsRef.current.get(rn.id) ?? rn.position })),
       );
@@ -545,7 +545,7 @@ function GraphViewInner({
     });
   }, [nodes, fitView]);
 
-  // ---- B-8: 元に戻す/やり直す（操作ログの補償追記） ----
+  // ---- 元に戻す/やり直す（操作ログの補償追記） ----
   const runUndo = useCallback(async () => {
     try {
       await api.undo();
@@ -720,7 +720,7 @@ function GraphViewInner({
   // 選択中ノードがこのページのタスクなら、その後続として作る（Tab / 「+ ノード」ボタン共通）
   const selectedInPage = selectedId && nodes.some((n) => n.id === selectedId) ? selectedId : null;
 
-  // Tab（選択なし）: 画面中央に新規ノードを作成+即リネーム。QOL-9のダブルクリック作成と同じ仕組み
+  // Tab（選択なし）: 画面中央に新規ノードを作成+即リネーム。ダブルクリック作成と同じ仕組み
   const createNodeAtCenter = useCallback(async () => {
     const rect = paneRef.current?.getBoundingClientRect();
     const cx = rect ? rect.left + rect.width / 2 : 0;
@@ -894,7 +894,7 @@ function GraphViewInner({
         // グラフは下が無限キャンバスなので重ねてよいが、台帳は表なのでツールバーの高さぶん
         // 下げて描く（重ねると「N件のラン」がページ名の下に潜る）
         <div className="flex h-full flex-col pt-[52px]">
-          <LedgerView procedure={pageNode} members={nodes} onMutated={onMutated} />
+          <LedgerView page={pageNode} members={nodes} onMutated={onMutated} />
         </div>
       ) : (
         <ReactFlow

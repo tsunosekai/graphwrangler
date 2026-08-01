@@ -159,8 +159,6 @@ packages/mcp     … MCP サーバ（stdio）
 apps/ui          … Web UI（React + React Flow + shadcn/ui）
 ```
 
-## 現状
+## 設計文書
 
-ここまでに書いたことは、すべて動く。設計だけで未実装のものもある。上流の変更で
-下流だけ再実行する dirty 伝搬、決定的ノードのキャッシュ、ノードの中にサブグラフを
-畳み込む入れ子ノード。設計の全体と実装状況は [docs/design.md](docs/design.md) に。
+ここまでに書いたことは、すべて動く。設計の全体は [docs/design.md](docs/design.md) に。

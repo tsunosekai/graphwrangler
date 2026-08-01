@@ -40,9 +40,9 @@ interface Props {
   activeRun: Run | null;
   onMutated: () => void;
   onClose: () => void;
-  /** ノード複製後に新規ノードを選択するため（QOL-8）。ページ切替も面倒を見る App.selectNode を渡す */
+  /** ノード複製後に新規ノードを選択するため。ページ切替も面倒を見る App.selectNode を渡す */
   onSelect: (id: string) => void;
-  /** グラフ上での複数選択件数（QOL）。2以上の時だけ「他N件選択中」を出す */
+  /** グラフ上での複数選択件数。2以上の時だけ「他N件選択中」を出す */
   selectedCount?: number;
 }
 
@@ -53,7 +53,6 @@ const KIND_JA: Record<Node["kind"], string> = {
   decision: "判断",
   trigger: "トリガー",
   goal: "ゴール（ページ）",
-  procedure: "ルーティーン（旧）",
 };
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
 const EXECUTOR_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
@@ -65,8 +64,8 @@ const IMPL_LABEL_BY_EXECUTOR: Record<Node["executor"], string> = {
   script: "スクリプト",
 };
 type ImplTypeOption = "none" | "doc" | "script";
-/** 試走状態（server の implStatus と同じ4値。UI 側でも同等の判定を行う。
- *  packages/server/src/trial.ts の implStatus と対応を保つこと */
+/** 試走状態の4値（試走ゲート。docs/design.md 3.5.1）。hash は server の sha256Hex と
+ *  同じ値を Web Crypto で計算して突き合わせる */
 type ImplStatusUi = "ok" | "stale" | "unverified" | "not-script";
 const TRIAL_CONFIRM_MESSAGE = "スクリプトの試走が成功していません。このまま続けますか？";
 // 進捗はドロップダウンでなくボタン遷移（2026-07-31 本人指定）。
@@ -205,7 +204,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
   const { data: thread, refresh: refreshThread } = usePolling(() => api.getThread(node.id), 10000);
 
-  // QOL-7: スレッドを表示したら既読ts(localStorage)を更新する（thread取得のたびに更新=
+  // スレッドを表示したら既読ts(localStorage)を更新する（thread取得のたびに更新=
   // 開いたまま新着が来ても「読んだ」扱いを追随させる）
   useEffect(() => {
     if (!thread) return;
@@ -228,7 +227,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
     if (!detailFocused) setDetailDraft(node.detail ?? "");
   }, [node.detail, detailFocused]);
 
-  // kind=procedure 専用: 定期トリガーの記述（v1では自由文字列。解釈はしない）
+  // kind=trigger 用: 起動方式の記述（docs/design.md 3.8）
   const [scheduleDraft, setScheduleDraft] = useState(node.schedule ?? "");
   const [scheduleFocused, setScheduleFocused] = useState(false);
   useEffect(() => {
@@ -261,7 +260,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   }, [node.impl, implCommandFocused]);
 
   // 試走ゲート: command の sha256 を UI 側でも計算し（Web Crypto は非同期）、implTrial.hash と
-  // 突き合わせて鮮度を見る。packages/server/src/trial.ts の sha256Hex/implStatus と同じロジック
+  // 突き合わせて鮮度を見る（packages/server/src/trial.ts の sha256Hex と同じ値になる）
   const [scriptHash, setScriptHash] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -406,7 +405,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
     if (scheduleDraft !== (node.schedule ?? "")) await patch({ schedule: scheduleDraft || null });
   };
 
-  // QOL-8: ノード複製。作成後は新規ノードを選択する。
+  // ノード複製。作成後は新規ノードを選択する。
   // parents は複製元と同じ集合のままなので parentOptions（decision分岐の対応）もそのまま引き継げる。
   // kind=decision は branches が無いとサーバ検証で弾かれるためこちらも引き継ぐ（choiceは新規なので引き継がない）
   const handleDuplicate = async () => {
@@ -558,7 +557,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
         </Button>
       </div>
 
-      {/* 複数選択中(QOL): このノードは代表表示のみで、実際は他にも選択がある旨を示す */}
+      {/* 複数選択中: このノードは代表表示のみで、実際は他にも選択がある旨を示す */}
       {selectedCount != null && selectedCount > 1 && (
         <span className="-mt-2 text-xs text-muted-foreground">他 {selectedCount - 1} 件選択中</span>
       )}
@@ -632,20 +631,6 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
             onBlur={saveDetail}
             rows={3}
           />
-
-          {node.kind === "procedure" && (
-            <Input
-              placeholder="例: daily 09:00（v1は記録のみ）"
-              value={scheduleDraft}
-              disabled={node.fixed}
-              onFocus={() => setScheduleFocused(true)}
-              onChange={(e) => setScheduleDraft(e.target.value)}
-              onBlur={saveSchedule}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-            />
-          )}
 
           {/* トリガーの起動方式（docs/design.md 3.8）。human は手動発火(▶)のみなので欄自体を出さない。
               script=cron的な発火条件、ai=発火要否を判定させる間隔 */}

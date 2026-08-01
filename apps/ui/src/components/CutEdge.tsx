@@ -1,4 +1,4 @@
-// 依存エッジの選択+切断（QOL-2）。選択中は太らせて中点に✂ボタンを出す。
+// 依存エッジの選択+切断。選択中は太らせて中点に✂ボタンを出す。
 // 実データの切断（parents から source を除く patch）は呼び出し元（GraphView）の onCut に一任する
 // ——このコンポーネントは見た目とクリック位置だけを持つ。
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";

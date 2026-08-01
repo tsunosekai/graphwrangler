@@ -40,16 +40,16 @@ export default function App() {
   useEffect(() => saveUiState("gw.selectedId", selectedId), [selectedId]);
   useEffect(() => saveUiState("gw.pageId", pageIdRaw), [pageIdRaw]);
   useEffect(() => saveUiState("gw.chatOpen", chatOpen ? "1" : "0"), [chatOpen]);
-  // ノードエディタ標準の複数選択（QOL）: グラフ上での選択件数。NodePanel の「他N件選択中」表示に使う
+  // ノードエディタ標準の複数選択: グラフ上での選択件数。NodePanel の「他N件選択中」表示に使う
   const [selectionCount, setSelectionCount] = useState(0);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
-  // QOL-7: 未読バッジ用のノードごとの最終メッセージ時刻
+  // 未読バッジ用のノードごとの最終メッセージ時刻
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
 
-  // ページ = フォルダ（kind=goal/procedure、またはメンバーを持つノード）。zinsei desk の左レール方式
+  // ページ = フォルダ（kind=goal、またはメンバーを持つノード）。zinsei desk の左レール方式
   const folders = useMemo(() => {
     const hasMembers = new Set(nodes.map((n) => n.group).filter(Boolean) as string[]);
-    return nodes.filter((n) => n.kind === "goal" || n.kind === "procedure" || hasMembers.has(n.id));
+    return nodes.filter((n) => n.kind === "goal" || hasMembers.has(n.id));
   }, [nodes]);
 
   const pageId = pageIdRaw ?? folders[0]?.id ?? null;
@@ -60,8 +60,8 @@ export default function App() {
 
   // ---- ルーティーンページの最新ラン（PageList の左レールドット + TopBar のラン待ち統合の両方が使う。
   //      ページ数ぶんの N+1 取得を1箇所に集約する）。
-  //      「ルーティーンであること」は isRoutinePage が判定する（docs/design.md 3.8 新モデル。
-  //      kind=procedure(非推奨・後方互換) または trigger ノードをメンバーに持つこと） ----
+  //      「ルーティーンであること」は isRoutinePage が判定する（docs/design.md 3.8。
+  //      trigger ノードをメンバーに持つこと） ----
   const routinePageIds = useMemo(
     () => folders.filter((f) => isRoutinePage(f, nodes)).map((f) => f.id),
     [folders, nodes],
@@ -120,7 +120,7 @@ export default function App() {
     return items;
   }, [latestRuns, nodes]);
 
-  // QOL-6: あなたの番が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）
+  // あなたの番が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）
   const inboxItemsRef = useRef<{ id: string; title: string }[] | null>(null);
   useEffect(() => {
     const combined: { id: string; title: string }[] = [

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // GraphWrangler MCP サーバ。stdio トランスポートで待ち受け、実体は
 // GraphWrangler HTTP API（既定 http://localhost:8770、env GRAPHWRANGLER_URL で変更可）への薄いプロキシ。
-// 全書き込みは via:"mcp" / actor:{kind:"agent",name:"mcp"} を付けて送る（docs/agent-contracts.md）。
+// 全書き込みは via:"mcp" / actor:{kind:"agent",name:"mcp"} を付けて送る。
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -68,7 +68,7 @@ function errorResult(err: unknown) {
 }
 
 /** ツールハンドラを HTTP 呼び出しでラップし、ApiError を isError の CallToolResult に変換する。
- *  プロセスは落とさない（docs/agent-contracts.md の要求）。 */
+ *  プロセスは落とさない。 */
 function safe<Args extends unknown[], T>(fn: (...args: Args) => Promise<T>) {
   return async (...args: Args) => {
     try {
@@ -91,7 +91,7 @@ server.registerTool(
   "state_get",
   {
     description:
-      "グラフ全体の要約を取得する。ノード数、ページ（kind=goal/procedureのノード、または他ノードのgroupとして参照されている=メンバーを持つノード）の一覧、" +
+      "グラフ全体の要約を取得する。ノード数、ページ（kind=goalのノード、または他ノードのgroupとして参照されている=メンバーを持つノード）の一覧、" +
       "各ノードの {id,title,kind,executor,status,impact,lifecycle,group,parents,pendingRequest} を返す。" +
       "detail/impl は含まない（トークン節約のため）。特定ノードの全フィールドが必要なら node_get を使うこと。",
     inputSchema: {},
@@ -101,7 +101,7 @@ server.registerTool(
     const nodes = state.nodes ?? [];
     const groupIds = new Set(nodes.map((n) => n.group).filter((g): g is string => typeof g === "string"));
     const pages = nodes
-      .filter((n) => n.kind === "goal" || n.kind === "procedure" || groupIds.has(n.id as string))
+      .filter((n) => n.kind === "goal" || groupIds.has(n.id as string))
       .map((n) => ({ id: n.id, title: n.title, kind: n.kind }));
     return {
       now: state.now,
@@ -145,8 +145,7 @@ server.registerTool(
       kind: NodeKindSchema.optional().describe(
         "goal=プロジェクトページ(ルート意図) / task=作業 / decision=分岐ノード(branchesが必要) / " +
           "trigger=起点ノード(parentsを持てない。schedule+executorで発火方式を決める。発火は " +
-          "trigger_fire または run_create) / procedure=手順ページ(繰り返し、非推奨。新規には trigger " +
-          "を使うこと)。既定 task",
+          "trigger_fire)。既定 task",
       ),
       executor: ExecutorSchema.optional().describe("誰にディスパッチするか。既定 human"),
       impact: ImpactSchema.optional().describe("不可逆な外部副作用は承認ゲートを通す。既定 safe"),
@@ -232,13 +231,12 @@ server.registerTool(
     description:
       "人間への構造化された判断リクエストを開く。ノードは waiting になり pendingRequest がセットされる（=ボールが人間に渡る）。" +
       "context は3行以内・専門用語禁止でゴールの言葉での要約（文脈税）。options は2〜4個、各選択肢に" +
-      "「選ぶと何が起きるか(then)」を必ず書く。impact はこの判断自体の影響、undo は戻し方（無ければnull）、" +
-      "expires はISO8601の期限（無期限ならnull）、on_expire は期限切れ時に自動選択するoption id（保留のままならnull）。" +
+      "「選ぶと何が起きるか(then)」を必ず書く。impact はこの判断自体の影響、undo は戻し方（無ければnull）。" +
       "同一ノードに既に open なリクエストがある場合は失敗する。",
     inputSchema: {
       nodeId: z.string().describe("判断を仰ぐノードid"),
       request: DecisionRequestSchema.describe(
-        "{context, question, options:[{id,label,then,recommended?}], impact, undo?, expires?, on_expire?}",
+        "{context, question, options:[{id,label,then,recommended?}], impact, undo?}",
       ),
     },
   },
@@ -267,38 +265,9 @@ server.registerTool(
   ),
 );
 
-// ---- 10. run_create ----
-// 新モデル(docs/design.md 3.4/3.8/3.9, 2026-07-31): 「ルーティーンであること」はページ種別
-// (kind=procedure)の宣言ではなく、ページ先頭の trigger ノード（kind=trigger）から導出する。
-// run=ページから生成される1回分の実行インスタンス（ワークアイテムごとに進捗状態を持つ）。
-// トリガーを手動発火したいだけなら trigger_fire を使うこと（こちらは互換エイリアス）。
-
-server.registerTool(
-  "run_create",
-  {
-    description:
-      "ページ（procedureId で指定するノードのid。旧来は kind=procedure だったが、新モデルでは" +
-      "goal ページ配下に trigger ノードがあれば同様にランを持てる）から新しいラン（実行インスタンス）を" +
-      "開始する互換エイリアス。ページ内に trigger ノード（kind=trigger、複数あれば作成が最も古いもの）が" +
-      "あればそれを発火する（trigger_fire と同じ経路）: その場合ワークアイテムはトリガーの" +
-      "子孫（parentsを辿って到達可能なメンバー。分岐・合流を含む。トリガー自身は含まない）になり、" +
-      "lifecycle を問わず（draft も committed も）items に入る。status=unplanned（やり方未定）の" +
-      "テンプレートは status:skipped になる。trigger ノードが無いページでは、kind=procedure のときだけ" +
-      "旧方式（lifecycle=committed のメンバーだけが items に入る）にフォールバックする（それ以外は失敗）。" +
-      "title 省略時はサーバ既定（「MM/DD HH:mm のラン」）、trigger 省略時は \"manual\"。作成されたランを返す。",
-    inputSchema: {
-      procedureId: z.string().describe("ラン元のページid（state_get の pages から選ぶ）"),
-      title: z.string().min(1).optional().describe("ランのタイトル。省略時はサーバ既定"),
-      trigger: z.string().min(1).optional().describe("起動理由の自由文字列。省略時は \"manual\"（schedule実行なら\"schedule:...\"等）"),
-    },
-  },
-  safe(async ({ procedureId, ...rest }: { procedureId: string; [key: string]: unknown }) =>
-    apiPost(`/api/procedures/${encodeURIComponent(procedureId)}/runs`, withMeta(rest)),
-  ),
-);
-
-// ---- trigger_fire ----
+// ---- 10. trigger_fire ----
 // トリガーノード（kind=trigger）を手動発火する。docs/design.md 3.4/3.8/3.9。
+// run=ページから生成される1回分の実行インスタンス（ワークアイテムごとに進捗状態を持つ）。
 
 server.registerTool(
   "trigger_fire",
@@ -334,14 +303,14 @@ server.registerTool(
   "run_list",
   {
     description:
-      "指定した procedure（手順ページ）の過去のラン一覧を要約で取得する（新しい順）。各ランは" +
+      "指定したページの過去のラン一覧を要約で取得する（新しい順）。各ランは" +
       "{id,title,status,trigger,created} と itemCounts（ワークアイテムの状態別件数。" +
       "pending/running/waiting/done/dropped/skipped ごとの内訳のみ）を返す。個々のワークアイテムが" +
       "どのノードで今どの状態かの詳細が必要なら run_get を使うこと。",
-    inputSchema: { procedureId: z.string().describe("対象の procedure ノードid") },
+    inputSchema: { pageId: z.string().describe("対象のページid（state_get の pages から選ぶ）") },
   },
-  safe(async ({ procedureId }: { procedureId: string }) => {
-    const result = (await apiGet(`/api/procedures/${encodeURIComponent(procedureId)}/runs`)) as {
+  safe(async ({ pageId }: { pageId: string }) => {
+    const result = (await apiGet(`/api/pages/${encodeURIComponent(pageId)}/runs`)) as {
       runs: RunSummaryLike[];
     };
     return {
@@ -362,8 +331,8 @@ server.registerTool(
   "run_get",
   {
     description:
-      "ラン1件の全フィールドを取得する: procedure(元のノードid)・title・trigger・status(running/done/cancelled)・" +
-      "items（テンプレートノードid→{status,note,updated}の全件）・created・updated。runId は run_list / run_create から得る。",
+      "ラン1件の全フィールドを取得する: procedure(属するページのid)・title・trigger・status(running/done/cancelled)・" +
+      "items（テンプレートノードid→{status,note,updated}の全件）・created・updated。runId は run_list / trigger_fire から得る。",
     inputSchema: { runId: z.string().describe("取得したいランid") },
   },
   safe(async ({ runId }: { runId: string }) => apiGet(`/api/runs/${encodeURIComponent(runId)}`)),
@@ -375,13 +344,13 @@ server.registerTool(
   "run_item_patch",
   {
     description:
-      "ラン内の1ワークアイテム（procedureのメンバーノード1件について、このランでの実行状態）を更新する。" +
+      "ラン内の1ワークアイテム（ページのメンバーノード1件について、このランでの実行状態）を更新する。" +
       "status は pending/running/waiting/done/dropped/skipped のいずれか（省略可、note のみの更新も可）。" +
       "全アイテムが done/dropped/skipped のどれかに揃うとラン全体のstatusが自動的に done になる" +
       "（cancelled のランは覆らない）。対象ノードのスレッドに状態遷移が記録される。更新後のラン全体を返す。",
     inputSchema: {
       runId: z.string().describe("対象のランid"),
-      nodeId: z.string().describe("更新するワークアイテムのノードid（procedureのメンバー）"),
+      nodeId: z.string().describe("更新するワークアイテムのノードid（ページのメンバー）"),
       status: RunItemStatusSchema.optional().describe("新しい状態"),
       note: z.string().nullable().optional().describe("補足メモ"),
     },
@@ -410,7 +379,7 @@ server.registerTool(
   "run_trace",
   {
     description:
-      "ランのトレースを再生する。procedureノード本体と全ワークアイテムのノードのスレッドから、そのラン" +
+      "ランのトレースを再生する。ページノード本体と全ワークアイテムのノードのスレッドから、そのラン" +
       "（payload.runId が一致）に紐づくメッセージだけを集め、時系列(ts昇順)で返す。各イベントに元メッセージの" +
       "全フィールド（kind/body/author/via/ts等）+ nodeTitle が付く。「このランで何が起きたか」を後から追うのに使う。",
     inputSchema: { runId: z.string().describe("対象のランid") },
