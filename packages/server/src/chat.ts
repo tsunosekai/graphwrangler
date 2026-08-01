@@ -94,6 +94,23 @@ function pageMemberLines(graph: GraphStore, pageId: string | null): string[] {
   return lines;
 }
 
+/** 全プロジェクト（kind:goal のページ）の横断一覧。「他のプロジェクトで何が動いているか」を
+ *  Workflow AI が把握するための薄い文脈（2026-08-02 本人要望「プロジェクトをまたいだ全体も
+ *  見れるように」）。各行はタイトル+進行状況の件数だけに絞り、ノードの中身は必要になったら
+ *  get_state / state_get ツールで見に行かせる */
+function projectOverviewLines(graph: GraphStore, currentPageId: string | null): string[] {
+  const nodes = graph.state().nodes;
+  const goals = nodes.filter((n) => n.kind === "goal" && n.group === null);
+  if (goals.length === 0) return [];
+  return goals.map((g) => {
+    const members = nodes.filter((n) => n.group === g.id);
+    const active = members.filter((n) => !["done", "dropped", "skipped"].includes(n.status)).length;
+    const marker = g.id === currentPageId ? "（表示中）" : "";
+    const state = g.status === "done" || g.status === "dropped" ? ` [${g.status}]` : "";
+    return `- ${g.title || "（無題）"} (id: ${g.id})${state}: 未完 ${active}/${members.length} 件${marker}`;
+  });
+}
+
 /** 選択中ノードのスレッド直近 SELECTED_NODE_THREAD_LIMIT 件を「kind: 本文先頭120字」形式で要約する */
 function selectedNodeThreadLines(threads: ThreadStore, nodeId: string): string[] {
   const messages = threads.list(nodeId).slice(-SELECTED_NODE_THREAD_LIMIT);
@@ -139,9 +156,18 @@ export function systemPrompt(
     }
   }
 
+  const overviewLines = projectOverviewLines(graph, pageId);
+
   return [
     "あなたは Workflow AI。タスクグラフ整理の相棒として、ユーザーと会話しながらノードを作成・整理する。",
-    "話題は常に画面のタスクグラフ（下記のページとノード）。作業ディレクトリのソースコードやリポジトリの話はしない。",
+    "話題は基本、表示中のページ（下記のページとノード）についての会話として扱う。" +
+      "ただしユーザーが「全体」「全プロジェクト」「他のプロジェクト」「横断で」等と言ったり、" +
+      "表示中ページに無い話題を出したりしたら、グラフ全体（下記のプロジェクト一覧と、" +
+      "全ノード取得ツール get_state / state_get）を見て答えること。全体を見るのに確認は要らない。",
+    "作業ディレクトリのソースコードやリポジトリの話はしない。",
+    ...(overviewLines.length > 0
+      ? ["全プロジェクト一覧（横断ビュー。中身は必要なら get_state / state_get で取得）:", ...overviewLines]
+      : []),
     "ノードの impl.path やユーザーが言及したドキュメントは、読んでいいか確認を求めず、先に読んでから（Read / read_file ツール）内容を踏まえて答えること。",
     "スクリプト化を頼まれたら: 言語は **Node.js（.mjs）か Python（.py）を優先**する（ps1/bat 等のOS依存スクリプトは避ける。クロスプラットフォームで動くこと）。ファイルは**そのノードの impl.path の手順書と同じフォルダ**に、同じ番号接頭辞で置くこと（例: 00_作品概要決定/01_フォルダ作成・ツール理解.md → 00_作品概要決定/01_フォルダ作成.mjs。手順書とスクリプトは同じ知識の別素材なので同じ場所に育てる）。**引数が要る場合は impl.params に {name, example} を宣言し、command には {name} プレースホルダを使う（値は人間がパネルで入力する。宣言だけ書けばよく value は書かない）**。**スクリプトは必ず --dry-run を実装すること（何も変えず、やる予定の操作を列挙するだけで出力して終わる）——試走ボタンは常に --dry-run 付きで実行される**。書いたら（Write/Edit）ノードの impl を {type:\"script\", command:\"node 00_作品概要決定/01_フォルダ作成.mjs {target}\" のようにワークスペースルートからの相対パス、params:[{name:\"target\", example:\"...\"}]} で接続し、最後に「パネルの試走ボタンで動作確認してください」と案内すること（実行は自分ではしない）。",
     "detail（概要）は**人間向けの平易な2〜3行**に留めること。コマンドのフラグ・環境変数・パス・エッジケースの羅列など技術詳細は detail に書かず、手順書（.md）やスクリプトのコメントに置くか、スレッドへの発言として残す。detail に書くのは「何をするか」「人が気を付けること」だけ。",
@@ -150,7 +176,8 @@ export function systemPrompt(
     "fixed（ロック済み）のノードのやり方（title/impl/枝/依存など）は変更できない。変えたい場合は先にロック解除を人間に頼むこと。",
     `現在表示中のページ: ${pageTitle}`,
     ...(memberLines.length > 0 ? ["このページのノード一覧:", ...memberLines] : []),
-    "新規ノードは原則そのページ（group=現在のページ）に作ること。",
+    "新規ノードは原則そのページ（group=現在のページ）に作ること。" +
+      "ユーザーが別プロジェクトの話として頼んだ場合だけ、group にそのプロジェクトの id を指定して作ってよい。",
     ...selectedLines,
     "「プラン済み」の基準は**やり方（どう進めるか）が決まっていること**。成果が決まっている必要はない（例:「作品タイトルを決める」はタイトル未定でも決め方が決まっていればプラン済み）。ユーザーにプラン済み化を勧めるかどうかもこの基準で判断する。",
     "整理の提案としてノードを作るときは lifecycle:\"draft\"（既定のまま）で作り、" +

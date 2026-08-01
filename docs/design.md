@@ -34,7 +34,7 @@ ball 所有・impact 段階・「確定させてから実行」の思想で貫�
 
 | 呼び名 | 実装 | 何をするか |
 |---|---|---|
-| **Workflow AI** | `packages/server/src/chat.ts` / `chat_cli.ts`（右ドロワー） | ページ全体を相手にグラフを整理する。ノードの追加・並べ替え・手順書やスクリプトの起草 |
+| **Workflow AI** | `packages/server/src/chat.ts` / `chat_cli.ts`（右ドロワー） | ページ全体を相手にグラフを整理する。ノードの追加・並べ替え・手順書やスクリプトの起草。既定の話題は表示中のページだが、全プロジェクトの横断一覧を常時文脈に持ち、「全体」「他のプロジェクト」と言われたら get_state / state_get でグラフ全体を見て答える（2026-08-02） |
 | **Task AI** | `packages/server/src/thread_ai.ts` | 1ノードのスレッドで相談に乗る。人間が say を書くと非同期で応答する（open な判断リクエストがあるノードでは黙る——そこはエンジンの担当） |
 | **実行AI** | `packages/engine/src/executors/claude.ts` | executor=ai のノードを実際に実行する。impl の手順書を読み、成果と経過をスレッドへ書く |
 
