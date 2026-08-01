@@ -934,6 +934,22 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                         プラン済みにする
                       </Button>
                     )}
+                    {/* プラン済みの取り消し（計画系なので decision でも frontier 前でも出す。
+                        2026-08-01 本人要望「プラン済みを未プランに戻す方法が無い」）。
+                        status だけ unplanned に戻す——lifecycle は committed のまま残しても
+                        エンジンは unplanned を拾わないため安全で、「プラン済みにする」が
+                        再表示されて行き止まりにならない */}
+                    {vs === "pending" && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        title="プランを取り消して未計画に戻す（エンジンの実行対象から外す）"
+                        onClick={() => patch({ status: "unplanned" })}
+                      >
+                        未計画に戻す
+                      </Button>
+                    )}
                     {exec && vs === "pending" && node.lifecycle === "committed" && !frontier && (
                       <span className="text-xs text-muted-foreground">前のノードが終わると着手できます</span>
                     )}
