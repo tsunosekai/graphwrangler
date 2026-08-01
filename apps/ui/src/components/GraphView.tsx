@@ -122,6 +122,9 @@ function GraphViewInner({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
+  // フィット時の余白。ノード矩形の外側に付く装飾（左右のポート・🔒・＋・ラン名バッジ）も
+  // 画面内に収まるように広めに取る（2026-08-02 本人要望「ノードの周りにある要素も収まるように」）
+  const FIT_PADDING = 0.3;
 
   // ヘッダーの⌨ボタンからショートカット一覧を開く（ダイアログ本体はここが持つ）
   useEffect(() => subscribeOpenShortcuts(() => setShortcutsOpen(true)), []);
@@ -214,10 +217,13 @@ function GraphViewInner({
     const ro = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width ?? prevWidth;
       const shrank = width < prevWidth - 1;
+      // 非表示（幅0）→表示への復帰もフィット対象（モバイルのタブ切替で「グラフを開いた
+      // とき」に全体が見えるように。2026-08-02 本人要望）
+      const revealed = prevWidth < 5 && width >= 5;
       prevWidth = width;
-      if (!shrank) return;
+      if (!shrank && !revealed) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => fitView({ padding: 0.2, duration: 0 }), 80);
+      timer = setTimeout(() => fitView({ padding: FIT_PADDING, duration: 0 }), 80);
     });
     ro.observe(el);
     return () => {
@@ -276,7 +282,7 @@ function GraphViewInner({
       }
       if (pageChanged) {
         // ページ切替時は全体が見える位置へ。「にゅっ」と動かさず即座に（本人指定）
-        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 0 }));
+        requestAnimationFrame(() => fitView({ padding: FIT_PADDING, duration: 0 }));
         // 前ページの多重選択は引き継がない
         onSelectionIdsChange?.(selectedId ? [selectedId] : []);
       }
@@ -559,7 +565,7 @@ function GraphViewInner({
       setRfNodes((prev) =>
         prev.map((rn) => ({ ...rn, position: positionsRef.current.get(rn.id) ?? rn.position })),
       );
-      fitView({ padding: 0.2, duration: 300 });
+      fitView({ padding: FIT_PADDING, duration: 300 });
       setTimeout(() => setRealigning(false), 400);
     });
   }, [nodes, fitView]);
@@ -752,8 +758,8 @@ function GraphViewInner({
   // F: 選択ノードがあればそれらにズーム、無ければ全体
   const fitSelectionOrAll = useCallback(() => {
     const ids = getSelectedNodeIds();
-    if (ids.length > 0) fitView({ nodes: ids.map((id) => ({ id })), padding: 0.2, duration: 0 });
-    else fitView({ padding: 0.2, duration: 0 });
+    if (ids.length > 0) fitView({ nodes: ids.map((id) => ({ id })), padding: FIT_PADDING, duration: 0 });
+    else fitView({ padding: FIT_PADDING, duration: 0 });
   }, [fitView, getSelectedNodeIds]);
 
   // 選択中ノードがこのページのタスクなら、その後続として作る（Tab / 「+ ノード」ボタン共通）
@@ -1015,6 +1021,7 @@ function GraphViewInner({
           proOptions={{ hideAttribution: true }}
           // 複数選択: クリック/Shift+クリック/Ctrl+クリックで追加選択、Shift+ドラッグで矩形選択。
           // パン(素のドラッグ)は既定のまま邪魔しない
+          minZoom={0.15}
           selectionKeyCode="Shift"
           multiSelectionKeyCode={["Shift", "Control", "Meta"]}
           fitView
