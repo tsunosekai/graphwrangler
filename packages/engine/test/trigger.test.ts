@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AI_CHECK_INTERVAL_MS,
+  FIRE_GATE_MARKER,
+  buildFireApprovalRequest,
   buildTriggerPrompt,
+  findFireGate,
+  fireBaseline,
+  hasUnconsumedGo,
   isFireableTrigger,
   parseAiFireDecision,
   resolveAiCheckIntervalMs,
   shouldEvaluateAiTrigger,
   shouldFireScriptTrigger,
+  type FireGateState,
 } from "../src/trigger.js";
-import type { Node } from "../src/types.js";
+import type { Message, Node } from "../src/types.js";
 
 let seq = 0;
 function node(partial: Partial<Node> = {}): Node {
@@ -120,6 +126,121 @@ describe("parseAiFireDecision: fire/skipパース", () => {
   it("fire/skipのどちらでもない出力はnull（不正出力）", () => {
     expect(parseAiFireDecision("わかりません")).toBeNull();
     expect(parseAiFireDecision("")).toBeNull();
+  });
+});
+
+// ---- 発火前承認（impact=irreversible のトリガー） ----
+
+function gateRequest(id: string, ts: string, answered: string | null = null): Message {
+  return {
+    id,
+    node: "n-t",
+    ts,
+    author: { kind: "agent", name: "engine" },
+    via: "engine",
+    kind: "decision_request",
+    body: `発火していいですか？ ${FIRE_GATE_MARKER}`,
+    payload: null,
+    ...(answered
+      ? { requestStatus: "answered" as const, answeredBy: answered }
+      : { requestStatus: "open" as const }),
+  };
+}
+
+function gateAnswer(id: string, requestId: string, option: string | null, ts: string): Message {
+  return {
+    id,
+    node: "n-t",
+    ts,
+    author: { kind: "human" },
+    via: "ui",
+    kind: "decision_answer",
+    body: "",
+    payload: { requestId, option, note: null },
+  };
+}
+
+describe("buildFireApprovalRequest", () => {
+  it("go/skip の2択・impact=irreversible・question にマーカーを含む", () => {
+    const req = buildFireApprovalRequest({ title: "毎週月曜9時", detail: null });
+    expect(req.options.map((o) => o.id)).toEqual(["go", "skip"]);
+    expect(req.impact).toBe("irreversible");
+    expect(req.question).toContain(FIRE_GATE_MARKER);
+    expect(req.context).toContain("毎週月曜9時");
+  });
+});
+
+describe("findFireGate", () => {
+  it("マーカー付きリクエストが無ければ none", () => {
+    expect(findFireGate([])).toEqual({ status: "none" });
+  });
+
+  it("open なリクエストがあれば open", () => {
+    expect(findFireGate([gateRequest("m-1", "2026-01-01T00:00:00Z")])).toEqual({ status: "open" });
+  });
+
+  it("回答済みなら answered + option + 回答の ts", () => {
+    const msgs = [
+      gateRequest("m-1", "2026-01-01T00:00:00Z", "m-2"),
+      gateAnswer("m-2", "m-1", "go", "2026-01-01T00:05:00Z"),
+    ];
+    expect(findFireGate(msgs)).toEqual({ status: "answered", option: "go", ts: "2026-01-01T00:05:00Z" });
+  });
+
+  it("複数のゲートがあれば最新のものを見る", () => {
+    const msgs = [
+      gateRequest("m-1", "2026-01-01T00:00:00Z", "m-2"),
+      gateAnswer("m-2", "m-1", "skip", "2026-01-01T00:05:00Z"),
+      gateRequest("m-3", "2026-01-02T00:00:00Z"),
+    ];
+    expect(findFireGate(msgs)).toEqual({ status: "open" });
+  });
+});
+
+describe("fireBaseline: skip をその回の発火とみなす", () => {
+  const skip: FireGateState = { status: "answered", option: "skip", ts: "2026-01-01T09:00:00Z" };
+
+  it("skip 回答が最新ランより新しければ skip の ts が基準になる", () => {
+    expect(fireBaseline({ created: "2026-01-01T00:00:00Z" }, skip)).toEqual({
+      created: "2026-01-01T09:00:00Z",
+    });
+  });
+
+  it("最新ランの方が新しければランが基準のまま", () => {
+    expect(fireBaseline({ created: "2026-01-02T00:00:00Z" }, skip)).toEqual({
+      created: "2026-01-02T00:00:00Z",
+    });
+  });
+
+  it("ランが無くても skip があれば基準になる（every 系の再確認スパム防止）", () => {
+    expect(fireBaseline(null, skip)).toEqual({ created: "2026-01-01T09:00:00Z" });
+  });
+
+  it("gate が none/go なら最新ランのまま", () => {
+    expect(fireBaseline(null, { status: "none" })).toBeNull();
+    const go: FireGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
+    expect(fireBaseline({ created: "2026-01-01T00:00:00Z" }, go)).toEqual({
+      created: "2026-01-01T00:00:00Z",
+    });
+  });
+});
+
+describe("hasUnconsumedGo: go 回答は発火1回で消費される", () => {
+  it("go 回答が最新ランより新しければ未消費（発火してよい）", () => {
+    const go: FireGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
+    expect(hasUnconsumedGo(go, { created: "2026-01-01T00:00:00Z" })).toBe(true);
+    expect(hasUnconsumedGo(go, null)).toBe(true);
+  });
+
+  it("発火後（最新ランが回答より新しい）は消費済み＝次の周期で改めて承認を求める", () => {
+    const go: FireGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
+    expect(hasUnconsumedGo(go, { created: "2026-01-01T09:01:00Z" })).toBe(false);
+  });
+
+  it("skip/未回答/未発行は常に false", () => {
+    expect(hasUnconsumedGo({ status: "none" }, null)).toBe(false);
+    expect(hasUnconsumedGo({ status: "open" }, null)).toBe(false);
+    expect(hasUnconsumedGo({ status: "answered", option: "skip", ts: "2026-01-01T09:00:00Z" }, null)).toBe(false);
   });
 });
 

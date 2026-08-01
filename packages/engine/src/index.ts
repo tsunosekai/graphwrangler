@@ -48,12 +48,17 @@ import {
   selectRunDecisionApprovalAction,
 } from "./decisionRun.js";
 import {
+  buildFireApprovalRequest,
   buildTriggerPrompt,
+  findFireGate,
+  fireBaseline,
+  hasUnconsumedGo,
   isFireableTrigger,
   parseAiFireDecision,
   resolveAiCheckIntervalMs,
   shouldEvaluateAiTrigger,
   shouldFireScriptTrigger,
+  type FireGateState,
 } from "./trigger.js";
 import { runScript } from "./executors/script.js";
 import { missingParamsReason, substituteParams } from "./params.js";
@@ -209,6 +214,24 @@ async function parentSayContext(node: Node, nodes: Node[]): Promise<string[]> {
   return out;
 }
 
+/** 失敗リカバリの「内容を変える(modify)」回答を受けて、下書きに戻して人間の編集を待つ。
+ *  回答直後に同じ内容で即再実行してしまわないための待避（編集後「プラン済みにする」で
+ *  再び実行対象になる）。status メッセージを積むことでスレッド末尾の modify 回答を消費し、
+ *  再コミット後に再度 demote されるループを防ぐ */
+async function demoteToDraft(node: Node): Promise<void> {
+  await patchNode(node.id, { lifecycle: "draft" }, ENGINE_ACTOR, VIA);
+  await postMessage(
+    node.id,
+    {
+      kind: "status",
+      body: "「内容を変える」の回答を受けて下書きに戻しました。編集して「プラン済みにする」と再実行されます",
+    },
+    ENGINE_ACTOR,
+    VIA,
+  );
+  log(`modify回答により下書きへ戻した: id=${node.id} title=${node.title}`);
+}
+
 async function executeNode(nodes: Node[], node: Node): Promise<void> {
   await patchNode(node.id, { status: "running" }, ENGINE_ACTOR, VIA);
   log(`実行開始: id=${node.id} title=${node.title} executor=${node.executor}`);
@@ -316,6 +339,9 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
     case "drop":
       await patchNode(action.node.id, { status: "dropped" }, ENGINE_ACTOR, VIA);
       log(`分岐の失敗リカバリで中止(dropped): id=${action.node.id} title=${action.node.title}`);
+      return true;
+    case "demote":
+      await demoteToDraft(action.node);
       return true;
     case "open-human-request":
       await openRequest(action.node.id, buildDecisionRequest(action.node), ENGINE_ACTOR, VIA);
@@ -828,11 +854,31 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
  *  許容する。docs/design.md「チェック時刻はエンジンのメモリ管理」） */
 const aiTriggerLastCheckedAt = new Map<string, number>();
 
-/** script トリガーを1件処理する（判定は schedule.ts） */
+/** script トリガーを1件処理する（判定は schedule.ts）。impact=irreversible なら
+ *  発火の代わりに発火前承認カードを開き、go 回答の1回だけ発火する（trigger.ts 参照） */
 async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   const hasRunningRun = runsForPage.some((r) => r.status === "running");
   const latestRun = runsForPage[0] ?? null; // list は created 降順
-  const should = shouldFireScriptTrigger(trigger.schedule, latestRun, new Date(), hasRunningRun);
+  if (trigger.pendingRequest) return; // 発火前承認カード等の回答待ち
+
+  let gate: FireGateState = { status: "none" };
+  if (trigger.impact === "irreversible") {
+    try {
+      const { messages } = await getThread(trigger.id);
+      gate = findFireGate(messages);
+    } catch (err) {
+      log(`発火前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
+      return;
+    }
+  }
+
+  // skip 回答はその回の発火とみなす（fireBaseline）。承認なしのトリガーでは gate=none で従来どおり
+  const should = shouldFireScriptTrigger(
+    trigger.schedule,
+    fireBaseline(latestRun, gate),
+    new Date(),
+    hasRunningRun,
+  );
   if (should === null) {
     if (trigger.schedule) {
       log(`未対応のschedule書式のため無視: trigger=${trigger.id} schedule="${trigger.schedule}"`);
@@ -842,6 +888,16 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
     return;
   }
   if (!should) return;
+
+  if (trigger.impact === "irreversible" && !hasUnconsumedGo(gate, latestRun)) {
+    try {
+      await openRequest(trigger.id, buildFireApprovalRequest(trigger), ENGINE_ACTOR, VIA);
+      log(`発火前承認カードを開いた: trigger=${trigger.id} title=${trigger.title}`);
+    } catch (err) {
+      log(`発火前承認カードを開けなかった（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
+    }
+    return;
+  }
 
   try {
     await fireTriggerNode(trigger.id, { via: `schedule:${trigger.schedule}` }, ENGINE_ACTOR);
@@ -853,9 +909,34 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
 
 /** ai トリガーを1件処理する。schedule をチェック間隔として使い、間隔経過かつ実行中ランなしの
  *  ときだけ AI に「今発火すべきか」を判定させる。fire ならスレッドへ理由を残して発火し、
- *  skip はエンジンログのみ（スレッドは汚さない。docs/design.md「skipはエンジンログのみ」） */
+ *  skip はエンジンログのみ（スレッドは汚さない。docs/design.md「skipはエンジンログのみ」）。
+ *  impact=irreversible なら AI の fire 判定後に発火前承認カードを開き、go 回答の1回だけ発火する */
 async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   const hasRunningRun = runsForPage.some((r) => r.status === "running");
+  if (trigger.pendingRequest) return; // 発火前承認カード等の回答待ち
+
+  if (trigger.impact === "irreversible") {
+    let gate: FireGateState;
+    try {
+      const { messages } = await getThread(trigger.id);
+      gate = findFireGate(messages);
+    } catch (err) {
+      log(`発火前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
+      return;
+    }
+    if (hasUnconsumedGo(gate, runsForPage[0] ?? null)) {
+      if (hasRunningRun) return; // 前のランが流れている間は待つ（go は未消費のまま）
+      try {
+        await fireTriggerNode(trigger.id, { via: "ai" }, ENGINE_ACTOR);
+        log(`承認によりAIトリガー発火: trigger=${trigger.id} title=${trigger.title}`);
+      } catch (err) {
+        log(`AI発火に失敗（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
+      }
+      return;
+    }
+    // skip/未発行は下の通常評価フローへ（再評価の抑制はチェック間隔のメモリ管理が担う）
+  }
+
   const intervalMs = resolveAiCheckIntervalMs(trigger.schedule);
   const lastCheckedAt = aiTriggerLastCheckedAt.get(trigger.id) ?? null;
   const now = Date.now();
@@ -875,8 +956,13 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   if (decision === "fire") {
     try {
       await postMessage(trigger.id, { kind: "say", body: result.output.trim() || "(理由なし)" }, actor, VIA);
-      await fireTriggerNode(trigger.id, { via: "ai" }, actor);
-      log(`AI判定により発火: trigger=${trigger.id} title=${trigger.title}`);
+      if (trigger.impact === "irreversible") {
+        await openRequest(trigger.id, buildFireApprovalRequest(trigger), ENGINE_ACTOR, VIA);
+        log(`AI判定fire→発火前承認カードを開いた: trigger=${trigger.id} title=${trigger.title}`);
+      } else {
+        await fireTriggerNode(trigger.id, { via: "ai" }, actor);
+        log(`AI判定により発火: trigger=${trigger.id} title=${trigger.title}`);
+      }
     } catch (err) {
       log(`AI発火に失敗（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
     }
@@ -946,6 +1032,9 @@ async function tick(): Promise<void> {
     case "drop":
       await patchNode(action.node.id, { status: "dropped" }, ENGINE_ACTOR, VIA);
       log(`人間の回答により中止(dropped): id=${action.node.id} title=${action.node.title}`);
+      return;
+    case "demote":
+      await demoteToDraft(action.node);
       return;
     case "open-gate":
       await openRequest(action.node.id, buildIrreversibleGateRequest(action.node), ENGINE_ACTOR, VIA);

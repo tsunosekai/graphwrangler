@@ -262,8 +262,17 @@ export class GraphStore {
     this.validateGroup(null, parsed.group);
     this.validateBranches(parsed.kind, parsed.branches);
     this.validateParentOptions(parsed.parents, parsed.parentOptions);
+    // 決着済みの分岐の「選ばれなかった枝」へ後付けしたノードは最初から skipped にする
+    // （decide 時の skip 伝搬はその時点に存在したノードにしか届かないため。放置すると
+    // 「親=done の frontier」としてエンジンに誤実行される。docs/design.md 3.9）
+    const status =
+      (parsed.status === "pending" || parsed.status === "unplanned") &&
+      this.isOnLosingBranch(parsed.parentOptions)
+        ? "skipped"
+        : parsed.status;
     const node: Node = {
       ...parsed,
+      status,
       id: nextId("n", this.nodes.keys()),
       pendingRequest: null,
       // 試走記録は新規作成時は必ず未試走（NodeInputSchema には含めない。desk と同じく
@@ -296,9 +305,27 @@ export class GraphStore {
       const parentOptions =
         parsed.parentOptions !== undefined ? parsed.parentOptions : current.parentOptions;
       this.validateParentOptions(parents, parentOptions);
+      // 決着済みの分岐の「選ばれなかった枝」へ繋ぎ変えたノードは skipped にする（addNode と同じ理由。
+      // グラフ上で紐を引いて負けた枝のポートへ接続するケースがこちらを通る）
+      const nextStatus = parsed.status ?? current.status;
+      if (
+        (nextStatus === "pending" || nextStatus === "unplanned" || nextStatus === "running") &&
+        this.isOnLosingBranch(parentOptions)
+      ) {
+        parsed.status = "skipped";
+      }
     }
     this.commit({ op: "node.patch", payload: { nodeId: id, patch: parsed } }, meta);
     return this.get(id);
+  }
+
+  /** parentOptions が「決着済みの分岐（choice確定）で選ばれなかった枝」を1つでも含むか */
+  private isOnLosingBranch(parentOptions: Record<string, string>): boolean {
+    for (const [decisionId, branchId] of Object.entries(parentOptions)) {
+      const d = this.nodes.get(decisionId);
+      if (d && d.kind === "decision" && d.choice !== null && d.choice !== branchId) return true;
+    }
+    return false;
   }
 
   /**
@@ -360,6 +387,40 @@ export class GraphStore {
     if (!frontier) {
       throw new GraphError("前のノードが終わっていないため、まだ分岐を選べません", 409);
     }
+  }
+
+  /**
+   * 分岐の選び直し（手戻り。docs/design.md 3.9）: choice を取り消して pending に戻し、
+   * この決着に由来する skip を復元する。skipped ノードのうち「もはや正当化されないもの」
+   * （どの決着済み分岐の負けた枝にも居らず、全親 skipped でもない）を pending に戻す
+   * （親の復元が子の復元を解禁するため不動点まで繰り返す）。
+   * 下流で既に done/dropped になった作業は戻さない（やり直しの範囲は人間が判断する）。
+   */
+  revertDecision(nodeId: string, meta: OpMeta = {}): Node {
+    const node = this.get(nodeId);
+    if (node.kind !== "decision") {
+      throw new GraphError(`node ${nodeId} is not a decision (kind=${node.kind})`);
+    }
+    if (node.choice === null) {
+      throw new GraphError("この分岐はまだ決着していません", 409);
+    }
+    this.patchNode(nodeId, { choice: null, status: "pending" }, meta);
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const n of [...this.nodes.values()]) {
+        if (n.status !== "skipped") continue;
+        if (this.isOnLosingBranch(n.parentOptions)) continue; // 他の決着済み分岐で正当な skip
+        const allSkipped =
+          n.parents.length > 0 &&
+          n.parents.every((pid) => this.nodes.get(pid)?.status === "skipped");
+        if (allSkipped) continue; // 連鎖規則でまだ正当な skip
+        this.patchNode(n.id, { status: "pending" }, meta);
+        changed = true;
+      }
+    }
+    return this.get(nodeId);
   }
 
   /** 連鎖規則: 全ての親が skipped なノードを skipped にする（不動点まで繰り返す） */

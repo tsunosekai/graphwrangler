@@ -84,6 +84,12 @@ describe("selectDecisionAction: 失敗リカバリ", () => {
     const action = selectDecisionAction([n], { [n.id]: decisionAnswer("abort") });
     expect(action).toEqual({ type: "drop", node: n });
   });
+
+  it("直前の回答がmodifyならdemote（編集を待ち、即再実行しない）", () => {
+    const n = node({ executor: "ai" });
+    const action = selectDecisionAction([n], { [n.id]: decisionAnswer("modify") });
+    expect(action).toEqual({ type: "demote", node: n });
+  });
 });
 
 describe("selectDecisionAction: frontier/lifecycle/kind除外", () => {

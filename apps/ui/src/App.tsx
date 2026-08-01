@@ -52,7 +52,9 @@ export default function App() {
     return nodes.filter((n) => n.kind === "goal" || hasMembers.has(n.id));
   }, [nodes]);
 
-  const pageId = pageIdRaw ?? folders[0]?.id ?? null;
+  // 表示中ページが削除された場合も先頭ページへフォールバックする（削除直後に空画面へ
+  // 取り残されないように。localStorage の古い pageId も同じ経路で吸収される）
+  const pageId = folders.some((f) => f.id === pageIdRaw) ? pageIdRaw : (folders[0]?.id ?? null);
   const pageNode = folders.find((f) => f.id === pageId) ?? null;
   const pageNodes = useMemo(() => nodes.filter((n) => n.group === pageId), [nodes, pageId]);
 

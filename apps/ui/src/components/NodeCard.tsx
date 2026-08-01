@@ -83,11 +83,12 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // 見た目に status を反映してよいか（非テンプレート、または投影中のテンプレート）
   const showStatus = !isTemplate || projecting;
 
-  // ラン内の段階式アクション（docs/design.md 3.8）: 担当が human のアイテムだけ。
+  // ラン内の段階式アクション（docs/design.md 3.8）: 担当が human の task アイテムだけ
+  // （分岐(decision)は「分岐を選ぶ」が唯一の決着経路。choice を経ずに done にしない）。
   // pending+ラン内フロンティア→「着手」「完了」、running→「完了」「戻す」（戻す=pending）。
   // ボタンはランのアイテムを更新する（テンプレートの patchNode は使わない）
   const runButtons: { label: string; status: RunItemStatus }[] =
-    projecting && node.executor === "human"
+    projecting && node.executor === "human" && node.kind === "task"
       ? runItem.status === "pending" && data.isRunFrontier
         ? [
             { label: "着手", status: "running" },
@@ -310,7 +311,14 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           </span>
         )}
         {node.impact === "irreversible" && (
-          <span className="flex-shrink-0 text-destructive" title="実行前承認（不可逆な操作。実行前に人間の承認ゲートを通る）">
+          <span
+            className="flex-shrink-0 text-destructive"
+            title={
+              node.kind === "trigger"
+                ? "発火前承認（自動発火の直前に人間の承認ゲートを通る）"
+                : "実行前承認（不可逆な操作。実行前に人間の承認ゲートを通る）"
+            }
+          >
             <Icon name="alert" size={12} />
           </span>
         )}

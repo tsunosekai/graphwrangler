@@ -288,6 +288,8 @@ export function LedgerView({ page, members, onMutated }: Props) {
                   return (
                     <td
                       key={col.id}
+                      // waiting の理由（失敗: … / 承認待ち / 分岐待ち）をツールチップで見せる
+                      title={item?.note ?? undefined}
                       className={cn(
                         "border-b border-border px-2.5 py-1.5 text-center align-middle",
                         !toggleDisabled && "cursor-pointer",

@@ -398,6 +398,22 @@ app.post("/api/nodes/:id/decide", async (c) => {
   return c.json(updated);
 });
 
+/** 分岐の選び直し（手戻り）。choice を取り消して pending に戻し、この決着に由来する
+ *  skip を復元する（GraphStore.revertDecision）。下流の done は戻さない */
+app.post("/api/nodes/:id/decide/revert", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const m = meta(body);
+  const updated = graph.revertDecision(id, { actor: m.actor, via: m.via });
+  threads.post(id, {
+    kind: "status",
+    body: "分岐の選択を取り消し（選び直し）",
+    author: m.actor,
+    via: m.via,
+  });
+  return c.json(updated);
+});
+
 // ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 // 「ルーティーンであること」はページ種別ではなく先頭のトリガーノードから導出する。
 // トリガーが発火すると、その group ページで createFromTrigger によりランが1本生成される。

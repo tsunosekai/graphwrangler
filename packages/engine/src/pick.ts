@@ -47,6 +47,7 @@ export type EngineAction =
   | { type: "execute"; node: Node }
   | { type: "open-gate"; node: Node }
   | { type: "drop"; node: Node }
+  | { type: "demote"; node: Node } // modify回答 → 下書きに戻して人間の編集を待つ
   | { type: "none" };
 
 /** スレッド最新メッセージが decision_answer なら、その option を取り出す（無ければ undefined） */
@@ -65,9 +66,12 @@ function lastAnswerOption(message: Message | undefined): string | undefined {
  * メッセージによる分岐（lastMessages は各ノードのスレッド最新メッセージ。無い/不要なら省略可）:
  * - 直前の decision_answer が option="abort"（失敗リカバリ）または "skip"（不可逆ゲート）
  *   → drop（status=dropped にする）
+ * - option="modify"（内容を変える）→ demote（lifecycle=draft に戻し、人間の編集と
+ *   「プラン済みにする」を待つ。回答直後に同じ内容で再実行してしまわないため。
+ *   呼び出し側=index.ts が demote 後に status メッセージを積むことで回答を消費する）
  * - impact=irreversible: 直前の decision_answer が option="go" のときだけ execute
- *   （この1回だけ許可）。それ以外（未承認・retry/modify等）は open-gate で承認カードを開く
- * - 上記以外（impact=safe/reversible）はそのまま execute
+ *   （この1回だけ許可）。それ以外（未承認・retry等）は open-gate で承認カードを開く
+ * - 上記以外（impact=safe）はそのまま execute
  */
 export function selectAction(
   nodes: Node[],
@@ -87,6 +91,10 @@ export function selectAction(
 
     if (option === "abort" || option === "skip") {
       return { type: "drop", node };
+    }
+
+    if (option === "modify") {
+      return { type: "demote", node };
     }
 
     if (node.impact === "irreversible") {

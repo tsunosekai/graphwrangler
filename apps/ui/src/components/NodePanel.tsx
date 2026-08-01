@@ -440,7 +440,8 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
     const s = allNodes.find((n) => n.id === pid)?.status;
     return s === "done" || s === "skipped";
   });
-  const decisionGateOk = node.lifecycle === "committed" && isFrontier;
+  const decisionGateOk =
+    node.lifecycle === "committed" && isFrontier && node.status !== "dropped";
 
   // decision の choice 未確定のときだけ「分岐を選ぶ」を出す（docs/design.md 3.9）
   const decide = async (branchId: string, label: string) => {
@@ -448,6 +449,26 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
       await api.decide(node.id, branchId);
       onMutated();
       pushToast(`${label} に分岐しました`, "info");
+    } catch {
+      // api() 側でトースト表示済み
+    }
+  };
+
+  // 分岐の選び直し（手戻り。docs/design.md 3.9）: choice を取り消し、この決着に由来する
+  // skip を復元する。下流で進んだ作業（done）は戻らないので確認を挟む
+  const revertDecision = async () => {
+    if (
+      !window.confirm(
+        "分岐を選び直しますか？\nスキップされた枝は待ちに戻ります（進んだ作業は戻りません）",
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.revertDecision(node.id);
+      onMutated();
+      refreshThread();
+      pushToast("分岐の選択を取り消しました", "info");
     } catch {
       // api() 側でトースト表示済み
     }
@@ -571,6 +592,13 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
             <Icon name="branch" size={13} />
             選択済み: {node.branches.find((b) => b.id === node.choice)?.label ?? node.choice ?? "-"}
+            <span className="flex-1" />
+            {/* 選び直し（手戻り）。自分が上流の分岐でskipされた場合(choice無し)は対象外 */}
+            {node.status === "done" && node.choice && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => void revertDecision()}>
+                選び直す
+              </Button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-1.5 rounded-md border border-dashed border-border-strong bg-card p-2.5">
@@ -593,7 +621,11 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
             ))}
             {!decisionGateOk && (
               <span className="text-xs text-muted-foreground">
-                {node.lifecycle !== "committed" ? "下書きです。先に確定してください" : "前のノードが終わると選べます"}
+                {node.status === "dropped"
+                  ? "中止されています。進捗の「戻す」で復帰できます"
+                  : node.lifecycle !== "committed"
+                    ? "下書きです。先に確定してください"
+                    : "前のノードが終わると選べます"}
               </span>
             )}
           </div>
@@ -707,27 +739,34 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 </SelectContent>
               </Select>
             </label>
-            <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
-              {/* 説明はインラインでなくヒント（ツールチップ）で出す（2026-07-31 本人指定） */}
-              <span className="flex items-center gap-1.5">
-                <span>実行前承認</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex cursor-help text-muted-foreground">
-                      <CircleHelp className="size-3.5" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-64">
-                    実行前に人間の承認ゲートを通る（外部公開・送信・削除など取り返しのつかない操作）
-                  </TooltipContent>
-                </Tooltip>
-              </span>
-              <Switch
-                checked={node.impact === "irreversible"}
-                disabled={node.fixed}
-                onCheckedChange={(v) => patch({ impact: v ? "irreversible" : "safe" })}
-              />
-            </label>
+            {/* 承認ゲートは「機械（AI/スクリプト）の仕事」の直前に挟まるもの。担当=人間の
+                ノードでは本人の操作が承認そのものなのでトグルを出さない（既に irreversible の
+                ノードだけは解除できるよう表示する）。トリガーでは意味が「発火前承認」になる
+                （script の定刻発火・AI の自動発火の直前にゲート。手動▶はそのまま発火） */}
+            {(node.executor !== "human" || node.impact === "irreversible") && (
+              <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span>{node.kind === "trigger" ? "発火前承認" : "実行前承認"}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex cursor-help text-muted-foreground">
+                        <CircleHelp className="size-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-64">
+                      {node.kind === "trigger"
+                        ? "自動発火（scriptの定刻 / AIの判定）の直前に人間の承認ゲートを通る。手動の▶はそのまま発火する"
+                        : "実行前に人間の承認ゲートを通る（外部公開・送信・削除など取り返しのつかない操作）"}
+                    </TooltipContent>
+                  </Tooltip>
+                </span>
+                <Switch
+                  checked={node.impact === "irreversible"}
+                  disabled={node.fixed}
+                  onCheckedChange={(v) => patch({ impact: v ? "irreversible" : "safe" })}
+                />
+              </label>
+            )}
             {/* トリガーに進捗はない（docs/design.md 3.8。発火はあってもステータス遷移という概念が無い）。
                 質問が開いている（pendingRequest あり）間は status が何であれ「あなたの番」を優先して
                 描き、進捗ボタンも出さない（NodeCard の visualStatus / PageList の effStatus と同じ保険。
@@ -753,17 +792,56 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
               node.group != null &&
               allNodes.some((n) => n.kind === "trigger" && n.group === node.group) &&
               (activeRunItem ? (
-                <div className="col-span-2 flex items-center gap-2 text-sm">
+                <div className="col-span-2 flex flex-wrap items-center gap-2 text-sm">
                   <span className="text-muted-foreground">進捗（実行中のラン）:</span>
                   <span className="inline-flex items-center gap-1.5">
                     <StatusCircle status={activeRunItem.status} />
                     {STATUS_JA[activeRunItem.status]}
                   </span>
+                  {/* waiting の理由（失敗: … / 承認待ち / 分岐待ち）を見せる。台帳の丸だけでは
+                      何が起きたか分からない（2026-08-01 手戻りレビュー） */}
+                  {activeRunItem.status === "waiting" && activeRunItem.note && (
+                    <span
+                      className="max-w-full truncate text-xs text-muted-foreground"
+                      title={activeRunItem.note}
+                    >
+                      {activeRunItem.note}
+                    </span>
+                  )}
                   <span className="flex-1" />
-                  {node.executor === "human" && activeRunItem.status === "pending" && !runFrontier && (
+                  {/* AI/スクリプトの実行失敗（note が「失敗:」）は放置すると行き止まりになる
+                      （エンジンは waiting を拾わない）ため、リトライ/見送りの導線をここに置く。
+                      承認待ち・分岐待ちは判断カードが往復を担うので出さない */}
+                  {activeRunItem.status === "waiting" && activeRunItem.note?.startsWith("失敗") && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={runItemBusy}
+                        title="待ちに戻す（エンジンがもう一度実行する）"
+                        onClick={() => patchRunItemStatus("pending")}
+                      >
+                        もう一度
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={runItemBusy}
+                        title="このランではこのステップを見送る"
+                        onClick={() => patchRunItemStatus("skipped")}
+                      >
+                        このランでは飛ばす
+                      </Button>
+                    </>
+                  )}
+                  {/* 分岐(decision)のアイテムは「分岐を選ぶ」で決着する（choice を経ずに done に
+                      できてしまう二重経路を作らない）。着手/完了は担当=人間の task のみ */}
+                  {node.executor === "human" && node.kind === "task" && activeRunItem.status === "pending" && !runFrontier && (
                     <span className="text-xs text-muted-foreground">前のノードが終わると着手できます</span>
                   )}
-                  {node.executor === "human" && activeRunItem.status === "pending" && runFrontier && (
+                  {node.executor === "human" && node.kind === "task" && activeRunItem.status === "pending" && runFrontier && (
                     <Button
                       type="button"
                       variant="outline"
@@ -774,7 +852,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                       着手
                     </Button>
                   )}
-                  {node.executor === "human" &&
+                  {node.executor === "human" && node.kind === "task" &&
                     ((activeRunItem.status === "pending" && runFrontier) || activeRunItem.status === "running") && (
                       <Button
                         type="button"
@@ -786,7 +864,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                         完了
                       </Button>
                     )}
-                  {node.executor === "human" && activeRunItem.status === "running" && (
+                  {node.executor === "human" && node.kind === "task" && activeRunItem.status === "running" && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -810,7 +888,10 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 const vs = node.pendingRequest ? ("waiting" as const) : node.status;
                 // 実行フェーズの原則（docs/design.md 3.9）: 前へ進める操作（着手・完了）は
                 // 順番が来ている（親が全部 done|skipped）ノードだけ。プラン済み化（計画系）と
-                // 戻す（修復系）はいつでも可（2026-07-31 本人報告のバグ修正）
+                // 戻す（修復系）はいつでも可（2026-07-31 本人報告のバグ修正）。
+                // 分岐(decision)は「分岐を選ぶ」が唯一の決着経路なので、実行系ボタン
+                // （着手/完了/戻す）は出さない——プラン済み化だけ残す（committed が選択の前提条件）
+                const exec = node.kind !== "decision";
                 const frontier = node.parents.every((pid) => {
                   const s = allNodes.find((n) => n.id === pid)?.status;
                   return s === "done" || s === "skipped";
@@ -832,25 +913,33 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                         プラン済みにする
                       </Button>
                     )}
-                    {vs === "pending" && node.lifecycle === "committed" && !frontier && (
+                    {exec && vs === "pending" && node.lifecycle === "committed" && !frontier && (
                       <span className="text-xs text-muted-foreground">前のノードが終わると着手できます</span>
                     )}
-                    {vs === "pending" && frontier && (
+                    {exec && vs === "pending" && frontier && (
                       <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
                         着手
                       </Button>
                     )}
-                    {((vs === "pending" && frontier) || vs === "running") && (
+                    {exec && ((vs === "pending" && frontier) || vs === "running") && (
                       <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "done" })}>
                         完了
                       </Button>
                     )}
-                    {(vs === "running" || vs === "done") && (
+                    {/* dropped（中止）は kind を問わず復帰できる（エンジンの abort 回答で
+                        dropped になったノードが行き止まりにならないように） */}
+                    {((exec && (vs === "running" || vs === "done")) || vs === "dropped") && (
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        title={vs === "running" ? "着手前（待ち）に戻す" : "未完了（待ち）に戻す"}
+                        title={
+                          vs === "running"
+                            ? "着手前（待ち）に戻す"
+                            : vs === "done"
+                              ? "未完了（待ち）に戻す"
+                              : "中止を取り消して待ちに戻す"
+                        }
                         onClick={() => patch({ status: "pending" })}
                       >
                         戻す
@@ -879,7 +968,12 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
               <SelectContent>
                 <SelectItem value="none">なし</SelectItem>
                 <SelectItem value="doc">手順書</SelectItem>
-                <SelectItem value="script">スクリプト</SelectItem>
+                {/* スクリプト実装は担当=script のノードでしか実行されない（3.5.1 の対応表）ため、
+                    選択肢として出すのも担当=script のときだけ。担当を後から変えた等で既に
+                    script 実装を持つノードは、現在値として表示・編集できるよう残す */}
+                {((node.executor === "script" && node.kind !== "trigger") || node.impl?.type === "script") && (
+                  <SelectItem value="script">スクリプト</SelectItem>
+                )}
               </SelectContent>
             </Select>
 

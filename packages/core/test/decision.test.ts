@@ -246,3 +246,110 @@ describe("applyDecision: undoとの整合", () => {
     expect(g.get(d.id).choice).toBeNull();
   });
 });
+
+// ---- 選び直し（revertDecision。手戻り）と、決着後の後付けノードの自動skip ----
+
+describe("revertDecision: 分岐の選び直し", () => {
+  function setupDecided() {
+    const d = makeDecision();
+    const childA = g.patchNode(
+      g.addNode({ title: "A側", parents: [d.id], parentOptions: { [d.id]: "a" } }).id,
+      { lifecycle: "committed" },
+    );
+    const childB = g.patchNode(
+      g.addNode({ title: "B側", parents: [d.id], parentOptions: { [d.id]: "b" } }).id,
+      { lifecycle: "committed" },
+    );
+    const grandB = g.patchNode(
+      g.addNode({ title: "B側の続き", parents: [childB.id] }).id,
+      { lifecycle: "committed" },
+    );
+    g.applyDecision(d.id, "a");
+    return { d, childA, childB, grandB };
+  }
+
+  it("choice が取り消され、直接skip + 連鎖skip が pending に復元される", () => {
+    const { d, childA, childB, grandB } = setupDecided();
+    expect(g.get(childB.id).status).toBe("skipped");
+    expect(g.get(grandB.id).status).toBe("skipped");
+
+    const reverted = g.revertDecision(d.id);
+    expect(reverted.choice).toBeNull();
+    expect(reverted.status).toBe("pending");
+    expect(g.get(childB.id).status).toBe("pending");
+    expect(g.get(grandB.id).status).toBe("pending");
+    expect(g.get(childA.id).status).toBe("pending"); // 勝った枝はそのまま
+  });
+
+  it("別の決着済み分岐によるskipは復元しない", () => {
+    const { d } = setupDecided();
+    const d2 = makeDecision();
+    const other = g.patchNode(
+      g.addNode({ title: "別分岐のB側", parents: [d2.id], parentOptions: { [d2.id]: "b" } }).id,
+      { lifecycle: "committed" },
+    );
+    g.applyDecision(d2.id, "a");
+    expect(g.get(other.id).status).toBe("skipped");
+
+    g.revertDecision(d.id);
+    expect(g.get(other.id).status).toBe("skipped"); // d2 の決着は生きている
+  });
+
+  it("未決着の分岐は409相当のGraphError", () => {
+    const d = makeDecision();
+    expect(() => g.revertDecision(d.id)).toThrow(/決着していません/);
+  });
+
+  it("done になった下流は戻さない", () => {
+    const { d, childB } = setupDecided();
+    g.revertDecision(d.id);
+    g.applyDecision(d.id, "b");
+    g.patchNode(childB.id, { status: "done" });
+    g.revertDecision(d.id);
+    expect(g.get(childB.id).status).toBe("done");
+  });
+});
+
+describe("決着済み分岐の負けた枝への後付けノードは自動skip", () => {
+  it("addNode: 負けた枝に後付けしたノードは skipped で生まれる", () => {
+    const d = makeDecision();
+    g.applyDecision(d.id, "a");
+    const late = g.addNode({
+      title: "後付けB側",
+      parents: [d.id],
+      parentOptions: { [d.id]: "b" },
+      lifecycle: "committed",
+    });
+    expect(late.status).toBe("skipped");
+    // 勝った枝への後付けは普通に pending
+    const winner = g.addNode({
+      title: "後付けA側",
+      parents: [d.id],
+      parentOptions: { [d.id]: "a" },
+    });
+    expect(winner.status).toBe("pending");
+  });
+
+  it("patchNode: 負けた枝へ繋ぎ変えたノードは skipped になる", () => {
+    const d = makeDecision();
+    g.applyDecision(d.id, "a");
+    const n = g.addNode({ title: "あとで繋ぐ" });
+    const patched = g.patchNode(n.id, {
+      parents: [d.id],
+      parentOptions: { [d.id]: "b" },
+    });
+    expect(patched.status).toBe("skipped");
+  });
+
+  it("自動skipされた後付けノードも revertDecision で復元される", () => {
+    const d = makeDecision();
+    g.applyDecision(d.id, "a");
+    const late = g.addNode({
+      title: "後付けB側",
+      parents: [d.id],
+      parentOptions: { [d.id]: "b" },
+    });
+    g.revertDecision(d.id);
+    expect(g.get(late.id).status).toBe("pending");
+  });
+});

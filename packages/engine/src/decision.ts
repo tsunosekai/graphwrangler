@@ -29,6 +29,7 @@ export type DecisionAction =
   | { type: "open-human-request"; node: Node } // human: 判断リクエストを開く
   | { type: "decide"; node: Node; choice: string } // human: 回答が来ていたので確定する
   | { type: "drop"; node: Node } // 失敗リカバリでabort回答 → 中止(dropped)
+  | { type: "demote"; node: Node } // 失敗リカバリでmodify回答 → 下書きに戻して編集を待つ
   | { type: "none" };
 
 /** スレッド最新メッセージが decision_answer なら、その option を取り出す（pick.ts の
@@ -73,6 +74,9 @@ export function selectDecisionAction(
     const option = lastAnswerOption(lastMessages[node.id]);
     if (option === "abort") {
       return { type: "drop", node };
+    }
+    if (option === "modify") {
+      return { type: "demote", node };
     }
 
     if (node.executor === "human") {

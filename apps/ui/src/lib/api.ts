@@ -170,6 +170,10 @@ export const api = {
   decide: (id: string, choice: string) =>
     withSelfRead(id, request<Node>(`/nodes/${id}/decide`, { method: "POST", body: JSON.stringify({ choice }) })),
 
+  /** プロジェクト層: 分岐の選び直し（choice取り消し + このskip伝搬の復元。下流のdoneは戻らない） */
+  revertDecision: (id: string) =>
+    withSelfRead(id, request<Node>(`/nodes/${id}/decide/revert`, { method: "POST", body: "{}" })),
+
   /** ラン層: ワークアイテム(kind=decisionテンプレート)のchoice確定+skip伝搬 */
   decideRunItem: (runId: string, nodeId: string, choice: string) =>
     withSelfRead(nodeId, request<Run>(`/runs/${runId}/items/${nodeId}/decide`, {

@@ -131,6 +131,20 @@ describe("selectAction: irreversible除外と承認後許可", () => {
   });
 });
 
+describe("selectAction: modify回答は下書きへ戻す（即再実行しない）", () => {
+  it("直近のdecision_answerがoption=modifyならdemote", () => {
+    const n = node({ impact: "safe" });
+    const action = selectAction([n], { [n.id]: decisionAnswer("modify") });
+    expect(action).toEqual({ type: "demote", node: n });
+  });
+
+  it("irreversibleでもmodifyはdemote（open-gateより先に編集を待つ）", () => {
+    const n = node({ impact: "irreversible" });
+    const action = selectAction([n], { [n.id]: decisionAnswer("modify") });
+    expect(action).toEqual({ type: "demote", node: n });
+  });
+});
+
 describe("selectAction: 人間待ち（open な判断リクエスト）の除外と復帰", () => {
   it("pendingRequest があるノードは status=pending でも候補にならない", () => {
     const n = node({ status: "pending", pendingRequest: "m-1" });
