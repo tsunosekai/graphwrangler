@@ -12,6 +12,10 @@ import { DecisionCard } from "./DecisionCard";
 interface Props {
   nodeId: string;
   messages: MaterializedMessage[];
+  /** パネルを開いた時点の前回既読時刻（ISO）。これより新しいメッセージの直前に
+   *  「ここから未読」区切りを出す（未読バッジの理由をノードを開いたときに見せる。
+   *  2026-08-02 本人要望）。null = 既読記録なし（初見ノード。区切りは出さない） */
+  unreadSince?: string | null;
   showReplyBox: boolean;
   onMutated: () => void;
 }
@@ -47,7 +51,7 @@ function extractSources(payload: unknown): string[] | null {
  * 固定表示する（本人指定 2026-07-31）。ただし質問が開いている間の自由文が
  * 「聞き返し」（ラリー）になる挙動はここが持つ。
  */
-export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
+export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated }: Props) {
   const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -64,6 +68,12 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
   const flow = messages.filter(
     (m) => !(m.kind === "decision_request" && m.requestStatus === "open"),
   );
+
+  // 「ここから未読」区切りの位置: 前回既読より新しい最初のメッセージ。
+  // 既読記録が無い（初見）または全部既読なら出さない。全部未読のとき（先頭）は
+  // バッジの理由が「スレッド自体が新しい」なので、これも区切りとしては出す
+  const firstUnreadIndex =
+    unreadSince != null ? flow.findIndex((m) => m.ts > unreadSince) : -1;
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -94,10 +104,24 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
         {flow.length === 0 && openRequests.length === 0 && (
           <div className="py-2 text-sm text-muted-foreground">タスクを計画・実行しましょう</div>
         )}
-        {flow.map((m) => {
+        {flow.map((m, idx) => {
+          // 未読区切り（この位置から上が既読・下が未読）。メッセージ本体の前に挟む
+          const unreadDivider =
+            idx === firstUnreadIndex ? (
+              <div key={`unread-${m.id}`} className="flex items-center gap-2 py-0.5 text-xs text-ai">
+                <span className="h-px flex-1 bg-ai/40" />
+                ここから未読
+                <span className="h-px flex-1 bg-ai/40" />
+              </div>
+            ) : null;
           if (m.kind === "decision_request") {
             // answered なリクエストは流れの中に折りたたみ表示
-            return <DecisionCard key={m.id} message={m} nodeId={nodeId} onMutated={onMutated} />;
+            return (
+              <div key={m.id} className="contents">
+                {unreadDivider}
+                <DecisionCard message={m} nodeId={nodeId} onMutated={onMutated} />
+              </div>
+            );
           }
           const alignSelf =
             m.author.kind === "human" ? "self-end" : m.author.kind === "agent" ? "self-start" : "self-center";
@@ -109,8 +133,9 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
                 : "border-border";
           const sources = extractSources(m.payload);
           return (
+            <div key={m.id} className="contents">
+            {unreadDivider}
             <div
-              key={m.id}
               className={cn(
                 "max-w-[88%] rounded-md border bg-card px-3 py-2",
                 alignSelf,
@@ -144,6 +169,7 @@ export function Thread({ nodeId, messages, showReplyBox, onMutated }: Props) {
                   ))}
                 </div>
               )}
+            </div>
             </div>
           );
         })}

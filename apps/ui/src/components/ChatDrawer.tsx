@@ -206,13 +206,63 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, busy]);
 
-  // メッセージが変わるたびにグローバル履歴としてサーバへ保存する（応答中は流れるので
-  // 完了時=busyでない時だけ。ロード完了前は保存しない）
+  // メッセージが変わるたびにグローバル履歴としてサーバへ保存する（ロード完了前は保存しない）。
+  // 応答ストリーミング中も2秒間隔で間引き保存する——ブラウザのリロード/タブ閉じでは React の
+  // アンマウントクリーンアップが走らないため、完了時だけの保存だと応答中のリロードで
+  // 送信ごと会話が消えていた（2026-08-02 本人指摘「リロード耐性についてチェック」で発覚）
+  const lastSaveAtRef = useRef(0);
+  const pendingSaveRef = useRef<number | null>(null);
   useEffect(() => {
-    if (busy) return;
     if (!loadedRef.current) return;
-    saveHistory(messages);
+    const doSave = () => {
+      lastSaveAtRef.current = Date.now();
+      saveHistory(lastMessagesRef.current);
+    };
+    if (!busy) {
+      if (pendingSaveRef.current !== null) {
+        clearTimeout(pendingSaveRef.current);
+        pendingSaveRef.current = null;
+      }
+      doSave();
+      return;
+    }
+    const since = Date.now() - lastSaveAtRef.current;
+    if (since >= 2000) {
+      doSave();
+      return;
+    }
+    if (pendingSaveRef.current === null) {
+      pendingSaveRef.current = window.setTimeout(() => {
+        pendingSaveRef.current = null;
+        doSave();
+      }, 2000 - since);
+    }
   }, [messages, busy]);
+  useEffect(() => {
+    return () => {
+      if (pendingSaveRef.current !== null) clearTimeout(pendingSaveRef.current);
+    };
+  }, []);
+
+  // リロード/タブ閉じの直前の最終保存（best-effort）。keepalive はボディ 64KiB 上限があるため
+  // 長い履歴では送れないことがあるが、その場合も上の2秒間引き保存が直近状態を押さえている
+  useEffect(() => {
+    const onPageHide = () => {
+      if (!loadedRef.current || lastMessagesRef.current.length === 0) return;
+      try {
+        void fetch(`/api/chats/${CHAT_KEY}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messages: lastMessagesRef.current }),
+          keepalive: true,
+        });
+      } catch {
+        // best-effort
+      }
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, []);
 
   // 「新しい会話」: 現在の会話が空でなければアーカイブへ退避してから空にする
   // （2026-07-31 本人要望。旧「履歴をクリア」は消して終わりだったが、アーカイブして
@@ -257,6 +307,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       // data-shortcuts-block: グラフのキーボードショートカット(GraphView)を無効化する目印
       // （このドロワーは role="dialog" を持たない素の常設パネルのため、入力欄以外にも及ぶよう明示する）
       data-shortcuts-block
+      data-mobile-panel="right"
       className="relative flex flex-shrink-0 flex-col overflow-hidden border-l bg-background"
       style={{ width }}
     >

@@ -159,6 +159,7 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
 
   return (
     <aside
+      data-mobile-panel="right"
       className="relative flex flex-shrink-0 flex-col gap-3 overflow-y-auto border-l bg-background p-4"
       style={{ width }}
     >

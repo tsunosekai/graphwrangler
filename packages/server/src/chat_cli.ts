@@ -245,7 +245,17 @@ export function emitStreamJsonLine(
     return; // 壊れた行・空行は無視
   }
 
-  const push = (chunk: Record<string, unknown>) => controller.enqueue(encoder.encode(sseChunk(chunk)));
+  // クライアントが切断済み（リロード/タブ閉じ）だと controller は closed で enqueue が投げる。
+  // ここは CLI 子プロセスの stdout ハンドラから呼ばれるため、投げると uncaught でサーバ
+  // プロセスごと落ちる（2026-08-02 リロード耐性チェックで実際にクラッシュを確認）。
+  // 黙って捨てる——CLI は完走させ、グラフ操作（MCP経由）は最後まで反映させる
+  const push = (chunk: Record<string, unknown>) => {
+    try {
+      controller.enqueue(encoder.encode(sseChunk(chunk)));
+    } catch {
+      // closed: 表示先が居ないだけなので無視
+    }
+  };
 
   if (event.type === "stream_event") {
     const inner = event.event as StreamEventPayload | undefined;
@@ -299,7 +309,14 @@ function runCli(
   encoder: TextEncoder,
 ): Promise<void> {
   return new Promise((resolve) => {
-    const push = (chunk: Record<string, unknown>) => controller.enqueue(encoder.encode(sseChunk(chunk)));
+    // 切断済み controller への enqueue はサーバを落とすので必ず握りつぶす（emitStreamJsonLine と同じ理由）
+    const push = (chunk: Record<string, unknown>) => {
+      try {
+        controller.enqueue(encoder.encode(sseChunk(chunk)));
+      } catch {
+        // closed: 無視
+      }
+    };
     // stream_event（トークン単位の部分メッセージ）のブロック追跡状態。この呼び出し=1往復で使い切り
     const streamState = createStreamJsonState();
     const finish = () => {

@@ -209,6 +209,19 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
   const { data: thread, refresh: refreshThread } = usePolling(() => api.getThread(node.id), 10000);
 
+  // パネルを開いた時点の「前回の既読時刻」を捕まえておく（下の effect が既読を更新する前に
+  // useState 初期化子で読む。key={node.id} 再マウントなのでノードごとに一度だけ評価される）。
+  // 未読バッジが付いていた理由＝この時刻より新しいメッセージ、を「ここから未読」区切りとして
+  // スレッドに表示する（2026-08-02 本人要望「なぜ通知が付いているのか分かりづらい。
+  // ノードを開いたときに分かるでいい」）
+  const [unreadSince] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(`gw.read.${node.id}`);
+    } catch {
+      return null;
+    }
+  });
+
   // スレッドを表示したら既読ts(localStorage)を更新する（thread取得のたびに更新=
   // 開いたまま新着が来ても「読んだ」扱いを追随させる）
   useEffect(() => {
@@ -575,6 +588,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
 
   return (
     <aside
+      data-mobile-panel="right"
       className="relative flex flex-shrink-0 flex-col gap-3 overflow-hidden border-l bg-background p-4"
       style={{ width }}
     >
@@ -1312,6 +1326,7 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
       <Thread
         nodeId={node.id}
         messages={filtered}
+        unreadSince={unreadSince}
         showReplyBox={tab === "talk"}
         onMutated={() => {
           onMutated();

@@ -162,7 +162,12 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, ru
           pageId === f.id && "bg-accent text-foreground",
           archived && "opacity-70",
         )}
-        onClick={() => onSelectPage(f.id)}
+        onClick={() => {
+          onSelectPage(f.id);
+          // モバイル（<768px）ではレールが全画面オーバーレイ（index.css）なので、
+          // 選んだら自動で閉じてキャンバスを見せる（2026-08-02 レスポンシブ対応）
+          if (window.innerWidth < 768) setRailOpen(false);
+        }}
       >
         <span className="flex min-w-0 items-center gap-2">
           {routine ? (
@@ -229,6 +234,8 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, ru
     <div
       // overflow-x-hidden: リサイズハンドル（right:-3px）等のはみ出しが微小な横スクロールを
       // 生む不具合の抑止（2026-07-31 本人報告）
+      // data-mobile-panel: モバイル（<768px）では全画面オーバーレイになる（index.css）
+      data-mobile-panel="left"
       className="relative flex flex-shrink-0 flex-col gap-px overflow-y-auto overflow-x-hidden border-r border-border bg-muted p-1.5"
       style={{ width }}
     >

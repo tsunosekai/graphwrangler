@@ -150,42 +150,53 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
   const engineDown = engineStatus != null && !engineStatus.alive;
 
   return (
+    // 3カラム構造: 左右を flex-1 の等分にして、ゴール捕獲欄が**画面の中心**に来るようにする
+    // （2026-08-02 本人指摘「ちょっと左にずれてる」——左右のグループ幅が違うため、
+    // 残り空間の中央=画面中央からずれていた）
     <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b bg-background px-4">
-      <div className="font-semibold">GraphWrangler</div>
-      {/* 元に戻すはタイトルの右（2026-08-01 本人指定。グラフ操作の直後に目が行く位置） */}
-      <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
-        <Undo2 />
-      </IconButton>
-      {engineDown && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-              <i className="inline-block size-2 flex-shrink-0 rounded-full bg-text-lo" />
-              エンジン停止中
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="whitespace-pre-line">
-            {`最終確認: ${engineStatus?.lastSeen ?? "-"}\n起動: pnpm --filter @graphwrangler/engine start`}
-          </TooltipContent>
-        </Tooltip>
-      )}
+      <div className="flex flex-1 items-center gap-3">
+        {/* モバイルではロゴを隠して捕獲欄の幅を確保する */}
+        <div className="font-semibold max-md:hidden">GraphWrangler</div>
+        {/* 元に戻すはタイトルの右（2026-08-01 本人指定。グラフ操作の直後に目が行く位置） */}
+        <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
+          <Undo2 />
+        </IconButton>
+        {engineDown && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                <i className="inline-block size-2 flex-shrink-0 rounded-full bg-text-lo" />
+                エンジン停止中
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="whitespace-pre-line">
+              {`最終確認: ${engineStatus?.lastSeen ?? "-"}\n起動: pnpm --filter @graphwrangler/engine start`}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       {/* 旧「あなたの番 N」＝受信箱があった場所。数を数える箱をやめ、ゴールを投げ込む口にした */}
-      <div className="flex flex-1 justify-center px-2">
+      <div className="flex w-full min-w-0 max-w-md justify-center px-2">
         <GoalCapture onCapture={onCaptureGoal} />
       </div>
-      <IconButton title="全ノード検索 (Ctrl+K)" onClick={() => openPalette()}>
-        <Search />
-      </IconButton>
-      <IconButton title="ショートカット一覧 (?)" onClick={() => openShortcuts()}>
-        <Keyboard />
-      </IconButton>
-      <ThemeToggle />
-      <IconButton title="AI設定" onClick={onOpenSettings}>
-        <Settings />
-      </IconButton>
-      <IconButton title="Workflow AI とチャット" onClick={onToggleChat} active={chatOpen}>
-        <Icon name="chat" size={16} />
-      </IconButton>
+      <div className="flex flex-1 items-center justify-end gap-3">
+        <IconButton title="全ノード検索 (Ctrl+K)" onClick={() => openPalette()}>
+          <Search />
+        </IconButton>
+        {/* キーボードショートカットはモバイルでは無意味なので隠す */}
+        <span className="max-md:hidden">
+          <IconButton title="ショートカット一覧 (?)" onClick={() => openShortcuts()}>
+            <Keyboard />
+          </IconButton>
+        </span>
+        <ThemeToggle />
+        <IconButton title="AI設定" onClick={onOpenSettings}>
+          <Settings />
+        </IconButton>
+        <IconButton title="Workflow AI とチャット" onClick={onToggleChat} active={chatOpen}>
+          <Icon name="chat" size={16} />
+        </IconButton>
+      </div>
     </header>
   );
 }
