@@ -193,9 +193,12 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
         <IconButton title="AI設定" onClick={onOpenSettings}>
           <Settings />
         </IconButton>
-        <IconButton title="Workflow AI とチャット" onClick={onToggleChat} active={chatOpen}>
-          <Icon name="chat" size={16} />
-        </IconButton>
+        {/* モバイルでは下部タブバーの「チャット」と重複するので隠す（2026-08-02 本人指示） */}
+        <span className="max-md:hidden">
+          <IconButton title="Workflow AI とチャット" onClick={onToggleChat} active={chatOpen}>
+            <Icon name="chat" size={16} />
+          </IconButton>
+        </span>
       </div>
     </header>
   );

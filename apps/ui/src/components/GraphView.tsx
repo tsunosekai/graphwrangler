@@ -881,7 +881,8 @@ function GraphViewInner({
     // isolate: ツールバー（absolute + z-10）のスタッキングをこのペイン内に閉じ込め、
     // 幅が狭いときに右のパネル群（NodePanel/BulkPanel/ChatDrawer）へ被らないようにする
     <div ref={paneRef} className={`graph-pane relative isolate min-w-0 flex-1${realigning ? " realigning" : ""}`}>
-      <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
+      {/* max-md: 右端も止めて折り返す（モバイルでボタンが画面外へはみ出さないように。2026-08-02） */}
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-2 max-md:right-3 max-md:flex-wrap">
         {pageNode && (
           <Button
             type="button"

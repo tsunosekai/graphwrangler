@@ -357,12 +357,24 @@ body {
    各ペインの幅はコンポーネントがインライン style で持つ（デスクトップのリサイズ可能幅）ため
    !important で全幅に上書きする */
 @media (max-width: 767px) {
+  /* 基準フォントを縮めて画面あたりの情報量を増やす（Tailwind は rem ベースなので
+     ここ1箇所で全体が約 19% 縮む。2026-08-02 本人指示「文字をもっと小さくして」） */
+  html {
+    font-size: 13px;
+  }
   [data-mobile-panel] {
     width: 100% !important;
     max-width: 100%;
     flex: 1 1 auto;
     border-left: none;
     border-right: none;
+  }
+  /* 横幅に入りきらない操作行は折り返す（進捗ボタン行・タブ行など。
+     2026-08-02 本人指摘「要素が横幅的に入りきってない」） */
+  [data-mobile-panel] .flex.items-center.justify-between,
+  [data-mobile-panel] .flex.items-center.gap-2 {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
   }
   /* 幅リサイズはタッチと相性が悪く、全幅固定なので不要 */
   [data-mobile-panel] .resize-handle {

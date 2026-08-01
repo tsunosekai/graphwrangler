@@ -36,7 +36,9 @@ export function MobileNav({ view, nodeEnabled, nodeLabel, onChange }: Props) {
             type="button"
             disabled={disabled}
             className={cn(
-              "flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
+              // min-w-0: flex-1 の等分を長いノード名が壊さないように（truncate を効かせる。
+              // 2026-08-02 本人指摘「文字長すぎる奴ある」）
+              "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
               active ? "text-ai" : "text-muted-foreground",
               disabled && "opacity-40",
             )}
