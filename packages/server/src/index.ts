@@ -418,7 +418,12 @@ app.post("/api/nodes/:id/decide/revert", async (c) => {
 // 「ルーティーンであること」はページ種別ではなく先頭のトリガーノードから導出する。
 // トリガーが発火すると、その group ページで createFromTrigger によりランが1本生成される。
 
-const FireSchema = z.object({ via: z.string().min(1).optional() });
+const FireSchema = z.object({
+  via: z.string().min(1).optional(),
+  /** ランの名前（作品名など）。同じルーティーンを並列で回すとき（パラレルワールド）に
+   *  どの世界線か区別するためのラベル。省略時は「MM/DD HH:mm のラン」 */
+  title: z.string().min(1).optional(),
+});
 
 /** トリガーノードを発火し、その group ページでランを作成する。トリガーのスレッドへ
  *  「発火: <run.title>」を payload {runId} 付きで記録する */
@@ -426,7 +431,7 @@ app.post("/api/nodes/:id/fire", async (c) => {
   const id = c.req.param("id");
   const trigger = graph.get(id);
   const body = await c.req.json().catch(() => ({}));
-  const { via } = FireSchema.parse(body);
+  const { via, title } = FireSchema.parse(body);
   const m = meta(body);
   if (trigger.kind !== "trigger") {
     throw new GraphError(`node ${trigger.id} is not a trigger (kind=${trigger.kind})`, 400);
@@ -437,7 +442,7 @@ app.post("/api/nodes/:id/fire", async (c) => {
   }
   const members = graph.state().nodes.filter((n) => n.group === pageId);
   const run = runs.createFromTrigger(pageId, trigger.id, members, {
-    title: defaultRunTitle(),
+    title: title ?? defaultRunTitle(),
     via: via ?? "manual",
   });
   threads.post(trigger.id, {
@@ -537,6 +542,14 @@ app.post("/api/runs/:id/items/:nodeId/decide", async (c) => {
     });
   }
   return c.json(updated);
+});
+
+const RenameRunSchema = z.object({ title: z.string().min(1) });
+
+/** ラン名の変更（並列ラン=世界線の区別用ラベル） */
+app.post("/api/runs/:id/rename", async (c) => {
+  const { title } = RenameRunSchema.parse(await c.req.json());
+  return c.json(runs.rename(c.req.param("id"), title));
 });
 
 app.post("/api/runs/:id/cancel", (c) => {

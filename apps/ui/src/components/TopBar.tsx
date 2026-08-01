@@ -152,6 +152,10 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
   return (
     <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b bg-background px-4">
       <div className="font-semibold">GraphWrangler</div>
+      {/* 元に戻すはタイトルの右（2026-08-01 本人指定。グラフ操作の直後に目が行く位置） */}
+      <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
+        <Undo2 />
+      </IconButton>
       {engineDown && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -169,9 +173,6 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
       <div className="flex flex-1 justify-center px-2">
         <GoalCapture onCapture={onCaptureGoal} />
       </div>
-      <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
-        <Undo2 />
-      </IconButton>
       <IconButton title="全ノード検索 (Ctrl+K)" onClick={() => openPalette()}>
         <Search />
       </IconButton>

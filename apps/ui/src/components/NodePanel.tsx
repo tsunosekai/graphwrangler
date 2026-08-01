@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { api, type NodePatchInput } from "../lib/api";
+import { confirmDialog } from "../lib/dialogs";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
@@ -42,8 +43,6 @@ interface Props {
   onClose: () => void;
   /** ノード複製後に新規ノードを選択するため。ページ切替も面倒を見る App.selectNode を渡す */
   onSelect: (id: string) => void;
-  /** グラフ上での複数選択件数。2以上の時だけ「他N件選択中」を出す */
-  selectedCount?: number;
 }
 
 // 種別はノードの3種のみ（ゴールはページなので選択肢に出さない。現在値がゴール等の時だけ表示）
@@ -180,7 +179,7 @@ function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: s
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
-export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSelect, selectedCount }: Props) {
+export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSelect }: Props) {
   const [tab, setTab] = useState<"talk" | "history">("talk");
   // ノード詳細は既定で開いておく（2026-07-31 本人指定）。会話に集中したいときだけ
   // タブ行右端の「会話を広げる」で閉じる。開閉はリロードを跨いで保持
@@ -380,13 +379,13 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
 
   // 昇格時警告（ハードブロックしない。docs/design.md 3.5 近く）: 担当をscriptに変更する時、
   // または担当=scriptのノードで「プラン済みにする」を押す時、試走が ok でなければ確認する
-  const confirmPromotionIfNeeded = (): boolean => {
+  const confirmPromotionIfNeeded = async (): Promise<boolean> => {
     if (implStatus === "ok") return true;
-    return window.confirm(TRIAL_CONFIRM_MESSAGE);
+    return confirmDialog(TRIAL_CONFIRM_MESSAGE, { confirmLabel: "続ける" });
   };
 
   const handleExecutorChange = async (v: Node["executor"]) => {
-    if (v === "script" && !confirmPromotionIfNeeded()) return;
+    if (v === "script" && !(await confirmPromotionIfNeeded())) return;
     await patch({ executor: v });
   };
 
@@ -457,13 +456,11 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   // 分岐の選び直し（手戻り。docs/design.md 3.9）: choice を取り消し、この決着に由来する
   // skip を復元する。下流で進んだ作業（done）は戻らないので確認を挟む
   const revertDecision = async () => {
-    if (
-      !window.confirm(
-        "分岐を選び直しますか？\nスキップされた枝は待ちに戻ります（進んだ作業は戻りません）",
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmDialog(
+      "分岐を選び直しますか？\nスキップされた枝は待ちに戻ります（進んだ作業は戻りません）",
+      { confirmLabel: "選び直す" },
+    );
+    if (!ok) return;
     try {
       await api.revertDecision(node.id);
       onMutated();
@@ -475,7 +472,11 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`「${node.title || "（無題）"}」を削除しますか？`)) return;
+    const ok = await confirmDialog(`「${node.title || "（無題）"}」を削除しますか？`, {
+      danger: true,
+      confirmLabel: "削除",
+    });
+    if (!ok) return;
     try {
       await api.removeNode(node.id);
       onMutated();
@@ -578,11 +579,6 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
           <X />
         </Button>
       </div>
-
-      {/* 複数選択中: このノードは代表表示のみで、実際は他にも選択がある旨を示す */}
-      {selectedCount != null && selectedCount > 1 && (
-        <span className="-mt-2 text-xs text-muted-foreground">他 {selectedCount - 1} 件選択中</span>
-      )}
 
       {/* decision ノード: choice 未確定なら分岐を選ぶボタン列、確定済みなら選択結果（docs/design.md 3.9）。
           human分岐はエンジンが開く判断リクエスト(Threadタブ)でも回答できるが、ここから直接 /decide も正 */}
@@ -788,6 +784,31 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                 ラン（status==="running"の最新1本）がある間だけ**、その進捗をプロジェクトと
                 同じ見た目・同じ操作で投影する（2026-07-31 本人合意）。ランが無ければ従来の注記のまま
                 （2026-07-31 本人質問「実行後も待ちのまま」対応） */}
+            {/* ルーティーンのテンプレートでも「プラン済みにする」は出す——これは進捗ではなく
+                計画（lifecycle）の操作で、committed でないテンプレートはエンジンが実行しない
+                （2026-08-01 本人指摘「プラン済みにするボタンがないノードがある」） */}
+            {node.kind !== "trigger" &&
+              node.group != null &&
+              allNodes.some((n) => n.kind === "trigger" && n.group === node.group) &&
+              (node.lifecycle === "draft" || node.status === "unplanned") && (
+                <div className="col-span-2 flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">
+                    {node.lifecycle === "draft" ? "下書き（未確定）" : "未計画"}
+                  </span>
+                  <span className="flex-1" />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
+                      patch({ status: "pending", lifecycle: "committed" });
+                    }}
+                  >
+                    プラン済みにする
+                  </Button>
+                </div>
+              )}
             {node.kind !== "trigger" &&
               node.group != null &&
               allNodes.some((n) => n.kind === "trigger" && n.group === node.group) &&
@@ -906,8 +927,8 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
                     <span className="flex-1" />
                     {(vs === "unplanned" || node.lifecycle === "draft") && (
                       <Button type="button" variant="outline" size="sm"
-                        onClick={() => {
-                          if (node.executor === "script" && !confirmPromotionIfNeeded()) return;
+                        onClick={async () => {
+                          if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
                           patch({ status: "pending", lifecycle: "committed" });
                         }}>
                         プラン済みにする

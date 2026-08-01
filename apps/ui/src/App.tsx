@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BulkPanel } from "./components/BulkPanel";
 import { ChatDrawer } from "./components/ChatDrawer";
+import { DialogHost } from "./components/DialogHost";
 import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
 import { NodePanel } from "./components/NodePanel";
@@ -40,8 +42,8 @@ export default function App() {
   useEffect(() => saveUiState("gw.selectedId", selectedId), [selectedId]);
   useEffect(() => saveUiState("gw.pageId", pageIdRaw), [pageIdRaw]);
   useEffect(() => saveUiState("gw.chatOpen", chatOpen ? "1" : "0"), [chatOpen]);
-  // ノードエディタ標準の複数選択: グラフ上での選択件数。NodePanel の「他N件選択中」表示に使う
-  const [selectionCount, setSelectionCount] = useState(0);
+  // ノードエディタ標準の複数選択: 選択中の id 一覧。2件以上で一括編集パネル（BulkPanel）を出す
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
   // 未読バッジ用のノードごとの最終メッセージ時刻
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
@@ -68,42 +70,65 @@ export default function App() {
     () => folders.filter((f) => isRoutinePage(f, nodes)).map((f) => f.id),
     [folders, nodes],
   );
-  const { data: latestRuns } = usePolling(async (): Promise<Record<string, Run | null>> => {
+  const { data: pageRunInfo } = usePolling(async (): Promise<
+    Record<string, { latest: Run | null; running: number }>
+  > => {
     if (routinePageIds.length === 0) return {};
     const entries = await Promise.all(
       routinePageIds.map(async (id) => {
         try {
           const { runs } = await api.listRuns(id);
-          return [id, runs[0] ?? null] as const;
+          return [
+            id,
+            { latest: runs[0] ?? null, running: runs.filter((r) => r.status === "running").length },
+          ] as const;
         } catch {
-          return [id, null] as const;
+          return [id, { latest: null, running: 0 }] as const;
         }
       }),
     );
     return Object.fromEntries(entries);
   }, 5000);
+  const latestRuns = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(pageRunInfo ?? {}).map(([id, info]) => [id, info.latest]),
+      ) as Record<string, Run | null>,
+    [pageRunInfo],
+  );
+  // 実行中ラン数（並走中の世界線の数）。左レールのバッジ表示に使う
+  const runningCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(pageRunInfo ?? {}).map(([id, info]) => [id, info.running]),
+      ) as Record<string, number>,
+    [pageRunInfo],
+  );
 
-  // ---- アクティブなラン（docs/design.md 3.8: トリガー起点のルーティーン。グラフ投影用）。
-  //      「最新ラン」（上の latestRuns。状態不問。PageList のちょぼ用）とは別物——ここで欲しいのは
-  //      「現在表示中のページの、status==="running" な最新1本」。複数ランが並走中でも
-  //      running のものだけを対象にする（他は台帳ビューで見る想定。design.md 3.8）。
-  //      現在ページだけを見れば良いので、全ルーティーンページを N+1 取得する latestRuns とは
-  //      別に軽量ポーリングする ----
+  // ---- 実行中ラン一覧（docs/design.md 3.8: トリガー起点のルーティーン。グラフ投影用）。
+  //      「最新ラン」（上の latestRuns。状態不問。PageList のちょぼ用）とは別物。
+  //      同じルーティーンは並列で回せる（パラレルワールド: 同じテンプレートグラフ・別のラン状態）
+  //      ため、現在ページの status==="running" を全部持ち、どの世界線をグラフに投影するかを
+  //      projectedRunId で選ぶ（切替UIは GraphView のツールバー。既定は最新の1本） ----
   const isCurrentPageRoutine = pageNode ? isRoutinePage(pageNode, nodes) : false;
-  const { data: activeRun, refresh: refreshActiveRun } = usePolling(async (): Promise<Run | null> => {
-    if (!pageId || !isCurrentPageRoutine) return null;
+  const { data: runningRunsData, refresh: refreshActiveRun } = usePolling(async (): Promise<Run[]> => {
+    if (!pageId || !isCurrentPageRoutine) return [];
     try {
       const { runs } = await api.listRuns(pageId);
-      // listRuns は新しい順（LedgerView と同じ前提）。running のうち最新の1本を採る
-      return runs.find((r) => r.status === "running") ?? null;
+      // listRuns は新しい順（LedgerView と同じ前提）
+      return runs.filter((r) => r.status === "running");
     } catch {
-      return null;
+      return [];
     }
   }, 3000);
-  // ページを切り替えたら次の3秒ポーリングを待たずに即座に取り直す（切替直後の古い投影を避ける）
+  const runningRuns = useMemo(() => runningRunsData ?? [], [runningRunsData]);
+  const [projectedRunId, setProjectedRunId] = useState<string | null>(null);
+  // ページを切り替えたら投影選択をリセットし、次の3秒ポーリングを待たずに即座に取り直す
   useEffect(() => {
+    setProjectedRunId(null);
     refreshActiveRun();
   }, [pageId, isCurrentPageRoutine, refreshActiveRun]);
+  const activeRun = runningRuns.find((r) => r.id === projectedRunId) ?? runningRuns[0] ?? null;
 
   // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
   // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）
@@ -223,7 +248,8 @@ export default function App() {
           allNodes={nodes}
           pageId={pageId}
           threadMeta={threadMeta}
-          latestRuns={latestRuns ?? {}}
+          latestRuns={latestRuns}
+          runningCounts={runningCounts}
           onSelectPage={(id) => {
             setPageId(id);
             setSelectedId(id);
@@ -234,22 +260,36 @@ export default function App() {
           pageNode={pageNode}
           selectedId={selectedId}
           threadMeta={threadMeta}
-          activeRun={activeRun ?? null}
+          activeRun={activeRun}
+          runningRuns={runningRuns}
+          onProjectRun={setProjectedRunId}
           onSelect={selectNode}
           onMutated={handleMutated}
-          onSelectionCountChange={setSelectionCount}
+          onSelectionIdsChange={setSelectedIds}
         />
-        {selectedNode && (
-          <NodePanel
-            key={selectedNode.id}
-            node={selectedNode}
-            allNodes={nodes}
-            activeRun={activeRun ?? null}
+        {selectedIds.length > 1 ? (
+          <BulkPanel
+            nodes={nodes.filter((n) => selectedIds.includes(n.id))}
+            folders={folders}
+            pageId={pageId}
             onMutated={handleMutated}
-            onClose={() => setSelectedId(null)}
-            onSelect={selectNode}
-            selectedCount={selectionCount}
+            onClose={() => {
+              setSelectedIds([]);
+              setSelectedId(null);
+            }}
           />
+        ) : (
+          selectedNode && (
+            <NodePanel
+              key={selectedNode.id}
+              node={selectedNode}
+              allNodes={nodes}
+              activeRun={activeRun}
+              onMutated={handleMutated}
+              onClose={() => setSelectedId(null)}
+              onSelect={selectNode}
+            />
+          )
         )}
         {chatOpen && (
           <ChatDrawer
@@ -279,6 +319,7 @@ export default function App() {
         />
       )}
       <ToastHost />
+      <DialogHost />
     </div>
   );
 }

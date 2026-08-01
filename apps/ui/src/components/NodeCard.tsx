@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
+import { promptDialog } from "../lib/dialogs";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { Node, RunItemStatus } from "../types";
@@ -114,16 +115,22 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   };
 
   // トリガー手動発火（human executor はこれが唯一の発火経路。script/aiは手動上書きとして使える。
-  // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）
+  // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）。
+  // 同じルーティーンは並列で回せる（パラレルワールド）。ランに名前（作品名など）を
+  // 付けてどの世界線か区別する。プロンプトのキャンセルで発火自体を中止できる
+  // （▶連打の幽霊ラン防止も兼ねる）
   const fire = async () => {
     if (firing) return;
-    // 多重ラン防止（2026-07-31 本人事象: エンジン不在時に▶連打→幽霊ランが溜まり、
-    // 最新ラン完了後に投影が古いランへ切り替わって「完了が戻った」ように見えた）。
-    // アクティブなランがある間（=トリガーに投影 runItem が付いている間）は確認を挟む
-    if (runItem && !window.confirm("進行中のランがあります。もう1本開始しますか？")) return;
+    const title = await promptDialog(
+      runItem
+        ? "進行中のランに加えて、並行で新しいランを開始します。\nランの名前は？（作品名など）"
+        : "ランの名前は？（作品名など）",
+      { placeholder: "空欄なら日時", confirmLabel: "発火" },
+    );
+    if (title === null) return; // キャンセル = 発火しない
     setFiring(true);
     try {
-      const run = await api.fireTrigger(node.id);
+      const run = await api.fireTrigger(node.id, { title: title.trim() || undefined });
       pushToast(`発火しました: ${run.title}`, "info");
     } catch {
       // api() 側でトースト表示済み
@@ -139,22 +146,17 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // 人間に名前で見せる状態は「未計画」だけ（2026-07-31 本人方針: 人間の語彙は未計画かdoneかだけ。
   // 実行中=スピナー/回答待ち=橙ドット/完了=チェック/スキップ=斜線円と、他は絵で伝わっている）
   const showFoot = !isTemplate && node.status === "unplanned";
-  // 実行フェーズの段階式アクション: 未計画 →「プラン済みにする」→ 進行 →「完了」
-  // （decision は「分岐を選ぶ」がパネルにあるので対象外。trigger も対象外）
-  const actionable =
-    !isTemplate && data.isFrontier && node.kind === "task";
-  // 下書き（draft）の間は status に関わらず「プラン済みにする」（確定）が先。
-  // 破線=draft のカードに「完了」が出るのは筋が通らない（2026-07-31 本人指摘の紛れ）。
-  // 「プラン済みにする」は lifecycle:"committed" まで含めた patch（status だけ変えても
-  // draft+pending のノードでは何も起きない、が実際に起きたバグの修正）
-  // トリガーは進捗を持たない（3.8）が lifecycle は持つ。下書きトリガーの確定導線が
-  // 無かったため、カードにも「プラン済みにする」を出す（2026-07-31 本人報告）
+  // 「プラン済みにする」は進捗ではなく計画（lifecycle）の操作なので、テンプレートでも
+  // 順番未到達（frontier前）でも出す（committed でないノードはエンジンが実行しないため、
+  // 確定の導線が無いと詰む。2026-08-01 本人指摘）。「完了」は実行フェーズの操作なので
+  // 従来どおり非テンプレート・frontier・task のみ
+  const canCommit = node.status === "unplanned" || node.lifecycle === "draft";
   const phaseAction =
-    !isTemplate && node.kind === "trigger" && node.lifecycle === "draft"
+    node.kind === "trigger" && node.lifecycle === "draft"
       ? { label: "プラン済みにする", patch: { lifecycle: "committed" } as const }
-      : actionable && (node.status === "unplanned" || node.lifecycle === "draft")
+      : node.kind !== "trigger" && canCommit
         ? { label: "プラン済みにする", patch: { status: "pending", lifecycle: "committed" } as const }
-        : actionable && node.status === "pending"
+        : !isTemplate && data.isFrontier && node.kind === "task" && node.status === "pending"
           ? { label: "完了", patch: { status: "done" } as const }
           : null;
 

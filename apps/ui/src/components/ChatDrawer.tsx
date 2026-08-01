@@ -309,7 +309,9 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
               </div>
             )}
           </div>
-          <div className="flex flex-shrink-0 items-end gap-2 border-t p-4">
+          {/* 入力欄は NodePanel（Task AI）の返信欄と同じ見た目に揃える（境界線なし・テキストボタン。
+              2026-08-01 本人指摘「線が要らない・2つのチャットを合わせて」） */}
+          <div className="flex flex-shrink-0 items-end gap-2 px-4 pb-4">
             <Textarea
               className="flex-1 resize-y"
               value={input}
@@ -323,12 +325,12 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
               }}
             />
             {busy ? (
-              <Button type="button" variant="secondary" size="icon" onClick={() => stop()} title="停止">
-                <Icon name="x" size={15} />
+              <Button type="button" variant="secondary" onClick={() => stop()} title="応答を止める">
+                停止
               </Button>
             ) : (
-              <Button type="button" variant="secondary" size="icon" disabled={!input.trim()} onClick={send}>
-                <Icon name="send" size={15} />
+              <Button type="button" variant="secondary" disabled={!input.trim()} onClick={send}>
+                送信
               </Button>
             )}
           </div>

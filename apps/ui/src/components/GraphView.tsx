@@ -12,6 +12,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api } from "../lib/api";
+import { promptDialog } from "../lib/dialogs";
 import { subscribeOpenShortcuts } from "../lib/palette";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
@@ -19,6 +20,7 @@ import { isRoutinePage } from "../lib/routine";
 import type { Node, Run } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { CutEdge, type CutEdgeData } from "./CutEdge";
 import { LedgerView } from "./LedgerView";
@@ -74,14 +76,17 @@ interface Props {
   selectedId: string | null;
   /** ノードid → 最終メッセージ時刻。未読ドットの判定に使う */
   threadMeta: Record<string, string>;
-  /** アクティブなラン（docs/design.md 3.8: トリガー起点のルーティーン）。
-   *  status==="running" の最新1本。ルーティーンページでない/実行中のランが無い間は null
-   *  （App が算出して渡す）。ある間だけテンプレートのカードにその進捗を投影する */
+  /** グラフに投影中のラン（docs/design.md 3.8）。ルーティーンページでない/実行中のランが
+   *  無い間は null（App が算出して渡す）。ある間だけテンプレートのカードにその進捗を投影する */
   activeRun: Run | null;
+  /** 現在ページの実行中ラン一覧（新しい順）。2本以上並走しているとき（パラレルワールド）、
+   *  ツールバーのセレクトでどの世界線を投影するか切り替える */
+  runningRuns?: Run[];
+  onProjectRun?: (runId: string) => void;
   onSelect: (id: string | null) => void;
   onMutated: () => void;
-  /** 複数選択件数。NodePanel の「他 N件選択中」表示に使う */
-  onSelectionCountChange?: (count: number) => void;
+  /** 選択中ノードの id 一覧（複数選択）。App が一括編集パネル（BulkPanel）の表示に使う */
+  onSelectionIdsChange?: (ids: string[]) => void;
 }
 
 function GraphViewInner({
@@ -90,9 +95,11 @@ function GraphViewInner({
   selectedId,
   threadMeta,
   activeRun,
+  runningRuns = [],
+  onProjectRun,
   onSelect,
   onMutated,
-  onSelectionCountChange,
+  onSelectionIdsChange,
 }: Props) {
   const positionsRef = useRef<Map<string, Pos>>(new Map());
   // 紐を空中に放して作ったノードの「落とした位置」。次のレイアウト再計算時に適用して消す
@@ -122,12 +129,12 @@ function GraphViewInner({
   // クリック由来は onNodeClick が正確な値を lastClickedRef 経由で運ぶ）
   const reportSelection = useCallback(
     (ids: string[]) => {
-      onSelectionCountChange?.(ids.length);
+      onSelectionIdsChange?.(ids);
       const primary = ids.length > 0 ? ids[ids.length - 1] : null;
       lastClickedRef.current = primary;
       onSelect(primary);
     },
-    [onSelect, onSelectionCountChange],
+    [onSelect, onSelectionIdsChange],
   );
 
   // rfNodes の selected フラグをまとめて書き換え、App にも同期する
@@ -161,7 +168,7 @@ function GraphViewInner({
   const handleSelectionChange = useCallback(
     ({ nodes: selNodes }: { nodes: RFNode<NodeCardData>[] }) => {
       const ids = selNodes.map((n) => n.id);
-      onSelectionCountChange?.(ids.length);
+      onSelectionIdsChange?.(ids);
       if (ids.length === 0) return;
       const primary =
         lastClickedRef.current && ids.includes(lastClickedRef.current)
@@ -169,7 +176,7 @@ function GraphViewInner({
           : ids[ids.length - 1];
       onSelect(primary);
     },
-    [onSelect, onSelectionCountChange],
+    [onSelect, onSelectionIdsChange],
   );
 
   // 実測ノードサイズ（React Flow の measured）。整列時に渡すと、ノードの縦幅に
@@ -258,8 +265,8 @@ function GraphViewInner({
       if (pageChanged) {
         // ページ切替時は全体が見える位置へ。「にゅっ」と動かさず即座に（本人指定）
         requestAnimationFrame(() => fitView({ padding: 0.2, duration: 0 }));
-        // 前ページの多重選択は引き継がない（NodePanel の「他N件」表示もリセット）
-        onSelectionCountChange?.(selectedId ? 1 : 0);
+        // 前ページの多重選択は引き継がない
+        onSelectionIdsChange?.(selectedId ? [selectedId] : []);
       }
     }
     // 複数選択(rn.selected)はポーリングのたびに rfNodes を作り直しても消えないよう、
@@ -346,7 +353,7 @@ function GraphViewInner({
     fitView,
     getNodes,
     reportSelection,
-    onSelectionCountChange,
+    onSelectionIdsChange,
   ]);
 
   // 依存の切断。子ノードの parents から source を除く（Ctrl+Zで戻せる: undo は既存の操作ログ経由）。
@@ -850,7 +857,9 @@ function GraphViewInner({
   const showLedger = isRoutine && viewMode === "ledger";
 
   return (
-    <div ref={paneRef} className={`graph-pane relative min-w-0 flex-1${realigning ? " realigning" : ""}`}>
+    // isolate: ツールバー（absolute + z-10）のスタッキングをこのペイン内に閉じ込め、
+    // 幅が狭いときに右のパネル群（NodePanel/BulkPanel/ChatDrawer）へ被らないようにする
+    <div ref={paneRef} className={`graph-pane relative isolate min-w-0 flex-1${realigning ? " realigning" : ""}`}>
       <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
         {pageNode && (
           <Button
@@ -870,6 +879,52 @@ function GraphViewInner({
               <TabsTrigger value="ledger">台帳</TabsTrigger>
             </TabsList>
           </Tabs>
+        )}
+        {/* 並列ラン（パラレルワールド）の世界線切替: 2本以上並走中はどのランを投影するか選ぶ。
+            1本だけのときも「今どのランを見ているか」が分かるようタイトルを出す */}
+        {!showLedger && runningRuns.length > 1 && activeRun && (
+          <Select value={activeRun.id} onValueChange={(v) => onProjectRun?.(v)}>
+            <SelectTrigger className="h-9 max-w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {runningRuns.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {!showLedger && runningRuns.length === 1 && activeRun && (
+          <Badge variant="secondary" title="投影中の実行中ラン">
+            ▶ {activeRun.title}
+          </Badge>
+        )}
+        {/* 投影中ランの名前を後から編集（並列ラン=世界線の区別用ラベル） */}
+        {!showLedger && activeRun && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            title="ラン名を変更"
+            onClick={() => {
+              void (async () => {
+                const title = await promptDialog("ランの名前", {
+                  defaultValue: activeRun.title,
+                  confirmLabel: "変更",
+                });
+                if (title === null) return;
+                const trimmed = title.trim();
+                if (!trimmed || trimmed === activeRun.title) return;
+                await api.renameRun(activeRun.id, trimmed);
+                onMutated();
+              })();
+            }}
+          >
+            ✎
+          </Button>
         )}
         {!showLedger && (
           <>
@@ -913,7 +968,7 @@ function GraphViewInner({
           onSelectionChange={handleSelectionChange}
           onPaneClick={() => {
             onSelect(null);
-            onSelectionCountChange?.(0);
+            onSelectionIdsChange?.([]);
             setSelectedEdgeId(null);
           }}
           onDoubleClick={handlePaneDoubleClick}

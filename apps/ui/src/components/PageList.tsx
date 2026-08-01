@@ -29,6 +29,8 @@ interface Props {
   threadMeta: Record<string, string>;
   /** ページ id → 最新ラン（App 側でポーリング済み） */
   latestRuns: Record<string, Run | null>;
+  /** ページ id → 実行中ラン数（並走中の世界線の数。0は非表示） */
+  runningCounts: Record<string, number>;
   onSelectPage: (id: string) => void;
 }
 
@@ -62,7 +64,7 @@ function seatColor(status: Status, executor: Node["executor"]): string {
 const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
-export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, onSelectPage }: Props) {
+export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, runningCounts, onSelectPage }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -171,6 +173,15 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, on
             <StatusCircle status={f.status} size={12} />
           )}
           <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
+          {/* 実行中のラン数（並走中の世界線）。1本でも「回っている」ことが分かるように出す */}
+          {routine && (runningCounts[f.id] ?? 0) > 0 && (
+            <span
+              className="flex-shrink-0 rounded border border-ai/40 px-1 text-[10px] leading-4 text-ai"
+              title={`実行中のラン ${runningCounts[f.id]} 本`}
+            >
+              ▶ {runningCounts[f.id]}
+            </span>
+          )}
           {unreadCount > 0 && (
             <span
               className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white"

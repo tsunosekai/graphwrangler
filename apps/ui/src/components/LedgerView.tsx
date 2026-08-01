@@ -4,6 +4,7 @@
 // サーバAPI（/api/runs/...）へ委ね、このコンポーネントは表示とトグルだけを持つ。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { promptDialog } from "../lib/dialogs";
 import { usePolling } from "../hooks/usePolling";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
@@ -173,9 +174,15 @@ export function LedgerView({ page, members, onMutated }: Props) {
 
   const startRun = useCallback(async () => {
     if (!triggerNode) return;
+    // 並列ラン（パラレルワールド）の区別用に名前を付けられる。キャンセルで発火中止
+    const title = await promptDialog("ランの名前は？（作品名など）", {
+      placeholder: "空欄なら日時",
+      confirmLabel: "発火",
+    });
+    if (title === null) return;
     setStarting(true);
     try {
-      const run = await api.fireTrigger(triggerNode.id);
+      const run = await api.fireTrigger(triggerNode.id, { title: title.trim() || undefined });
       await refreshRuns();
       setSelectedRunId(run.id);
       onMutated();
@@ -191,6 +198,21 @@ export function LedgerView({ page, members, onMutated }: Props) {
     await refreshRuns();
     onMutated();
   }, [selectedRunId, refreshRuns, onMutated]);
+
+  // ラン名の後編集（並列ラン=世界線の区別用ラベル）
+  const renameSelected = useCallback(async () => {
+    if (!selectedRun) return;
+    const title = await promptDialog("ランの名前", {
+      defaultValue: selectedRun.title,
+      confirmLabel: "変更",
+    });
+    if (title === null) return;
+    const trimmed = title.trim();
+    if (!trimmed || trimmed === selectedRun.title) return;
+    await api.renameRun(selectedRun.id, trimmed);
+    await refreshRuns();
+    onMutated();
+  }, [selectedRun, refreshRuns, onMutated]);
 
   const toggleCell = useCallback(
     async (runId: string, nodeId: string, current: RunItemStatus) => {
@@ -314,7 +336,19 @@ export function LedgerView({ page, members, onMutated }: Props) {
       {selectedRun && (
         <div className="flex max-h-[34%] flex-shrink-0 flex-col border-t border-border bg-muted">
           <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-3.5 py-2 text-xs font-semibold text-muted-foreground">
-            <span>トレース: {selectedRun.title}</span>
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="truncate">トレース: {selectedRun.title}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-muted-foreground"
+                title="ラン名を変更"
+                onClick={() => void renameSelected()}
+              >
+                ✎
+              </Button>
+            </span>
             <Button
               type="button"
               variant="outline"

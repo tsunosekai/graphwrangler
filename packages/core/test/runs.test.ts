@@ -264,3 +264,16 @@ describe("RunStore.applyItemDecision: 実行フェーズゲート", () => {
     expect(updated.items[decision.id].choice).toBe("a");
   });
 });
+
+describe("RunStore.rename", () => {
+  it("ランの名前を後から変更できる（他フィールドは不変）", () => {
+    const runs = new RunStore(dir);
+    const { page, trigger } = setupTriggerPage();
+    const run = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id), { title: "作品A" });
+    const renamed = runs.rename(run.id, "作品A（改）");
+    expect(renamed.title).toBe("作品A（改）");
+    expect(renamed.items).toEqual(run.items);
+    expect(renamed.status).toBe(run.status);
+    expect(runs.get(run.id).title).toBe("作品A（改）");
+  });
+});

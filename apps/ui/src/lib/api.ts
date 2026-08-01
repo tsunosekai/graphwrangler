@@ -183,11 +183,12 @@ export const api = {
 
   // ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 
-  /** トリガーを発火し、そのページ(group)でランを1本作る。via 省略時はサーバ既定の "manual" */
-  fireTrigger: (nodeId: string, via?: string) =>
+  /** トリガーを発火し、そのページ(group)でランを1本作る。title はランの名前（作品名など。
+   *  並列ランの区別用）。via 省略時はサーバ既定の "manual" */
+  fireTrigger: (nodeId: string, opts: { via?: string; title?: string } = {}) =>
     withSelfRead(nodeId, request<Run>(`/nodes/${nodeId}/fire`, {
       method: "POST",
-      body: JSON.stringify(via ? { via } : {}),
+      body: JSON.stringify(opts),
     })),
 
   // ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----
@@ -198,6 +199,9 @@ export const api = {
 
   patchRunItem: (runId: string, nodeId: string, input: { status?: RunItemStatus; note?: string | null }) =>
     withSelfRead(nodeId, request<Run>(`/runs/${runId}/items/${nodeId}`, { method: "POST", body: JSON.stringify(input) })),
+
+  renameRun: (runId: string, title: string) =>
+    request<Run>(`/runs/${runId}/rename`, { method: "POST", body: JSON.stringify({ title }) }),
 
   cancelRun: (runId: string) =>
     request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
