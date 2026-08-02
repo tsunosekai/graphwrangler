@@ -123,6 +123,9 @@ function GraphViewInner({
   const pendingSelectRef = useRef<Set<string> | null>(null);
   // 直近クリックしたノードid。onSelectionChange の「最後に選択されたノード」推定を補強する
   const lastClickedRef = useRef<string | null>(null);
+  /** 直近に App へ報告した選択 id 一覧。App 側の selectedId がこれに含まれない＝
+   *  グラフ以外（レールのプロジェクト選択・パネルの✕など）から選択が変えられた、の判定に使う */
+  const reportedIdsRef = useRef<string[]>([]);
   const sigRef = useRef<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rfNodes, setRfNodes] = useState<RFNode<NodeCardData>[]>([]);
@@ -148,6 +151,7 @@ function GraphViewInner({
   // クリック由来は onNodeClick が正確な値を lastClickedRef 経由で運ぶ）
   const reportSelection = useCallback(
     (ids: string[]) => {
+      reportedIdsRef.current = ids;
       onSelectionIdsChange?.(ids);
       const primary = ids.length > 0 ? ids[ids.length - 1] : null;
       lastClickedRef.current = primary;
@@ -192,6 +196,7 @@ function GraphViewInner({
       // Aのノード詳細に戻される」ねじれ。2026-08-02 本人報告）
       const valid = new Set(nodes.map((n) => n.id));
       const ids = selNodes.map((n) => n.id).filter((id) => valid.has(id));
+      reportedIdsRef.current = ids;
       onSelectionIdsChange?.(ids);
       if (ids.length === 0) return;
       const primary =
@@ -389,8 +394,13 @@ function GraphViewInner({
     // ただし選択解除中（selectedId=null）は引き継がない——内部ストアへの反映は非同期のため、
     // ✕で閉じた直後の再構築が古い selected を復活させ、後続の操作でパネルが勝手に開き直す
     // （2026-07-31 本人報告・1回目の修正で残った経路）
+    // App 側から選択が変えられた（レールでプロジェクトを選んだ・✕で閉じた等、
+    // グラフが報告していない id になった）ときも引き継がない。引き継ぐと React Flow が
+    // 「まだ前のノードが選択中」と selection-change で言い直し、プロジェクト詳細が一瞬で
+    // ノード詳細に戻る／✕で閉じてもすぐ開き直す（2026-08-02 本人報告）
+    const fromOutside = selectedId !== null && !reportedIdsRef.current.includes(selectedId);
     const prevSelected =
-      selectedId === null
+      selectedId === null || fromOutside
         ? new Set<string>()
         : new Set(getNodes().filter((n) => n.selected).map((n) => n.id));
     // 貼り付け/複製で作った新規ノードが今回のポーリングで初めて出現したら、選択状態にする
