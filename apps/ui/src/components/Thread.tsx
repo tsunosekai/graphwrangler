@@ -69,11 +69,13 @@ export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated 
     (m) => !(m.kind === "decision_request" && m.requestStatus === "open"),
   );
 
-  // 「ここから未読」区切りの位置: 前回既読より新しい最初のメッセージ。
-  // 既読記録が無い（初見）または全部既読なら出さない。全部未読のとき（先頭）は
-  // バッジの理由が「スレッド自体が新しい」なので、これも区切りとしては出す
+  // 「ここから未読」区切りの位置: 前回既読より新しい最初のメッセージ。全部既読なら出さない。
+  // **既読記録が無い（この端末では初見）ときは全部未読として先頭に出す**——カード/レールの
+  // 未読バッジが初見を未読と数えている（GraphView: !readTs || lastMsgTs > readTs）ので、
+  // ここで抑制すると「バッジは付いているのに開いても何も無い」になる（2026-08-02 本人報告）。
+  // 既読は端末ごと（localStorage）なので、PC で読んだノードもスマホでは初見になる
   const firstUnreadIndex =
-    unreadSince != null ? flow.findIndex((m) => m.ts > unreadSince) : -1;
+    unreadSince !== undefined ? flow.findIndex((m) => m.ts > (unreadSince ?? "")) : -1;
 
   useEffect(() => {
     const el = bodyRef.current;

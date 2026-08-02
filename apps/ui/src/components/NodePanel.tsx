@@ -584,9 +584,10 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   // 3タブのどれに入るかを示す＝どのタブを見ればいいかが分かる。判定は Thread の
   // 「ここから未読」区切りと同じ unreadSince（パネルを開いた時点の前回既読時刻）基準なので、
   // 開いている間はタブを見に行っても消えない（区切り線と足並みを揃える）
+  // 既読記録が無い（この端末では初見）ときは全部未読扱い。カード/レールのバッジと同じ規約に
+  // 揃える（揃えないと「バッジは付いているのに開いてもちょぼが無い」になる。2026-08-02 本人報告）
   const hasUnreadIn = (t: "talk" | "history" | "log") =>
-    unreadSince != null &&
-    (t === "talk" ? talkSource : messages).some((m) => m.ts > unreadSince && inTab(m, t));
+    (t === "talk" ? talkSource : messages).some((m) => m.ts > (unreadSince ?? "") && inTab(m, t));
 
   const startNewTalk = async () => {
     await fetch(`/api/nodes/${node.id}/messages`, {
