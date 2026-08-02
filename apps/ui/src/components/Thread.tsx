@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, MessageSquare } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
@@ -188,14 +188,20 @@ export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated 
           );
         })}
       </div>
+      {/* 畳んでいる間は入力欄を一切出さず、開くボタンだけ（2026-08-02 本人指示
+          「まだチャット欄少し映ってる。開くボタンだけでいいよ」——横幅いっぱいの点線枠は
+          入力欄に見えるので、内容ぶんの幅の小さなボタンにする） */}
       {showReplyBox && !replyExpanded && (
-        <button
+        <Button
           type="button"
-          className="flex-shrink-0 rounded-md border border-dashed border-border-strong px-3 py-1.5 text-left text-sm text-muted-foreground"
+          variant="outline"
+          size="sm"
+          className="flex-shrink-0 self-start text-muted-foreground"
           onClick={() => setReplyOpen(true)}
         >
-          {openRequests.length > 0 ? "聞き返す・相談する…" : "返信を書く…"}
-        </button>
+          <MessageSquare className="size-3.5" />
+          {openRequests.length > 0 ? "聞き返す" : "返信"}
+        </Button>
       )}
       {showReplyBox && replyExpanded && (
         <div className="flex flex-shrink-0 items-end gap-2">
