@@ -57,6 +57,7 @@ data/
 ├── ops.jsonl            … グラフ変更の操作ログ（追記専用・帰属付き）
 ├── snapshot.json        … 現在のグラフ状態（操作適用後に毎回書く。ops.jsonl から再構築可能）
 ├── settings.json        … AI設定（接続方式・モデル・APIキー。キーは書き込み専用で読み出さない）
+├── reads.json           … ノードごとの既読時刻（未読バッジ用。端末間で共有するためサーバ持ち）
 ├── threads/<node>.jsonl … ノードスレッド（追記専用）
 ├── chats/global.json    … Workflow AI の会話履歴（1本のグローバル会話。archive で過去分を退避。2026-08-02 にページ単位を廃止、旧 chats/<page>.json は遺構）
 └── runs/<run>.json      … ラン（実行インスタンス。5.5）
@@ -64,8 +65,8 @@ data/
 
 これは既定の data-dir モード。既存リポジトリを開くワークスペースモード（3.10）では、
 上記の代わりに正データファイル（`<repo>/workflow.gw.json`）+ サイドカー `.graphwrangler/`
-（threads/ と chats/ はコミット対象、ops.jsonl・runs/・settings.json は自動生成の
-.gitignore で除外）という配置になる。
+（threads/ と chats/ はコミット対象、ops.jsonl・runs/・settings.json・reads.json は
+自動生成の .gitignore で除外）という配置になる。
 
 ## 3. 大原則
 
@@ -319,11 +320,12 @@ impl.command はワークスペースルートからの相対パスで書く。�
 <repo>/
 ├── workflow.gw.json        ← 正データ（グラフ定義）。人がレビュー/コミットする対象
 ├── .graphwrangler/         ← サイドカー（サーバが自動生成）
-│   ├── .gitignore          ← 自動生成（ops.jsonl / runs/ / settings.json を除外）
+│   ├── .gitignore          ← 自動生成（ops.jsonl / runs/ / settings.json / reads.json を除外）
 │   ├── threads/*.jsonl     ← 会話・判断の経緯。コミットする
 │   ├── chats/global.json   ← Workflow AI の会話履歴（グローバル1本）。同じ理由でコミットする
 │   ├── runs/*.json         ← ラン履歴。gitignore
 │   ├── ops.jsonl           ← セッション内 undo 用の作業記録。gitignore
+│   ├── reads.json          ← 既読時刻（個人の閲覧状態。活動の記録ではない）。gitignore
 │   └── settings.json       ← AI設定（APIキー含む）。gitignore
 └── docs/ ...               ← 既存ドキュメント。ノードから impl.path で参照
 ```
@@ -391,7 +393,9 @@ impl.command はワークスペースルートからの相対パスで書く。�
 - **エンジン稼働表示**: 平常時は何も出さず、エンジンが止まっているときだけ警告を出す
 - **道具立て**: Ctrl+K の全ノード検索パレット / ショートカット一覧（?）/ Undo・Redo（Ctrl+Z）/
   複数選択・コピー・複製・エッジ切断などのノードエディタ標準操作 / ライト・ダーク・
-  システムのテーマ切替 / エクスポート / 未読バッジ（自分の操作で付いた記録は既読扱い）/
+  システムのテーマ切替 / エクスポート / 未読バッジ（自分の操作で付いた記録は既読扱い。
+  既読時刻はサーバ持ち＝PC で読めばスマホでも既読。GET /api/state の reads と
+  POST /api/reads。既読は巻き戻さない=max を採る）/
   デスクトップ通知（タブが非表示のときだけ）
 - **一括編集（BulkPanel）**: 2件以上選択するとノードパネルの位置に一括編集パネルが出る。
   対象は一括で意味のあるプロパティのみ——担当 / 実行前承認（AI・スクリプト担当のみ）/

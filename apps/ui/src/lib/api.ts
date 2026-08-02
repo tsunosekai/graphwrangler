@@ -103,19 +103,25 @@ export interface SettingsPatch {
   setupDone?: boolean;
 }
 
+/** 既読時刻をサーバへ送る（2026-08-02 localStorage から移行。PC で読んだノードが
+ *  スマホでは全部未読になっていたため）。未読は補助機能なので失敗は握り潰す＝
+ *  投げっぱなしでよく、呼び出し側は await しない */
+export function postReads(marks: Record<string, string>): void {
+  void request<{ reads: Record<string, string> }>("/reads", {
+    method: "POST",
+    body: JSON.stringify({ marks }),
+  }).catch(() => {
+    // 無視（次に開いたときの mark でまた進む）
+  });
+}
+
 /** 自分の操作に伴う機械の記録メッセージ（状態遷移・試走結果等）で未読バッジが
  *  付かないよう、操作したノードを少し先の時刻まで既読扱いにする（2026-07-31 本人指摘
  *  「完了を自分で押した奴は青バッジ通知来なくていい」）。5秒のマージンは操作の直後に
  *  サーバ/エンジンが書く記録を吸収するため——Task AI の応答（〜10秒以降）は吸収せず
  *  ちゃんと未読になる */
 function markSelfActionRead(nodeId: string): void {
-  try {
-    const cur = localStorage.getItem(`gw.read.${nodeId}`);
-    const next = new Date(Date.now() + 5000).toISOString();
-    if (!cur || cur < next) localStorage.setItem(`gw.read.${nodeId}`, next);
-  } catch {
-    // 無視（未読バッジは補助機能）
-  }
+  postReads({ [nodeId]: new Date(Date.now() + 5000).toISOString() });
 }
 
 /** ノードに対する操作系APIの後処理: 成功したら既読マークを打つ */
@@ -126,8 +132,15 @@ async function withSelfRead<T>(nodeId: string, p: Promise<T>): Promise<T> {
 }
 
 export const api = {
-  // threadMeta: ノードごとの最終メッセージ時刻（未読バッジの判定に使う）
-  getState: () => request<{ nodes: Node[]; threadMeta: Record<string, string>; now: string }>("/state"),
+  // threadMeta: ノードごとの最終メッセージ時刻 / reads: ノードごとの既読時刻。
+  // この2つの突き合わせが未読判定（どちらもサーバ持ち＝端末間で一致する）
+  getState: () =>
+    request<{
+      nodes: Node[];
+      threadMeta: Record<string, string>;
+      reads: Record<string, string>;
+      now: string;
+    }>("/state"),
 
   addNode: (input: NodeCreateInput) =>
     request<Node>("/nodes", { method: "POST", body: JSON.stringify(input) }),

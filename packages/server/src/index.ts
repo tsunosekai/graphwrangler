@@ -54,7 +54,7 @@ function resolveCanonicalFile(rawPath: string): string {
   return path.join(abs, "workflow.gw.json");
 }
 
-const GITIGNORE_CONTENT = "ops.jsonl\nruns/\nsettings.json\n";
+const GITIGNORE_CONTENT = "ops.jsonl\nruns/\nsettings.json\nreads.json\n";
 
 const workspaceArg = process.env.GRAPHWRANGLER_WORKSPACE ?? parseWorkspaceArg(process.argv.slice(2));
 
@@ -69,6 +69,12 @@ let serverModeLabel: string;
  *  localStorage からサーバ保存へ移行） */
 let chatsDir: string;
 
+/** 既読時刻の保存先（sidecar/reads.json）。2026-08-02 本人要望「PC で読んだノードが
+ *  スマホでは全部未読になる」への対応で localStorage からサーバ保存へ移行した。
+ *  中身は { nodeId: ISO時刻 }。個人の閲覧状態であって活動の記録ではないので
+ *  gitignore 側（settings.json と同じ扱い＝毎時コミットを汚さない） */
+let readsFile: string;
+
 if (workspaceArg) {
   const canonicalFile = resolveCanonicalFile(workspaceArg);
   const workspaceRoot = path.dirname(canonicalFile);
@@ -77,12 +83,22 @@ if (workspaceArg) {
   const gitignorePath = path.join(sidecarDir, ".gitignore");
   if (!fs.existsSync(gitignorePath)) {
     fs.writeFileSync(gitignorePath, GITIGNORE_CONTENT, "utf8");
+  } else {
+    // 既存ワークスペースにも後から増えた行（reads.json 等）を足す。作り直しではなく追記
+    // なので、人が手で加えた行は消えない
+    const current = fs.readFileSync(gitignorePath, "utf8");
+    const lines = new Set(current.split("\n").map((l) => l.trim()));
+    const missing = GITIGNORE_CONTENT.split("\n").filter((l) => l && !lines.has(l));
+    if (missing.length > 0) {
+      fs.appendFileSync(gitignorePath, (current.endsWith("\n") ? "" : "\n") + missing.join("\n") + "\n", "utf8");
+    }
   }
   graph = GraphStore.workspace(canonicalFile, sidecarDir);
   threads = new ThreadStore(sidecarDir);
   runs = new RunStore(sidecarDir);
   settings = new SettingsStore(sidecarDir); // settings.json は sidecar 配下＝gitignore 済みなのでAPIキーは漏れない
   chatsDir = path.join(sidecarDir, "chats");
+  readsFile = path.join(sidecarDir, "reads.json");
   serverModeLabel = `workspace: ${canonicalFile}`;
 } else {
   const dataDir = process.env.GRAPHWRANGLER_DATA ?? path.join(repoRoot, "data");
@@ -91,6 +107,7 @@ if (workspaceArg) {
   runs = new RunStore(dataDir);
   settings = new SettingsStore(dataDir);
   chatsDir = path.join(dataDir, "chats");
+  readsFile = path.join(dataDir, "reads.json");
   serverModeLabel = `data: ${dataDir}`;
 }
 
@@ -157,17 +174,71 @@ app.onError((err, c) => {
   return c.json({ error: String(err) }, 500);
 });
 
+// ---- 既読時刻（端末をまたいで共有する。2026-08-02 localStorage から移行） ----
+
+/** メモリ上のキャッシュ。プロセス内で唯一の書き手なので、読むたびに読み直す必要はない */
+let readsCache: Record<string, string> | null = null;
+
+function loadReads(): Record<string, string> {
+  if (readsCache) return readsCache;
+  try {
+    const raw = fs.readFileSync(readsFile, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    readsCache =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (Object.fromEntries(
+            Object.entries(parsed as Record<string, unknown>).filter(([, v]) => typeof v === "string"),
+          ) as Record<string, string>)
+        : {};
+  } catch {
+    readsCache = {}; // 未作成・壊れている場合は空から始める（既読は補助情報なので落とさない）
+  }
+  return readsCache;
+}
+
+function saveReads(next: Record<string, string>): void {
+  readsCache = next;
+  fs.mkdirSync(path.dirname(readsFile), { recursive: true });
+  fs.writeFileSync(readsFile, JSON.stringify(next, null, 2), "utf8");
+}
+
+/** 既読を進める。**巻き戻さない**（別端末が先に進めた既読を、遅れて届いた古い ts で
+ *  戻すと未読が復活するため）。1件でも更新があれば true */
+function markRead(marks: Record<string, string>): boolean {
+  const cur = { ...loadReads() };
+  let changed = false;
+  for (const [nodeId, ts] of Object.entries(marks)) {
+    if (typeof ts !== "string" || !ts) continue;
+    if (!cur[nodeId] || cur[nodeId] < ts) {
+      cur[nodeId] = ts;
+      changed = true;
+    }
+  }
+  if (changed) saveReads(cur);
+  return changed;
+}
+
+const ReadsPatchSchema = z.object({ marks: z.record(z.string(), z.string()) });
+
+app.post("/api/reads", async (c) => {
+  const { marks } = ReadsPatchSchema.parse(await c.req.json());
+  markRead(marks);
+  return c.json({ reads: loadReads() });
+});
+
 // ---- グラフ ----
 
 app.get("/api/state", (c) => {
-  // threadMeta: 未読バッジ用にノードごとの最終メッセージ時刻を添える（クライアントが
-  // localStorage の既読時刻と比較する）。スレッドファイルは小さいので毎回読んで良い規模
+  // threadMeta: 未読バッジ用にノードごとの最終メッセージ時刻を添える。reads（既読時刻）と
+  // 突き合わせてクライアントが未読を判定する。どちらもサーバ持ちなので PC とスマホで一致する
+  // （2026-08-02 それまで既読は localStorage で端末ごとに割れていた）。
+  // スレッドファイルは小さいので毎回読んで良い規模
   const threadMeta: Record<string, string> = {};
   for (const n of graph.state().nodes) {
     const msgs = threads.list(n.id);
     if (msgs.length > 0) threadMeta[n.id] = msgs[msgs.length - 1].ts;
   }
-  return c.json({ ...graph.state(), threadMeta, now: nowIso() });
+  return c.json({ ...graph.state(), threadMeta, reads: loadReads(), now: nowIso() });
 });
 
 // ---- エクスポート（バックアップ用の一括JSON。APIキーは含まれない） ----

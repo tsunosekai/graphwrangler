@@ -82,6 +82,8 @@ interface Props {
   selectedId: string | null;
   /** ノードid → 最終メッセージ時刻。未読ドットの判定に使う */
   threadMeta: Record<string, string>;
+  /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
+  reads: Record<string, string>;
   /** グラフに投影中のラン（docs/design.md 3.8）。ルーティーンページでない/実行中のランが
    *  無い間は null（App が算出して渡す）。ある間だけテンプレートのカードにその進捗を投影する */
   activeRun: Run | null;
@@ -105,6 +107,7 @@ function GraphViewInner({
   pageNode,
   selectedId,
   threadMeta,
+  reads,
   activeRun,
   runningRuns = [],
   onProjectRun,
@@ -413,9 +416,9 @@ function GraphViewInner({
       });
     setRfNodes(
       nodes.map((n) => {
-        // 未読バッジ。既読tsは NodePanel がスレッド表示のたびに書き込む
+        // 未読バッジ。既読tsは NodePanel がスレッド表示のたびにサーバへ書き込む
         const lastMsgTs = threadMeta[n.id];
-        const readTs = lastMsgTs ? localStorage.getItem(`gw.read.${n.id}`) : null;
+        const readTs = reads[n.id] ?? null;
         const unread = !!lastMsgTs && (!readTs || lastMsgTs > readTs);
         const selected =
           pendingMatched.length > 0 ? pendingMatched.includes(n.id) : prevSelected.has(n.id) || n.id === selectedId;
@@ -459,6 +462,7 @@ function GraphViewInner({
     editingId,
     isRoutine,
     threadMeta,
+    reads,
     activeRun,
     onSelect,
     commitTitle,

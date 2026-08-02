@@ -14,7 +14,7 @@ import {
   Unlock,
   X,
 } from "lucide-react";
-import { api, type NodePatchInput } from "../lib/api";
+import { api, postReads, type NodePatchInput } from "../lib/api";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { usePolling } from "../hooks/usePolling";
@@ -42,6 +42,8 @@ interface Props {
   /** アクティブなラン（docs/design.md 3.8）。現在ページの status==="running" 最新1本。
    *  無ければ null——このノードがルーティーンのテンプレートメンバーなら現行の注記のまま */
   activeRun: Run | null;
+  /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
+  reads: Record<string, string>;
   onMutated: () => void;
   onClose: () => void;
   /** ノード複製後に新規ノードを選択するため。ページ切替も面倒を見る App.selectNode を渡す */
@@ -188,7 +190,7 @@ function UnreadDot() {
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
-export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSelect }: Props) {
+export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose, onSelect }: Props) {
   // 会話=今の会話 / 履歴=過去の会話（Workflow AI の「履歴」と同じ意味） / 実行記録=status・artifact
   // （2026-08-02 本人要望「会話の履歴と実行の履歴を分けてほしい」で2タブ→3タブ化。
   // それまで「新しい会話」で区切った過去の会話は UI のどこからも見えなくなっていた）
@@ -221,23 +223,14 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   // 未読バッジが付いていた理由＝この時刻より新しいメッセージ、を「ここから未読」区切りとして
   // スレッドに表示する（2026-08-02 本人要望「なぜ通知が付いているのか分かりづらい。
   // ノードを開いたときに分かるでいい」）
-  const [unreadSince] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(`gw.read.${node.id}`);
-    } catch {
-      return null;
-    }
-  });
+  const [unreadSince] = useState<string | null>(() => reads[node.id] ?? null);
 
-  // スレッドを表示したら既読ts(localStorage)を更新する（thread取得のたびに更新=
-  // 開いたまま新着が来ても「読んだ」扱いを追随させる）
+  // スレッドを表示したら既読tsをサーバへ書く（thread取得のたびに更新=開いたまま新着が
+  // 来ても「読んだ」扱いを追随させる）。サーバ側は巻き戻さない（max を採る）ので、
+  // 別端末で先に進んだ既読をこちらが古い時刻で戻すことはない
   useEffect(() => {
     if (!thread) return;
-    try {
-      localStorage.setItem(`gw.read.${node.id}`, new Date().toISOString());
-    } catch {
-      // 容量超過等は無視（未読バッジは補助機能）
-    }
+    postReads({ [node.id]: new Date().toISOString() });
   }, [thread, node.id]);
 
   const [titleDraft, setTitleDraft] = useState(node.title);

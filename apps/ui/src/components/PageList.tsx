@@ -27,6 +27,8 @@ interface Props {
   /** ノードid → 最終メッセージ時刻。ページ行の未読数バッジに使う（本人指定 2026-07-31:
    *  「未読は数字でプロジェクトに、あなたの番はちょぼに」） */
   threadMeta: Record<string, string>;
+  /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
+  reads: Record<string, string>;
   /** ページ id → 最新ラン（App 側でポーリング済み） */
   latestRuns: Record<string, Run | null>;
   /** ページ id → 実行中ラン数（並走中の世界線の数。0は非表示） */
@@ -67,7 +69,7 @@ function seatColor(status: Status, executor: Node["executor"]): string {
 const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
-export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, runningCounts, forceExpanded, onSelectPage }: Props) {
+export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestRuns, runningCounts, forceExpanded, onSelectPage }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -83,11 +85,11 @@ export function PageList({ folders, allNodes, pageId, threadMeta, latestRuns, ru
       return !v;
     });
 
-  // 未読判定は GraphView（カードの青ドット）と同じ規約: gw.read.<id> より新しいメッセージがあるか
+  // 未読判定は GraphView（カードの青ドット）と同じ規約: 既読時刻より新しいメッセージがあるか
   const isUnread = (id: string) => {
     const last = threadMeta[id];
     if (!last) return false;
-    const read = localStorage.getItem(`gw.read.${id}`);
+    const read = reads[id];
     return !read || last > read;
   };
 

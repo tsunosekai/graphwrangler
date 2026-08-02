@@ -10,7 +10,7 @@ import { SetupModal } from "./components/SetupModal";
 import { ToastHost } from "./components/ToastHost";
 import { TopBar, type RunWaitItem } from "./components/TopBar";
 import { MobileNav, type MobileView } from "./components/MobileNav";
-import { api, type SettingsView } from "./lib/api";
+import { api, postReads, type SettingsView } from "./lib/api";
 import { cn } from "./lib/utils";
 import { usePolling } from "./hooks/usePolling";
 import { useIsMobile } from "./hooks/useIsMobile";
@@ -80,8 +80,29 @@ export default function App() {
   // ノードエディタ標準の複数選択: 選択中の id 一覧。2件以上で一括編集パネル（BulkPanel）を出す
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
-  // 未読バッジ用のノードごとの最終メッセージ時刻
+  // 未読バッジ用のノードごとの最終メッセージ時刻 / 既読時刻（どちらもサーバ持ち。
+  // 2026-08-02 既読を localStorage からサーバへ移した＝PC で読めばスマホでも既読）
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
+  const reads = useMemo(() => data?.reads ?? {}, [data]);
+
+  // 旧 localStorage 既読（gw.read.<id>）を一度だけサーバへ引き継ぐ。これをやらないと
+  // 移行した瞬間に「今まで読んだ全ノードが未読」になって使い物にならない
+  useEffect(() => {
+    if (loadUiState("gw.readsMigrated") === "1") return;
+    const marks: Record<string, string> = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key?.startsWith("gw.read.")) continue;
+        const value = localStorage.getItem(key);
+        if (value) marks[key.slice("gw.read.".length)] = value;
+      }
+    } catch {
+      return; // 読めない環境では移行を諦める（サーバ側が空のまま始まるだけ）
+    }
+    if (Object.keys(marks).length > 0) postReads(marks);
+    saveUiState("gw.readsMigrated", "1");
+  }, []);
 
   // ページ = フォルダ（kind=goal、またはメンバーを持つノード）。zinsei desk の左レール方式
   const folders = useMemo(() => {
@@ -356,6 +377,7 @@ export default function App() {
             allNodes={nodes}
             pageId={pageId}
             threadMeta={threadMeta}
+            reads={reads}
             latestRuns={latestRuns}
             runningCounts={runningCounts}
             forceExpanded={isMobile}
@@ -376,6 +398,7 @@ export default function App() {
             pageNode={pageNode}
             selectedId={selectedId}
             threadMeta={threadMeta}
+            reads={reads}
             activeRun={activeRun}
             runningRuns={runningRuns}
             onProjectRun={setProjectedRunId}
@@ -407,6 +430,7 @@ export default function App() {
                 node={selectedNode}
                 allNodes={nodes}
                 activeRun={activeRun}
+                reads={reads}
                 onMutated={handleMutated}
                 onClose={() => {
                   setSelectedId(null);

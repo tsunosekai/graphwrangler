@@ -53,7 +53,7 @@ export interface NodeCardData {
   /** runItem 版のフロンティア判定（親の「ランのアイテム」が全部 done|skipped か）。
    *  isFrontier のラン投影版。段階式アクションボタン（着手/完了）の表示条件 */
   isRunFrontier?: boolean;
-  /** 既読ts(localStorage gw.read.<id>)より新しいメッセージがあるか */
+  /** 既読ts（サーバ持ちの reads[<id>]）より新しいメッセージがあるか */
   unread?: boolean;
   onSelect: (id: string) => void;
   onDoubleClick: (id: string) => void;
