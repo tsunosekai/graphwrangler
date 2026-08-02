@@ -180,6 +180,12 @@ function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: s
   );
 }
 
+/** タブの未読ちょぼ。色はノードカード/レールの未読バッジと同じ bg-ai（青）で、
+ *  「あなたの番」の橙(--attention)とは別物であることを色で示す */
+function UnreadDot() {
+  return <span className="size-1.5 flex-shrink-0 rounded-full bg-ai" title="このタブに未読があります" />;
+}
+
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
 export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSelect }: Props) {
@@ -558,11 +564,11 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
   //                     区切り行も挟んで表示する（どこで区切ったか分かるように）
   //   実行記録(log)   = status + artifact（エンジン実行・試走・状態変化・移行記録）。
   //                     会話の区切り行は実行記録ではないので除く
-  const filtered = (tab === "talk" ? talkSource : messages).filter((m) => {
-    if (tab === "talk") {
+  const inTab = (m: MaterializedMessage, t: "talk" | "history" | "log") => {
+    if (t === "talk") {
       return m.kind === "say" || m.kind === "decision_request" || m.kind === "decision_answer";
     }
-    if (tab === "history") {
+    if (t === "history") {
       return (
         m.kind === "say" ||
         m.kind === "decision_request" ||
@@ -571,7 +577,16 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
       );
     }
     return (m.kind === "status" || m.kind === "artifact") && !isChatBreak(m);
-  });
+  };
+  const filtered = (tab === "talk" ? talkSource : messages).filter((m) => inTab(m, tab));
+  // タブごとの未読ちょぼ（2026-08-02 本人要望「ノード詳細のどこが未読なのか分からないので
+  // ちょぼをつけてほしい」）。未読の実体はスレッドのメッセージなので、それを切り分けている
+  // 3タブのどれに入るかを示す＝どのタブを見ればいいかが分かる。判定は Thread の
+  // 「ここから未読」区切りと同じ unreadSince（パネルを開いた時点の前回既読時刻）基準なので、
+  // 開いている間はタブを見に行っても消えない（区切り線と足並みを揃える）
+  const hasUnreadIn = (t: "talk" | "history" | "log") =>
+    unreadSince != null &&
+    (t === "talk" ? talkSource : messages).some((m) => m.ts > unreadSince && inTab(m, t));
 
   const startNewTalk = async () => {
     await fetch(`/api/nodes/${node.id}/messages`, {
@@ -1287,12 +1302,15 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
           <TabsList>
             <TabsTrigger value="talk">
               <MessageSquare className="size-3.5" /> 会話
+              {hasUnreadIn("talk") && <UnreadDot />}
             </TabsTrigger>
             <TabsTrigger value="history">
               <History className="size-3.5" /> 履歴
+              {hasUnreadIn("history") && <UnreadDot />}
             </TabsTrigger>
             <TabsTrigger value="log">
               <ScrollText className="size-3.5" /> 実行記録
+              {hasUnreadIn("log") && <UnreadDot />}
             </TabsTrigger>
           </TabsList>
         </Tabs>
