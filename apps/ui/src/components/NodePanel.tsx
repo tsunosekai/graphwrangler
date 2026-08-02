@@ -8,7 +8,6 @@ import {
   Loader2,
   Lock,
   MessageSquare,
-  MessageSquarePlus,
   ScrollText,
   Trash2,
   Unlock,
@@ -1308,9 +1307,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
         />
       ))}
 
-      {/* タブ行。「新しい会話」「会話を広げる」はタブと同じ行に置く（2026-08-02 本人要望）。
-          モバイルは横幅が足りず折り返していたので、狭い画面ではこの2つをアイコンだけに縮めて
-          1行に収める（折り返し禁止は index.css 側で data-tabrow を wrap 規則から除外） */}
+      {/* タブ行。「新しい会話」はタブと同じ行に置く（2026-08-02 本人要望）。折り返し禁止は
+          index.css 側で data-tabrow を wrap 規則から除外。「会話を広げる」はモバイルでは
+          一番下の行へ移した（同日の本人指示）ので、ここに並ぶのはデスクトップのときだけ */}
       {showTalk && (
       <div data-tabrow className="flex items-center justify-between gap-1">
         <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history" | "log")} className="min-w-0 gap-3">
@@ -1334,13 +1333,11 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
           type="button"
           variant="ghost"
           size="sm"
-          className="px-2 text-muted-foreground md:px-3"
+          className="text-muted-foreground"
           title="ここまでの会話を区切って新しく始める（過去分は履歴タブに残る）"
-          aria-label="新しい会話"
           onClick={() => void startNewTalk()}
         >
-          <MessageSquarePlus className="size-3.5" />
-          <span className="hidden md:inline">新しい会話</span>
+          新しい会話
         </Button>
         {/* モバイルではこのトグルを一番下の行へ移した（2026-08-02 本人指示）。
             タブ行に残すのはタブと「新しい会話」だけ */}
@@ -1349,20 +1346,16 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
             type="button"
             variant="ghost"
             size="sm"
-            className="px-2 text-muted-foreground md:px-3"
-            title={metaOpen ? "ノード詳細をたたんで会話を広げる" : "ノード詳細を開く"}
-            aria-label={metaOpen ? "会話を広げる" : "ノード詳細"}
+            className="text-muted-foreground"
             onClick={() => setMetaOpen((v) => !v)}
           >
             {metaOpen ? (
               <>
-                <ChevronUp className="size-3.5" />
-                <span className="hidden md:inline">会話を広げる</span>
+                <ChevronUp className="size-3.5" /> 会話を広げる
               </>
             ) : (
               <>
-                <ChevronDown className="size-3.5" />
-                <span className="hidden md:inline">ノード詳細</span>
+                <ChevronDown className="size-3.5" /> ノード詳細
               </>
             )}
           </Button>
@@ -1388,11 +1381,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
           「一番下の行だけで良い、会話を広げるボタンを」）。広げる＝ノード詳細をたたむ
           ＝そのとき返信欄も出る。畳んでいる間は入力欄を出さない */}
       {isMobile && (
+        <div className="flex flex-shrink-0 justify-end">
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="flex-shrink-0 self-center text-muted-foreground"
+          className="text-muted-foreground"
           onClick={() => setMetaOpen((v) => !v)}
         >
           {metaOpen ? (
@@ -1405,6 +1399,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
             </>
           )}
         </Button>
+        </div>
       )}
     </aside>
   );
