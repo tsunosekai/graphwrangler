@@ -1381,7 +1381,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
           「一番下の行だけで良い、会話を広げるボタンを」）。広げる＝ノード詳細をたたむ
           ＝そのとき返信欄も出る。畳んでいる間は入力欄を出さない */}
       {isMobile && (
-        <div className="flex flex-shrink-0 justify-end">
+        <div className="flex flex-shrink-0 justify-center">
         <Button
           type="button"
           variant="ghost"
