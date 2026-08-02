@@ -369,10 +369,12 @@ body {
     border-left: none;
     border-right: none;
   }
-  /* 横幅に入りきらない操作行は折り返す（進捗ボタン行・タブ行など。
-     2026-08-02 本人指摘「要素が横幅的に入りきってない」） */
-  [data-mobile-panel] .flex.items-center.justify-between,
-  [data-mobile-panel] .flex.items-center.gap-2 {
+  /* 横幅に入りきらない操作行は折り返す（進捗ボタン行など。
+     2026-08-02 本人指摘「要素が横幅的に入りきってない」）。
+     ただし [data-tabrow]（会話/履歴/実行記録 + 新しい会話・会話を広げる）は除外し、
+     必ず1行に保つ——右の2つはアイコンだけに縮めて収める（2026-08-02 本人要望） */
+  [data-mobile-panel] .flex.items-center.justify-between:not([data-tabrow]),
+  [data-mobile-panel] .flex.items-center.gap-2:not([data-tabrow]) {
     flex-wrap: wrap;
     row-gap: 0.25rem;
   }

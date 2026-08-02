@@ -8,6 +8,7 @@ import {
   Loader2,
   Lock,
   MessageSquare,
+  MessageSquarePlus,
   ScrollText,
   Trash2,
   Unlock,
@@ -1278,8 +1279,11 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
         />
       ))}
 
-      <div className="flex items-center justify-between">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history" | "log")} className="gap-3">
+      {/* タブ行。「新しい会話」「会話を広げる」はタブと同じ行に置く（2026-08-02 本人要望）。
+          モバイルは横幅が足りず折り返していたので、狭い画面ではこの2つをアイコンだけに縮めて
+          1行に収める（折り返し禁止は index.css 側で data-tabrow を wrap 規則から除外） */}
+      <div data-tabrow className="flex items-center justify-between gap-1">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history" | "log")} className="min-w-0 gap-3">
           <TabsList>
             <TabsTrigger value="talk">
               <MessageSquare className="size-3.5" /> 会話
@@ -1292,31 +1296,37 @@ export function NodePanel({ node, allNodes, activeRun, onMutated, onClose, onSel
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <span className="flex items-center">
+        <span className="flex shrink-0 items-center">
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="text-muted-foreground"
+          className="px-2 text-muted-foreground md:px-3"
           title="ここまでの会話を区切って新しく始める（過去分は履歴タブに残る）"
+          aria-label="新しい会話"
           onClick={() => void startNewTalk()}
         >
-          新しい会話
+          <MessageSquarePlus className="size-3.5" />
+          <span className="hidden md:inline">新しい会話</span>
         </Button>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="text-muted-foreground"
+          className="px-2 text-muted-foreground md:px-3"
+          title={metaOpen ? "ノード詳細をたたんで会話を広げる" : "ノード詳細を開く"}
+          aria-label={metaOpen ? "会話を広げる" : "ノード詳細"}
           onClick={() => setMetaOpen((v) => !v)}
         >
           {metaOpen ? (
             <>
-              <ChevronUp className="size-3.5" /> 会話を広げる
+              <ChevronUp className="size-3.5" />
+              <span className="hidden md:inline">会話を広げる</span>
             </>
           ) : (
             <>
-              <ChevronDown className="size-3.5" /> ノード詳細
+              <ChevronDown className="size-3.5" />
+              <span className="hidden md:inline">ノード詳細</span>
             </>
           )}
         </Button>
