@@ -1339,9 +1339,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
         >
           新しい会話
         </Button>
-        {/* モバイルではこのトグルを一番下の行へ移した（2026-08-02 本人指示）。
-            タブ行に残すのはタブと「新しい会話」だけ */}
-        {!isMobile && (
+        {/* トグルは元どおりタブ行の右肩（＝会話の上）。モバイルでノード詳細だけを出して
+            いる間はこのタブ行ごと消えるので、そのときだけ一番下の行に同じボタンを出す
+            （下の isMobile && metaOpen のブロック） */}
+        {(
           <Button
             type="button"
             variant="ghost"
@@ -1377,10 +1378,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
       />
       )}
 
-      {/* モバイルの一番下の行は「会話を広げる」トグルだけ（2026-08-02 本人指示
-          「一番下の行だけで良い、会話を広げるボタンを」）。広げる＝ノード詳細をたたむ
-          ＝そのとき返信欄も出る。畳んでいる間は入力欄を出さない */}
-      {isMobile && (
+      {/* モバイルでノード詳細だけを出しているときの戻り口。タブ行（右肩のトグル）が
+          消えている状態なので、ここに同じボタンを出して会話へ切り替える */}
+      {isMobile && metaOpen && (
         <div className="flex flex-shrink-0 justify-center">
         <Button
           type="button"
