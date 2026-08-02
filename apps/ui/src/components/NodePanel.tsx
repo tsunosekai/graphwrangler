@@ -1327,27 +1327,31 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
           <MessageSquarePlus className="size-3.5" />
           <span className="hidden md:inline">新しい会話</span>
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="px-2 text-muted-foreground md:px-3"
-          title={metaOpen ? "ノード詳細をたたんで会話を広げる" : "ノード詳細を開く"}
-          aria-label={metaOpen ? "会話を広げる" : "ノード詳細"}
-          onClick={() => setMetaOpen((v) => !v)}
-        >
-          {metaOpen ? (
-            <>
-              <ChevronUp className="size-3.5" />
-              <span className="hidden md:inline">会話を広げる</span>
-            </>
-          ) : (
-            <>
-              <ChevronDown className="size-3.5" />
-              <span className="hidden md:inline">ノード詳細</span>
-            </>
-          )}
-        </Button>
+        {/* モバイルではこのトグルを一番下の行へ移した（2026-08-02 本人指示）。
+            タブ行に残すのはタブと「新しい会話」だけ */}
+        {!isMobile && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="px-2 text-muted-foreground md:px-3"
+            title={metaOpen ? "ノード詳細をたたんで会話を広げる" : "ノード詳細を開く"}
+            aria-label={metaOpen ? "会話を広げる" : "ノード詳細"}
+            onClick={() => setMetaOpen((v) => !v)}
+          >
+            {metaOpen ? (
+              <>
+                <ChevronUp className="size-3.5" />
+                <span className="hidden md:inline">会話を広げる</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="size-3.5" />
+                <span className="hidden md:inline">ノード詳細</span>
+              </>
+            )}
+          </Button>
+        )}
         </span>
       </div>
 
@@ -1355,12 +1359,35 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
         nodeId={node.id}
         messages={filtered}
         unreadSince={unreadSince}
-        showReplyBox={tab === "talk"}
+        showReplyBox={tab === "talk" && (!isMobile || !metaOpen)}
         onMutated={() => {
           onMutated();
           refreshThread();
         }}
       />
+
+      {/* モバイルの一番下の行は「会話を広げる」トグルだけ（2026-08-02 本人指示
+          「一番下の行だけで良い、会話を広げるボタンを」）。広げる＝ノード詳細をたたむ
+          ＝そのとき返信欄も出る。畳んでいる間は入力欄を出さない */}
+      {isMobile && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="flex-shrink-0 self-center text-muted-foreground"
+          onClick={() => setMetaOpen((v) => !v)}
+        >
+          {metaOpen ? (
+            <>
+              <ChevronUp className="size-3.5" /> 会話を広げる
+            </>
+          ) : (
+            <>
+              <ChevronDown className="size-3.5" /> ノード詳細
+            </>
+          )}
+        </Button>
+      )}
     </aside>
   );
 }

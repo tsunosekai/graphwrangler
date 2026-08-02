@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, MessageSquare } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
-import { useIsMobile } from "../hooks/useIsMobile";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage } from "../types";
 import { Badge } from "./ui/badge";
@@ -56,12 +54,6 @@ function extractSources(payload: unknown): string[] | null {
 export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated }: Props) {
   const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
   const [sending, setSending] = useState(false);
-  // モバイルでは返信欄を畳んでおく（2026-08-02 本人指示「チャット欄はもっと小さく、
-  // 閉じてて見えない状態でいい」）。狭い画面では入力欄2行+送信ボタンが常に居座ると
-  // 肝心のスレッドが読めない。書きかけの下書きがある間は畳まない（隠れて消えたように
-  // 見えるのを防ぐ）。デスクトップは従来どおり常時表示
-  const isMobile = useIsMobile();
-  const [replyOpen, setReplyOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,9 +77,6 @@ export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated 
   const firstUnreadIndex =
     unreadSince !== undefined ? flow.findIndex((m) => m.ts > (unreadSince ?? "")) : -1;
 
-  // 返信欄を出すか。モバイルは「タップして開く」か下書きがあるときだけ
-  const replyExpanded = !isMobile || replyOpen || reply.trim().length > 0;
-
   useEffect(() => {
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -105,7 +94,6 @@ export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated 
         await api.postMessage(nodeId, body);
       }
       setReply("");
-      setReplyOpen(false); // 送ったら畳む（モバイル。デスクトップは replyExpanded が常に true）
       onMutated();
     } finally {
       setSending(false);
@@ -188,26 +176,10 @@ export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated 
           );
         })}
       </div>
-      {/* 畳んでいる間は入力欄を一切出さず、開くボタンだけ（2026-08-02 本人指示
-          「まだチャット欄少し映ってる。開くボタンだけでいいよ」——横幅いっぱいの点線枠は
-          入力欄に見えるので、内容ぶんの幅の小さなボタンにする） */}
-      {showReplyBox && !replyExpanded && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="flex-shrink-0 self-start text-muted-foreground"
-          onClick={() => setReplyOpen(true)}
-        >
-          <MessageSquare className="size-3.5" />
-          {openRequests.length > 0 ? "聞き返す" : "返信"}
-        </Button>
-      )}
-      {showReplyBox && replyExpanded && (
+      {showReplyBox && (
         <div className="flex flex-shrink-0 items-end gap-2">
           <Textarea
             className="flex-1 resize-y"
-            autoFocus={isMobile && replyOpen} // 自分でタップして開いたときだけキーボードを出す（下書き復元では出さない）
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder={
@@ -225,18 +197,6 @@ export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated 
           <Button type="button" variant="secondary" disabled={sending || !reply.trim()} onClick={sendReply}>
             送信
           </Button>
-          {isMobile && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="返信欄を閉じる"
-              title="返信欄を閉じる"
-              onClick={() => setReplyOpen(false)}
-            >
-              <ChevronDown />
-            </Button>
-          )}
         </div>
       )}
     </div>
