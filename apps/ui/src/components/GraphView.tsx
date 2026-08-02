@@ -18,6 +18,7 @@ import { subscribeOpenShortcuts } from "../lib/palette";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import { isRoutinePage } from "../lib/routine";
+import { useIsMobile } from "../hooks/useIsMobile";
 import type { Node, Run } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -121,7 +122,8 @@ function GraphViewInner({
   // 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
+  const { fitView, screenToFlowPosition, getNodes, getViewport, setViewport } = useReactFlow();
+  const isMobile = useIsMobile();
   // フィット時の余白。ノード矩形の外側に付く装飾（左右のポート・🔒・＋・ラン名バッジ）も
   // 画面内に収まるように広めに取る（2026-08-02 本人要望「ノードの周りにある要素も収まるように」）
   const FIT_PADDING = 0.3;
@@ -206,6 +208,57 @@ function GraphViewInner({
     return m;
   }, [getNodes]);
   const paneRef = useRef<HTMLDivElement>(null);
+
+  // モバイルの1本指パン: React Flow 標準は「画面ピクセル基準」のパンで、拡大中は
+  // スワイプしてもコンテンツがほとんど進まない。ズームに比例して速くする
+  // （1スワイプ＝同じコンテンツ距離。縮小時は等速のまま＝clamp min 1）ことで、
+  // 拡大倍率に関わらず感覚的に同じだけ動く（2026-08-02 本人要望）。
+  // ReactFlow 側の panOnDrag はモバイルでは無効化し（下の props）、ここが唯一のパン経路。
+  // 2本指ピンチズームは React Flow の zoomOnPinch に任せる（touches.length===1 のみ扱う）。
+  // ノード/エッジ/ボタン上のタッチはノードドラッグ等の邪魔をしないよう素通しする
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = paneRef.current;
+    if (!el) return;
+    let last: { x: number; y: number } | null = null;
+    const pannable = (t: EventTarget | null) => {
+      const target = t as HTMLElement | null;
+      if (!target?.closest) return false;
+      if (target.closest(".react-flow__node,.react-flow__edge,.react-flow__controls,button,input,textarea,select")) return false;
+      return !!target.closest(".react-flow__pane");
+    };
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || !pannable(e.target)) {
+        last = null;
+        return;
+      }
+      last = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!last || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - last.x;
+      const dy = t.clientY - last.y;
+      last = { x: t.clientX, y: t.clientY };
+      const vp = getViewport();
+      const f = Math.max(1, vp.zoom);
+      setViewport({ x: vp.x + dx * f, y: vp.y + dy * f, zoom: vp.zoom });
+      e.preventDefault(); // ブラウザのスクロール/バウンスを止める
+    };
+    const onEnd = () => {
+      last = null;
+    };
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd);
+    el.addEventListener("touchcancel", onEnd);
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+      el.removeEventListener("touchcancel", onEnd);
+    };
+  }, [isMobile, getViewport, setViewport]);
 
   // ビューの幅が**狭くなったとき**だけ即座に fit する（本人指定。広がるときは fit しない
   // — ノードが見切れる方向だけ救済すればよく、広がったときに視点が飛ぶのは煩わしい）
@@ -1022,6 +1075,7 @@ function GraphViewInner({
           // 複数選択: クリック/Shift+クリック/Ctrl+クリックで追加選択、Shift+ドラッグで矩形選択。
           // パン(素のドラッグ)は既定のまま邪魔しない
           minZoom={0.15}
+          panOnDrag={!isMobile}
           selectionKeyCode="Shift"
           multiSelectionKeyCode={["Shift", "Control", "Meta"]}
           fitView
