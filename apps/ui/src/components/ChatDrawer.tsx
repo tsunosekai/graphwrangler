@@ -410,8 +410,21 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
         </>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-2 pt-3">
+          {/* 今の会話は話し始めた瞬間からここに出す（2026-08-02 本人要望「チャット履歴は
+              話し始めた瞬間に生成してほしい。無いのが不安になる」）。実体は送信の瞬間から
+              サーバへ保存済みで、これはその見える化。クリックで会話タブへ戻る */}
+          {messages.length > 0 && (
+            <button
+              type="button"
+              className="flex flex-col gap-0.5 rounded-md border border-ai/40 px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+              onClick={() => setTab("talk")}
+            >
+              <span className="text-xs text-ai">今の会話 ・ {messages.length}件（保存済み）</span>
+              <span className="truncate">{firstUserPreview(messages)}</span>
+            </button>
+          )}
           {archiveLoading && <div className="p-2 text-sm text-muted-foreground">読み込み中…</div>}
-          {!archiveLoading && archiveSessions.length === 0 && (
+          {!archiveLoading && archiveSessions.length === 0 && messages.length === 0 && (
             <div className="p-2 text-sm text-muted-foreground">まだありません</div>
           )}
           {!archiveLoading &&
