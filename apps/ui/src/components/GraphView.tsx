@@ -196,6 +196,15 @@ function GraphViewInner({
       // Aのノード詳細に戻される」ねじれ。2026-08-02 本人報告）
       const valid = new Set(nodes.map((n) => n.id));
       const ids = selNodes.map((n) => n.id).filter((id) => valid.has(id));
+      // **購読の張り直しによるエコーを無視する**（2026-08-02 実測で特定）。React Flow の
+      // onSelectionChange はコールバックの identity が変わるだけでも現在の選択をそのまま
+      // 呼び返す。App の selectNode は selectedId に依存して作り直されるため、
+      // 「レールやツールバーからゴールを選ぶ → selectedId が変わる → 購読が張り直される →
+      // まだ選択中の**古いノード**が呼び返される → 選択が巻き戻る」という循環になっていた
+      // （プロジェクト詳細が開けない・✕で閉じてもすぐ開き直す、の実体）。
+      // 直前に報告した集合と同じなら「新しい選択操作ではない」ので何もしない
+      const prevReported = reportedIdsRef.current;
+      if (ids.length === prevReported.length && ids.every((id, i) => id === prevReported[i])) return;
       reportedIdsRef.current = ids;
       onSelectionIdsChange?.(ids);
       if (ids.length === 0) return;
