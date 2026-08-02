@@ -23,6 +23,7 @@ import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
 import { missingParamNames } from "../lib/params";
 import { pushToast } from "../lib/toast";
+import { cn } from "../lib/utils";
 import type { MaterializedMessage, Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -574,6 +575,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
     return (m.kind === "status" || m.kind === "artifact") && !isChatBreak(m);
   };
   const filtered = (tab === "talk" ? talkSource : messages).filter((m) => inTab(m, tab));
+  // モバイルは「ノード詳細」か「会話」のどちらか一方だけを画面に出す（2026-08-02 本人指示
+  // 「（詰まった会話節は）いらねぇっつってんだよ、その分上広げろよ」）。切替は一番下の
+  // 「会話を広げる」トグル。デスクトップは従来どおり両方出す
+  const showTalk = !isMobile || !metaOpen;
   // タブごとの未読ちょぼ（2026-08-02 本人要望「ノード詳細のどこが未読なのか分からないので
   // ちょぼをつけてほしい」）。未読の実体はスレッドのメッセージなので、それを切り分けている
   // 3タブのどれに入るかを示す＝どのタブを見ればいいかが分かる。判定は Thread の
@@ -730,7 +735,16 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
           セクション全体が縦に長くなってもパネル（overflow-hidden）から溢れないよう
           スクロール容器で包む（2026-08-02 スクロール不能バグ修正の一環） */}
       {metaOpen && (
-        <div className="flex min-h-0 flex-shrink-0 basis-auto flex-col gap-3 overflow-y-auto" style={{ maxHeight: "60%" }}>
+        <div
+          className={cn(
+            "flex min-h-0 flex-col gap-3 overflow-y-auto",
+            // モバイルで詳細を開いている間は会話節を出さないので、空いたぶんを全部ここに回す
+            // （2026-08-02 本人指示「その分上広げろよ」）。デスクトップは会話と同居するので
+            // 従来どおり上限60%の縮む節のまま
+            showTalk ? "flex-shrink-0 basis-auto" : "flex-1",
+          )}
+          style={showTalk ? { maxHeight: "60%" } : undefined}
+        >
           {/* Fix実効化の注記（docs/design.md 3.5）: ロック中は「やり方」フィールドの編集UIを
               disabled にする。進捗（status）・params の値・試走・Fixトグル自体は生かしたまま */}
           {node.fixed && (
@@ -1297,6 +1311,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
       {/* タブ行。「新しい会話」「会話を広げる」はタブと同じ行に置く（2026-08-02 本人要望）。
           モバイルは横幅が足りず折り返していたので、狭い画面ではこの2つをアイコンだけに縮めて
           1行に収める（折り返し禁止は index.css 側で data-tabrow を wrap 規則から除外） */}
+      {showTalk && (
       <div data-tabrow className="flex items-center justify-between gap-1">
         <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history" | "log")} className="min-w-0 gap-3">
           <TabsList>
@@ -1354,17 +1369,20 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
         )}
         </span>
       </div>
+      )}
 
+      {showTalk && (
       <Thread
         nodeId={node.id}
         messages={filtered}
         unreadSince={unreadSince}
-        showReplyBox={tab === "talk" && (!isMobile || !metaOpen)}
+        showReplyBox={tab === "talk"}
         onMutated={() => {
           onMutated();
           refreshThread();
         }}
       />
+      )}
 
       {/* モバイルの一番下の行は「会話を広げる」トグルだけ（2026-08-02 本人指示
           「一番下の行だけで良い、会話を広げるボタンを」）。広げる＝ノード詳細をたたむ
