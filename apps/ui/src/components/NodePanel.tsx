@@ -17,6 +17,7 @@ import {
 import { api, postReads, type NodePatchInput } from "../lib/api";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
@@ -194,6 +195,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
   // 会話=今の会話 / 履歴=過去の会話（Workflow AI の「履歴」と同じ意味） / 実行記録=status・artifact
   // （2026-08-02 本人要望「会話の履歴と実行の履歴を分けてほしい」で2タブ→3タブ化。
   // それまで「新しい会話」で区切った過去の会話は UI のどこからも見えなくなっていた）
+  const isMobile = useIsMobile();
   const [tab, setTab] = useState<"talk" | "history" | "log">("talk");
   // ノード詳細は既定で開いておく（2026-07-31 本人指定）。会話に集中したいときだけ
   // タブ行右端の「会話を広げる」で閉じる。開閉はリロードを跨いで保持
@@ -655,9 +657,13 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
           </TooltipTrigger>
           <TooltipContent>{node.fixed ? "このノードを削除（ロック中なので確認します）" : "このノードを削除"}</TooltipContent>
         </Tooltip>
-        <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="閉じる">
-          <X />
-        </Button>
+        {/* モバイルは下部タブバーでビューを移動するので ✕ は不要（2026-08-02 本人指示）。
+            デスクトップはパネルを閉じる唯一の導線なので残す */}
+        {!isMobile && (
+          <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="閉じる">
+            <X />
+          </Button>
+        )}
       </div>
 
       {/* decision ノード: choice 未確定なら分岐を選ぶボタン列、確定済みなら選択結果（docs/design.md 3.9）。
