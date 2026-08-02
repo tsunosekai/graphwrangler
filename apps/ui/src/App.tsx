@@ -36,15 +36,43 @@ function saveUiState(key: string, value: string | null): void {
   }
 }
 
+/** sessionStorage 版。リロードは跨ぐが、タブ/アプリを開き直すと消える */
+function loadTabState(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function saveTabState(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // 無視（永続化は補助機能）
+  }
+}
+
 export default function App() {
   const { data, refresh } = usePolling(() => api.getState(), 3000);
   const [selectedId, setSelectedId] = useState<string | null>(() => loadUiState("gw.selectedId"));
   const [pageIdRaw, setPageId] = useState<string | null>(() => loadUiState("gw.pageId"));
   const [chatOpen, setChatOpen] = useState(() => loadUiState("gw.chatOpen") === "1");
   // モバイル（<768px）はヘッダー+下部タブバーを除き、一覧/グラフ/ノード/チャットの
-  // どれか1つが画面を専有する（2026-08-02 本人指定）。永続化しない（開くたびグラフから）
+  // どれか1つが画面を専有する（2026-08-02 本人指定）。
+  // 表示中のビューは **sessionStorage** に置く（2026-08-02 本人要望「レスポンシブ画面でも
+  // リロード耐性を保ってほしい」）。リロードでは見ていたビューに戻り、タブ/アプリを開き
+  // 直したときは既定どおりグラフから始まる——localStorage だと後者の「開くたびグラフから」
+  // （同日の本人指定）を壊すため、あえて session 側に置いている
   const isMobile = useIsMobile();
-  const [mobileView, setMobileView] = useState<MobileView>("graph");
+  const [mobileView, setMobileView] = useState<MobileView>(() => {
+    const saved = loadTabState("gw.mobileView") as MobileView | null;
+    if (!saved || !["pages", "graph", "node", "chat"].includes(saved)) return "graph";
+    // ノード詳細は選択が復元できるときだけ（空画面で復帰しないように。実効ビューを倒す
+    // 下の mv とは別に、状態そのものを graph にしておく）
+    if (saved === "node" && !loadUiState("gw.selectedId")) return "graph";
+    return saved;
+  });
+  useEffect(() => saveTabState("gw.mobileView", mobileView), [mobileView]);
 
   useEffect(() => saveUiState("gw.selectedId", selectedId), [selectedId]);
   useEffect(() => saveUiState("gw.pageId", pageIdRaw), [pageIdRaw]);
