@@ -8,6 +8,7 @@ import {
   Loader2,
   Lock,
   MessageSquare,
+  MessageSquarePlus,
   ScrollText,
   Trash2,
   Unlock,
@@ -1329,15 +1330,20 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
           </TabsList>
         </Tabs>
         <span className="flex shrink-0 items-center">
+        {/* 狭い画面ではラベルを落としてアイコンだけにする（2026-08-02 本人指示
+            「新しい会話ボタンは入りきってないからアイコンに」）。右肩のトグルは
+            文字のままにしたいので、縮めるのはこちらだけ */}
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="text-muted-foreground"
+          className="px-2 text-muted-foreground md:px-3"
           title="ここまでの会話を区切って新しく始める（過去分は履歴タブに残る）"
+          aria-label="新しい会話"
           onClick={() => void startNewTalk()}
         >
-          新しい会話
+          <MessageSquarePlus className="size-3.5 md:hidden" />
+          <span className="hidden md:inline">新しい会話</span>
         </Button>
         {/* トグルは元どおりタブ行の右肩（＝会話の上）。モバイルでノード詳細だけを出して
             いる間はこのタブ行ごと消えるので、そのときだけ一番下の行に同じボタンを出す
@@ -1379,9 +1385,11 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
       )}
 
       {/* モバイルでノード詳細だけを出しているときの戻り口。タブ行（右肩のトグル）が
-          消えている状態なので、ここに同じボタンを出して会話へ切り替える */}
+          消えている状態なので、ここに同じボタンを出して会話へ切り替える。
+          右寄せ＝デスクトップの右肩と同じ側に揃える（2026-08-02 本人指示
+          「デスクトップと変えなくていいところは変えたくない」） */}
       {isMobile && metaOpen && (
-        <div className="flex flex-shrink-0 justify-center">
+        <div className="flex flex-shrink-0 justify-end">
         <Button
           type="button"
           variant="ghost"
