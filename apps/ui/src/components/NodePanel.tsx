@@ -10,6 +10,7 @@ import {
   Lock,
   MessageSquare,
   MessageSquarePlus,
+  Plus,
   ScrollText,
   Trash2,
   Unlock,
@@ -30,6 +31,12 @@ import { cn } from "../lib/utils";
 import type { MaterializedMessage, Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
@@ -1252,72 +1259,82 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               })()}
           </div>
 
-          {/* 関係者（チーム化 2026-08-04）: 手動 members のトグルチップ。全ノード種で編集できる
-              （当初は kind=goal 限定だったが、goal ノードはグラフに描画されず開く導線が無い +
-              配下ノードにも関係者を付けたい、で全種へ開放。2026-08-04 追修）。
-              ページ（goal）では配下ノード由来の自動集計（effectiveMembers）のうち手動に無い分を
-              「自動」ラベルの非活性チップで区別表示する——左レールの人フィルタ・イニシャル
-              バッジはこの実効関係者を見る。作成者（createdBy）はサーバが刻む不変値なので表示のみ */}
+          {/* 関係者（チーム化 2026-08-04）: 全ノード種で編集できる（goal ノードはグラフに
+              描画されず開く導線が無い + 配下ノードにも関係者を付けたい、で全種へ開放）。
+              表示するのは実際の関係者だけ——手動 members のチップ（×で解除）と、ページ
+              （goal）では配下ノード由来の自動集計（effectiveMembers）のうち手動に無い分の
+              「自動」チップ。追加は末尾の「＋」からメニューで選ぶ（旧: ロスター全員をトグル
+              チップで並べていたが、人数が多いと地獄。2026-08-04 実機指摘で現メンバー+＋方式へ）。
+              左レールの人フィルタ・イニシャルバッジは実効関係者（手動 ∪ 自動）を見る。
+              作成者（createdBy）はサーバが刻む不変値なので表示のみ。囲い（bg-card）は付けない
+              ——detail や分岐の枝と同じ地のメタ項目として並べる（同日の実機指摘） */}
           {teamEnabled && (
-            <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2.5">
+            <div className="flex flex-col gap-1.5">
               <span className="text-sm text-muted-foreground">関係者</span>
-              <div className="flex flex-wrap gap-1.5">
-                {users.map((u) => {
-                  const on = (node.members ?? []).some((m) => sameEmail(m, u.email));
-                  return (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(node.members ?? []).map((m) => (
+                  <span
+                    key={m}
+                    className="inline-flex items-center gap-1 rounded-full border border-human/60 bg-human/10 px-2 py-0.5 text-xs text-foreground"
+                    title={m}
+                  >
+                    {displayNameOf(m, users)}
                     <button
-                      key={u.email}
                       type="button"
-                      className={cn(
-                        "rounded-full border px-2 py-0.5 text-xs transition-colors",
-                        on
-                          ? "border-human/60 bg-human/10 text-foreground"
-                          : "border-border text-muted-foreground hover:border-border-strong",
-                      )}
-                      title={u.email}
-                      onClick={() =>
-                        patch({
-                          members: on
-                            ? (node.members ?? []).filter((m) => !sameEmail(m, u.email))
-                            : [...(node.members ?? []), u.email],
-                        })
-                      }
-                    >
-                      {displayNameOf(u.email, users)}
-                    </button>
-                  );
-                })}
-                {/* ロスターから消えたメールが手動 members に残っている場合も見えて、解除できる */}
-                {(node.members ?? [])
-                  .filter((m) => !users.some((u) => sameEmail(u.email, m)))
-                  .map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      className="rounded-full border border-human/60 bg-human/10 px-2 py-0.5 text-xs text-foreground"
-                      title={`${m}（ロスター外）。クリックで解除`}
+                      className="inline-flex text-muted-foreground transition-colors hover:text-foreground"
+                      title="関係者から外す"
                       onClick={() =>
                         patch({ members: (node.members ?? []).filter((x) => !sameEmail(x, m)) })
                       }
                     >
-                      {displayNameOf(m, users)}
+                      <X className="size-3" />
                     </button>
-                  ))}
+                  </span>
+                ))}
                 {/* ページのみ: 配下ノード由来の継承分（手動 members に無い人）。集計値なので
-                    ここでは外せない（外したければ配下ノード側の帰属を変える） */}
+                    ここでは外せない（外したければ配下ノード側の帰属を変える）。控えめな点線 */}
                 {node.kind === "goal" &&
                   effectiveMembers(node, allNodes)
                     .filter((m) => !(node.members ?? []).some((x) => sameEmail(x, m)))
                     .map((m) => (
                       <span
                         key={m}
-                        className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground"
+                        className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-text-lo"
                         title="配下ノードの担当・関係者・作成者から自動集計"
                       >
                         {displayNameOf(m, users)}
-                        <span className="text-[9px] text-text-lo">自動</span>
+                        <span className="text-[9px]">自動</span>
                       </span>
                     ))}
+                {/* まだ手動 members に居ないロスターの人だけを候補に出す。候補ゼロなら＋自体を出さない */}
+                {users.some((u) => !(node.members ?? []).some((m) => sameEmail(m, u.email))) && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 rounded-full text-muted-foreground"
+                        title="関係者を追加"
+                      >
+                        <Plus className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {users
+                        .filter((u) => !(node.members ?? []).some((m) => sameEmail(m, u.email)))
+                        .map((u) => (
+                          <DropdownMenuItem
+                            key={u.email}
+                            title={u.email}
+                            onSelect={() => patch({ members: [...(node.members ?? []), u.email] })}
+                          >
+                            {displayNameOf(u.email, users)}
+                          </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
               {node.createdBy && (
                 <span className="text-xs text-muted-foreground">

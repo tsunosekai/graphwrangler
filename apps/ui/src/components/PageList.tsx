@@ -78,7 +78,8 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // チーム化（2026-08-04）: 人フィルタとイニシャルバッジ。ロスターが2人未満なら出さない
   const { me, users, enabled: teamEnabled } = useTeam();
-  // 人フィルタ: "all"（全員）/ "me"（自分。ログイン中のみ）/ メールアドレス。リロード跨ぎで保持
+  // 人フィルタ: "all"（全員）/ "me"（自分。ログイン中のみ）/ "none"（帰属なし）/
+  // メールアドレス。リロード跨ぎで保持
   const [personFilter, setPersonFilterRaw] = useState<string>(
     () => localStorage.getItem("gw.pageFilter") ?? "all",
   );
@@ -91,31 +92,31 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
     }
   };
   // 保存値の正規化: 未ログインで "me" が残っていた・ロスターから消えたメールだった、は
-  // 「全員」に倒す（Select の表示と絞り込みの両方がこれを使う）
+  // 「全員」に倒す（Select の表示と絞り込みの両方がこれを使う）。"none"（帰属なし）は有効値
   const personFilterValue =
     personFilter === "me"
       ? me.email
         ? "me"
         : "all"
-      : personFilter === "all" || users.some((u) => sameEmail(u.email, personFilter))
+      : personFilter === "all" ||
+          personFilter === "none" ||
+          users.some((u) => sameEmail(u.email, personFilter))
         ? personFilter
         : "all";
-  // フィルタの実効メール。null = 絞り込みなし（ロスターが2人未満のときも常に null）
-  const filterEmail = !teamEnabled
-    ? null
-    : personFilterValue === "all"
-      ? null
-      : personFilterValue === "me"
-        ? me.email
-        : personFilterValue;
-  // ページが人 P に関連するか: 実効関係者（手動 members ∪ 作成者 ∪ 配下ノードの
-  // 担当・関係者・作成者。lib/team.ts の effectiveMembers）に P が居るか。
-  // 実効関係者が空のページ = 帰属が誰にも記録されていない（チーム化前の既存データ等）は
-  // どの人フィルタでも常に表示する——隠すと移行期に全ページが消える。assignee null が
-  // 「全員の番」であるのと同じ思想で、帰属不明は「全員のもの」に倒す（2026-08-04 追修）
-  const pageRelatesTo = (page: Node, email: string): boolean => {
-    const eff = effectiveMembers(page, allNodes);
-    return eff.length === 0 || eff.some((m) => sameEmail(m, email));
+  // ページの絞り込み述語（チーム化 2026-08-04）。判定は実効関係者
+  // （手動 members ∪ 作成者 ∪ 配下ノードの担当・関係者・作成者。lib/team.ts の effectiveMembers）:
+  // - 全員（またはロスター2人未満）: 絞り込みなし
+  // - 人: その人が実効関係者に居るページだけ（厳格。実効関係者が空のページは出さない——
+  //   当初は全滅防止で「空は常に表示」の救済を入れていたが、「担当が付いていないのに
+  //   フィルタをすり抜けて出てくる」と逆の不満になった。2026-08-04 実機指摘で撤回）
+  // - 帰属なし: 実効関係者が空のページだけ。救済の代替で、チーム化前の既存データに
+  //   帰属を付けて回る作業や拾い漏れの発見に使う
+  const byPerson = (f: Node): boolean => {
+    if (!teamEnabled || personFilterValue === "all") return true;
+    const eff = effectiveMembers(f, allNodes);
+    if (personFilterValue === "none") return eff.length === 0;
+    const email = personFilterValue === "me" ? me.email : personFilterValue;
+    return !!email && eff.some((m) => sameEmail(m, email));
   };
   // アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -153,8 +154,8 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
     (f) => !isRoutinePage(f, allNodes) && (f.status === "done" || f.status === "dropped"),
   );
   // プロジェクト（トリガー無し）/ ルーティーン（トリガー有り）のビュー的な分類（本人指定）。
-  // 人フィルタ中はプロジェクト節・ルーティーン節の両方に同じ述語を適用する（チーム化 2026-08-04）
-  const byPerson = (f: Node) => filterEmail === null || pageRelatesTo(f, filterEmail);
+  // 人フィルタ中はプロジェクト節・ルーティーン節の両方に同じ述語（上の byPerson）を適用する
+  // （チーム化 2026-08-04）
   const projectFolders = activeFolders.filter((f) => !isRoutinePage(f, allNodes) && byPerson(f));
   const routineFolders = activeFolders.filter((f) => isRoutinePage(f, allNodes) && byPerson(f));
 
@@ -397,6 +398,9 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
                     {displayNameOf(u.email, users)}
                   </SelectItem>
                 ))}
+              {/* 帰属なし = 実効関係者が空のページだけ。人フィルタは厳格絞り込みなので、
+                  帰属未記入の既存データはここで見つけて付けて回る（2026-08-04 追修） */}
+              <SelectItem value="none">帰属なし</SelectItem>
             </SelectContent>
           </Select>
         </div>
