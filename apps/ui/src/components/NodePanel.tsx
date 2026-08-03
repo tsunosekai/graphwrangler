@@ -24,7 +24,7 @@ import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
 import { missingParamNames } from "../lib/params";
-import { displayNameOf, turnIsMine, useTeam } from "../lib/team";
+import { displayNameOf, effectiveMembers, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage, Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
@@ -935,7 +935,13 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               <label className="col-span-2 flex flex-col gap-1 text-sm text-muted-foreground">
                 担当者
                 <Select
-                  value={node.assignee ?? "none"}
+                  // 大文字小文字の表記ゆれはロスター側の表記に寄せて選択状態にする
+                  // （メール比較は sameEmail。2026-08-04 追修）
+                  value={
+                    users.find((u) => sameEmail(u.email, node.assignee))?.email ??
+                    node.assignee ??
+                    "none"
+                  }
                   onValueChange={(v) => patch({ assignee: v === "none" ? null : v })}
                 >
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -947,7 +953,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       </SelectItem>
                     ))}
                     {/* ロスターから消えたメールが残っている場合も現在値として表示・解除できるようにする */}
-                    {node.assignee && !users.some((u) => u.email === node.assignee) && (
+                    {node.assignee && !users.some((u) => sameEmail(u.email, node.assignee)) && (
                       <SelectItem value={node.assignee}>{node.assignee}</SelectItem>
                     )}
                   </SelectContent>
@@ -1246,15 +1252,18 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               })()}
           </div>
 
-          {/* 関係者（チーム化 2026-08-04）: ページ（kind=goal）でのみ意味を持つメンバー集合。
-              左レールの人フィルタ・イニシャルバッジがこれを見る。トグルチップで出し入れする。
-              作成者（createdBy）はサーバが刻む不変値なので表示のみ */}
-          {teamEnabled && node.kind === "goal" && (
+          {/* 関係者（チーム化 2026-08-04）: 手動 members のトグルチップ。全ノード種で編集できる
+              （当初は kind=goal 限定だったが、goal ノードはグラフに描画されず開く導線が無い +
+              配下ノードにも関係者を付けたい、で全種へ開放。2026-08-04 追修）。
+              ページ（goal）では配下ノード由来の自動集計（effectiveMembers）のうち手動に無い分を
+              「自動」ラベルの非活性チップで区別表示する——左レールの人フィルタ・イニシャル
+              バッジはこの実効関係者を見る。作成者（createdBy）はサーバが刻む不変値なので表示のみ */}
+          {teamEnabled && (
             <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2.5">
               <span className="text-sm text-muted-foreground">関係者</span>
               <div className="flex flex-wrap gap-1.5">
                 {users.map((u) => {
-                  const on = (node.members ?? []).includes(u.email);
+                  const on = (node.members ?? []).some((m) => sameEmail(m, u.email));
                   return (
                     <button
                       key={u.email}
@@ -1269,7 +1278,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       onClick={() =>
                         patch({
                           members: on
-                            ? (node.members ?? []).filter((m) => m !== u.email)
+                            ? (node.members ?? []).filter((m) => !sameEmail(m, u.email))
                             : [...(node.members ?? []), u.email],
                         })
                       }
@@ -1278,6 +1287,37 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     </button>
                   );
                 })}
+                {/* ロスターから消えたメールが手動 members に残っている場合も見えて、解除できる */}
+                {(node.members ?? [])
+                  .filter((m) => !users.some((u) => sameEmail(u.email, m)))
+                  .map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      className="rounded-full border border-human/60 bg-human/10 px-2 py-0.5 text-xs text-foreground"
+                      title={`${m}（ロスター外）。クリックで解除`}
+                      onClick={() =>
+                        patch({ members: (node.members ?? []).filter((x) => !sameEmail(x, m)) })
+                      }
+                    >
+                      {displayNameOf(m, users)}
+                    </button>
+                  ))}
+                {/* ページのみ: 配下ノード由来の継承分（手動 members に無い人）。集計値なので
+                    ここでは外せない（外したければ配下ノード側の帰属を変える） */}
+                {node.kind === "goal" &&
+                  effectiveMembers(node, allNodes)
+                    .filter((m) => !(node.members ?? []).some((x) => sameEmail(x, m)))
+                    .map((m) => (
+                      <span
+                        key={m}
+                        className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground"
+                        title="配下ノードの担当・関係者・作成者から自動集計"
+                      >
+                        {displayNameOf(m, users)}
+                        <span className="text-[9px] text-text-lo">自動</span>
+                      </span>
+                    ))}
               </div>
               {node.createdBy && (
                 <span className="text-xs text-muted-foreground">
@@ -1487,13 +1527,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             </div>
           )}
 
-          {/* 作成者の刻印（チーム化 2026-08-04。サーバが作成時に刻む不変メタ情報）。
-              ページ（goal）は関係者セクション内に出すのでここでは重複させない */}
-          {teamEnabled && node.kind !== "goal" && node.createdBy && (
-            <p className="text-xs text-muted-foreground">
-              作成: {displayNameOf(node.createdBy, users)}
-            </p>
-          )}
+          {/* 作成者の刻印は関係者セクション内の「作成者: ○○」に統一した（2026-08-04 追修。
+              旧: 非 goal はここに「作成: ○○」を出していたが、関係者を全ノード種へ開放したので重複） */}
         </div>
       )}
 

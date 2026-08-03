@@ -6,6 +6,7 @@
 // ログイン中のユーザーチップ（TopBar）だけは1人でも出してよい（me.email で判定する）。
 import { createContext, useContext } from "react";
 import type { Me, TeamUser } from "./api";
+import type { Node } from "../types";
 
 export type { Me, TeamUser };
 
@@ -26,9 +27,21 @@ export function useTeam(): Team {
   return useContext(TeamContext);
 }
 
+/** メール比較用の正規化（trim + 小文字）。メールの比較は必ずこれ経由にする——
+ *  Google ログイン等は大文字混じりの表記を返しうるが、メールアドレスは実務上
+ *  大文字小文字を区別しない（2026-08-04: 表記ゆれで自分のページが絞り込めない不具合の対策） */
+export function normEmail(e: string): string {
+  return e.trim().toLowerCase();
+}
+
+/** 2つのメールが同一人物か（どちらかが空なら false）。生の === を各所に書かないための共通ヘルパ */
+export function sameEmail(a: string | null | undefined, b: string | null | undefined): boolean {
+  return !!a && !!b && normEmail(a) === normEmail(b);
+}
+
 /** email の表示名: ロスターの displayName、無ければ @ より前 */
 export function displayNameOf(email: string, users: TeamUser[]): string {
-  const u = users.find((x) => x.email === email);
+  const u = users.find((x) => sameEmail(x.email, email));
   return u?.displayName || email.split("@")[0];
 }
 
@@ -40,7 +53,33 @@ export function initialOf(email: string, users: TeamUser[]): string {
 /** 「あなたの番」（waiting）が自分の番か。assignee 未設定・未ログインは従来どおり全員の番。
  *  判定を各所（NodeCard / PageList / NodePanel / デスクトップ通知）で複製しないための共通ヘルパ */
 export function turnIsMine(assignee: string | null | undefined, meEmail: string | null): boolean {
-  return !assignee || !meEmail || assignee === meEmail;
+  return !assignee || !meEmail || sameEmail(assignee, meEmail);
+}
+
+/** ページの実効関係者: 手動 members ∪ 作成者 ∪ 配下ノード（group===page.id）の
+ *  members・担当者・作成者の自動集計（2026-08-04）。手動設定だけに頼ると、配下に担当者が
+ *  居るのにページのバッジ・人フィルタに現れない——「誰が絡んでいるページか」は配下から
+ *  導出するのが実態に合う。重複はメール小文字正規化で除去し、表示表記は最初に見つかった
+ *  ものをそのまま使う（表示名解決は displayNameOf が別途行うので表記は何でもよい） */
+export function effectiveMembers(page: Node, allNodes: Node[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (email: string | null | undefined) => {
+    if (!email) return;
+    const key = normEmail(email);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(email);
+  };
+  for (const m of page.members ?? []) add(m);
+  add(page.createdBy);
+  for (const n of allNodes) {
+    if (n.group !== page.id) continue;
+    for (const m of n.members ?? []) add(m);
+    add(n.assignee);
+    add(n.createdBy);
+  }
+  return out;
 }
 
 /** ノードの pendingRequest が「自分の番」か（pendingRequest 無しは false） */

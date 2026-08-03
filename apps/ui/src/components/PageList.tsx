@@ -10,11 +10,11 @@
 // 最新ランの取得は App 側でまとめてポーリングする（受信箱のラン待ち統合と共有し、
 // ページ数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
 import { useState } from "react";
-import { PanelLeft, PanelLeftClose } from "lucide-react";
+import { PanelLeft, PanelLeftClose, Settings2 } from "lucide-react";
 import { focusGoalCapture } from "../lib/capture";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { isRoutinePage } from "../lib/routine";
-import { displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
+import { displayNameOf, effectiveMembers, initialOf, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { Node, Run, Status } from "../types";
 import { Button } from "./ui/button";
@@ -39,6 +39,9 @@ interface Props {
    *  （2026-08-02 モバイル4ビュー化。畳む/開くはデスクトップのレール専用の概念） */
   forceExpanded?: boolean;
   onSelectPage: (id: string) => void;
+  /** 行の⚙からページ自身のノード詳細を開く（タイトル編集・関係者・削除の導線。
+   *  goal ノードはグラフに描画されないため、ここが NodePanel への唯一の入口。2026-08-04） */
+  onOpenPageNode: (id: string) => void;
 }
 
 const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
@@ -71,7 +74,7 @@ function seatColor(status: Status, executor: Node["executor"]): string {
 const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
-export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestRuns, runningCounts, forceExpanded, onSelectPage }: Props) {
+export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestRuns, runningCounts, forceExpanded, onSelectPage, onOpenPageNode }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // チーム化（2026-08-04）: 人フィルタとイニシャルバッジ。ロスターが2人未満なら出さない
   const { me, users, enabled: teamEnabled } = useTeam();
@@ -94,7 +97,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       ? me.email
         ? "me"
         : "all"
-      : personFilter === "all" || users.some((u) => u.email === personFilter)
+      : personFilter === "all" || users.some((u) => sameEmail(u.email, personFilter))
         ? personFilter
         : "all";
   // フィルタの実効メール。null = 絞り込みなし（ロスターが2人未満のときも常に null）
@@ -105,13 +108,15 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       : personFilterValue === "me"
         ? me.email
         : personFilterValue;
-  // ページが人 P に関連するか: 作成者 / 関係者 / メンバーノードに P の担当・作成があるか
-  const pageRelatesTo = (page: Node, email: string): boolean =>
-    page.createdBy === email ||
-    (page.members ?? []).includes(email) ||
-    allNodes.some(
-      (n) => n.group === page.id && (n.assignee === email || n.createdBy === email),
-    );
+  // ページが人 P に関連するか: 実効関係者（手動 members ∪ 作成者 ∪ 配下ノードの
+  // 担当・関係者・作成者。lib/team.ts の effectiveMembers）に P が居るか。
+  // 実効関係者が空のページ = 帰属が誰にも記録されていない（チーム化前の既存データ等）は
+  // どの人フィルタでも常に表示する——隠すと移行期に全ページが消える。assignee null が
+  // 「全員の番」であるのと同じ思想で、帰属不明は「全員のもの」に倒す（2026-08-04 追修）
+  const pageRelatesTo = (page: Node, email: string): boolean => {
+    const eff = effectiveMembers(page, allNodes);
+    return eff.length === 0 || eff.some((m) => sameEmail(m, email));
+  };
   // アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
   // レール自体の開閉（2026-07-31 本人要望）。閉じると細い縦帯だけ残す
@@ -214,16 +219,29 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
     const shown = dots.slice(0, MAX_DOTS);
     const rest = dots.length - shown.length;
 
+    // イニシャルバッジは実効関係者（手動 members + 配下ノードからの自動集計。2026-08-04 追修。
+    // 手動だけだと配下に担当者が居てもバッジが出ず「誰のページか」が見えない）
+    const effMembers = teamEnabled ? effectiveMembers(f, allNodes) : [];
+
     return (
-      <button
+      // 行の中に⚙ボタン（本物の <button>）を置くため、行自体は button でなく div[role=button]
+      // にする（button の入れ子は不正HTML。2026-08-04 追修）。Enter/Space の選択も維持する
+      <div
         key={f.id}
-        type="button"
+        role="button"
+        tabIndex={0}
         className={cn(
-          "flex w-full flex-col items-stretch gap-0.5 rounded-sm px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/60",
+          "flex w-full cursor-pointer flex-col items-stretch gap-0.5 rounded-sm px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/60",
           pageId === f.id && "bg-accent text-foreground",
           archived && "opacity-70",
         )}
         onClick={() => onSelectPage(f.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelectPage(f.id);
+          }
+        }}
       >
         <span className="flex min-w-0 items-center gap-2">
           {routine ? (
@@ -234,13 +252,14 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
             <StatusCircle status={f.status} size={12} />
           )}
           <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
-          {/* 関係者のイニシャルバッジ（チーム化 2026-08-04）: 最大3人 + “+n”。小さく控えめに */}
-          {teamEnabled && (f.members ?? []).length > 0 && (
+          {/* 関係者のイニシャルバッジ（チーム化 2026-08-04）: 実効関係者を最大3人 + “+n”。
+              小さく控えめに */}
+          {effMembers.length > 0 && (
             <span
               className="flex flex-shrink-0 items-center -space-x-1"
-              title={`関係者: ${(f.members ?? []).map((m) => displayNameOf(m, users)).join("、")}`}
+              title={`関係者: ${effMembers.map((m) => displayNameOf(m, users)).join("、")}`}
             >
-              {(f.members ?? []).slice(0, 3).map((m) => (
+              {effMembers.slice(0, 3).map((m) => (
                 <span
                   key={m}
                   className="inline-flex size-3.5 items-center justify-center rounded-full border border-border bg-background text-[8px] leading-none text-muted-foreground"
@@ -248,8 +267,8 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
                   {initialOf(m, users)}
                 </span>
               ))}
-              {(f.members ?? []).length > 3 && (
-                <span className="pl-1.5 text-[9px] text-text-lo">+{(f.members ?? []).length - 3}</span>
+              {effMembers.length > 3 && (
+                <span className="pl-1.5 text-[9px] text-text-lo">+{effMembers.length - 3}</span>
               )}
             </span>
           )}
@@ -270,6 +289,22 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
               {unreadCount}
             </span>
           )}
+          {/* ページ自身のノード詳細（タイトル編集・関係者・削除）への導線（2026-08-04 追修）。
+              goal ノードはグラフに描画されないため、この⚙が NodePanel を開く唯一の入口。
+              モバイルでも押せるよう hover 表示にはしない（常時表示・控えめな色） */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
+            title="ページの詳細を開く"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenPageNode(f.id);
+            }}
+          >
+            <Settings2 className="size-3.5" />
+          </Button>
         </span>
         {dots.length > 0 && (
           <span className="flex flex-wrap items-center gap-[3px] pl-5">
@@ -284,7 +319,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
             {rest > 0 && <span className="font-mono text-xs text-text-lo">+{rest}</span>}
           </span>
         )}
-      </button>
+      </div>
     );
   };
 
@@ -356,7 +391,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
               <SelectItem value="all">全員</SelectItem>
               {me.email && <SelectItem value="me">自分</SelectItem>}
               {users
-                .filter((u) => u.email !== me.email)
+                .filter((u) => !sameEmail(u.email, me.email))
                 .map((u) => (
                   <SelectItem key={u.email} value={u.email}>
                     {displayNameOf(u.email, users)}

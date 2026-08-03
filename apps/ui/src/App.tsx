@@ -453,6 +453,15 @@ function AppInner() {
               setSelectedId(id);
               setMobileView("graph");
             }}
+            onOpenPageNode={(id) => {
+              // 行の⚙: ページ自身のノード詳細を開く（goal ノードはグラフに描画されないため、
+              // NodePanel の関係者・タイトル編集・削除へはここが唯一の入口。2026-08-04）。
+              // 表示中ページも合わせて切り替える——別ページの⚙を押したとき、ページと選択の
+              // 食い違いガード（上の useEffect）に選択を落とされないように
+              setPageId(id);
+              setSelectedId(id);
+              if (isMobile) setMobileView("node");
+            }}
           />
         )}
         <div className={cn("contents", mv !== null && mv !== "graph" && "hidden")}>
