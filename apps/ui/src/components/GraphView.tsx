@@ -36,6 +36,14 @@ const edgeTypes = { cut: CutEdge };
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 2;
 
+// フィット時の余白。ノード矩形の外側に付く装飾（左右のポート・🔒・＋・ラン名バッジ）も
+// 画面内に収まるように広めに取る（2026-08-02 本人要望「ノードの周りにある要素も収まるように」）。
+// 自前の fitView 呼び出し（整列・Fキー・ページ切替）と、ReactFlow 側のフィット
+// （初期表示の fitView prop・Controls のフィットボタン）の両方がこの値を使い、
+// どこから合わせても同じ収まり方になる（2026-08-03 本人報告「合わせ方がズレている」の修正）
+const FIT_PADDING = 0.3;
+const FIT_VIEW_OPTIONS = { padding: FIT_PADDING };
+
 // ---- Ctrl+C/Ctrl+V/Ctrl+D 用のアプリ内クリップボード（モジュール変数。ページを跨いでも保持する） ----
 interface ClipboardNode {
   origId: string;
@@ -134,9 +142,6 @@ function GraphViewInner({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { fitView, screenToFlowPosition, getNodes, getViewport, setViewport } = useReactFlow();
   const isMobile = useIsMobile();
-  // フィット時の余白。ノード矩形の外側に付く装飾（左右のポート・🔒・＋・ラン名バッジ）も
-  // 画面内に収まるように広めに取る（2026-08-02 本人要望「ノードの周りにある要素も収まるように」）
-  const FIT_PADDING = 0.3;
 
   // ヘッダーの⌨ボタンからショートカット一覧を開く（ダイアログ本体はここが持つ）
   useEffect(() => subscribeOpenShortcuts(() => setShortcutsOpen(true)), []);
@@ -1147,8 +1152,9 @@ function GraphViewInner({
           selectionKeyCode="Shift"
           multiSelectionKeyCode={["Shift", "Control", "Meta"]}
           fitView
+          fitViewOptions={FIT_VIEW_OPTIONS}
         >
-          <Controls showInteractive={false} />
+          <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
         </ReactFlow>
       )}
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
