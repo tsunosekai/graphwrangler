@@ -25,7 +25,13 @@ import {
 import { z } from "zod";
 import { chatKeyMissing, completeText, handleChat } from "./chat.js";
 import { handleChatCli } from "./chat_cli.js";
-import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema, GitSettingsSchema } from "./settings.js";
+import {
+  SettingsStore,
+  AiSettingsSchema,
+  ChatSettingsSchema,
+  EngineSettingsSchema,
+  GitSettingsSchema,
+} from "./settings.js";
 import { GitSync } from "./gitsync.js";
 import { resolveWorkspacePath } from "./files.js";
 import { isThreadAiRunning, maybeTriggerThreadAi } from "./thread_ai.js";
@@ -840,6 +846,7 @@ app.post("/api/redo", async (c) => {
 const SettingsPatchSchema = z.object({
   chat: ChatSettingsSchema.partial().optional(),
   engine: EngineSettingsSchema.partial().optional(),
+  ai: AiSettingsSchema.partial().optional(),
   git: GitSettingsSchema.partial().optional(),
   setupDone: z.boolean().optional(),
 });
