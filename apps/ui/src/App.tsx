@@ -64,7 +64,7 @@ export default function App() {
       setMe(await api.getMe());
     } catch {
       // 判定に失敗したら従来どおり本体を出す（ログイン不要運用・旧サーバとの互換）
-      setMe({ email: null, displayName: null, authRequired: false });
+      setMe({ email: null, displayName: null, admin: false, authRequired: false });
     }
   }, []);
   useEffect(() => {
@@ -85,10 +85,18 @@ export default function App() {
  *  = 人系UIを出さない degrade（getUsers 自体が失敗を空配列に畳む。ポーリングはしない） */
 function TeamProvider({ me, children }: { me: Me; children: ReactNode }) {
   const [users, setUsers] = useState<TeamUser[]>([]);
-  useEffect(() => {
+  // ユーザー管理ダイアログでの追加・変更を即反映するための再取得口（2026-08-04）。
+  // 平常時は起動時の1回だけで、ポーリングはしない方針のまま
+  const refreshUsers = useCallback(() => {
     void api.getUsers().then((r) => setUsers(r.users));
   }, []);
-  const team = useMemo<Team>(() => ({ me, users, enabled: users.length >= 2 }), [me, users]);
+  useEffect(() => {
+    refreshUsers();
+  }, [refreshUsers]);
+  const team = useMemo<Team>(
+    () => ({ me, users, enabled: users.length >= 2, refreshUsers }),
+    [me, users, refreshUsers],
+  );
   return <TeamContext.Provider value={team}>{children}</TeamContext.Provider>;
 }
 

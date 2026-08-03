@@ -15,12 +15,16 @@ export interface Team {
   users: TeamUser[];
   /** ロスターが2人以上=チーム運用。人系UIはこれが true のときだけ出す */
   enabled: boolean;
+  /** ロスターの再取得（ユーザー管理ダイアログでの追加・変更の反映用。2026-08-04）。
+   *  Provider（App の TeamProvider）が実体を配る。既定は no-op */
+  refreshUsers: () => void;
 }
 
 export const TeamContext = createContext<Team>({
-  me: { email: null, displayName: null, authRequired: false },
+  me: { email: null, displayName: null, admin: false, authRequired: false },
   users: [],
   enabled: false,
+  refreshUsers: () => {},
 });
 
 export function useTeam(): Team {
@@ -48,6 +52,17 @@ export function displayNameOf(email: string, users: TeamUser[]): string {
 /** アバター的バッジ用のイニシャル（表示名の先頭1文字） */
 export function initialOf(email: string, users: TeamUser[]): string {
   return displayNameOf(email, users).slice(0, 1).toUpperCase();
+}
+
+/** ユーザーの決定的カラー（2026-08-04）: メールのハッシュから hue を決める。
+ *  誰の色かがどの画面でも一致し、サーバに色設定を持たなくてよい。
+ *  彩度55%/明度45%は「白いイニシャル文字が読め、ライト/ダーク両テーマで浮かない」狙い
+ *  （既存の --human 等のトーンに合わせて彩度を上げすぎない） */
+export function colorOf(email: string): string {
+  const s = normEmail(email);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 55%, 45%)`;
 }
 
 /** 「あなたの番」（waiting）が自分の番か。assignee 未設定・未ログインは従来どおり全員の番。

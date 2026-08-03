@@ -14,7 +14,7 @@ import { PanelLeft, PanelLeftClose, Settings2 } from "lucide-react";
 import { focusGoalCapture } from "../lib/capture";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { isRoutinePage } from "../lib/routine";
-import { displayNameOf, effectiveMembers, initialOf, sameEmail, turnIsMine, useTeam } from "../lib/team";
+import { colorOf, displayNameOf, effectiveMembers, initialOf, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { Node, Run, Status } from "../types";
 import { Button } from "./ui/button";
@@ -100,7 +100,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
         : "all"
       : personFilter === "all" ||
           personFilter === "none" ||
-          users.some((u) => sameEmail(u.email, personFilter))
+          users.some((u) => !u.disabled && sameEmail(u.email, personFilter))
         ? personFilter
         : "all";
   // ページの絞り込み述語（チーム化 2026-08-04）。判定は実効関係者
@@ -261,9 +261,12 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
               title={`関係者: ${effMembers.map((m) => displayNameOf(m, users)).join("、")}`}
             >
               {effMembers.slice(0, 3).map((m) => (
+                // 地色はユーザーの決定的カラー（colorOf）。border-background は重なり
+                // （-space-x-1）の切れ目用
                 <span
                   key={m}
-                  className="inline-flex size-3.5 items-center justify-center rounded-full border border-border bg-background text-[8px] leading-none text-muted-foreground"
+                  className="inline-flex size-3.5 items-center justify-center rounded-full border border-background text-[8px] font-semibold leading-none text-white"
+                  style={{ background: colorOf(m) }}
                 >
                   {initialOf(m, users)}
                 </span>
@@ -391,8 +394,10 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
             <SelectContent>
               <SelectItem value="all">全員</SelectItem>
               {me.email && <SelectItem value="me">自分</SelectItem>}
+              {/* 無効化ユーザーは選択肢から除外（2026-08-04 アカウント管理）。保存値に
+                  無効化済みメールが残っていた場合は上の正規化が「全員」に倒す */}
               {users
-                .filter((u) => !sameEmail(u.email, me.email))
+                .filter((u) => !u.disabled && !sameEmail(u.email, me.email))
                 .map((u) => (
                   <SelectItem key={u.email} value={u.email}>
                     {displayNameOf(u.email, users)}

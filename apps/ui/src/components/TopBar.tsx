@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Keyboard, LogOut, Search, Settings, Undo2 } from "lucide-react";
+import { Keyboard, KeyRound, LogOut, Search, Settings, Undo2, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { subscribeFocusGoalCapture } from "../lib/capture";
 import { openPalette, openShortcuts } from "../lib/palette";
-import { displayNameOf, useTeam } from "../lib/team";
+import { colorOf, displayNameOf, useTeam } from "../lib/team";
+import { ChangePasswordDialog } from "./ChangePasswordDialog";
+import { UserAdminDialog } from "./UserAdminDialog";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -117,42 +119,63 @@ function GoalCapture({ onCapture }: { onCapture: (title: string) => Promise<void
 }
 
 /** ログイン中のユーザーチップ（チーム化 2026-08-04）。イニシャル丸 + 表示名。クリックで
- *  メニュー（表示名・メール + ログアウト）。未ログイン運用では何も出さない（従来の見た目のまま）。
+ *  メニュー（表示名・メール + パスワード変更 + admin ならユーザー管理 + ログアウト）。
+ *  未ログイン運用では何も出さない（従来の見た目のまま）。
  *  ロスターが1人でもログイン中なら出してよい（degrade 原則の例外） */
 function UserChip() {
   const { me, users } = useTeam();
+  const [pwOpen, setPwOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   if (!me.email) return null;
   const name = me.displayName || displayNameOf(me.email, users);
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="flex items-center gap-1.5 rounded-full border border-border py-0.5 pl-1 pr-2 text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-          title={me.email}
-        >
-          <span className="inline-flex size-6 flex-shrink-0 items-center justify-center rounded-full bg-human/20 text-xs font-semibold text-human">
-            {name.slice(0, 1).toUpperCase()}
-          </span>
-          <span className="max-w-28 truncate max-md:hidden">{name}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuLabel className="flex flex-col">
-          <span>{name}</span>
-          <span className="text-xs font-normal text-muted-foreground">{me.email}</span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onSelect={() => {
-            // Cookie を消してからリロード=ログイン画面へ（logout の失敗はリロードで気付ける）
-            void api.logout().finally(() => window.location.reload());
-          }}
-        >
-          <LogOut className="size-3.5" /> ログアウト
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-full border border-border py-0.5 pl-1 pr-2 text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+            title={me.email}
+          >
+            {/* 丸の地色はユーザーの決定的カラー（colorOf。2026-08-04）——どの画面のバッジとも同じ色 */}
+            <span
+              className="inline-flex size-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+              style={{ background: colorOf(me.email) }}
+            >
+              {name.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="max-w-28 truncate max-md:hidden">{name}</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel className="flex flex-col">
+            <span>{name}</span>
+            <span className="text-xs font-normal text-muted-foreground">{me.email}</span>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setPwOpen(true)}>
+            <KeyRound className="size-3.5" /> パスワード変更
+          </DropdownMenuItem>
+          {/* ユーザー管理は admin のみ（サーバ側でも当然に検査される。UI は導線を隠すだけ） */}
+          {me.admin && (
+            <DropdownMenuItem onSelect={() => setAdminOpen(true)}>
+              <Users className="size-3.5" /> ユーザー管理
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => {
+              // Cookie を消してからリロード=ログイン画面へ（logout の失敗はリロードで気付ける）
+              void api.logout().finally(() => window.location.reload());
+            }}
+          >
+            <LogOut className="size-3.5" /> ログアウト
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+      {me.admin && <UserAdminDialog open={adminOpen} onOpenChange={setAdminOpen} />}
+    </>
   );
 }
 

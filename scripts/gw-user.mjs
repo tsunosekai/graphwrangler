@@ -7,6 +7,8 @@
 //   node scripts/gw-user.mjs <users.json> remove <email>
 //   node scripts/gw-user.mjs <users.json> passwd <email> [password]
 //   node scripts/gw-user.mjs <users.json> name <email> <表示名>     # 表示名の設定（UIでメールの代わりに出る）
+//   node scripts/gw-user.mjs <users.json> admin <email> on|off      # 管理者（ユーザー管理UIが使える）
+//   node scripts/gw-user.mjs <users.json> disable <email> on|off    # 無効化（ログイン拒否・履歴の帰属は保持）
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -14,7 +16,7 @@ import path from "node:path";
 const [file, cmd, email, passwordArg] = process.argv.slice(2);
 if (!file || !cmd) {
   console.error(
-    "usage: gw-user.mjs <users.json> list|add|remove|passwd|name [email] [password|表示名]",
+    "usage: gw-user.mjs <users.json> list|add|remove|passwd|name|admin|disable [email] [password|表示名|on|off]",
   );
   process.exit(1);
 }
@@ -47,10 +49,14 @@ data.users ??= [];
 
 switch (cmd) {
   case "list": {
-    for (const u of data.users)
+    for (const u of data.users) {
+      const flags = [u.admin ? "admin" : null, u.disabled ? "disabled" : null]
+        .filter(Boolean)
+        .join(",");
       console.log(
-        `${u.email}\t${u.displayName ?? "(表示名なし)"}\t(created: ${u.created ?? "?"})`,
+        `${u.email}\t${u.displayName ?? "(表示名なし)"}\t${flags || "-"}\t(created: ${u.created ?? "?"})`,
       );
+    }
     if (data.users.length === 0) console.log("(ユーザーなし=ログイン不要モード)");
     break;
   }
@@ -89,6 +95,18 @@ switch (cmd) {
     u.displayName = passwordArg;
     save(data);
     console.log(`表示名を設定しました: ${email} → ${passwordArg}`);
+    break;
+  }
+  case "admin":
+  case "disable": {
+    const u = data.users.find((x) => x.email === email);
+    if (!u) throw new Error(`見つかりません: ${email}`);
+    if (passwordArg !== "on" && passwordArg !== "off") throw new Error("on か off を指定してください");
+    const key = cmd === "admin" ? "admin" : "disabled";
+    if (passwordArg === "on") u[key] = true;
+    else delete u[key];
+    save(data);
+    console.log(`${cmd} ${passwordArg}: ${email}`);
     break;
   }
   default:

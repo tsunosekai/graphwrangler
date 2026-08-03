@@ -226,11 +226,14 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">未割当</SelectItem>
-              {users.map((u) => (
-                <SelectItem key={u.email} value={u.email}>
-                  {displayNameOf(u.email, users)}
-                </SelectItem>
-              ))}
+              {/* 無効化ユーザーは新規割当の候補から除外（2026-08-04 アカウント管理） */}
+              {users
+                .filter((u) => !u.disabled)
+                .map((u) => (
+                  <SelectItem key={u.email} value={u.email}>
+                    {displayNameOf(u.email, users)}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>

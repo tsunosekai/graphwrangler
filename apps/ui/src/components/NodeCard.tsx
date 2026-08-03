@@ -3,7 +3,7 @@ import { Handle, Position } from "@xyflow/react";
 import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
 import { promptDialog } from "../lib/dialogs";
-import { displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
+import { colorOf, displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { Node, RunItemStatus } from "../types";
@@ -279,7 +279,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             「人間の誰がやるか」を1文字で示す。ロスターが2人未満の運用では出さない（degrade 原則） */}
         {teamEnabled && node.executor === "human" && node.assignee && (
           <span
-            className="inline-flex size-4 flex-shrink-0 items-center justify-center rounded-full border border-human/60 text-[9px] leading-none text-human"
+            className="inline-flex size-4 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white"
+            style={{ background: colorOf(node.assignee) }}
             title={`担当者: ${displayNameOf(node.assignee, users)}`}
           >
             {initialOf(node.assignee, users)}

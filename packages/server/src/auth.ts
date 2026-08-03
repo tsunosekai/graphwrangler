@@ -32,9 +32,15 @@ const UserSchema = z.object({
   hash: z.string().min(1),
   salt: z.string().min(1),
   /** 表示名（チーム運用でメールの @ 前より読みやすい名前を出す用。省略可）。
-   *  管理は scripts/gw-user.mjs の add/name。actor.name に刻むのは常にメール
+   *  管理は scripts/gw-user.mjs の add/name か管理者UI。actor.name に刻むのは常にメール
    *  （不変の識別子）で、表示名への解決は UI 側の仕事 */
   displayName: z.string().optional(),
+  /** 管理者（ユーザー管理UIが使える）。付与は gw-user.mjs admin か管理者UI */
+  admin: z.boolean().optional(),
+  /** 無効化（Linear の Suspend 相当）。ログイン・セッションを即座に拒否するが、
+   *  ロスターには残す＝過去の createdBy/assignee/members の表示名解決を壊さない。
+   *  完全削除（remove）は CLI のみ＝帰属を壊す操作は UI に置かない */
+  disabled: z.boolean().optional(),
   created: z.string().optional(),
 });
 export type User = z.infer<typeof UserSchema>;
@@ -82,16 +88,34 @@ function sign(payload: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
-/** セッショントークン: base64url({email, exp}) + "." + HMAC 署名 */
-export function createSession(email: string, secret: string, now = Date.now()): string {
-  const payload = Buffer.from(JSON.stringify({ email, exp: now + SESSION_TTL_MS })).toString(
-    "base64url",
-  );
+/** パスワード版数: ハッシュの先頭8桁。トークンに焼き込み、パスワード変更で
+ *  既存セッションを即失効させる（署名鍵は全体共通なので、per-user の失効はこれが担う） */
+export function passwordVersion(user: User): string {
+  return user.hash.slice(0, 8);
+}
+
+/** セッショントークン: base64url({email, exp, v}) + "." + HMAC 署名。
+ *  v = パスワード版数（2026-08-04 追加。旧形式の v 無しトークンは検証で落ちる＝
+ *  この変更の配備時に全員一度だけ再ログインになる） */
+export function createSession(
+  email: string,
+  pwVersion: string,
+  secret: string,
+  now = Date.now(),
+): string {
+  const payload = Buffer.from(
+    JSON.stringify({ email, exp: now + SESSION_TTL_MS, v: pwVersion }),
+  ).toString("base64url");
   return `${payload}.${sign(payload, secret)}`;
 }
 
-/** 検証。改ざん・期限切れ・形式不正は null */
-export function verifySession(token: string, secret: string, now = Date.now()): string | null {
+/** 署名・期限・形式の検証のみ（ユーザーの実在・無効化・版数の照合は resolveSessionUser が担う）。
+ *  改ざん・期限切れ・形式不正は null */
+export function verifySession(
+  token: string,
+  secret: string,
+  now = Date.now(),
+): { email: string; v: string } | null {
   const dot = token.lastIndexOf(".");
   if (dot <= 0) return null;
   const payload = token.slice(0, dot);
@@ -104,11 +128,46 @@ export function verifySession(token: string, secret: string, now = Date.now()): 
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
       email?: unknown;
       exp?: unknown;
+      v?: unknown;
     };
     if (typeof parsed.email !== "string" || typeof parsed.exp !== "number") return null;
+    if (typeof parsed.v !== "string") return null;
     if (parsed.exp < now) return null;
-    return parsed.email;
+    return { email: parsed.email, v: parsed.v };
   } catch {
     return null;
   }
+}
+
+/** トークン → 有効なユーザー。**セッション失効の正体はここ**（2026-08-04。
+ *  それまでは署名と期限しか見ておらず、remove したユーザーの Cookie が30日生き残る穴があった）:
+ *  ①ユーザーが users.json に現存し ②無効化されておらず ③トークンの版数が現在の
+ *  パスワードと一致する、の3つが揃って初めてセッションと認める */
+export function resolveSessionUser(token: string, secret: string, usersFile: string): User | null {
+  const session = verifySession(token, secret);
+  if (!session) return null;
+  const user = loadUsers(usersFile).find(
+    (u) => u.email.toLowerCase() === session.email.toLowerCase(),
+  );
+  if (!user || user.disabled) return null;
+  if (passwordVersion(user) !== session.v) return null;
+  return user;
+}
+
+/** users.json の保存（gw-user.mjs と同じ流儀: tmp + rename のアトミック書き、mode 0600） */
+export function saveUsers(file: string, users: User[]): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ users }, null, 2) + "\n", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  fs.renameSync(tmp, file);
+}
+
+/** 紛らわしい文字（0O1lI）を除いた自動生成パスワード（gw-user.mjs と同一ロジック。
+ *  管理者UIの「追加」「パスワードリセット」が使う。値は応答で一度だけ見せる） */
+export function generatePassword(): string {
+  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from(crypto.randomBytes(16), (b) => chars[b % chars.length]).join("");
 }

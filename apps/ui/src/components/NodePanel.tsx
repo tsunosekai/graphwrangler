@@ -25,7 +25,7 @@ import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
 import { missingParamNames } from "../lib/params";
-import { displayNameOf, effectiveMembers, sameEmail, turnIsMine, useTeam } from "../lib/team";
+import { colorOf, displayNameOf, effectiveMembers, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage, Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
@@ -943,9 +943,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 担当者
                 <Select
                   // 大文字小文字の表記ゆれはロスター側の表記に寄せて選択状態にする
-                  // （メール比較は sameEmail。2026-08-04 追修）
+                  // （メール比較は sameEmail。2026-08-04 追修）。無効化ユーザーは候補に
+                  // 出ないため、現在値が無効化済みなら下のフォールバック項目の値に寄せる
                   value={
-                    users.find((u) => sameEmail(u.email, node.assignee))?.email ??
+                    users.find((u) => !u.disabled && sameEmail(u.email, node.assignee))?.email ??
                     node.assignee ??
                     "none"
                   }
@@ -954,15 +955,22 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">未割当</SelectItem>
-                    {users.map((u) => (
-                      <SelectItem key={u.email} value={u.email}>
-                        {displayNameOf(u.email, users)}
-                      </SelectItem>
-                    ))}
-                    {/* ロスターから消えたメールが残っている場合も現在値として表示・解除できるようにする */}
-                    {node.assignee && !users.some((u) => sameEmail(u.email, node.assignee)) && (
-                      <SelectItem value={node.assignee}>{node.assignee}</SelectItem>
-                    )}
+                    {/* 無効化ユーザーは新規割当の候補から除外（2026-08-04 アカウント管理） */}
+                    {users
+                      .filter((u) => !u.disabled)
+                      .map((u) => (
+                        <SelectItem key={u.email} value={u.email}>
+                          {displayNameOf(u.email, users)}
+                        </SelectItem>
+                      ))}
+                    {/* ロスターから消えた・無効化されたメールが残っている場合も、現在値として
+                        表示名で見えて解除できるようにする */}
+                    {node.assignee &&
+                      !users.some((u) => !u.disabled && sameEmail(u.email, node.assignee)) && (
+                        <SelectItem value={node.assignee}>
+                          {displayNameOf(node.assignee, users)}
+                        </SelectItem>
+                      )}
                   </SelectContent>
                 </Select>
               </label>
@@ -1278,6 +1286,11 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     className="inline-flex items-center gap-1 rounded-full border border-human/60 bg-human/10 px-2 py-0.5 text-xs text-foreground"
                     title={m}
                   >
+                    {/* 左端ドット = ユーザーの決定的カラー（colorOf。レール・カードのバッジと同じ色） */}
+                    <i
+                      className="size-2 flex-shrink-0 rounded-full"
+                      style={{ background: colorOf(m) }}
+                    />
                     {displayNameOf(m, users)}
                     <button
                       type="button"
@@ -1306,8 +1319,11 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                         <span className="text-[9px]">自動</span>
                       </span>
                     ))}
-                {/* まだ手動 members に居ないロスターの人だけを候補に出す。候補ゼロなら＋自体を出さない */}
-                {users.some((u) => !(node.members ?? []).some((m) => sameEmail(m, u.email))) && (
+                {/* まだ手動 members に居ないロスターの人だけを候補に出す（無効化ユーザーは除外。
+                    2026-08-04 アカウント管理）。候補ゼロなら＋自体を出さない */}
+                {users.some(
+                  (u) => !u.disabled && !(node.members ?? []).some((m) => sameEmail(m, u.email)),
+                ) && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -1322,7 +1338,11 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
                       {users
-                        .filter((u) => !(node.members ?? []).some((m) => sameEmail(m, u.email)))
+                        .filter(
+                          (u) =>
+                            !u.disabled &&
+                            !(node.members ?? []).some((m) => sameEmail(m, u.email)),
+                        )
                         .map((u) => (
                           <DropdownMenuItem
                             key={u.email}

@@ -163,10 +163,12 @@ async function withSelfRead<T>(nodeId: string, p: Promise<T>): Promise<T> {
   return result;
 }
 
-/** GET /api/me の形（displayName は 2026-08-04 チーム化で追加） */
+/** GET /api/me の形（displayName は 2026-08-04 チーム化で追加、admin は同日のアカウント管理で追加） */
 export interface Me {
   email: string | null;
   displayName: string | null;
+  /** 管理者か。ユーザー管理UIの表示ゲート（サーバ側でも当然に検査される） */
+  admin: boolean;
   authRequired: boolean;
 }
 
@@ -174,6 +176,10 @@ export interface Me {
 export interface TeamUser {
   email: string;
   displayName: string | null;
+  admin: boolean;
+  /** 無効化（Linear の Suspend 相当）。ログイン不可 + 新規の割当候補に出さない。
+   *  既に assignee/members に入っている分の表示名解決は従来どおり効く */
+  disabled: boolean;
 }
 
 export const api = {
@@ -187,8 +193,19 @@ export const api = {
     try {
       const res = await fetch("/api/users", { headers: { "Content-Type": "application/json" } });
       if (!res.ok) return { users: [] };
-      const data = (await res.json()) as { users?: TeamUser[] };
-      return { users: Array.isArray(data.users) ? data.users : [] };
+      const data = (await res.json()) as { users?: Partial<TeamUser>[] };
+      if (!Array.isArray(data.users)) return { users: [] };
+      // admin/disabled フラグを持たない旧サーバ応答は false へ畳む（2026-08-04 アカウント管理）
+      return {
+        users: data.users
+          .filter((u): u is Partial<TeamUser> & { email: string } => typeof u.email === "string")
+          .map((u) => ({
+            email: u.email,
+            displayName: u.displayName ?? null,
+            admin: !!u.admin,
+            disabled: !!u.disabled,
+          })),
+      };
     } catch {
       return { users: [] };
     }
@@ -198,6 +215,38 @@ export const api = {
     request<{ email: string }>("/login", { method: "POST", body: JSON.stringify({ email, password }) }),
 
   logout: () => request<{ ok: boolean }>("/logout", { method: "POST", body: "{}" }),
+
+  // ---- アカウント管理（2026-08-04。サーバ auth.ts / admin.ts） ----
+
+  /** 自分のパスワード変更。成功時はサーバが新しいセッション Cookie を張り直す
+   *  （リロード不要・ログアウトされない）。401=現パスワード違い、400=新パスワード8文字未満 */
+  changePassword: (current: string, next: string) =>
+    request<{ ok: boolean }>("/me/password", {
+      method: "POST",
+      body: JSON.stringify({ current, next }),
+    }),
+
+  /** admin: ユーザー追加。初期パスワードはこの応答で一度だけ返る（サーバに保存されない）。
+   *  409=メール重複 */
+  adminAddUser: (email: string, displayName?: string) =>
+    request<{ email: string; password: string }>("/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ email, ...(displayName ? { displayName } : {}) }),
+    }),
+
+  /** admin: 表示名・admin・無効化の変更。400=自分自身の admin 剥奪・無効化 */
+  adminPatchUser: (input: { email: string; displayName?: string; admin?: boolean; disabled?: boolean }) =>
+    request<{ ok: boolean }>("/admin/users/patch", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  /** admin: パスワードリセット。新パスワードはこの応答で一度だけ返る */
+  adminResetPassword: (email: string) =>
+    request<{ email: string; password: string }>("/admin/users/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
 
   // threadMeta: ノードごとの最終メッセージ時刻 / reads: ノードごとの既読時刻。
   // この2つの突き合わせが未読判定（どちらもサーバ持ち＝端末間で一致する）
