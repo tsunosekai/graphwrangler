@@ -25,7 +25,8 @@ interface Props {
 /** 発言者の表示名。生の帰属文字列（task-ai:opus 等）ではなく AI の名前で出す
  *  （2026-07-31 本人指定: ノードの会話欄に Task AI の名前を出す） */
 function authorLabel(author: { kind: string; name?: string | null }): string {
-  if (author.kind === "human") return "人間";
+  // Access 連携時は actor.name にメールが入る（複数人運用の帰属）。@より前だけ出す
+  if (author.kind === "human") return author.name ? author.name.split("@")[0] : "人間";
   if (author.kind === "system") return "system";
   const n = author.name ?? "";
   if (n.startsWith("task-ai") || n.startsWith("thread")) return "Task AI"; // thread: は改名前の旧帰属名

@@ -2,6 +2,7 @@
 // UI も MCP もエンジンも、全員がこの API（＝操作ログ）を通る。
 import path from "node:path";
 import fs from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -167,9 +168,36 @@ function defaultRunTitle(): string {
 const app = new Hono();
 app.use("/api/*", cors());
 
-/** リクエストボディから帰属メタ（actor/via）を取り出す。既定は human/ui */
+// ---- Cloudflare Access 連携: 「誰が操作しているか」の受け取り（2026-08-03 本人要望
+// 「だれが操作してるか分からない」）。ログインを自作せず、Access が認証済みユーザーの
+// メールを毎リクエスト Cf-Access-Authenticated-User-Email ヘッダで渡してくるのを使う。
+// このヘッダは Access を通らない経路では誰でも付けられるため、**明示オプトイン**:
+// env GRAPHWRANGLER_TRUST_ACCESS_EMAIL=1 のときだけ信用する（cloudflared トンネル +
+// :8770 loopback バインドで「Access を通らない経路が無い」構成が前提。zinsei の
+// Tailscale 内アクセスのような Access 無し運用では設定しない＝従来どおり）----
+const trustAccessEmail = process.env.GRAPHWRANGLER_TRUST_ACCESS_EMAIL === "1";
+const accessEmailStore = new AsyncLocalStorage<string>();
+
+app.use("/api/*", async (c, next) => {
+  const email = trustAccessEmail ? c.req.header("Cf-Access-Authenticated-User-Email") : undefined;
+  if (email) {
+    await accessEmailStore.run(email, next);
+    return;
+  }
+  await next();
+});
+
+/** 現在の操作者（Access 経由のメール。無効/未認証なら null）。UI の自分表示用 */
+app.get("/api/me", (c) => c.json({ email: accessEmailStore.getStore() ?? null }));
+
+/** リクエストボディから帰属メタ（actor/via）を取り出す。既定は human/ui。
+ *  body に actor が無い（=UIからの操作）とき、Access のメールが分かれば actor.name に刻む
+ *  ——ops・スレッド発言の「誰が」がメールで残る（複数人運用の帰属。design 3.2） */
 function meta(body: Record<string, unknown>): { actor: Actor; via: string } {
-  const actor = body.actor ? ActorSchema.parse(body.actor) : { kind: "human" as const };
+  const accessEmail = accessEmailStore.getStore();
+  const actor = body.actor
+    ? ActorSchema.parse(body.actor)
+    : { kind: "human" as const, ...(accessEmail ? { name: accessEmail } : {}) };
   const via = typeof body.via === "string" ? body.via : "ui";
   return { actor, via };
 }
