@@ -48,8 +48,10 @@ function run(
       args,
       { cwd, timeout: GIT_TIMEOUT_MS, encoding: "utf8" },
       (err, stdout, stderr) => {
-        const code = err ? ((err as NodeJS.ErrnoException & { code?: number }).code as number ?? 1) : 0;
-        resolve({ code: typeof code === "number" ? code : 1, stdout: stdout ?? "", stderr: stderr ?? "" });
+        // execFile の err.code は number（終了コード）か string（ENOENT 等）が来る
+        const rawCode = err ? (err as { code?: unknown }).code : 0;
+        const code = typeof rawCode === "number" ? rawCode : err ? 1 : 0;
+        resolve({ code, stdout: stdout ?? "", stderr: stderr ?? "" });
       },
     );
   });
