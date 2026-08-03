@@ -10,6 +10,7 @@ import { SetupModal } from "./components/SetupModal";
 import { ToastHost } from "./components/ToastHost";
 import { TopBar, type RunWaitItem } from "./components/TopBar";
 import { MobileNav, type MobileView } from "./components/MobileNav";
+import { LoginScreen } from "./components/LoginScreen";
 import { api, postReads, type SettingsView } from "./lib/api";
 import { cn } from "./lib/utils";
 import { usePolling } from "./hooks/usePolling";
@@ -52,7 +53,29 @@ function saveTabState(key: string, value: string): void {
   }
 }
 
+/** 内蔵ログインのゲート（2026-08-03）。サーバの users.json にユーザーが居る運用
+ *  （authRequired=true）で未ログインなら、アプリ本体をマウントせずログイン画面だけ出す
+ *  ——本体を出すとポーリングが 401 のトーストを連打するため、ゲートは外側で行う */
 export default function App() {
+  const [me, setMe] = useState<{ email: string | null; authRequired: boolean } | null>(null);
+  const refreshMe = useCallback(async () => {
+    try {
+      setMe(await api.getMe());
+    } catch {
+      // 判定に失敗したら従来どおり本体を出す（ログイン不要運用・旧サーバとの互換）
+      setMe({ email: null, authRequired: false });
+    }
+  }, []);
+  useEffect(() => {
+    void refreshMe();
+  }, [refreshMe]);
+
+  if (me === null) return null; // 判定中（一瞬）
+  if (me.authRequired && !me.email) return <LoginScreen onLoggedIn={() => void refreshMe()} />;
+  return <AppInner />;
+}
+
+function AppInner() {
   const { data, refresh } = usePolling(() => api.getState(), 3000);
   const [selectedId, setSelectedId] = useState<string | null>(() => loadUiState("gw.selectedId"));
   const [pageIdRaw, setPageId] = useState<string | null>(() => loadUiState("gw.pageId"));

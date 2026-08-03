@@ -142,6 +142,15 @@ async function withSelfRead<T>(nodeId: string, p: Promise<T>): Promise<T> {
 }
 
 export const api = {
+  // ---- 内蔵ログイン（サーバ auth.ts。users.json にユーザーが居る運用でのみ authRequired=true） ----
+
+  getMe: () => request<{ email: string | null; authRequired: boolean }>("/me"),
+
+  login: (email: string, password: string) =>
+    request<{ email: string }>("/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+
+  logout: () => request<{ ok: boolean }>("/logout", { method: "POST", body: "{}" }),
+
   // threadMeta: ノードごとの最終メッセージ時刻 / reads: ノードごとの既読時刻。
   // この2つの突き合わせが未読判定（どちらもサーバ持ち＝端末間で一致する）
   getState: () =>

@@ -29,6 +29,16 @@ import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema, GitSettingsSch
 import { GitSync } from "./gitsync.js";
 import { resolveWorkspacePath } from "./files.js";
 import { isThreadAiRunning, maybeTriggerThreadAi } from "./thread_ai.js";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import {
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  createSession,
+  ensureSecret,
+  loadUsers,
+  verifyPassword,
+  verifySession,
+} from "./auth.js";
 import { assertTrialAllowed, runTrial, sha256Hex, substituteParams, trialCwd } from "./trial.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -73,6 +83,10 @@ let gitSync: GitSync | null = null;
  *  localStorage からサーバ保存へ移行） */
 let chatsDir: string;
 
+/** ログインユーザー（users.json）とセッション署名鍵（auth-secret）の置き場
+ *  （sidecar または dataDir。どちらも git 管理外）。auth.ts / scripts/gw-user.mjs 参照 */
+let authDir: string;
+
 /** 既読時刻の保存先（sidecar/reads.json）。2026-08-02 本人要望「PC で読んだノードが
  *  スマホでは全部未読になる」への対応で localStorage からサーバ保存へ移行した。
  *  中身は { nodeId: ISO時刻 }。個人の閲覧状態であって活動の記録ではないので
@@ -103,6 +117,7 @@ if (workspaceArg) {
   settings = new SettingsStore(sidecarDir); // settings.json は sidecar 配下＝gitignore 済みなのでAPIキーは漏れない
   chatsDir = path.join(sidecarDir, "chats");
   readsFile = path.join(sidecarDir, "reads.json");
+  authDir = sidecarDir;
   serverModeLabel = `workspace: ${canonicalFile}`;
   // 自動プッシュ（gitsync.ts）。対象は GW が書くファイルだけ: 正データファイル + sidecar
   // （sidecar 内の runs/ops 等は .gitignore が除外する）。有効/無効は settings.git（既定OFF）
@@ -120,8 +135,17 @@ if (workspaceArg) {
   settings = new SettingsStore(dataDir);
   chatsDir = path.join(dataDir, "chats");
   readsFile = path.join(dataDir, "reads.json");
+  authDir = dataDir;
   serverModeLabel = `data: ${dataDir}`;
 }
+
+// ---- 内蔵ログイン（auth.ts。2026-08-03 本人指示「ちゃんとシステム化してほしい、ログインを」）----
+// users.json にユーザーが1人でも居ればログイン必須になる。ただし適用は「外部経由」
+// （X-Forwarded-For あり=リバースプロキシ越し）の /api/* のみ——:8770 は loopback バインド
+// なので外から届く経路はプロキシしか無く、ローカル直のエンジン・MCP は従来どおり動く。
+// ユーザーが居なければ何も変わらない（zinsei の Tailscale 内・個人運用はログイン無しのまま）
+const usersFile = path.join(authDir, "users.json");
+const sessionSecret = ensureSecret(path.join(authDir, "auth-secret"));
 
 // ---- Workflow AI 会話履歴の保存/取得（UIMessage[] スナップショット。UI は 2026-08-02 から
 // キー "global" の1本だけを使う。エンドポイントはキー汎用のまま=旧ページ単位ファイルも読める） ----
@@ -179,7 +203,23 @@ const trustAccessEmail = process.env.GRAPHWRANGLER_TRUST_ACCESS_EMAIL === "1";
 const accessEmailStore = new AsyncLocalStorage<string>();
 
 app.use("/api/*", async (c, next) => {
-  const email = trustAccessEmail ? c.req.header("Cf-Access-Authenticated-User-Email") : undefined;
+  // 操作者の特定: ①内蔵ログインのセッションCookie ②（オプトイン時のみ）Access ヘッダ
+  let email: string | undefined;
+  const token = getCookie(c, SESSION_COOKIE);
+  if (token) email = verifySession(token, sessionSecret) ?? undefined;
+  if (!email && trustAccessEmail) {
+    email = c.req.header("Cf-Access-Authenticated-User-Email") ?? undefined;
+  }
+
+  // ログインゲート: ユーザー登録があり、かつ外部経由（プロキシ越し）なら未ログインを弾く。
+  // /api/login と /api/me だけはログイン前でも通す（ログイン画面が使うため）
+  const authRequired = loadUsers(usersFile).length > 0;
+  const external = !!c.req.header("x-forwarded-for");
+  const p = c.req.path;
+  if (authRequired && external && !email && p !== "/api/login" && p !== "/api/me") {
+    return c.json({ error: "ログインが必要です" }, 401);
+  }
+
   if (email) {
     await accessEmailStore.run(email, next);
     return;
@@ -187,8 +227,40 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-/** 現在の操作者（Access 経由のメール。無効/未認証なら null）。UI の自分表示用 */
-app.get("/api/me", (c) => c.json({ email: accessEmailStore.getStore() ?? null }));
+/** 現在の操作者と、ログインが必要な運用かどうか（UI がログイン画面を出す判定に使う） */
+app.get("/api/me", (c) =>
+  c.json({
+    email: accessEmailStore.getStore() ?? null,
+    authRequired: loadUsers(usersFile).length > 0,
+  }),
+);
+
+app.post("/api/login", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { email?: unknown; password?: unknown };
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  const user = loadUsers(usersFile).find((u) => u.email.toLowerCase() === email);
+  if (!user || !password || !verifyPassword(user, password)) {
+    // 総当たりを鈍らせる固定ディレイ（本格的なレート制限は前段のリバースプロキシの領分）
+    await new Promise((r) => setTimeout(r, 500));
+    return c.json({ error: "メールアドレスかパスワードが違います" }, 401);
+  }
+  setCookie(c, SESSION_COOKIE, createSession(user.email, sessionSecret), {
+    path: "/",
+    httpOnly: true,
+    sameSite: "Lax",
+    maxAge: Math.floor(SESSION_TTL_MS / 1000),
+    // https で来ている（プロキシが X-Forwarded-Proto を付ける）場合のみ Secure。
+    // Tailscale 内の素の http 運用でも使えるようにする
+    secure: c.req.header("x-forwarded-proto") === "https",
+  });
+  return c.json({ email: user.email });
+});
+
+app.post("/api/logout", (c) => {
+  deleteCookie(c, SESSION_COOKIE, { path: "/" });
+  return c.json({ ok: true });
+});
 
 /** リクエストボディから帰属メタ（actor/via）を取り出す。既定は human/ui。
  *  body に actor が無い（=UIからの操作）とき、Access のメールが分かれば actor.name に刻む
