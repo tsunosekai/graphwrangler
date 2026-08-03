@@ -359,6 +359,14 @@ impl.command はワークスペースルートからの相対パスで書く。�
   エンジンが実行時に `GET /api/files`（ルート内解決・脱出ガード付き）で読んでプロンプトに
   インライン（text と両方あれば text 優先）。script executor と試走の cwd もワークスペースルート
 - 移行: `node scripts/migrate-to-workspace.mjs <dataDir> <canonicalFile>`
+- **自動プッシュ（2026-08-03。`packages/server/src/gitsync.ts`）**: 設定（⚙の
+  「Git 自動プッシュ」、既定OFF）を入れると、GW が書くファイル（正データ +
+  `.graphwrangler/` のコミット対象）に変更が出るたび自動で commit → pull --rebase → push
+  する（間隔は設定、既定60秒）。**git add は必ずパス指定**——ドキュメントリポに同居する
+  前提なので、人間が編集中の他ファイルは絶対に巻き込まない。rebase 衝突時は abort して
+  次周へ持ち越し（壊すより止まる）。状態は `GET /api/gitsync`、手動実行は
+  `POST /api/gitsync/run`。外部コミットの取り込み（pull）はあくまで push の前段であり、
+  workflow.gw.json を外から変えたらサーバ再起動、の原則は変わらない
 
 ## 4. HITL（人間にボールが回る）設計
 

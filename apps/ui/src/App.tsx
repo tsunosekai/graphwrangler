@@ -83,7 +83,22 @@ export default function App() {
   // 未読バッジ用のノードごとの最終メッセージ時刻 / 既読時刻（どちらもサーバ持ち。
   // 2026-08-02 既読を localStorage からサーバへ移した＝PC で読めばスマホでも既読）
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
-  const reads = useMemo(() => data?.reads ?? {}, [data]);
+  const serverReads = useMemo(() => data?.reads ?? {}, [data]);
+
+  // 既読のローカル上書き（2026-08-03 本人指示「通知バッジは見た1秒後に消える」）。
+  // NodePanel がスレッドを1秒表示すると onViewed が呼ばれ、サーバの reads が次の
+  // ポーリング（最大3秒）で追いつくのを待たずにバッジを消す。マージは新しいほう勝ち
+  const [readOverrides, setReadOverrides] = useState<Record<string, string>>({});
+  const reads = useMemo(() => {
+    const merged = { ...serverReads };
+    for (const [id, ts] of Object.entries(readOverrides)) {
+      if (!merged[id] || merged[id] < ts) merged[id] = ts;
+    }
+    return merged;
+  }, [serverReads, readOverrides]);
+  const markViewed = useCallback((nodeId: string) => {
+    setReadOverrides((prev) => ({ ...prev, [nodeId]: new Date().toISOString() }));
+  }, []);
 
   // 旧 localStorage 既読（gw.read.<id>）を一度だけサーバへ引き継ぐ。これをやらないと
   // 移行した瞬間に「今まで読んだ全ノードが未読」になって使い物にならない
@@ -431,6 +446,7 @@ export default function App() {
                 allNodes={nodes}
                 activeRun={activeRun}
                 reads={reads}
+                onViewed={markViewed}
                 onMutated={handleMutated}
                 onClose={() => {
                   setSelectedId(null);

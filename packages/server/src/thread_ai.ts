@@ -168,6 +168,27 @@ export function runPlainClaude(
  *  十分（詳細なキューイングは持たない） */
 const runningThreadAiNodes = new Set<string>();
 
+/** UI の「考え中」表示用（GET /api/nodes/:id/thread が aiBusy として返す。
+ *  2026-08-03 本人報告「ノードのAIチャット欄、考え中がでない」——Workflow AI と挙動を揃える） */
+export function isThreadAiRunning(nodeId: string): boolean {
+  return runningThreadAiNodes.has(nodeId);
+}
+
+/** 応答失敗をスレッドに見える形で残す（Workflow AI がエラーを画面に出すのと同じ扱い。
+ *  以前はサーバログだけで、人間には「考え中が出ない・返事も来ない」に見えていた） */
+function postThreadAiFailure(threads: ThreadStore, nodeId: string, reason: string): void {
+  try {
+    threads.post(nodeId, {
+      kind: "status",
+      body: `Task AI 応答失敗: ${reason.slice(0, 300)}`,
+      author: { kind: "system" },
+      via: "chat",
+    });
+  } catch (err) {
+    console.error(`[thread-ai] node ${nodeId}: 失敗の記録にも失敗: ${String(err)}`);
+  }
+}
+
 async function respondInThread(
   graph: GraphStore,
   threads: ThreadStore,
@@ -223,6 +244,7 @@ async function respondInThread(
     );
     if (!result.success) {
       console.error(`[thread-ai] node ${node.id}: ヘッドレスCLIの起動に失敗しました: ${result.error}`);
+      postThreadAiFailure(threads, node.id, result.error ?? "ヘッドレスCLIの起動に失敗");
       return;
     }
     replyText = result.output.trim();
@@ -230,6 +252,7 @@ async function respondInThread(
     const missing = chatKeyMissing(settings);
     if (missing) {
       console.error(`[thread-ai] node ${node.id}: ${missing}`);
+      postThreadAiFailure(threads, node.id, missing);
       return;
     }
     modelLabel = chat.model ?? "default";
@@ -237,6 +260,7 @@ async function respondInThread(
       replyText = (await completeText(settings, prompt)).trim();
     } catch (err) {
       console.error(`[thread-ai] node ${node.id}: API呼び出しに失敗しました: ${String(err)}`);
+      postThreadAiFailure(threads, node.id, String(err));
       return;
     }
   }

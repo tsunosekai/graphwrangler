@@ -24,9 +24,10 @@ import {
 import { z } from "zod";
 import { chatKeyMissing, completeText, handleChat } from "./chat.js";
 import { handleChatCli } from "./chat_cli.js";
-import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema } from "./settings.js";
+import { SettingsStore, ChatSettingsSchema, EngineSettingsSchema, GitSettingsSchema } from "./settings.js";
+import { GitSync } from "./gitsync.js";
 import { resolveWorkspacePath } from "./files.js";
-import { maybeTriggerThreadAi } from "./thread_ai.js";
+import { isThreadAiRunning, maybeTriggerThreadAi } from "./thread_ai.js";
 import { assertTrialAllowed, runTrial, sha256Hex, substituteParams, trialCwd } from "./trial.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +64,8 @@ let threads: ThreadStore;
 let runs: RunStore;
 let settings: SettingsStore;
 let serverModeLabel: string;
+/** ワークスペースモードのみ生成される自動プッシュ（gitsync.ts）。datadir モードでは null */
+let gitSync: GitSync | null = null;
 
 /** Workflow AI の会話履歴の保存先（sidecar/chats/ または dataDir/chats/。threads と同じく
  *  コミット対象＝gitignore に入れない。2026-07-31 本人要望「会話履歴も見れるように」で
@@ -100,6 +103,14 @@ if (workspaceArg) {
   chatsDir = path.join(sidecarDir, "chats");
   readsFile = path.join(sidecarDir, "reads.json");
   serverModeLabel = `workspace: ${canonicalFile}`;
+  // 自動プッシュ（gitsync.ts）。対象は GW が書くファイルだけ: 正データファイル + sidecar
+  // （sidecar 内の runs/ops 等は .gitignore が除外する）。有効/無効は settings.git（既定OFF）
+  gitSync = new GitSync({
+    root: workspaceRoot,
+    paths: [path.basename(canonicalFile), ".graphwrangler"],
+    getConfig: () => settings.get().git,
+  });
+  gitSync.start();
 } else {
   const dataDir = process.env.GRAPHWRANGLER_DATA ?? path.join(repoRoot, "data");
   graph = new GraphStore(dataDir);
@@ -432,8 +443,10 @@ app.post("/api/nodes/:id/impl/to-file", async (c) => {
 // ---- スレッド ----
 
 app.get("/api/nodes/:id/thread", (c) => {
-  graph.get(c.req.param("id"));
-  return c.json({ messages: threads.list(c.req.param("id")) });
+  const id = c.req.param("id");
+  graph.get(id);
+  // aiBusy: Task AI が応答生成中か（UI の「考え中」表示。Workflow AI と挙動を揃える）
+  return c.json({ messages: threads.list(id), aiBusy: isThreadAiRunning(id) });
 });
 
 const PostMessageSchema = z.object({
@@ -727,6 +740,7 @@ app.post("/api/redo", async (c) => {
 const SettingsPatchSchema = z.object({
   chat: ChatSettingsSchema.partial().optional(),
   engine: EngineSettingsSchema.partial().optional(),
+  git: GitSettingsSchema.partial().optional(),
   setupDone: z.boolean().optional(),
 });
 
@@ -736,6 +750,29 @@ app.post("/api/settings", async (c) => {
   const body = SettingsPatchSchema.parse(await c.req.json());
   settings.update(body);
   return c.json(settings.publicView());
+});
+
+// ---- 自動プッシュ（gitsync.ts。ワークスペースモードのみ） ----
+
+app.get("/api/gitsync", (c) => {
+  if (!gitSync) {
+    return c.json({
+      enabled: false,
+      unavailableReason: "ワークスペースモードではないため使えません",
+      running: false,
+      lastRunAt: null,
+      lastPushAt: null,
+      lastResult: null,
+    });
+  }
+  return c.json(gitSync.status());
+});
+
+/** 手動で1回同期する（設定OFFでも可＝「今すぐ push」ボタン用） */
+app.post("/api/gitsync/run", async (c) => {
+  if (!gitSync) return c.json({ error: "ワークスペースモードではないため使えません" }, 400);
+  const result = await gitSync.runOnce();
+  return c.json(result, result.ok ? 200 : 500);
 });
 
 // Workflow AI の会話履歴（GET=読み込み / PUT=丸ごと保存。UIMessage[] はサーバでは

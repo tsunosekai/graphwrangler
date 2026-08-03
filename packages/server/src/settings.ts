@@ -37,9 +37,18 @@ export const EngineSettingsSchema = z.object({
   apiModel: z.string().nullable().default(null),
 });
 
+/** ワークスペースの自動 commit/push（gitsync.ts。ワークスペースモードのみ意味を持つ）。
+ *  既定OFF——リポジトリへ勝手に push する機能なので、人間が明示的に入れる */
+export const GitSettingsSchema = z.object({
+  autoPush: z.boolean().default(false),
+  /** チェック間隔（秒）。変更は次周から効く */
+  intervalSec: z.number().int().min(15).max(3600).default(60),
+});
+
 export const SettingsSchema = z.object({
   chat: ChatSettingsSchema.default({}),
   engine: EngineSettingsSchema.default({}),
+  git: GitSettingsSchema.default({}),
   /** 初回セットアップ画面を完了したか（スキップ含む） */
   setupDone: z.boolean().default(false),
 });
@@ -75,6 +84,7 @@ export class SettingsStore {
   update(patch: {
     chat?: Partial<z.input<typeof ChatSettingsSchema>>;
     engine?: Partial<z.input<typeof EngineSettingsSchema>>;
+    git?: Partial<z.input<typeof GitSettingsSchema>>;
     setupDone?: boolean;
   }): Settings {
     const next: Settings = SettingsSchema.parse({
@@ -85,6 +95,7 @@ export class SettingsStore {
           patch.chat && "apiKey" in patch.chat ? (patch.chat.apiKey ?? null) : this.cache.chat.apiKey,
       },
       engine: { ...this.cache.engine, ...patch.engine },
+      git: { ...this.cache.git, ...patch.git },
       setupDone: patch.setupDone ?? this.cache.setupDone,
     });
     const tmp = `${this.file}.tmp`;
@@ -126,6 +137,10 @@ export class SettingsStore {
         model: this.cache.engine.model,
         extraArgs: this.cache.engine.extraArgs,
         apiModel: this.cache.engine.apiModel,
+      },
+      git: {
+        autoPush: this.cache.git.autoPush,
+        intervalSec: this.cache.git.intervalSec,
       },
       setupDone: this.cache.setupDone,
     };

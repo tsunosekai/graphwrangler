@@ -81,6 +81,9 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [extraArgs, setExtraArgs] = useState(settings.engine.extraArgs.join(" "));
   const [engineApiModel, setEngineApiModel] = useState(settings.engine.apiModel ?? "");
 
+  const [gitAutoPush, setGitAutoPush] = useState(settings.git.autoPush);
+  const [gitIntervalSec, setGitIntervalSec] = useState(String(settings.git.intervalSec));
+
   const [saving, setSaving] = useState(false);
 
   // あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際の発火は App 側）
@@ -112,6 +115,10 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           model: engineModel.trim() || "opus",
           extraArgs: extraArgs.trim() ? extraArgs.trim().split(/\s+/) : [],
           apiModel: engineApiModel.trim() || null,
+        },
+        git: {
+          autoPush: gitAutoPush,
+          intervalSec: Math.min(3600, Math.max(15, parseInt(gitIntervalSec, 10) || 60)),
         },
         setupDone: true,
       };
@@ -269,6 +276,31 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                 value={engineApiModel}
                 onChange={(e) => setEngineApiModel(e.target.value)}
                 placeholder="空欄=チャットAIと同じ既定モデル"
+              />
+            </label>
+          )}
+        </section>
+
+        <section className={section}>
+          <h3 className={heading}>Git 自動プッシュ</h3>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch checked={gitAutoPush} onCheckedChange={setGitAutoPush} />
+            <span>グラフの変更を自動で commit / push する</span>
+          </label>
+          <p className={desc}>
+            ワークスペースモードのみ。GraphWrangler が書くファイル（workflow.gw.json と
+            .graphwrangler/ のスレッド・チャット履歴）だけを対象に、変更があれば commit して
+            origin へ push します（push 前に pull --rebase。他のファイルは巻き込みません）
+          </p>
+          {gitAutoPush && (
+            <label className={field}>
+              <span>チェック間隔（秒）</span>
+              <Input
+                type="number"
+                min={15}
+                max={3600}
+                value={gitIntervalSec}
+                onChange={(e) => setGitIntervalSec(e.target.value)}
               />
             </label>
           )}

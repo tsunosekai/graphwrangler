@@ -88,6 +88,11 @@ export interface SettingsView {
     extraArgs: string[];
     apiModel: string | null;
   };
+  /** ワークスペースの自動 commit/push（ワークスペースモードのみ意味を持つ。既定OFF） */
+  git: {
+    autoPush: boolean;
+    intervalSec: number;
+  };
   setupDone: boolean;
 }
 
@@ -101,6 +106,7 @@ export interface SettingsPatch {
     cliModel?: string;
   };
   engine?: { mode?: "cli" | "api"; cliPath?: string; model?: string; extraArgs?: string[]; apiModel?: string | null };
+  git?: { autoPush?: boolean; intervalSec?: number };
   setupDone?: boolean;
 }
 
@@ -174,7 +180,9 @@ export const api = {
       resolvedCommand: string;
     }>(`/nodes/${id}/trial`, { method: "POST", body: "{}" })),
 
-  getThread: (id: string) => request<{ messages: MaterializedMessage[] }>(`/nodes/${id}/thread`),
+  /** aiBusy: Task AI が応答生成中か（「考え中」表示用。Workflow AI と挙動を揃える） */
+  getThread: (id: string) =>
+    request<{ messages: MaterializedMessage[]; aiBusy?: boolean }>(`/nodes/${id}/thread`),
 
   postMessage: (id: string, body: string) =>
     withSelfRead(id, request<Message>(`/nodes/${id}/messages`, {

@@ -46,6 +46,9 @@ interface Props {
   activeRun: Run | null;
   /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
   reads: Record<string, string>;
+  /** スレッドを1秒見たら呼ばれる（App が既読オーバーレイでカード/レールの未読バッジを
+   *  即消すため。2026-08-03 本人指示「通知バッジは見た1秒後に消える」） */
+  onViewed?: (nodeId: string) => void;
   onMutated: () => void;
   onClose: () => void;
   /** ノード複製後に新規ノードを選択するため。ページ切替も面倒を見る App.selectNode を渡す */
@@ -192,7 +195,7 @@ function UnreadDot() {
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
-export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose, onSelect }: Props) {
+export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutated, onClose, onSelect }: Props) {
   // 会話=今の会話 / 履歴=過去の会話（Workflow AI の「履歴」と同じ意味） / 実行記録=status・artifact
   // （2026-08-02 本人要望「会話の履歴と実行の履歴を分けてほしい」で2タブ→3タブ化。
   // それまで「新しい会話」で区切った過去の会話は UI のどこからも見えなくなっていた）
@@ -235,6 +238,32 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
     if (!thread) return;
     postReads({ [node.id]: new Date().toISOString() });
   }, [thread, node.id]);
+
+  // Task AI が応答生成中（考え中）の間だけ2秒間隔でスレッドを取りにいく
+  // （通常ポーリングは10秒。返事が着いてから最大10秒「考え中」が残るのを防ぐ）
+  useEffect(() => {
+    if (!thread?.aiBusy) return;
+    const timer = window.setInterval(() => void refreshThread(), 2000);
+    return () => window.clearInterval(timer);
+  }, [thread?.aiBusy, refreshThread]);
+
+  // 「見た1秒後に消える」（2026-08-03 本人指示）: 表示中のタブは、スレッドが表示されて
+  // 1秒経ったら未読扱いを解く（タブのちょぼ・「ここから未読」区切り・カード/レールの
+  // バッジ（onViewed 経由）が対象）。見ていないタブのちょぼは、そのタブを開いて1秒で消える
+  const [viewedTabs, setViewedTabs] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!thread) return;
+    const timer = window.setTimeout(() => {
+      setViewedTabs((prev) => {
+        if (prev.has(tab)) return prev;
+        const next = new Set(prev);
+        next.add(tab);
+        return next;
+      });
+      onViewed?.(node.id);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [thread !== null, tab, node.id, onViewed]);
 
   const [titleDraft, setTitleDraft] = useState(node.title);
   const [titleFocused, setTitleFocused] = useState(false);
@@ -587,7 +616,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
   // 開いている間はタブを見に行っても消えない（区切り線と足並みを揃える）
   // 既読記録が無い（この端末では初見）ときは全部未読扱い。カード/レールのバッジと同じ規約に
   // 揃える（揃えないと「バッジは付いているのに開いてもちょぼが無い」になる。2026-08-02 本人報告）
+  // ただし「見た（1秒表示した）」タブのちょぼは消す（2026-08-03 本人指示で
+  // 「開いている間は消えない」から「見た1秒後に消える」へ変更）
   const hasUnreadIn = (t: "talk" | "history" | "log") =>
+    !viewedTabs.has(t) &&
     (t === "talk" ? talkSource : messages).some((m) => m.ts > (unreadSince ?? "") && inTab(m, t));
 
   const startNewTalk = async () => {
@@ -1408,7 +1440,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
       <Thread
         nodeId={node.id}
         messages={filtered}
-        unreadSince={unreadSince}
+        // 「ここから未読」区切りは1秒見たら消す（undefined で区切りなし扱いになる）
+        unreadSince={viewedTabs.has(tab) ? undefined : unreadSince}
+        aiBusy={thread?.aiBusy ?? false}
         showReplyBox={tab === "talk"}
         onMutated={() => {
           onMutated();

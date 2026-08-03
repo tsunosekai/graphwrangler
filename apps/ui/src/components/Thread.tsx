@@ -16,6 +16,8 @@ interface Props {
    *  「ここから未読」区切りを出す（未読バッジの理由をノードを開いたときに見せる。
    *  2026-08-02 本人要望）。null = 既読記録なし（初見ノード。区切りは出さない） */
   unreadSince?: string | null;
+  /** Task AI が応答生成中か（「考え中」表示。Workflow AI＝ChatDrawer と同じ見た目にする） */
+  aiBusy?: boolean;
   showReplyBox: boolean;
   onMutated: () => void;
 }
@@ -51,7 +53,7 @@ function extractSources(payload: unknown): string[] | null {
  * 固定表示する（本人指定 2026-07-31）。ただし質問が開いている間の自由文が
  * 「聞き返し」（ラリー）になる挙動はここが持つ。
  */
-export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated }: Props) {
+export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, onMutated }: Props) {
   const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -80,7 +82,7 @@ export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated 
   useEffect(() => {
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+  }, [messages.length, aiBusy]);
 
   const sendReply = async () => {
     const body = reply.trim();
@@ -175,6 +177,18 @@ export function Thread({ nodeId, messages, unreadSince, showReplyBox, onMutated 
             </div>
           );
         })}
+        {/* Task AI の「考え中」。Workflow AI（ChatDrawer）と同じ見た目・同じアニメーション */}
+        {aiBusy && (
+          <div className="flex items-center gap-1.5 self-start px-1 py-1 text-sm text-text-lo">
+            <span className="animate-pulse">✳</span>
+            <span>考え中</span>
+            <span className="inline-flex items-center gap-0.5">
+              <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "0ms" }} />
+              <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "150ms" }} />
+              <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "300ms" }} />
+            </span>
+          </div>
+        )}
       </div>
       {showReplyBox && (
         <div className="flex flex-shrink-0 items-end gap-2">
