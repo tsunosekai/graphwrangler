@@ -79,7 +79,8 @@ export interface SettingsView {
     keySource: "settings" | "env" | "none";
     cliPath: string;
     cliModel: string;
-    /** Workflow AI / Task AI（CLIモード）の --allowedTools に追記するツール（既定空） */
+    /** Workflow AI / Task AI（CLIモード）の --allowedTools に追記するツール。
+     *  既定でフルセット（Bash 等）が許可済みのため、MCP ツール等を足す用途 */
     cliExtraTools: string[];
   };
   engine: {
@@ -88,6 +89,8 @@ export interface SettingsView {
     cliPath: string;
     model: string;
     extraArgs: string[];
+    /** 実行AI（CLIモード）の --allowedTools に追記するツール（既定フルセットに足す形） */
+    cliExtraTools: string[];
     apiModel: string | null;
   };
   /** ワークスペースの自動 commit/push（ワークスペースモードのみ意味を持つ。既定OFF） */
@@ -110,7 +113,14 @@ export interface SettingsPatch {
     cliModel?: string;
     cliExtraTools?: string[];
   };
-  engine?: { mode?: "cli" | "api"; cliPath?: string; model?: string; extraArgs?: string[]; apiModel?: string | null };
+  engine?: {
+    mode?: "cli" | "api";
+    cliPath?: string;
+    model?: string;
+    extraArgs?: string[];
+    cliExtraTools?: string[];
+    apiModel?: string | null;
+  };
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   setupDone?: boolean;
 }

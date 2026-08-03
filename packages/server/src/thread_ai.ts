@@ -8,7 +8,7 @@ import type { Actor, GraphStore, Node, ThreadStore } from "@graphwrangler/core";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import { chatKeyMissing, completeText } from "./chat.js";
-import { CLI_TIMEOUT_MS, sanitizedClaudeEnv } from "./chat_cli.js";
+import { CLI_TIMEOUT_MS, DEFAULT_CLI_TOOLS, sanitizedClaudeEnv } from "./chat_cli.js";
 import type { SettingsStore } from "./settings.js";
 
 const MAX_THREAD_AI_HISTORY = 20;
@@ -111,18 +111,15 @@ export function runPlainClaude(
   extraTools: string[] = [],
 ): Promise<PlainCliResult> {
   return new Promise((resolve) => {
-    // 読み取り専用ツールを許可（cwd=workspace root で impl.path の手順書を読める。
-    // chat_cli.ts と同じ方針: 書き込み系ツールは持たせない）。
-    // extraTools = 設定 chat.cliExtraTools（例: "Bash"。2026-08-03 本人指示「ブロックされない
-    // ようにして」）。"-" 始まりはフラグ解釈されるので落とす（chat_cli.ts と同じサニタイズ）
+    // chat_cli.ts と同じフルセットを許可（2026-08-03 権限拡張。それまでは読み取り専用だった）。
+    // extraTools = 設定 chat.cliExtraTools（例: "mcp__foo__*"）。"-" 始まりはフラグ解釈される
+    // ので落とす（chat_cli.ts と同じサニタイズ）
     const args = [
       "-p",
       "--model",
       cliModel,
       "--allowedTools",
-      "Read",
-      "Grep",
-      "Glob",
+      ...DEFAULT_CLI_TOOLS,
       ...extraTools.filter((t) => !t.startsWith("-")),
     ];
     const isWindows = process.platform === "win32";

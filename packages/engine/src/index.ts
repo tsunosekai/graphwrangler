@@ -91,6 +91,7 @@ const DEFAULT_ENGINE_CONFIG: ClaudeExecutorConfig = {
   cliPath: "claude",
   model: process.env.GW_ENGINE_CLAUDE_MODEL ?? "opus",
   extraArgs: [],
+  extraTools: [],
 };
 
 let engineConfig: ClaudeExecutorConfig = DEFAULT_ENGINE_CONFIG;
@@ -113,9 +114,10 @@ async function refreshEngineConfig(force = false): Promise<void> {
       cliPath: settings.engine.cliPath || DEFAULT_ENGINE_CONFIG.cliPath,
       model: modelFromEnv ?? settings.engine.model ?? DEFAULT_ENGINE_CONFIG.model,
       extraArgs: Array.isArray(settings.engine.extraArgs) ? settings.engine.extraArgs : [],
+      extraTools: Array.isArray(settings.engine.cliExtraTools) ? settings.engine.cliExtraTools : [],
     };
     log(
-      `エンジン設定を反映: mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)}`,
+      `エンジン設定を反映: mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)} extraTools=${JSON.stringify(engineConfig.extraTools)}`,
     );
   } catch (err) {
     log(`設定取得に失敗（既定値のまま継続）: ${String(err)}`);

@@ -11,13 +11,31 @@ export interface ExecResult {
   error?: string;
 }
 
-export const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000; // 10分
+// Bash 許可で実作業（ビルド・テスト・データ処理）が10分を超えうるため、権限拡張と同時に
+// 10分→30分へ（2026-08-03）
+export const CLAUDE_TIMEOUT_MS = 30 * 60 * 1000; // 30分
 
-/** 実行を許可するツール（読み取り・調査系のみ。Bash/Edit/Write は含めない） */
-// Write/Edit は 2026-07-31 追加（本人指示: スクリプトや手順書をAIに書かせるため。
-// cwd=workspace root なので書き先はワークスペース内が既定。Bash はあえて許可しない——
-// コマンド実行は試走ボタン（server の /trial）と script executor の管轄）
-export const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "Write", "Edit", "WebSearch", "WebFetch"];
+/** 実行を許可するツールのフルセット。
+ *  2026-08-03 本人指示「権限が無さ過ぎて何もできない。Claw（OpenClaw）と同じぐらい色々
+ *  できるように」で Bash / Task / TodoWrite / NotebookEdit を追加し、「読み取り+書き込みのみ」
+ *  の縛りを撤廃した。危険な操作の歯止めはツールの出し渋りではなく、ノード側の
+ *  実行前承認（approval）・自律度（autonomy の QUESTION プロトコル）・試走（--dry-run）で
+ *  担保する。--dangerously-skip-permissions を使わない方針は不変（許可は常にこのリストで明示）。
+ *  MCP 等をさらに足すときは設定 engine.cliExtraTools（settings.ts）。
+ *  server 側 chat_cli.ts の DEFAULT_CLI_TOOLS と同じ内容（変えたら両方直す） */
+export const ALLOWED_TOOLS = [
+  "Read",
+  "Grep",
+  "Glob",
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Bash",
+  "Task",
+  "TodoWrite",
+  "WebSearch",
+  "WebFetch",
+];
 
 /** 設定(GET /api/settings)経由の extraArgs で安全装置を上書きされないためのブロックリスト。
  *  --dangerously-skip-permissions と --allowedTools 系は設定に含まれていても常に無視する */
@@ -33,11 +51,19 @@ export function sanitizeExtraArgs(extraArgs: string[]): string[] {
   return extraArgs.filter((a) => !BLOCKED_EXTRA_ARGS.has(a.toLowerCase()));
 }
 
+/** 設定 engine.cliExtraTools のサニタイズ。"-" 始まりはツール名でなくフラグとして解釈されて
+ *  しまう（--dangerously-skip-permissions の混入経路になる）ので落とす（chat_cli.ts と同じ規則） */
+export function sanitizeExtraTools(tools: string[]): string[] {
+  return tools.filter((t) => !t.startsWith("-"));
+}
+
 /** claude executor の実行時設定（cliPath/model は GET /api/settings + env で上書き可能） */
 export interface ClaudeExecutorConfig {
   cliPath: string;
   model: string;
   extraArgs: string[];
+  /** ALLOWED_TOOLS に追加で許可するツール（設定 engine.cliExtraTools。例: "mcp__foo__*"） */
+  extraTools: string[];
 }
 
 export interface AiPromptInput {
@@ -157,6 +183,7 @@ export function runClaude(
       ...sanitizeExtraArgs(config.extraArgs),
       "--allowedTools",
       ...ALLOWED_TOOLS,
+      ...sanitizeExtraTools(config.extraTools),
     ];
     let stdout = "";
     let stderr = "";

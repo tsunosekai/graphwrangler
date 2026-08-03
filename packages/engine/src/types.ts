@@ -55,5 +55,7 @@ export interface EngineSettings {
   cliPath: string;
   model: string;
   extraArgs: string[];
+  /** ALLOWED_TOOLS（executors/claude.ts のフルセット）に追加で許可するツール */
+  cliExtraTools: string[];
   apiModel: string | null;
 }

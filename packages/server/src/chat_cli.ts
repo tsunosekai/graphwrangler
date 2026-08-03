@@ -26,6 +26,27 @@ const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
 export const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_HISTORY_MESSAGES = 20; // 「最大10往復」= user+assistant で20件
 
+/** Workflow AI / Task AI に既定で許可するツールのフルセット。
+ *  2026-08-03 本人指示「権限が無さ過ぎて何もできない。Claw（OpenClaw）と同じぐらい色々
+ *  できるように」で、それまでの「読み取り+Write/Edit のみ・Bash はあえて許可しない」の
+ *  縛りを撤廃した。危険な操作の歯止めはツールの出し渋りではなく、グラフ側の
+ *  実行前承認（approval）・試走（--dry-run）・人間との会話で担保する。
+ *  --dangerously-skip-permissions を使わない方針は不変（許可は常にこのリストで明示）。
+ *  engine/src/executors/claude.ts の ALLOWED_TOOLS と同じ内容（変えたら両方直す） */
+export const DEFAULT_CLI_TOOLS = [
+  "Read",
+  "Grep",
+  "Glob",
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Bash",
+  "Task",
+  "TodoWrite",
+  "WebSearch",
+  "WebFetch",
+];
+
 /**
  * 子の claude に渡す環境変数の掃除。CLI方式はログイン済み資格情報（サブスクリプション）
  * 経路に固定する（APIキーで使いたい場合は接続方式 "api" を選ぶ）。継承された
@@ -353,16 +374,11 @@ function runCli(
       q(mcpConfigFile),
       "--allowedTools",
       "mcp__graphwrangler__*",
-      // ワークスペース内のドキュメント（impl.path の手順書等）を「確認を求めず先に読む」ための
-      // 読み取りツールと、スクリプト/手順書をAIに書かせるための Write/Edit
-      // （2026-07-31 本人指示。cwd=workspace root。Bash はあえて許可しない——
-      // コマンド実行は試走ボタンの管轄で、グラフ操作は MCP 経由のみ）
-      "Read",
-      "Grep",
-      "Glob",
-      "Write",
-      "Edit",
-      // 設定 chat.cliExtraTools（例: "Bash"）。既定は空。"-" 始まりはツール名でなく
+      // 既定でフルセットを許可する（DEFAULT_CLI_TOOLS。2026-08-03 本人指示「権限が無さ過ぎて
+      // 何もできない。Claw と同じぐらい色々できるように」で Bash 等を追加）。
+      // 取り返しのつかない操作の歯止めはグラフ側の実行前承認・試走と人間との会話で担保する
+      ...DEFAULT_CLI_TOOLS,
+      // 設定 chat.cliExtraTools（例: "mcp__foo__*"）。"-" 始まりはツール名でなく
       // フラグとして解釈されてしまう（--dangerously-skip-permissions の混入経路になる）ので落とす
       ...extraTools.filter((t) => !t.startsWith("-")),
       "--append-system-prompt",

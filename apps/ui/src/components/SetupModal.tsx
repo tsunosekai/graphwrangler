@@ -80,6 +80,9 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [cliPath, setCliPath] = useState(settings.engine.cliPath);
   const [engineModel, setEngineModel] = useState(settings.engine.model);
   const [extraArgs, setExtraArgs] = useState(settings.engine.extraArgs.join(" "));
+  const [engineCliExtraTools, setEngineCliExtraTools] = useState(
+    settings.engine.cliExtraTools.join(" "),
+  );
   const [engineApiModel, setEngineApiModel] = useState(settings.engine.apiModel ?? "");
 
   const [gitAutoPush, setGitAutoPush] = useState(settings.git.autoPush);
@@ -116,6 +119,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           cliPath: cliPath.trim() || "claude",
           model: engineModel.trim() || "opus",
           extraArgs: extraArgs.trim() ? extraArgs.trim().split(/\s+/) : [],
+          cliExtraTools: engineCliExtraTools.trim() ? engineCliExtraTools.trim().split(/\s+/) : [],
           apiModel: engineApiModel.trim() || null,
         },
         git: {
@@ -239,12 +243,12 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                 <Input
                   value={chatCliExtraTools}
                   onChange={(e) => setChatCliExtraTools(e.target.value)}
-                  placeholder='空欄=読み取りのみ。例: Bash / "Bash(ssh:*)"'
+                  placeholder="空欄=既定のフルセット。例: mcp__foo__*"
                 />
               </label>
               <p className={desc}>
                 Workflow AI / Task AI の --allowedTools に追記するツール（空白区切り）。
-                Bash を足すとサーバ上でコマンド実行できるようになるので、共有サーバでは慎重に
+                Bash 含むフルセットが既定で許可済みなので、MCP ツール等を足す用途
               </p>
             </>
           )}
@@ -282,6 +286,18 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                   placeholder="--flag value"
                 />
               </label>
+              <label className={field}>
+                <span>追加許可ツール</span>
+                <Input
+                  value={engineCliExtraTools}
+                  onChange={(e) => setEngineCliExtraTools(e.target.value)}
+                  placeholder="空欄=既定のフルセット。例: mcp__foo__*"
+                />
+              </label>
+              <p className={desc}>
+                実行AIの --allowedTools に追記するツール（空白区切り）。
+                Bash 含むフルセットが既定で許可済みなので、MCP ツール等を足す用途
+              </p>
             </>
           ) : (
             <label className={field}>

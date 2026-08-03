@@ -38,6 +38,15 @@ ball 所有・承認ゲート(approval)・「確定させてから実行」の�
 | **Task AI** | `packages/server/src/thread_ai.ts` | 1ノードのスレッドで相談に乗る。人間が say を書くと非同期で応答する（open な判断リクエストがあるノードでは黙る——そこはエンジンの担当） |
 | **実行AI** | `packages/engine/src/executors/claude.ts` | executor=ai のノードを実際に実行する。impl の手順書を読み、成果と経過をスレッドへ書く |
 
+**AIの権限（2026-08-03 拡張）**: 三役とも CLI モードでは Bash 含むツールのフルセットを
+既定で許可する（実行AI: `ALLOWED_TOOLS` / チャット2役: `DEFAULT_CLI_TOOLS`。同内容で、
+変えたら両方直す）。当初は「読み取り+Write/Edit のみ、Bash はあえて許可しない」だったが、
+本人指示「権限が無さ過ぎて何もできない。Claw と同じぐらい色々できるように」で撤廃した。
+危険な操作の歯止めはツールの出し渋りではなく、**実行前承認（approval）・自律度
+（QUESTION プロトコル）・試走（--dry-run）**の層で担保する（3.4〜3.5.1）。
+`--dangerously-skip-permissions` は使わない（許可は常に --allowedTools で明示）。
+MCP ツール等をさらに足すときは設定の `chat.cliExtraTools` / `engine.cliExtraTools`。
+
 ### 技術スタック
 
 TypeScript 一枚岩。pnpm workspace。

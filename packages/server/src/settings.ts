@@ -24,9 +24,9 @@ export const ChatSettingsSchema = z.object({
   cliPath: z.string().default("claude"),
   /** mode="cli" のときの --model */
   cliModel: z.string().default("opus"),
-  /** mode="cli" の Workflow AI / Task AI に**追加で**許可するツール（--allowedTools へ追記。
-   *  既定の読み取り系に足す形。例: "Bash" や "Bash(ssh:*)"。2026-08-03 本人指示
-   *  「（ssh が）ブロックされないようにして」——既定は空＝従来どおり安全側 */
+  /** mode="cli" の Workflow AI / Task AI に**追加で**許可するツール（--allowedTools へ追記）。
+   *  2026-08-03 の権限拡張で既定が Bash 含むフルセット（chat_cli.ts DEFAULT_CLI_TOOLS）に
+   *  なったため、この設定は MCP ツール等（例: "mcp__foo__*"）をさらに足す用途 */
   cliExtraTools: z.array(z.string()).default([]),
 });
 
@@ -37,6 +37,9 @@ export const EngineSettingsSchema = z.object({
   cliPath: z.string().default("claude"),
   model: z.string().default("opus"),
   extraArgs: z.array(z.string()).default([]),
+  /** mode="cli" の実行AIに**追加で**許可するツール（--allowedTools へ追記。既定のフルセットは
+   *  engine/executors/claude.ts の ALLOWED_TOOLS。例: "mcp__foo__*"。2026-08-03 権限拡張で追加） */
+  cliExtraTools: z.array(z.string()).default([]),
   /** mode="api" のときのモデル。null = チャット側の既定モデルと同じ */
   apiModel: z.string().nullable().default(null),
 });
@@ -145,6 +148,7 @@ export class SettingsStore {
         cliPath: this.cache.engine.cliPath,
         model: this.cache.engine.model,
         extraArgs: this.cache.engine.extraArgs,
+        cliExtraTools: this.cache.engine.cliExtraTools,
         apiModel: this.cache.engine.apiModel,
       },
       git: {
