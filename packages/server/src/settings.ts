@@ -44,6 +44,15 @@ export const EngineSettingsSchema = z.object({
   apiModel: z.string().nullable().default(null),
 });
 
+/** AI（三役共通）の作業範囲。2026-08-04 本人指示「AI が stremix-document
+ *  （=ワークスペースルート）外も触れるように」で追加 */
+export const AiSettingsSchema = z.object({
+  /** claude -p の --add-dir に渡す追加ディレクトリ。ファイルツール（Read/Write/Edit）は
+   *  cwd=ワークスペースルート配下に閉じるため、外のパスはここに列挙して開放する。
+   *  Bash には元々パス制限が無いので、これは檻ではなくファイルツールの作業範囲の話 */
+  addDirs: z.array(z.string()).default([]),
+});
+
 /** ワークスペースの自動 commit/push（gitsync.ts。ワークスペースモードのみ意味を持つ）。
  *  既定OFF——リポジトリへ勝手に push する機能なので、人間が明示的に入れる */
 export const GitSettingsSchema = z.object({
@@ -59,6 +68,7 @@ export const GitSettingsSchema = z.object({
 export const SettingsSchema = z.object({
   chat: ChatSettingsSchema.default({}),
   engine: EngineSettingsSchema.default({}),
+  ai: AiSettingsSchema.default({}),
   git: GitSettingsSchema.default({}),
   /** 初回セットアップ画面を完了したか（スキップ含む） */
   setupDone: z.boolean().default(false),
@@ -95,6 +105,7 @@ export class SettingsStore {
   update(patch: {
     chat?: Partial<z.input<typeof ChatSettingsSchema>>;
     engine?: Partial<z.input<typeof EngineSettingsSchema>>;
+    ai?: Partial<z.input<typeof AiSettingsSchema>>;
     git?: Partial<z.input<typeof GitSettingsSchema>>;
     setupDone?: boolean;
   }): Settings {
@@ -106,6 +117,7 @@ export class SettingsStore {
           patch.chat && "apiKey" in patch.chat ? (patch.chat.apiKey ?? null) : this.cache.chat.apiKey,
       },
       engine: { ...this.cache.engine, ...patch.engine },
+      ai: { ...this.cache.ai, ...patch.ai },
       git: { ...this.cache.git, ...patch.git },
       setupDone: patch.setupDone ?? this.cache.setupDone,
     });
@@ -150,6 +162,9 @@ export class SettingsStore {
         extraArgs: this.cache.engine.extraArgs,
         cliExtraTools: this.cache.engine.cliExtraTools,
         apiModel: this.cache.engine.apiModel,
+      },
+      ai: {
+        addDirs: this.cache.ai.addDirs,
       },
       git: {
         autoPush: this.cache.git.autoPush,

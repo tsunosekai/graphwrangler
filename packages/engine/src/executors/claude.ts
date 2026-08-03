@@ -57,6 +57,11 @@ export function sanitizeExtraTools(tools: string[]): string[] {
   return tools.filter((t) => !t.startsWith("-"));
 }
 
+/** 設定 ai.addDirs のサニタイズ。"-" 始まり（フラグ混入経路）を落とす */
+export function sanitizeAddDirs(dirs: string[]): string[] {
+  return dirs.filter((d) => !d.startsWith("-"));
+}
+
 /** claude executor の実行時設定（cliPath/model は GET /api/settings + env で上書き可能） */
 export interface ClaudeExecutorConfig {
   cliPath: string;
@@ -64,6 +69,10 @@ export interface ClaudeExecutorConfig {
   extraArgs: string[];
   /** ALLOWED_TOOLS に追加で許可するツール（設定 engine.cliExtraTools。例: "mcp__foo__*"） */
   extraTools: string[];
+  /** claude -p の --add-dir に渡す追加作業ディレクトリ（設定 ai.addDirs。三役共通）。
+   *  ファイルツールは cwd=workspace root に閉じるため、外のパスはここで開放する
+   *  （2026-08-04 本人指示「AI が stremix-document 外も触れるように」） */
+  addDirs: string[];
 }
 
 export interface AiPromptInput {
@@ -184,6 +193,7 @@ export function runClaude(
       "--allowedTools",
       ...ALLOWED_TOOLS,
       ...sanitizeExtraTools(config.extraTools),
+      ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", d]),
     ];
     let stdout = "";
     let stderr = "";

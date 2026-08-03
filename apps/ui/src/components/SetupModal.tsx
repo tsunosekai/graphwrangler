@@ -83,6 +83,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [engineCliExtraTools, setEngineCliExtraTools] = useState(
     settings.engine.cliExtraTools.join(" "),
   );
+  const [aiAddDirs, setAiAddDirs] = useState(settings.ai.addDirs.join(" "));
   const [engineApiModel, setEngineApiModel] = useState(settings.engine.apiModel ?? "");
 
   const [gitAutoPush, setGitAutoPush] = useState(settings.git.autoPush);
@@ -121,6 +122,9 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           extraArgs: extraArgs.trim() ? extraArgs.trim().split(/\s+/) : [],
           cliExtraTools: engineCliExtraTools.trim() ? engineCliExtraTools.trim().split(/\s+/) : [],
           apiModel: engineApiModel.trim() || null,
+        },
+        ai: {
+          addDirs: aiAddDirs.trim() ? aiAddDirs.trim().split(/\s+/) : [],
         },
         git: {
           autoPush: gitAutoPush,
@@ -309,6 +313,23 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
               />
             </label>
           )}
+        </section>
+
+        <section className={section}>
+          <h3 className={heading}>AIの作業範囲</h3>
+          <label className={field}>
+            <span>追加作業ディレクトリ</span>
+            <Input
+              value={aiAddDirs}
+              onChange={(e) => setAiAddDirs(e.target.value)}
+              placeholder="空欄=ワークスペース内のみ。例: /home/ubuntu"
+            />
+          </label>
+          <p className={desc}>
+            三役（Workflow AI / Task AI / 実行AI）共通。claude の --add-dir
+            に渡すディレクトリ（空白区切り）。ファイル操作はワークスペースルートに閉じるのが既定なので、
+            外のリポジトリ等を触らせたいときにここへ足す
+          </p>
         </section>
 
         <section className={section}>

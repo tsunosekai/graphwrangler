@@ -59,3 +59,10 @@ export interface EngineSettings {
   cliExtraTools: string[];
   apiModel: string | null;
 }
+
+/** server settings.ts の AiSettingsSchema の手動ミラー（三役共通の作業範囲設定）。
+ *  旧サーバは ai セクション自体を返さないので呼び出し側は optional 扱いにする */
+export interface AiSettings {
+  /** claude -p の --add-dir に渡す追加作業ディレクトリ */
+  addDirs: string[];
+}

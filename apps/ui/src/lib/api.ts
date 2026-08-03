@@ -93,6 +93,11 @@ export interface SettingsView {
     cliExtraTools: string[];
     apiModel: string | null;
   };
+  /** AI（三役共通）の作業範囲 */
+  ai: {
+    /** claude -p の --add-dir に渡す追加作業ディレクトリ（ワークスペースルート外の開放） */
+    addDirs: string[];
+  };
   /** ワークスペースの自動 commit/push（ワークスペースモードのみ意味を持つ。既定OFF） */
   git: {
     autoPush: boolean;
@@ -121,6 +126,7 @@ export interface SettingsPatch {
     cliExtraTools?: string[];
     apiModel?: string | null;
   };
+  ai?: { addDirs?: string[] };
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   setupDone?: boolean;
 }

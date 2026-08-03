@@ -47,6 +47,11 @@ ball 所有・承認ゲート(approval)・「確定させてから実行」の�
 `--dangerously-skip-permissions` は使わない（許可は常に --allowedTools で明示）。
 MCP ツール等をさらに足すときは設定の `chat.cliExtraTools` / `engine.cliExtraTools`。
 
+**作業範囲**: ファイルツール（Read/Write/Edit）は cwd=ワークスペースルートに閉じるのが
+claude CLI の既定。ルート外のパスは設定 `ai.addDirs`（三役共通、⚙「AIの作業範囲」）に列挙
+すると `--add-dir` で開放される（2026-08-04 本人指示「AI が stremix-document 外も触れる
+ように」。Bash には元々パス制限が無いので、これは檻ではなくファイルツールの使い勝手の話）。
+
 ### 技術スタック
 
 TypeScript 一枚岩。pnpm workspace。

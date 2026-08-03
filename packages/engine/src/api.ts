@@ -3,6 +3,7 @@
 // この HTTP API だけを唯一の統合点にする。
 import type {
   Actor,
+  AiSettings,
   DecisionRequest,
   EngineSettings,
   Message,
@@ -164,9 +165,10 @@ export async function decideRunItem(
 // ---- AI設定（エンジンAI設定を server 設定から読む） ----
 
 /** GET /api/settings の公開ビュー。engine executor に必要な部分だけ型を持つ
- *  （chat/setupDone 等の他フィールドは無視する。取得失敗時の既定値継続は呼び出し側の責務） */
-export async function getSettings(): Promise<{ engine: EngineSettings }> {
-  return (await request("GET", "/api/settings")) as { engine: EngineSettings };
+ *  （chat/setupDone 等の他フィールドは無視する。取得失敗時の既定値継続は呼び出し側の責務）。
+ *  ai は 2026-08-04 追加のセクションで、旧サーバ相手では undefined になる */
+export async function getSettings(): Promise<{ engine: EngineSettings; ai?: AiSettings }> {
+  return (await request("GET", "/api/settings")) as { engine: EngineSettings; ai?: AiSettings };
 }
 
 // ---- engine.mode="api" 用（executors/api.ts） ----

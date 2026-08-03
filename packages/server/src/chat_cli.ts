@@ -329,6 +329,7 @@ function runCli(
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
   extraTools: string[] = [],
+  addDirs: string[] = [],
 ): Promise<void> {
   return new Promise((resolve) => {
     // 切断済み controller への enqueue はサーバを落とすので必ず握りつぶす（emitStreamJsonLine と同じ理由）
@@ -381,6 +382,9 @@ function runCli(
       // 設定 chat.cliExtraTools（例: "mcp__foo__*"）。"-" 始まりはツール名でなく
       // フラグとして解釈されてしまう（--dangerously-skip-permissions の混入経路になる）ので落とす
       ...extraTools.filter((t) => !t.startsWith("-")),
+      // 設定 ai.addDirs: ワークスペースルート外もファイルツールで触れるようにする
+      // （2026-08-04 本人指示。"-" 始まりの除外は extraTools と同じフラグ混入対策）
+      ...addDirs.filter((d) => !d.startsWith("-")).flatMap((d) => ["--add-dir", q(d)]),
       "--append-system-prompt",
       q(cliSafeArg(system)),
       "--output-format",
@@ -460,6 +464,7 @@ export function handleChatCli(
 ): Response {
   const pageId = body.pageId ?? null;
   const { cliPath, cliModel, cliExtraTools } = settings.get().chat;
+  const { addDirs } = settings.get().ai;
   const system = [
     systemPrompt(graph, threads, pageId, body.selectedNodeId ?? null),
     "グラフの操作（ノード作成・更新・削除・スレッド投稿等）は graphwrangler の MCP ツールで行うこと。",
@@ -492,6 +497,7 @@ export function handleChatCli(
         controller,
         encoder,
         cliExtraTools,
+        addDirs,
       ).catch((err) => {
         try {
           controller.enqueue(

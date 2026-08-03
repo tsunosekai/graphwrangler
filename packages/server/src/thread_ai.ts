@@ -109,6 +109,7 @@ export function runPlainClaude(
   prompt: string,
   cwd: string,
   extraTools: string[] = [],
+  addDirs: string[] = [],
 ): Promise<PlainCliResult> {
   return new Promise((resolve) => {
     // chat_cli.ts と同じフルセットを許可（2026-08-03 権限拡張。それまでは読み取り専用だった）。
@@ -121,6 +122,8 @@ export function runPlainClaude(
       "--allowedTools",
       ...DEFAULT_CLI_TOOLS,
       ...extraTools.filter((t) => !t.startsWith("-")),
+      // 設定 ai.addDirs: ワークスペースルート外もファイルツールで触れるようにする（chat_cli.ts と同じ）
+      ...addDirs.filter((d) => !d.startsWith("-")).flatMap((d) => ["--add-dir", d]),
     ];
     const isWindows = process.platform === "win32";
     let child;
@@ -251,6 +254,7 @@ async function respondInThread(
       prompt,
       graph.workspaceInfo().root ?? os.tmpdir(),
       chat.cliExtraTools,
+      settings.get().ai.addDirs,
     );
     if (!result.success) {
       console.error(`[thread-ai] node ${node.id}: ヘッドレスCLIの起動に失敗しました: ${result.error}`);
