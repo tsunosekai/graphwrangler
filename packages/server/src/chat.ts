@@ -11,6 +11,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { SettingsStore } from "./settings.js";
+import { currentUserEmail } from "./auth.js";
 import { resolveWorkspacePath } from "./files.js";
 import {
   GraphStore,
@@ -175,6 +176,8 @@ export function systemPrompt(
     "detail（概要）は**人間向けの平易な2〜3行**に留めること。コマンドのフラグ・環境変数・パス・エッジケースの羅列など技術詳細は detail に書かず、手順書（.md）やスクリプトのコメントに置くか、スレッドへの発言として残す。detail に書くのは「何をするか」「人が気を付けること」だけ。",
     "勝手に大量のノードを作らず、分解は3〜8個の人間粒度で行うこと。",
     "ユーザーが明示した手順を勝手に変えない。削除は確認してから実行すること。",
+    "ノードには担当者（assignee=メール）とページの関係者（members=メール配列）を設定できる。" +
+      "ユーザーが人名で頼んだら、分かっているメールアドレスを設定し、不明なら聞き返すこと。",
     "fixed（ロック済み）のノードのやり方（title/impl/枝/依存など）は変更できない。変えたい場合は先にロック解除を人間に頼むこと。",
     `現在表示中のページ: ${pageTitle}`,
     ...(memberLines.length > 0 ? ["このページのノード一覧:", ...memberLines] : []),
@@ -188,7 +191,13 @@ export function systemPrompt(
   ].join("\n");
 }
 
-function buildTools(graph: GraphStore, threads: ThreadStore, pageId: string | null, actor: Actor) {
+function buildTools(
+  graph: GraphStore,
+  threads: ThreadStore,
+  pageId: string | null,
+  actor: Actor,
+  user: string | null,
+) {
   return {
     get_state: tool({
       description:
@@ -210,9 +219,12 @@ function buildTools(graph: GraphStore, threads: ThreadStore, pageId: string | nu
         autonomy: AutonomySchema.optional(),
         lifecycle: LifecycleSchema.optional(),
         status: StatusSchema.optional(),
+        assignee: z.string().nullable().optional(),
+        members: z.array(z.string()).optional(),
       }),
       execute: async (input) =>
-        graph.addNode({ ...input, group: input.group ?? pageId ?? null }, { actor, via: VIA }),
+        // user: チャットの背後にいる人間（createdBy に刻まれる。actor はあくまで chat:<model>）
+        graph.addNode({ ...input, group: input.group ?? pageId ?? null }, { actor, via: VIA, user }),
     }),
     patch_node: tool({
       description: "既存ノードを部分更新する（id 指定必須、他は変更したいフィールドだけ渡す）",
@@ -228,6 +240,8 @@ function buildTools(graph: GraphStore, threads: ThreadStore, pageId: string | nu
         autonomy: AutonomySchema.optional(),
         lifecycle: LifecycleSchema.optional(),
         status: StatusSchema.optional(),
+        assignee: z.string().nullable().optional(),
+        members: z.array(z.string()).optional(),
       }),
       execute: async ({ id, ...patch }) => graph.patchNode(id, patch, { actor, via: VIA }),
     }),
@@ -281,12 +295,15 @@ export async function handleChat(
 ): Promise<Response> {
   const pageId = body.pageId ?? null;
   const actor: Actor = { kind: "agent", name: `chat:${modelId(settings)}` };
+  // 操作者メールはハンドラ入口（リクエストスコープが確実に生きている時点）で捕まえる。
+  // ツール実行は SSE ストリーミング中に走るため AsyncLocalStorage が切れている可能性がある
+  const user = currentUserEmail();
 
   const result = streamText({
     model: resolveModel(settings),
     system: systemPrompt(graph, threads, pageId, body.selectedNodeId ?? null),
     messages: await convertToModelMessages(body.messages ?? []),
-    tools: buildTools(graph, threads, pageId, actor),
+    tools: buildTools(graph, threads, pageId, actor, user),
     stopWhen: stepCountIs(8),
   });
 

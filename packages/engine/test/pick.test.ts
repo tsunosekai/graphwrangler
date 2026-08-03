@@ -30,6 +30,9 @@ function node(partial: Partial<Node> = {}): Node {
     branches: partial.branches ?? null,
     choice: partial.choice ?? null,
     parentOptions: partial.parentOptions ?? {},
+    createdBy: partial.createdBy ?? null,
+    assignee: partial.assignee ?? null,
+    members: partial.members ?? [],
     created: partial.created ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
   };
 }

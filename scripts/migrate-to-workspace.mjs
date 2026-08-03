@@ -88,6 +88,9 @@ const NODE_DEFAULTS = {
   branches: null,
   choice: null,
   parentOptions: {},
+  createdBy: null,
+  assignee: null,
+  members: [],
 };
 
 /** 旧スキーマの値を現行スキーマへ正規化する（waiting は pendingRequest からの導出値に、

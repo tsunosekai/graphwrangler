@@ -3,6 +3,7 @@ import { Handle, Position } from "@xyflow/react";
 import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
 import { promptDialog } from "../lib/dialogs";
+import { displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { Node, RunItemStatus } from "../types";
@@ -66,6 +67,9 @@ export interface NodeCardData {
 // data.selected は App が追跡する「主選択」1件のための既存フラグ。どちらか点灯でリングを出す
 export function NodeCard({ data, selected }: { data: NodeCardData; selected?: boolean }) {
   const { node, isTemplate, runItem } = data;
+  // 「あなたの番」の per-user 判定（チーム化 2026-08-04）: assignee が他人なら橙にしない
+  const { me, users, enabled: teamEnabled } = useTeam();
+  const turnMine = turnIsMine(node.assignee, me.email);
   const [draft, setDraft] = useState(node.title);
   const [firing, setFiring] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
@@ -246,11 +250,18 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         </button>
       </span>
       {/* 「あなたの番」の右肩ドット。非テンプレートは pendingRequest、投影中はランアイテムの
-          waiting をそのまま使う（ランアイテムに pendingRequest 概念はない。docs/design.md 3.8） */}
+          waiting をそのまま使う（ランアイテムに pendingRequest 概念はない。docs/design.md 3.8）。
+          他人の番（assignee が他人。チーム化 2026-08-04）は attention 色にせず human 席色で
+          「誰かの回答待ち」だけ伝える */}
       {((!isTemplate && node.pendingRequest) || (projecting && visualStatus === "waiting")) && (
         <span
-          className="absolute -right-1 -top-1 size-2 flex-shrink-0 rounded-full bg-[var(--attention)]"
-          title="あなたの番"
+          className="absolute -right-1 -top-1 size-2 flex-shrink-0 rounded-full"
+          style={{ background: turnMine ? "var(--attention)" : "var(--human)" }}
+          title={
+            turnMine || !node.assignee
+              ? "あなたの番"
+              : `${displayNameOf(node.assignee, users)}の番（回答待ち）`
+          }
         />
       )}
       <div
@@ -264,6 +275,16 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         <span className={cn("inline-flex flex-shrink-0", EXEC_TEXT[node.executor])}>
           <Icon name={EXEC_ICON[node.executor]} />
         </span>
+        {/* 担当者のイニシャルバッジ（チーム化 2026-08-04）: 担当=人間で assignee があるとき、
+            「人間の誰がやるか」を1文字で示す。ロスターが2人未満の運用では出さない（degrade 原則） */}
+        {teamEnabled && node.executor === "human" && node.assignee && (
+          <span
+            className="inline-flex size-4 flex-shrink-0 items-center justify-center rounded-full border border-human/60 text-[9px] leading-none text-human"
+            title={`担当者: ${displayNameOf(node.assignee, users)}`}
+          >
+            {initialOf(node.assignee, users)}
+          </span>
+        )}
         {/* 2個目スロットは種別の文字チップ（本人選定「A+D」2026-07-31: アイコンをやめて
             実行/判断/トリガー の文字で誤読ゼロに）。実装(impl)バッジは別軸なのでタイトル右端 */}
         <span

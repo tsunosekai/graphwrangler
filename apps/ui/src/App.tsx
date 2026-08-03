@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BulkPanel } from "./components/BulkPanel";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { DialogHost } from "./components/DialogHost";
@@ -11,7 +11,8 @@ import { ToastHost } from "./components/ToastHost";
 import { TopBar, type RunWaitItem } from "./components/TopBar";
 import { MobileNav, type MobileView } from "./components/MobileNav";
 import { LoginScreen } from "./components/LoginScreen";
-import { api, postReads, type SettingsView } from "./lib/api";
+import { api, postReads, type Me, type SettingsView, type TeamUser } from "./lib/api";
+import { TeamContext, isMyTurn, turnIsMine, useTeam, type Team } from "./lib/team";
 import { cn } from "./lib/utils";
 import { usePolling } from "./hooks/usePolling";
 import { useIsMobile } from "./hooks/useIsMobile";
@@ -57,13 +58,13 @@ function saveTabState(key: string, value: string): void {
  *  （authRequired=true）で未ログインなら、アプリ本体をマウントせずログイン画面だけ出す
  *  ——本体を出すとポーリングが 401 のトーストを連打するため、ゲートは外側で行う */
 export default function App() {
-  const [me, setMe] = useState<{ email: string | null; authRequired: boolean } | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
   const refreshMe = useCallback(async () => {
     try {
       setMe(await api.getMe());
     } catch {
       // 判定に失敗したら従来どおり本体を出す（ログイン不要運用・旧サーバとの互換）
-      setMe({ email: null, authRequired: false });
+      setMe({ email: null, displayName: null, authRequired: false });
     }
   }, []);
   useEffect(() => {
@@ -72,10 +73,28 @@ export default function App() {
 
   if (me === null) return null; // 判定中（一瞬）
   if (me.authRequired && !me.email) return <LoginScreen onLoggedIn={() => void refreshMe()} />;
-  return <AppInner />;
+  return (
+    <TeamProvider me={me}>
+      <AppInner />
+    </TeamProvider>
+  );
+}
+
+/** ログイン情報とユーザーロスターを全域へ配る（チーム化 2026-08-04。lib/team.ts の
+ *  TeamContext）。ロスターはログインゲート通過後に1回だけ取得し、失敗したら空配列
+ *  = 人系UIを出さない degrade（getUsers 自体が失敗を空配列に畳む。ポーリングはしない） */
+function TeamProvider({ me, children }: { me: Me; children: ReactNode }) {
+  const [users, setUsers] = useState<TeamUser[]>([]);
+  useEffect(() => {
+    void api.getUsers().then((r) => setUsers(r.users));
+  }, []);
+  const team = useMemo<Team>(() => ({ me, users, enabled: users.length >= 2 }), [me, users]);
+  return <TeamContext.Provider value={team}>{children}</TeamContext.Provider>;
 }
 
 function AppInner() {
+  // 「あなたの番」の per-user 判定（チーム化 2026-08-04）に使う自分のメール
+  const { me } = useTeam();
   const { data, refresh } = usePolling(() => api.getState(), 3000);
   const [selectedId, setSelectedId] = useState<string | null>(() => loadUiState("gw.selectedId"));
   const [pageIdRaw, setPageId] = useState<string | null>(() => loadUiState("gw.pageId"));
@@ -243,19 +262,25 @@ function AppInner() {
       if (!run || run.status !== "running") continue;
       for (const [nodeId, item] of Object.entries(run.items)) {
         if (item.status !== "waiting") continue;
-        const title = nodes.find((n) => n.id === nodeId)?.title || "（無題）";
+        const tmpl = nodes.find((n) => n.id === nodeId);
+        // 他人の番（テンプレートの assignee が他人）は自分への通知対象にしない（チーム化 2026-08-04）
+        if (tmpl && !turnIsMine(tmpl.assignee, me.email)) continue;
+        const title = tmpl?.title || "（無題）";
         const label = item.note ? `[ラン] ${title}（${item.note}）` : `[ラン] ${title}`;
         items.push({ key: `${run.id}:${nodeId}`, nodeId, label });
       }
     }
     return items;
-  }, [latestRuns, nodes]);
+  }, [latestRuns, nodes, me.email]);
 
-  // あなたの番が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）
+  // あなたの番が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）。
+  // 他人の番（assignee が他人）は通知しない（チーム化 2026-08-04。isMyTurn が判定を一元化）
   const inboxItemsRef = useRef<{ id: string; title: string }[] | null>(null);
   useEffect(() => {
     const combined: { id: string; title: string }[] = [
-      ...nodes.filter((n) => n.pendingRequest).map((n) => ({ id: n.id, title: n.title || "（無題）" })),
+      ...nodes
+        .filter((n) => isMyTurn(n, me.email))
+        .map((n) => ({ id: n.id, title: n.title || "（無題）" })),
       ...runWaitItems.map((item) => ({ id: item.key, title: item.label })),
     ];
     const prev = inboxItemsRef.current;
@@ -274,7 +299,7 @@ function AppInner() {
       }
     }
     inboxItemsRef.current = combined;
-  }, [nodes, runWaitItems]);
+  }, [nodes, runWaitItems, me.email]);
 
   // ---- AI設定（初回セットアップ + いつでも開ける⚙） ----
   const [settings, setSettings] = useState<SettingsView | null>(null);

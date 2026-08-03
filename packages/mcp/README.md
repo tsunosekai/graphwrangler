@@ -45,10 +45,10 @@ claude mcp add graphwrangler -- npx tsx D:/VSCodeProject/infra-tools/graphwrangl
 
 | ツール | 内容 |
 |---|---|
-| `state_get` | グラフ全体の要約（ノード数・ページ一覧・各ノードの主要フィールドのみ。detail/impl は含まない） |
+| `state_get` | グラフ全体の要約（ノード数・ページ一覧・各ノードの主要フィールドのみ。`createdBy`/`assignee` を含み、detail/impl は含まない） |
 | `node_get` | 1ノードの全フィールド |
-| `node_add` | ノード作成 |
-| `node_patch` | ノード部分更新 |
+| `node_add` | ノード作成（`assignee`=担当者メール、`members`=ページの関係者メール配列も指定可。`createdBy` は入力不可＝サーバが刻む） |
+| `node_patch` | ノード部分更新（`assignee`/`members` も更新可。`createdBy` は不変の記録なので patch 不可） |
 | `node_remove` | ノード削除（子がいると失敗） |
 | `thread_get` | ノードスレッドのメッセージ一覧 |
 | `message_post` | スレッドへの投稿（say/status/artifact） |

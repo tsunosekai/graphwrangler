@@ -32,6 +32,10 @@ import { stableStringify } from "./stable-stringify.js";
 export interface OpMeta {
   actor?: Actor;
   via?: string;
+  /** 操作の背後にいる人間のメール（ログイン運用時のみ）。actor が agent（チャットAI経由の
+   *  作成など）でも「誰のための操作か」を保持し、addNode の createdBy に刻む用途に使う。
+   *  ops.jsonl には保存しない（帰属の正本は actor/via のまま） */
+  user?: string | null;
 }
 
 export class GraphError extends Error {
@@ -280,6 +284,10 @@ export class GraphStore {
       // 試走記録は新規作成時は必ず未試走（NodeInputSchema には含めない。desk と同じく
       // 「作成時に指定できるものではなく、試走APIだけが書く」フィールド）
       implTrial: null,
+      // 作成者はサーバが操作メタから刻む（クライアント入力からは受けない。docs/design.md 3.11）。
+      // meta.user（チャットAI経由でも背後の人間）→ human actor の name（=ログインメール）→ null
+      createdBy:
+        meta.user ?? (meta.actor?.kind === "human" && meta.actor.name ? meta.actor.name : null),
       created: nowIso(),
     };
     this.commit({ op: "node.add", payload: { node } }, meta);

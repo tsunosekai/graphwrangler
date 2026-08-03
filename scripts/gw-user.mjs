@@ -6,13 +6,16 @@
 //   node scripts/gw-user.mjs <users.json> add <email> [password]   # password 省略で自動生成して表示
 //   node scripts/gw-user.mjs <users.json> remove <email>
 //   node scripts/gw-user.mjs <users.json> passwd <email> [password]
+//   node scripts/gw-user.mjs <users.json> name <email> <表示名>     # 表示名の設定（UIでメールの代わりに出る）
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 const [file, cmd, email, passwordArg] = process.argv.slice(2);
 if (!file || !cmd) {
-  console.error("usage: gw-user.mjs <users.json> list|add|remove|passwd [email] [password]");
+  console.error(
+    "usage: gw-user.mjs <users.json> list|add|remove|passwd|name [email] [password|表示名]",
+  );
   process.exit(1);
 }
 
@@ -44,7 +47,10 @@ data.users ??= [];
 
 switch (cmd) {
   case "list": {
-    for (const u of data.users) console.log(`${u.email}\t(created: ${u.created ?? "?"})`);
+    for (const u of data.users)
+      console.log(
+        `${u.email}\t${u.displayName ?? "(表示名なし)"}\t(created: ${u.created ?? "?"})`,
+      );
     if (data.users.length === 0) console.log("(ユーザーなし=ログイン不要モード)");
     break;
   }
@@ -74,6 +80,15 @@ switch (cmd) {
     save(data);
     console.log(`更新しました: ${email}`);
     if (!passwordArg) console.log(`新パスワード: ${password}`);
+    break;
+  }
+  case "name": {
+    const u = data.users.find((x) => x.email === email);
+    if (!u) throw new Error(`見つかりません: ${email}`);
+    if (!passwordArg) throw new Error("表示名を指定してください");
+    u.displayName = passwordArg;
+    save(data);
+    console.log(`表示名を設定しました: ${email} → ${passwordArg}`);
     break;
   }
   default:

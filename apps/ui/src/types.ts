@@ -96,6 +96,13 @@ export interface Node {
   choice: string | null;
   /** 子側: どの親decisionのどの枝から生えるか（親decisionId → 枝id） */
   parentOptions: Record<string, string>;
+  /** 作成者メール（チーム化 2026-08-04）。サーバが作成時に刻む不変値で patch 不可。
+   *  ログイン無し運用では null */
+  createdBy: string | null;
+  /** 担当者メール（単数）。executor=human の「人間の誰がやるか」。null = 未割当 */
+  assignee: string | null;
+  /** 関係者メール配列。ページ（kind=goal / メンバー持ち）でのみ意味を持つ */
+  members: string[];
   created: string;
 }
 

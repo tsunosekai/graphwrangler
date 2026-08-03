@@ -60,6 +60,10 @@ export interface NodeCreateInput {
   lifecycle?: Node["lifecycle"];
   status?: Node["status"];
   fixed?: boolean;
+  /** 担当者メール（チーム化 2026-08-04）。createdBy はサーバが刻むので入力には無い */
+  assignee?: Node["assignee"];
+  /** 関係者メール配列（ページでのみ意味を持つ） */
+  members?: Node["members"];
   /** kind=decision のみ意味を持つ選択肢一覧（docs/design.md 3.9） */
   branches?: Node["branches"];
   parentOptions?: Node["parentOptions"];
@@ -159,10 +163,36 @@ async function withSelfRead<T>(nodeId: string, p: Promise<T>): Promise<T> {
   return result;
 }
 
+/** GET /api/me の形（displayName は 2026-08-04 チーム化で追加） */
+export interface Me {
+  email: string | null;
+  displayName: string | null;
+  authRequired: boolean;
+}
+
+/** GET /api/users の1件（登録ユーザーのロスター。ログイン無し運用では空配列） */
+export interface TeamUser {
+  email: string;
+  displayName: string | null;
+}
+
 export const api = {
   // ---- 内蔵ログイン（サーバ auth.ts。users.json にユーザーが居る運用でのみ authRequired=true） ----
 
-  getMe: () => request<{ email: string | null; authRequired: boolean }>("/me"),
+  getMe: () => request<Me>("/me"),
+
+  /** 登録ユーザーのロスター（チーム化 2026-08-04）。補助情報なので失敗はトーストせず
+   *  空配列へ degrade する（旧サーバ 404 互換。人系UIが出なくなるだけ） */
+  getUsers: async (): Promise<{ users: TeamUser[] }> => {
+    try {
+      const res = await fetch("/api/users", { headers: { "Content-Type": "application/json" } });
+      if (!res.ok) return { users: [] };
+      const data = (await res.json()) as { users?: TeamUser[] };
+      return { users: Array.isArray(data.users) ? data.users : [] };
+    } catch {
+      return { users: [] };
+    }
+  },
 
   login: (email: string, password: string) =>
     request<{ email: string }>("/login", { method: "POST", body: JSON.stringify({ email, password }) }),

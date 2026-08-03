@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { Keyboard, Search, Settings, Undo2 } from "lucide-react";
+import { Keyboard, LogOut, Search, Settings, Undo2 } from "lucide-react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { subscribeFocusGoalCapture } from "../lib/capture";
 import { openPalette, openShortcuts } from "../lib/palette";
+import { displayNameOf, useTeam } from "../lib/team";
 import { Button } from "./ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { Icon } from "./Icon";
@@ -107,6 +116,46 @@ function GoalCapture({ onCapture }: { onCapture: (title: string) => Promise<void
   );
 }
 
+/** ログイン中のユーザーチップ（チーム化 2026-08-04）。イニシャル丸 + 表示名。クリックで
+ *  メニュー（表示名・メール + ログアウト）。未ログイン運用では何も出さない（従来の見た目のまま）。
+ *  ロスターが1人でもログイン中なら出してよい（degrade 原則の例外） */
+function UserChip() {
+  const { me, users } = useTeam();
+  if (!me.email) return null;
+  const name = me.displayName || displayNameOf(me.email, users);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-full border border-border py-0.5 pl-1 pr-2 text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          title={me.email}
+        >
+          <span className="inline-flex size-6 flex-shrink-0 items-center justify-center rounded-full bg-human/20 text-xs font-semibold text-human">
+            {name.slice(0, 1).toUpperCase()}
+          </span>
+          <span className="max-w-28 truncate max-md:hidden">{name}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel className="flex flex-col">
+          <span>{name}</span>
+          <span className="text-xs font-normal text-muted-foreground">{me.email}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={() => {
+            // Cookie を消してからリロード=ログイン画面へ（logout の失敗はリロードで気付ける）
+            void api.logout().finally(() => window.location.reload());
+          }}
+        >
+          <LogOut className="size-3.5" /> ログアウト
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptureGoal }: Props) {
   // エンジン稼働インジケータ（5秒毎ポーリング）。平常時は何も出さず、
   // 「AIが動いていない」ときだけ警告として表示する（2026-07-31 本人指示。
@@ -166,6 +215,7 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
             <Icon name="chat" size={16} />
           </IconButton>
         </span>
+        <UserChip />
       </div>
     </header>
   );

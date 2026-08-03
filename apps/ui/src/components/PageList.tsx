@@ -14,9 +14,11 @@ import { PanelLeft, PanelLeftClose } from "lucide-react";
 import { focusGoalCapture } from "../lib/capture";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { isRoutinePage } from "../lib/routine";
+import { displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { Node, Run, Status } from "../types";
 import { Button } from "./ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 
@@ -71,6 +73,45 @@ const MAX_DOTS = 16;
 
 export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestRuns, runningCounts, forceExpanded, onSelectPage }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
+  // チーム化（2026-08-04）: 人フィルタとイニシャルバッジ。ロスターが2人未満なら出さない
+  const { me, users, enabled: teamEnabled } = useTeam();
+  // 人フィルタ: "all"（全員）/ "me"（自分。ログイン中のみ）/ メールアドレス。リロード跨ぎで保持
+  const [personFilter, setPersonFilterRaw] = useState<string>(
+    () => localStorage.getItem("gw.pageFilter") ?? "all",
+  );
+  const setPersonFilter = (v: string) => {
+    setPersonFilterRaw(v);
+    try {
+      localStorage.setItem("gw.pageFilter", v);
+    } catch {
+      // 無視（永続化は補助機能）
+    }
+  };
+  // 保存値の正規化: 未ログインで "me" が残っていた・ロスターから消えたメールだった、は
+  // 「全員」に倒す（Select の表示と絞り込みの両方がこれを使う）
+  const personFilterValue =
+    personFilter === "me"
+      ? me.email
+        ? "me"
+        : "all"
+      : personFilter === "all" || users.some((u) => u.email === personFilter)
+        ? personFilter
+        : "all";
+  // フィルタの実効メール。null = 絞り込みなし（ロスターが2人未満のときも常に null）
+  const filterEmail = !teamEnabled
+    ? null
+    : personFilterValue === "all"
+      ? null
+      : personFilterValue === "me"
+        ? me.email
+        : personFilterValue;
+  // ページが人 P に関連するか: 作成者 / 関係者 / メンバーノードに P の担当・作成があるか
+  const pageRelatesTo = (page: Node, email: string): boolean =>
+    page.createdBy === email ||
+    (page.members ?? []).includes(email) ||
+    allNodes.some(
+      (n) => n.group === page.id && (n.assignee === email || n.createdBy === email),
+    );
   // アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
   // レール自体の開閉（2026-07-31 本人要望）。閉じると細い縦帯だけ残す
@@ -106,9 +147,11 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
   const archivedFolders = folders.filter(
     (f) => !isRoutinePage(f, allNodes) && (f.status === "done" || f.status === "dropped"),
   );
-  // プロジェクト（トリガー無し）/ ルーティーン（トリガー有り）のビュー的な分類（本人指定）
-  const projectFolders = activeFolders.filter((f) => !isRoutinePage(f, allNodes));
-  const routineFolders = activeFolders.filter((f) => isRoutinePage(f, allNodes));
+  // プロジェクト（トリガー無し）/ ルーティーン（トリガー有り）のビュー的な分類（本人指定）。
+  // 人フィルタ中はプロジェクト節・ルーティーン節の両方に同じ述語を適用する（チーム化 2026-08-04）
+  const byPerson = (f: Node) => filterEmail === null || pageRelatesTo(f, filterEmail);
+  const projectFolders = activeFolders.filter((f) => !isRoutinePage(f, allNodes) && byPerson(f));
+  const routineFolders = activeFolders.filter((f) => isRoutinePage(f, allNodes) && byPerson(f));
 
   const renderRow = (f: Node, archived: boolean) => {
     const routine = isRoutinePage(f, allNodes);
@@ -119,8 +162,10 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
     ).length;
 
     // 質問が開いている（pendingRequest あり）ノードは status が何であれ「あなたの番」扱い
-    // （NodeCard の visualStatus と同じ保険）
-    const effStatus = (n: Node): Status => (n.pendingRequest ? "waiting" : n.status);
+    // （NodeCard の visualStatus と同じ保険）。ただし assignee が他人なら waiting（橙）に
+    // 昇格させず、素の status のまま担当の席色で描く（チーム化 2026-08-04: 他人の番は橙にしない）
+    const effStatus = (n: Node): Status =>
+      n.pendingRequest && turnIsMine(n.assignee, me.email) ? "waiting" : n.status;
     const memberDots = !routine
       ? allNodes
           .filter((n) => n.group === f.id)
@@ -139,18 +184,29 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
     const runDots =
       routine && latestRun
         ? Object.entries(latestRun.items)
-            .map(([nodeId, item]) => ({
-              nodeId,
-              item,
-              executor: allNodes.find((n) => n.id === nodeId)?.executor ?? ("script" as const),
-            }))
+            .map(([nodeId, item]) => {
+              const tmpl = allNodes.find((n) => n.id === nodeId);
+              const executor = tmpl?.executor ?? ("script" as const);
+              // 他人の番（テンプレートの assignee が他人）の waiting は橙にせず、
+              // pending 相当=担当の席色に落とす（チーム化 2026-08-04。effStatus と同じ原則）
+              const st: Status =
+                item.status === "waiting" && !turnIsMine(tmpl?.assignee ?? null, me.email)
+                  ? "pending"
+                  : item.status;
+              return {
+                key: nodeId,
+                st,
+                executor,
+                title: `${EXEC_JA[executor]}の席 / ${STATUS_JA[item.status]}`,
+              };
+            })
             .sort(
-              (a, b) => SEAT_ORDER.indexOf(seatOf(a.item.status, a.executor)) - SEAT_ORDER.indexOf(seatOf(b.item.status, b.executor)),
+              (a, b) => SEAT_ORDER.indexOf(seatOf(a.st, a.executor)) - SEAT_ORDER.indexOf(seatOf(b.st, b.executor)),
             )
-            .map(({ nodeId, item, executor }) => ({
-              key: nodeId,
-              title: `${EXEC_JA[executor]}の席 / ${STATUS_JA[item.status]}`,
-              color: seatColor(item.status, executor),
+            .map(({ key, st, executor, title }) => ({
+              key,
+              title,
+              color: seatColor(st, executor),
             }))
         : [];
 
@@ -178,6 +234,25 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
             <StatusCircle status={f.status} size={12} />
           )}
           <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
+          {/* 関係者のイニシャルバッジ（チーム化 2026-08-04）: 最大3人 + “+n”。小さく控えめに */}
+          {teamEnabled && (f.members ?? []).length > 0 && (
+            <span
+              className="flex flex-shrink-0 items-center -space-x-1"
+              title={`関係者: ${(f.members ?? []).map((m) => displayNameOf(m, users)).join("、")}`}
+            >
+              {(f.members ?? []).slice(0, 3).map((m) => (
+                <span
+                  key={m}
+                  className="inline-flex size-3.5 items-center justify-center rounded-full border border-border bg-background text-[8px] leading-none text-muted-foreground"
+                >
+                  {initialOf(m, users)}
+                </span>
+              ))}
+              {(f.members ?? []).length > 3 && (
+                <span className="pl-1.5 text-[9px] text-text-lo">+{(f.members ?? []).length - 3}</span>
+              )}
+            </span>
+          )}
           {/* 実行中のラン数（並走中の世界線）。1本でも「回っている」ことが分かるように出す */}
           {routine && (runningCounts[f.id] ?? 0) > 0 && (
             <span
@@ -269,6 +344,28 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
           </Button>
         </span>
       </div>
+      {/* 人フィルタ（チーム化 2026-08-04）: ページを人で絞り込む。ルーティーン節にも同じ
+          述語が効く。ロスターが2人未満の運用では出さない（degrade 原則） */}
+      {teamEnabled && (
+        <div className="px-2 pb-1.5">
+          <Select value={personFilterValue} onValueChange={setPersonFilter}>
+            <SelectTrigger className="h-7 w-full text-xs" title="人でページを絞り込む">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全員</SelectItem>
+              {me.email && <SelectItem value="me">自分</SelectItem>}
+              {users
+                .filter((u) => u.email !== me.email)
+                .map((u) => (
+                  <SelectItem key={u.email} value={u.email}>
+                    {displayNameOf(u.email, users)}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       {projectFolders.map((f) => renderRow(f, false))}
       {routineFolders.length > 0 && (
         <>

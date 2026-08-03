@@ -7,10 +7,21 @@
 //   あり=リバースプロキシ越し）」の /api/* にセッション必須。ローカル直（エンジン・MCP・
 //   同一マシンの curl）は従来どおり通す——ポートは loopback バインドなので、外から
 //   届く経路はプロキシ経由しか無い
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+
+/** リクエストスコープの操作者メール（セッション Cookie / Access ヘッダから index.ts の
+ *  ミドルウェアが解決して run() する）。chat.ts などリクエスト処理の奥からも
+ *  「今の操作の背後にいる人間」を参照できるよう auth に置く（index との循環 import 回避） */
+export const currentUserStore = new AsyncLocalStorage<string>();
+
+/** 今のリクエストの操作者メール（未ログイン・リクエスト外は null） */
+export function currentUserEmail(): string | null {
+  return currentUserStore.getStore() ?? null;
+}
 
 export const SESSION_COOKIE = "gw_session";
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30日
@@ -20,6 +31,10 @@ const UserSchema = z.object({
   /** scrypt(password, salt) の hex */
   hash: z.string().min(1),
   salt: z.string().min(1),
+  /** 表示名（チーム運用でメールの @ 前より読みやすい名前を出す用。省略可）。
+   *  管理は scripts/gw-user.mjs の add/name。actor.name に刻むのは常にメール
+   *  （不変の識別子）で、表示名への解決は UI 側の仕事 */
+  displayName: z.string().optional(),
   created: z.string().optional(),
 });
 export type User = z.infer<typeof UserSchema>;

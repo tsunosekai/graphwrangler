@@ -151,6 +151,18 @@ export const NodeSchema = z.object({
   /** 子側: どの親decisionのどの枝から生えるか（親decisionId → 枝id）。
    *  検証: キーが parents に含まれ、その親が kind=decision であること。値がその親の branches に存在すること */
   parentOptions: z.record(z.string(), z.string()).default({}),
+  /** 作成者（ログインユーザーのメール）。作成時にサーバが刻む不変の記録で、以後 patch しない。
+   *  ログイン無し運用・エンジン/MCP 経由（操作者メール不明）では null（docs/design.md 3.11）。
+   *  既存データ互換のため default null */
+  createdBy: z.string().nullable().default(null),
+  /** 担当者（メール）。executor=human のノードで「人間の誰がやるか」。単数・nullable
+   *  （null = 未割当 = 全員宛。Linear の assignee と同じ思想で、複数人で分ける作業は
+   *  ノード分割で表現する）。Fix の保護対象外（誰がやるかは「やり方」ではない） */
+  assignee: z.string().nullable().default(null),
+  /** 関係者（メール配列）。ページ（kind=goal / メンバー持ち）でのみ意味を持つ。
+   *  左レールの人フィルタと「自分の関係分」判定に使う。作成者は自動で関係者扱いなので
+   *  ここへ重複して入れる必要はない */
+  members: z.array(z.string()).default([]),
   created: z.string(),
 });
 export type Node = z.infer<typeof NodeSchema>;
@@ -173,13 +185,17 @@ export const NodeInputSchema = z.object({
   branches: z.array(NodeBranchSchema).nullable().default(null),
   choice: z.string().nullable().default(null),
   parentOptions: z.record(z.string(), z.string()).default({}),
+  /** createdBy は入力に含めない（サーバが操作者から刻む。クライアントに詐称させない） */
+  assignee: z.string().nullable().default(null),
+  members: z.array(z.string()).default([]),
 });
 export type NodeInput = z.input<typeof NodeInputSchema>;
 
-/** 部分更新できるフィールド */
+/** 部分更新できるフィールド（createdBy は不変の記録なので patch 不可） */
 export const NodePatchSchema = NodeSchema.omit({
   id: true,
   created: true,
+  createdBy: true,
 }).partial();
 export type NodePatch = z.infer<typeof NodePatchSchema>;
 

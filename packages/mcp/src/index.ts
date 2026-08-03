@@ -37,6 +37,8 @@ type NodeSummary = {
   group: unknown;
   parents: unknown;
   pendingRequest: unknown;
+  createdBy: unknown;
+  assignee: unknown;
 };
 
 /** ノード1件から要約フィールドだけを抜き出す（detail/impl は含めない = トークン節約） */
@@ -52,6 +54,8 @@ function summarize(node: Record<string, unknown>): NodeSummary {
     group: node.group,
     parents: node.parents,
     pendingRequest: node.pendingRequest,
+    createdBy: node.createdBy,
+    assignee: node.assignee,
   };
 }
 
@@ -92,7 +96,7 @@ server.registerTool(
   {
     description:
       "グラフ全体の要約を取得する。ノード数、ページ（kind=goalのノード、または他ノードのgroupとして参照されている=メンバーを持つノード）の一覧、" +
-      "各ノードの {id,title,kind,executor,status,approval,lifecycle,group,parents,pendingRequest} を返す。" +
+      "各ノードの {id,title,kind,executor,status,approval,lifecycle,group,parents,pendingRequest,createdBy,assignee} を返す。" +
       "detail/impl は含まない（トークン節約のため）。特定ノードの全フィールドが必要なら node_get を使うこと。",
     inputSchema: {},
   },
@@ -138,7 +142,8 @@ server.registerTool(
       "（kind=task, executor=human, approval=false, lifecycle=draft, status=pending）。" +
       "group は所属ページ(ゴール)のノードid。ページ直下に作るならそのゴールノードのidを渡す（省略時はどのページにも属さない）。" +
       "parents は先行ノードid（依存/順序、DAG）。impl は実装形態: null=会話段（AIの裁量）、" +
-      "{type:'doc',text}=手順書、{type:'script',command}=決定的スクリプト。",
+      "{type:'doc',text}=手順書、{type:'script',command}=決定的スクリプト。" +
+      "executor=human の担当者は assignee（メール）で指定する。",
     inputSchema: {
       title: z.string().min(1).describe("人間粒度の作業名"),
       detail: z.string().nullable().optional().describe("補足・文脈"),
@@ -160,6 +165,12 @@ server.registerTool(
       impl: NodeImplSchema.optional().describe(
         "実装形態。null=会話段、{type:'doc',text}=手順書、{type:'script',command}=シェルコマンド",
       ),
+      assignee: z.string().nullable().optional().describe(
+        "担当者のメール。executor=human で「人間の誰がやるか」。null=未割当（全員宛）。既定 null",
+      ),
+      members: z.array(z.string()).optional().describe(
+        "ページの関係者のメール配列。ページ（kind=goal / メンバー持ち）でのみ意味を持つ。既定 []",
+      ),
     },
   },
   safe(async (input: Record<string, unknown>) => apiPost("/api/nodes", withMeta(input))),
@@ -172,7 +183,8 @@ server.registerTool(
   {
     description:
       "既存ノードを部分更新する。patch には変えたいフィールドだけを渡す（title/detail/impl/parents/group/kind/" +
-      "executor/approval/autonomy/lifecycle/status/fixed/pendingRequest の部分集合）。更新後のノードを返す。",
+      "executor/approval/autonomy/lifecycle/status/fixed/pendingRequest/assignee/members の部分集合。" +
+      "assignee=担当者メール（null=未割当）、members=ページの関係者メール配列。createdBy は不変の記録なので patch 不可）。更新後のノードを返す。",
     inputSchema: {
       nodeId: z.string().describe("更新対象のノードid"),
       patch: z.object(NodePatchShape).describe("変更したいフィールドだけを含む部分オブジェクト"),

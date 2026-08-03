@@ -24,6 +24,7 @@ import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
 import { missingParamNames } from "../lib/params";
+import { displayNameOf, turnIsMine, useTeam } from "../lib/team";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage, Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
@@ -210,6 +211,11 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
   // （2026-08-02 本人要望「会話の履歴と実行の履歴を分けてほしい」で2タブ→3タブ化。
   // それまで「新しい会話」で区切った過去の会話は UI のどこからも見えなくなっていた）
   const isMobile = useIsMobile();
+  // チーム化（2026-08-04）: ロスターとログイン情報。人系UI（担当者・関係者）は enabled
+  // （ロスター2人以上）のときだけ出す（degrade 原則）
+  const { me, users, enabled: teamEnabled } = useTeam();
+  // 「あなたの番」（waiting）が自分の番か（assignee が他人なら橙にしない。lib/team.ts で一元化）
+  const turnMine = turnIsMine(node.assignee, me.email);
   const [tab, setTab] = useState<"talk" | "history" | "log">("talk");
   // 履歴タブで開いている過去セッション（chatBreak メッセージの id。null = 一覧）。
   // GraphWrangler AI の履歴タブ（セッション一覧→クリックで中身）と同じ動線に揃える
@@ -516,6 +522,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
         executor: node.executor,
         approval: node.approval,
         autonomy: node.autonomy,
+        // 担当者・関係者も引き継ぐ（チーム化 2026-08-04）。createdBy は複製しない
+        // ——サーバが「複製した人」を新たに刻む
+        assignee: node.assignee,
+        members: node.members,
         status: "pending",
         lifecycle: "draft",
       });
@@ -918,6 +928,32 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 </SelectContent>
               </Select>
             </label>
+            {/* 担当者（チーム化 2026-08-04）: 担当=人間のノードで「人間の誰がやるか」（単数）。
+                やり方（Fix対象）ではなく実行の割当なので、ロック中も変更できる。
+                ロスターが2人未満の運用では出さない（degrade 原則） */}
+            {teamEnabled && node.executor === "human" && (
+              <label className="col-span-2 flex flex-col gap-1 text-sm text-muted-foreground">
+                担当者
+                <Select
+                  value={node.assignee ?? "none"}
+                  onValueChange={(v) => patch({ assignee: v === "none" ? null : v })}
+                >
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">未割当</SelectItem>
+                    {users.map((u) => (
+                      <SelectItem key={u.email} value={u.email}>
+                        {displayNameOf(u.email, users)}
+                      </SelectItem>
+                    ))}
+                    {/* ロスターから消えたメールが残っている場合も現在値として表示・解除できるようにする */}
+                    {node.assignee && !users.some((u) => u.email === node.assignee) && (
+                      <SelectItem value={node.assignee}>{node.assignee}</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </label>
+            )}
             {/* 承認ゲートは「機械（AI/スクリプト）の仕事」の直前に挟まるもの。担当=人間の
                 ノードでは本人の操作が承認そのものなのでトグルを出さない（既に irreversible の
                 ノードだけは解除できるよう表示する）。トリガーでは意味が「発火前承認」になる
@@ -1031,8 +1067,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 <div className="col-span-2 flex flex-wrap items-center gap-2 text-sm">
                   <span className="text-muted-foreground">進捗（実行中のラン）:</span>
                   <span className="inline-flex items-center gap-1.5">
-                    <StatusCircle status={activeRunItem.status} />
-                    {STATUS_JA[activeRunItem.status]}
+                    {/* waiting でも assignee が他人なら橙にせず「誰の番か」を名前で見せる
+                        （チーム化 2026-08-04。プロジェクト側の進捗表示と同じ描き分け） */}
+                    <StatusCircle status={activeRunItem.status} mine={turnMine} />
+                    {activeRunItem.status === "waiting" && !turnMine && node.assignee
+                      ? `${displayNameOf(node.assignee, users)}の番（回答待ち）`
+                      : STATUS_JA[activeRunItem.status]}
                   </span>
                   {/* waiting の理由（失敗: … / 承認待ち / 分岐待ち）を見せる。台帳の丸だけでは
                       何が起きたか分からない（2026-08-01 手戻りレビュー） */}
@@ -1136,8 +1176,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   <div className="col-span-2 flex items-center gap-2 text-sm">
                     <span className="text-muted-foreground">進捗:</span>
                     <span className="inline-flex items-center gap-1.5">
-                      <StatusCircle status={vs} />
-                      {STATUS_JA[vs]}
+                      {/* waiting でも assignee が他人なら橙にせず「誰の番か」を名前で見せる
+                          （チーム化 2026-08-04。判定は lib/team.ts の turnIsMine） */}
+                      <StatusCircle status={vs} mine={turnMine} />
+                      {vs === "waiting" && !turnMine && node.assignee
+                        ? `${displayNameOf(node.assignee, users)}の番（回答待ち）`
+                        : STATUS_JA[vs]}
                     </span>
                     <span className="flex-1" />
                     {(vs === "unplanned" || node.lifecycle === "draft") && (
@@ -1201,6 +1245,47 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 );
               })()}
           </div>
+
+          {/* 関係者（チーム化 2026-08-04）: ページ（kind=goal）でのみ意味を持つメンバー集合。
+              左レールの人フィルタ・イニシャルバッジがこれを見る。トグルチップで出し入れする。
+              作成者（createdBy）はサーバが刻む不変値なので表示のみ */}
+          {teamEnabled && node.kind === "goal" && (
+            <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2.5">
+              <span className="text-sm text-muted-foreground">関係者</span>
+              <div className="flex flex-wrap gap-1.5">
+                {users.map((u) => {
+                  const on = (node.members ?? []).includes(u.email);
+                  return (
+                    <button
+                      key={u.email}
+                      type="button"
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-xs transition-colors",
+                        on
+                          ? "border-human/60 bg-human/10 text-foreground"
+                          : "border-border text-muted-foreground hover:border-border-strong",
+                      )}
+                      title={u.email}
+                      onClick={() =>
+                        patch({
+                          members: on
+                            ? (node.members ?? []).filter((m) => m !== u.email)
+                            : [...(node.members ?? []), u.email],
+                        })
+                      }
+                    >
+                      {displayNameOf(u.email, users)}
+                    </button>
+                  );
+                })}
+              </div>
+              {node.createdBy && (
+                <span className="text-xs text-muted-foreground">
+                  作成者: {displayNameOf(node.createdBy, users)}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* 実装（impl）: 担当連動ラベル + 種類セレクト + doc/script 編集 + 試走ボタン
               （試走ゲート。docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）。対応表:
@@ -1400,6 +1485,14 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 + 枝を追加
               </Button>
             </div>
+          )}
+
+          {/* 作成者の刻印（チーム化 2026-08-04。サーバが作成時に刻む不変メタ情報）。
+              ページ（goal）は関係者セクション内に出すのでここでは重複させない */}
+          {teamEnabled && node.kind !== "goal" && node.createdBy && (
+            <p className="text-xs text-muted-foreground">
+              作成: {displayNameOf(node.createdBy, users)}
+            </p>
           )}
         </div>
       )}

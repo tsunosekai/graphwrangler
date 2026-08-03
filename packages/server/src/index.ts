@@ -2,7 +2,6 @@
 // UI も MCP もエンジンも、全員がこの API（＝操作ログ）を通る。
 import path from "node:path";
 import fs from "node:fs";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -40,6 +39,8 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_MS,
   createSession,
+  currentUserEmail,
+  currentUserStore,
   ensureSecret,
   loadUsers,
   verifyPassword,
@@ -72,7 +73,9 @@ function resolveCanonicalFile(rawPath: string): string {
   return path.join(abs, "workflow.gw.json");
 }
 
-const GITIGNORE_CONTENT = "ops.jsonl\nruns/\nsettings.json\nreads.json\n";
+// users.json（パスワードハッシュ）と auth-secret（セッション署名鍵）は絶対にコミットさせない
+// （authDir = sidecar なので、この2行が無いとワークスペースモードで git に乗ってしまう）
+const GITIGNORE_CONTENT = "ops.jsonl\nruns/\nsettings.json\nreads.json\nusers.json\nauth-secret\n";
 
 const workspaceArg = process.env.GRAPHWRANGLER_WORKSPACE ?? parseWorkspaceArg(process.argv.slice(2));
 
@@ -206,7 +209,8 @@ app.use("/api/*", cors());
 // :8770 loopback バインドで「Access を通らない経路が無い」構成が前提。zinsei の
 // Tailscale 内アクセスのような Access 無し運用では設定しない＝従来どおり）----
 const trustAccessEmail = process.env.GRAPHWRANGLER_TRUST_ACCESS_EMAIL === "1";
-const accessEmailStore = new AsyncLocalStorage<string>();
+// 操作者メールのリクエストスコープ保持は auth.ts の currentUserStore（chat.ts と共用）
+const accessEmailStore = currentUserStore;
 
 app.use("/api/*", async (c, next) => {
   // 操作者の特定: ①内蔵ログインのセッションCookie ②（オプトイン時のみ）Access ヘッダ
@@ -234,10 +238,26 @@ app.use("/api/*", async (c, next) => {
 });
 
 /** 現在の操作者と、ログインが必要な運用かどうか（UI がログイン画面を出す判定に使う） */
-app.get("/api/me", (c) =>
-  c.json({
-    email: accessEmailStore.getStore() ?? null,
+app.get("/api/me", (c) => {
+  const email = accessEmailStore.getStore() ?? null;
+  const user = email
+    ? loadUsers(usersFile).find((u) => u.email.toLowerCase() === email.toLowerCase())
+    : undefined;
+  return c.json({
+    email,
+    displayName: user?.displayName ?? null,
     authRequired: loadUsers(usersFile).length > 0,
+  });
+});
+
+/** 登録ユーザー一覧（担当者セレクト・人フィルタ・表示名解決用のロスター。
+ *  ハッシュ等の秘匿情報は返さない。ログイン無し運用では空配列 = UI は人系UIを出さない） */
+app.get("/api/users", (c) =>
+  c.json({
+    users: loadUsers(usersFile).map((u) => ({
+      email: u.email,
+      displayName: u.displayName ?? null,
+    })),
   }),
 );
 
@@ -271,13 +291,14 @@ app.post("/api/logout", (c) => {
 /** リクエストボディから帰属メタ（actor/via）を取り出す。既定は human/ui。
  *  body に actor が無い（=UIからの操作）とき、Access のメールが分かれば actor.name に刻む
  *  ——ops・スレッド発言の「誰が」がメールで残る（複数人運用の帰属。design 3.2） */
-function meta(body: Record<string, unknown>): { actor: Actor; via: string } {
+function meta(body: Record<string, unknown>): { actor: Actor; via: string; user: string | null } {
   const accessEmail = accessEmailStore.getStore();
   const actor = body.actor
     ? ActorSchema.parse(body.actor)
     : { kind: "human" as const, ...(accessEmail ? { name: accessEmail } : {}) };
   const via = typeof body.via === "string" ? body.via : "ui";
-  return { actor, via };
+  // user = 操作の背後にいる人間（actor が agent でも保持。addNode の createdBy に刻まれる）
+  return { actor, via, user: accessEmail ?? null };
 }
 
 app.onError((err, c) => {
@@ -291,47 +312,106 @@ app.onError((err, c) => {
   return c.json({ error: String(err) }, 500);
 });
 
-// ---- 既読時刻（端末をまたいで共有する。2026-08-02 localStorage から移行） ----
+// ---- 既読時刻（端末をまたいで共有する。2026-08-02 localStorage から移行、
+//      2026-08-03 チーム運用のため per-user 化。docs/design.md 3.11） ----
+//
+// ファイル形式 v2: { version: 2, shared: {nodeId: ts}, users: { email: {nodeId: ts} } }
+// - shared  … ログイン無し（匿名）運用の既読置き場。旧フラット形式はここへ読み替える
+//             （zinsei の一人運用は従来どおり「端末をまたいで共有」の挙動のまま）
+// - users   … ログインユーザーごとの既読。ユーザーの見る既読 = shared と自分の max マージ
+//             （per-user 化の導入時に、それまで共有だった既読が急に未読へ戻らないため）
+// 書き込みは、匿名なら shared へ、ログイン中なら自分のバケツへ。
+
+interface ReadsFile {
+  shared: Record<string, string>;
+  users: Record<string, Record<string, string>>;
+}
 
 /** メモリ上のキャッシュ。プロセス内で唯一の書き手なので、読むたびに読み直す必要はない */
-let readsCache: Record<string, string> | null = null;
+let readsCache: ReadsFile | null = null;
 
-function loadReads(): Record<string, string> {
+function sanitizeMarks(v: unknown): Record<string, string> {
+  return v && typeof v === "object" && !Array.isArray(v)
+    ? (Object.fromEntries(
+        Object.entries(v as Record<string, unknown>).filter(([, t]) => typeof t === "string"),
+      ) as Record<string, string>)
+    : {};
+}
+
+function loadReadsFile(): ReadsFile {
   if (readsCache) return readsCache;
   try {
     const raw = fs.readFileSync(readsFile, "utf8");
     const parsed: unknown = JSON.parse(raw);
-    readsCache =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (Object.fromEntries(
-            Object.entries(parsed as Record<string, unknown>).filter(([, v]) => typeof v === "string"),
-          ) as Record<string, string>)
-        : {};
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const o = parsed as Record<string, unknown>;
+      if (o.version === 2) {
+        const users: Record<string, Record<string, string>> = {};
+        for (const [email, marks] of Object.entries(
+          o.users && typeof o.users === "object" ? (o.users as Record<string, unknown>) : {},
+        )) {
+          users[email] = sanitizeMarks(marks);
+        }
+        readsCache = { shared: sanitizeMarks(o.shared), users };
+      } else {
+        // 旧フラット形式 {nodeId: ts} → shared として読み替え（次回保存で v2 になる）
+        readsCache = { shared: sanitizeMarks(parsed), users: {} };
+      }
+    } else {
+      readsCache = { shared: {}, users: {} };
+    }
   } catch {
-    readsCache = {}; // 未作成・壊れている場合は空から始める（既読は補助情報なので落とさない）
+    // 未作成・壊れている場合は空から始める（既読は補助情報なので落とさない）
+    readsCache = { shared: {}, users: {} };
   }
   return readsCache;
 }
 
-function saveReads(next: Record<string, string>): void {
+function saveReadsFile(next: ReadsFile): void {
   readsCache = next;
   fs.mkdirSync(path.dirname(readsFile), { recursive: true });
-  fs.writeFileSync(readsFile, JSON.stringify(next, null, 2), "utf8");
+  fs.writeFileSync(readsFile, JSON.stringify({ version: 2, ...next }, null, 2), "utf8");
+}
+
+/** 今の操作者から見た既読 = shared と自分のバケツの max マージ（匿名は shared のみ） */
+function loadReads(): Record<string, string> {
+  const file = loadReadsFile();
+  const email = currentUserEmail();
+  const own = email ? (file.users[email] ?? {}) : {};
+  const merged: Record<string, string> = { ...file.shared };
+  for (const [nodeId, ts] of Object.entries(own)) {
+    if (!merged[nodeId] || merged[nodeId] < ts) merged[nodeId] = ts;
+  }
+  return merged;
 }
 
 /** 既読を進める。**巻き戻さない**（別端末が先に進めた既読を、遅れて届いた古い ts で
  *  戻すと未読が復活するため）。1件でも更新があれば true */
 function markRead(marks: Record<string, string>): boolean {
-  const cur = { ...loadReads() };
+  const file = loadReadsFile();
+  const email = currentUserEmail();
+  const bucket = email ? { ...(file.users[email] ?? {}) } : { ...file.shared };
+  const baseline = email ? file.shared : {};
   let changed = false;
   for (const [nodeId, ts] of Object.entries(marks)) {
     if (typeof ts !== "string" || !ts) continue;
-    if (!cur[nodeId] || cur[nodeId] < ts) {
-      cur[nodeId] = ts;
+    // 操作者から見た現在の既読 = max(shared, 自分のバケツ)。それより進む分だけ書く
+    // （shared で既読済みの範囲を自分のバケツへ複製しない）
+    const own = bucket[nodeId];
+    const shared = baseline[nodeId];
+    const effective = own && shared ? (own > shared ? own : shared) : (own ?? shared);
+    if (!effective || effective < ts) {
+      bucket[nodeId] = ts;
       changed = true;
     }
   }
-  if (changed) saveReads(cur);
+  if (changed) {
+    saveReadsFile(
+      email
+        ? { ...file, users: { ...file.users, [email]: bucket } }
+        : { ...file, shared: bucket },
+    );
+  }
   return changed;
 }
 

@@ -13,8 +13,18 @@ const COLOR: Record<Status, string> = {
   skipped: "var(--text-lo)",
 };
 
-export function StatusCircle({ status, size = 14 }: { status: Status; size?: number }) {
-  const c = COLOR[status];
+export function StatusCircle({
+  status,
+  size = 14,
+  mine = true,
+}: {
+  status: Status;
+  size?: number;
+  /** waiting のとき「自分の番」か（チーム化 2026-08-04）。他人の番なら橙(--attention)にせず
+   *  人間の席色で「誰かの回答待ち」だけ伝える。waiting 以外では無視される */
+  mine?: boolean;
+}) {
+  const c = status === "waiting" && !mine ? "var(--human)" : COLOR[status];
   return (
     <svg
       viewBox="0 0 14 14"

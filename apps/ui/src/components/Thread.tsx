@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
+import { displayNameOf, useTeam, type TeamUser } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage } from "../types";
 import { Badge } from "./ui/badge";
@@ -24,9 +25,10 @@ interface Props {
 
 /** 発言者の表示名。生の帰属文字列（task-ai:opus 等）ではなく AI の名前で出す
  *  （2026-07-31 本人指定: ノードの会話欄に Task AI の名前を出す） */
-function authorLabel(author: { kind: string; name?: string | null }): string {
-  // Access 連携時は actor.name にメールが入る（複数人運用の帰属）。@より前だけ出す
-  if (author.kind === "human") return author.name ? author.name.split("@")[0] : "人間";
+function authorLabel(author: { kind: string; name?: string | null }, users: TeamUser[]): string {
+  // human の name にはメールが入る（複数人運用の帰属）。ロスターの displayName へ解決し、
+  // 無ければ @ より前だけ出す（チーム化 2026-08-04。displayNameOf がその両方を持つ）
+  if (author.kind === "human") return author.name ? displayNameOf(author.name, users) : "人間";
   if (author.kind === "system") return "system";
   const n = author.name ?? "";
   if (n.startsWith("task-ai") || n.startsWith("thread")) return "Task AI"; // thread: は改名前の旧帰属名
@@ -55,6 +57,8 @@ function extractSources(payload: unknown): string[] | null {
  * 「聞き返し」（ラリー）になる挙動はここが持つ。
  */
 export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, onMutated }: Props) {
+  // 発言者の表示名解決と「自分/他人の human 発言」の描き分け（チーム化 2026-08-04）
+  const { me, users } = useTeam();
   const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -128,8 +132,19 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, on
               </div>
             );
           }
+          // 自分以外の human 発言は左寄せ（agent と同じ側）+ human 枠色にして、自分の発言と
+          // 区別する（「右寄せ=自分」のチャット慣行。チーム化 2026-08-04）。
+          // 未ログイン時・帰属メールの無い旧メッセージは従来どおり右寄せ
+          const otherHuman =
+            m.author.kind === "human" && !!me.email && !!m.author.name && m.author.name !== me.email;
           const alignSelf =
-            m.author.kind === "human" ? "self-end" : m.author.kind === "agent" ? "self-start" : "self-center";
+            m.author.kind === "human"
+              ? otherHuman
+                ? "self-start"
+                : "self-end"
+              : m.author.kind === "agent"
+                ? "self-start"
+                : "self-center";
           const borderColor =
             m.author.kind === "human"
               ? "border-human/40"
@@ -149,7 +164,7 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, on
               )}
             >
               <div className="mb-1 flex gap-2 text-xs text-muted-foreground">
-                <span>{authorLabel(m.author)}</span>
+                <span>{authorLabel(m.author, users)}</span>
                 <span>{m.via}</span>
                 <span>{new Date(m.ts).toLocaleString("ja-JP")}</span>
               </div>

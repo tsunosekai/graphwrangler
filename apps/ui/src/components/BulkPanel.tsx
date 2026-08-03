@@ -11,6 +11,7 @@ import { api } from "../lib/api";
 import { confirmDialog } from "../lib/dialogs";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { displayNameOf, useTeam } from "../lib/team";
 import { pushToast } from "../lib/toast";
 import type { Node } from "../types";
 import { Button } from "./ui/button";
@@ -32,6 +33,8 @@ const EXECUTOR_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI
 
 export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props) {
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
+  // チーム化（2026-08-04）: 一括「担当者」設定。ロスターが2人未満の運用では出さない（degrade 原則）
+  const { users, enabled: teamEnabled } = useTeam();
   const [busy, setBusy] = useState(false);
   const [moveTarget, setMoveTarget] = useState("");
 
@@ -75,6 +78,12 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
   // ---- 担当（Fix済みは対象外） ----
   const executors = new Set(nodes.map((n) => n.executor));
   const commonExecutor = executors.size === 1 ? nodes[0].executor : "";
+
+  // ---- 担当者（チーム化 2026-08-04）: 担当=人間のノードにだけ意味を持つ。
+  //      やり方（Fix対象）ではなく実行の割当なので Fix済みも対象に含める ----
+  const assigneeTargets = nodes.filter((n) => n.executor === "human");
+  const assignees = new Set(assigneeTargets.map((n) => n.assignee ?? "none"));
+  const commonAssignee = assignees.size === 1 ? [...assignees][0] : "";
 
   // ---- 実行前承認（担当=人間には意味が無い。Fix済みも対象外） ----
   const approvalTargets = unfixed.filter((n) => n.executor !== "human");
@@ -194,6 +203,38 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
           </SelectContent>
         </Select>
       </div>
+
+      {/* 一括の担当者設定（チーム化 2026-08-04）。「担当」一括変更と同じ作法で、
+          変更した瞬間に対象へ順に適用してトーストで件数を知らせる */}
+      {teamEnabled && (
+        <div className="flex flex-col gap-1.5">
+          <span className={sectionLabel}>
+            担当者
+            <span className="ml-1.5 font-normal">（人間担当 {assigneeTargets.length}件）</span>
+          </span>
+          <Select
+            value={commonAssignee}
+            disabled={busy || assigneeTargets.length === 0}
+            onValueChange={(v) =>
+              void apply("担当者を変更", assigneeTargets, () => ({
+                assignee: v === "none" ? null : v,
+              }))
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="（混在）" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">未割当</SelectItem>
+              {users.map((u) => (
+                <SelectItem key={u.email} value={u.email}>
+                  {displayNameOf(u.email, users)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {approvalTargets.length > 0 && (
         <label className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">

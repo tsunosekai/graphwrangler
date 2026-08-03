@@ -26,6 +26,7 @@ function fixedNode(overrides: Partial<Node> = {}): Node {
     kind: "task",
     executor: "script",
     approval: false,
+    autonomy: "normal",
     lifecycle: "draft",
     status: "pending",
     fixed: false,
@@ -34,6 +35,9 @@ function fixedNode(overrides: Partial<Node> = {}): Node {
     branches: null,
     choice: null,
     parentOptions: {},
+    createdBy: null,
+    assignee: null,
+    members: [],
     created: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
