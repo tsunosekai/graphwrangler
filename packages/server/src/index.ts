@@ -84,7 +84,7 @@ let serverModeLabel: string;
 /** ワークスペースモードのみ生成される自動プッシュ（gitsync.ts）。datadir モードでは null */
 let gitSync: GitSync | null = null;
 
-/** Workflow AI の会話履歴の保存先（sidecar/chats/ または dataDir/chats/。threads と同じく
+/** GraphWrangler AI の会話履歴の保存先（sidecar/chats/ または dataDir/chats/。threads と同じく
  *  コミット対象＝gitignore に入れない。2026-07-31 本人要望「会話履歴も見れるように」で
  *  localStorage からサーバ保存へ移行） */
 let chatsDir: string;
@@ -153,7 +153,7 @@ if (workspaceArg) {
 const usersFile = path.join(authDir, "users.json");
 const sessionSecret = ensureSecret(path.join(authDir, "auth-secret"));
 
-// ---- Workflow AI 会話履歴の保存/取得（UIMessage[] スナップショット。UI は 2026-08-02 から
+// ---- GraphWrangler AI 会話履歴の保存/取得（UIMessage[] スナップショット。UI は 2026-08-02 から
 // キー "global" の1本だけを使う。エンドポイントはキー汎用のまま=旧ページ単位ファイルも読める） ----
 
 function chatHistoryPath(pageId: string): string | null {
@@ -551,7 +551,7 @@ app.post("/api/nodes/:id/impl/to-file", async (c) => {
 app.get("/api/nodes/:id/thread", (c) => {
   const id = c.req.param("id");
   graph.get(id);
-  // aiBusy: Task AI が応答生成中か（UI の「考え中」表示。Workflow AI と挙動を揃える）
+  // aiBusy: Task AI が応答生成中か（UI の「考え中」表示。GraphWrangler AI と挙動を揃える）
   return c.json({ messages: threads.list(id), aiBusy: isThreadAiRunning(id) });
 });
 
@@ -882,7 +882,7 @@ app.post("/api/gitsync/run", async (c) => {
   return c.json(result, result.ok ? 200 : 500);
 });
 
-// Workflow AI の会話履歴（GET=読み込み / PUT=丸ごと保存。UIMessage[] はサーバでは
+// GraphWrangler AI の会話履歴（GET=読み込み / PUT=丸ごと保存。UIMessage[] はサーバでは
 // 不透明なJSONとして扱う。threads と同じくコミット対象）
 app.get("/api/chats/:pageId", (c) => {
   const file = chatHistoryPath(c.req.param("pageId"));
@@ -907,7 +907,7 @@ app.put("/api/chats/:pageId", async (c) => {
   return c.json({ ok: true, count: messages.length });
 });
 
-// Workflow AI の会話アーカイブ（「新しい会話」でスナップショットを退避した過去セッション）。
+// GraphWrangler AI の会話アーカイブ（「新しい会話」でスナップショットを退避した過去セッション）。
 // POST=現行の会話を1件追記 / GET=一覧取得（新しい順で返す。ファイルへは追記=古い順で保存する）
 app.post("/api/chats/:pageId/archive", async (c) => {
   const file = chatArchivePath(c.req.param("pageId"));
@@ -929,7 +929,7 @@ app.get("/api/chats/:pageId/archive", (c) => {
   return c.json({ sessions: [...readChatArchive(file)].reverse() });
 });
 
-// ---- チャット（グラフ整理の Workflow AI。実装は chat.ts / chat_cli.ts） ----
+// ---- チャット（グラフ整理の GraphWrangler AI。実装は chat.ts / chat_cli.ts） ----
 // chat.mode="cli" ならヘッドレスCLI（chat_cli.ts、MCP経由でグラフ操作）へ、
 // "api" なら従来どおりプロバイダAPIキー方式（chat.ts）へ分岐する。
 // APIキー未設定の400判定は api モードのときだけ行う（cliモードにAPIキーは無関係）。

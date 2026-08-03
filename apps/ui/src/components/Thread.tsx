@@ -16,7 +16,7 @@ interface Props {
    *  「ここから未読」区切りを出す（未読バッジの理由をノードを開いたときに見せる。
    *  2026-08-02 本人要望）。null = 既読記録なし（初見ノード。区切りは出さない） */
   unreadSince?: string | null;
-  /** Task AI が応答生成中か（「考え中」表示。Workflow AI＝ChatDrawer と同じ見た目にする） */
+  /** Task AI が応答生成中か（「考え中」表示。GraphWrangler AI＝ChatDrawer と同じ見た目にする） */
   aiBusy?: boolean;
   showReplyBox: boolean;
   onMutated: () => void;
@@ -30,7 +30,7 @@ function authorLabel(author: { kind: string; name?: string | null }): string {
   if (author.kind === "system") return "system";
   const n = author.name ?? "";
   if (n.startsWith("task-ai") || n.startsWith("thread")) return "Task AI"; // thread: は改名前の旧帰属名
-  if (n.startsWith("chat") || n === "mcp") return "Workflow AI";
+  if (n.startsWith("chat") || n === "mcp") return "GraphWrangler AI";
   if (n.startsWith("executor") || n === "engine") return "実行AI";
   return n || "AI";
 }
@@ -154,7 +154,7 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, on
                 <span>{new Date(m.ts).toLocaleString("ja-JP")}</span>
               </div>
               {/* AI（agent）の本文はマークダウンで描画（2026-08-01 本人要望「Task AI でも
-                  markdown が正しくレンダリングされるように」。スタイルは Workflow AI と共通の
+                  markdown が正しくレンダリングされるように」。スタイルは GraphWrangler AI と共通の
                   .chat-md）。人間・システムの本文は入力そのまま */}
               {m.author.kind === "agent" && m.body ? (
                 <div className="chat-md break-words text-sm">
@@ -178,7 +178,7 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, on
             </div>
           );
         })}
-        {/* Task AI の「考え中」。Workflow AI（ChatDrawer）と同じ見た目・同じアニメーション */}
+        {/* Task AI の「考え中」。GraphWrangler AI（ChatDrawer）と同じ見た目・同じアニメーション */}
         {aiBusy && (
           <div className="flex items-center gap-1.5 self-start px-1 py-1 text-sm text-text-lo">
             <span className="animate-pulse">✳</span>

@@ -34,7 +34,7 @@ ball 所有・承認ゲート(approval)・「確定させてから実行」の�
 
 | 呼び名 | 実装 | 何をするか |
 |---|---|---|
-| **Workflow AI** | `packages/server/src/chat.ts` / `chat_cli.ts`（右ドロワー） | ページ全体を相手にグラフを整理する。ノードの追加・並べ替え・手順書やスクリプトの起草。既定の話題は表示中のページだが、全プロジェクトの横断一覧を常時文脈に持ち、「全体」「他のプロジェクト」と言われたら get_state / state_get でグラフ全体を見て答える（2026-08-02） |
+| **GraphWrangler AI** | `packages/server/src/chat.ts` / `chat_cli.ts`（右ドロワー） | ページ全体を相手にグラフを整理する。ノードの追加・並べ替え・手順書やスクリプトの起草。既定の話題は表示中のページだが、全プロジェクトの横断一覧を常時文脈に持ち、「全体」「他のプロジェクト」と言われたら get_state / state_get でグラフ全体を見て答える（2026-08-02） |
 | **Task AI** | `packages/server/src/thread_ai.ts` | 1ノードのスレッドで相談に乗る。人間が say を書くと非同期で応答する（open な判断リクエストがあるノードでは黙る——そこはエンジンの担当） |
 | **実行AI** | `packages/engine/src/executors/claude.ts` | executor=ai のノードを実際に実行する。impl の手順書を読み、成果と経過をスレッドへ書く |
 
@@ -59,7 +59,7 @@ TypeScript 一枚岩。pnpm workspace。
 | package | 役割 |
 |---|---|
 | `packages/core` | データモデル（zod スキーマ）・グラフストア（操作ログ）・スレッドストア・ランストア |
-| `packages/server` | Hono HTTP API + UI配信 + 内蔵チャット（Workflow AI / Task AI）+ 試走 |
+| `packages/server` | Hono HTTP API + UI配信 + 内蔵チャット（GraphWrangler AI / Task AI）+ 試走 |
 | `packages/engine` | 実行エンジン（executor: script / claude CLI / API、ラン生成、トリガーの発火判定） |
 | `packages/mcp` | MCP サーバ（stdio。Claude Code 等からグラフを直接読み書き） |
 | `apps/ui` | Vite + React + React Flow（グラフ）+ shadcn/ui + Tailwind。ライト/ダークのテーマ機構 |
@@ -73,7 +73,7 @@ data/
 ├── settings.json        … AI設定（接続方式・モデル・APIキー。キーは書き込み専用で読み出さない）
 ├── reads.json           … ノードごとの既読時刻（未読バッジ用。端末間で共有するためサーバ持ち）
 ├── threads/<node>.jsonl … ノードスレッド（追記専用）
-├── chats/global.json    … Workflow AI の会話履歴（1本のグローバル会話。archive で過去分を退避。2026-08-02 にページ単位を廃止、旧 chats/<page>.json は遺構）
+├── chats/global.json    … GraphWrangler AI の会話履歴（1本のグローバル会話。archive で過去分を退避。2026-08-02 にページ単位を廃止、旧 chats/<page>.json は遺構）
 └── runs/<run>.json      … ラン（実行インスタンス。5.5）
 ```
 
@@ -241,7 +241,7 @@ fixed ノードは impl 変更の Fix ガードにかかるためファイル化
 
 **パラメータ宣言**: impl.type==="script" の command は、引数が要る場合 `{name}`
 プレースホルダ入りのテンプレートとして書ける。宣言（`impl.params: {name, label?, example?,
-value?}[]`）は **Workflow AI が書き、値（value）は人間が NodePanel の実装欄で入力する**。
+value?}[]`）は **GraphWrangler AI が書き、値（value）は人間が NodePanel の実装欄で入力する**。
 試走・本走ともに実行直前に `substituteParams(command, params)`（server:
 `packages/server/src/trial.ts`、engine: `packages/engine/src/params.ts` に同一ロジックを複製。
 **変えたら両方直す**）で `{name}` を対応する value へ置換する（値は二重引用符で囲み、内部の
@@ -259,7 +259,7 @@ stale にしない。
 **スクリプトの置き場所と言語の規約**: スクリプトファイルは**そのノードの impl.path の
 手順書と同じフォルダ（工程フォルダ）に、同じ番号接頭辞で置く**。言語は **Node.js（.mjs）か
 Python（.py）を優先**——OS依存スクリプトは避ける（ワークフローは複数人・複数OSで回るため）。
-impl.command はワークスペースルートからの相対パスで書く。この規約は Workflow AI の
+impl.command はワークスペースルートからの相対パスで書く。この規約は GraphWrangler AI の
 人格プロンプト（packages/server/src/chat.ts）に焼き込んである。
 
 ### 3.8 トリガー起点のルーティーン
@@ -353,7 +353,7 @@ impl.command はワークスペースルートからの相対パスで書く。�
 ├── .graphwrangler/         ← サイドカー（サーバが自動生成）
 │   ├── .gitignore          ← 自動生成（ops.jsonl / runs/ / settings.json / reads.json を除外）
 │   ├── threads/*.jsonl     ← 会話・判断の経緯。コミットする
-│   ├── chats/global.json   ← Workflow AI の会話履歴（グローバル1本）。同じ理由でコミットする
+│   ├── chats/global.json   ← GraphWrangler AI の会話履歴（グローバル1本）。同じ理由でコミットする
 │   ├── runs/*.json         ← ラン履歴。gitignore
 │   ├── ops.jsonl           ← セッション内 undo 用の作業記録。gitignore
 │   ├── reads.json          ← 既読時刻（個人の閲覧状態。活動の記録ではない）。gitignore
@@ -395,7 +395,7 @@ impl.command はワークスペースルートからの相対パスで書く。�
   - ヘッダー中央は**ゴール捕獲欄**。思いついたゴールを一行書いて Enter で**即プロジェクト**
     （goal ノード = 空のページ）が生まれ、そこへ移動する。未整理の受信箱を作ると「捌く」
     仕事が増えるので、書いた瞬間にプロジェクトになる
-  - 捕獲時に AI の分解は自動で走らせない（分解したくなったら開いた先で Workflow AI に頼む）
+  - 捕獲時に AI の分解は自動で走らせない（分解したくなったら開いた先で GraphWrangler AI に頼む）
   - **プロジェクト作成の入口はこの1箇所だけ**。左レールの「＋」は作成せず、この欄へ
     フォーカスを渡す
 - **③ 文脈税**: 人間への質問は構造化された判断リクエスト（5.4）。context 必須・
@@ -419,7 +419,7 @@ impl.command はワークスペースルートからの相対パスで書く。�
 │ GraphWrangler  [エンジン停止中]   《ゴール捕獲欄》   ↶ 🔍 ⌨ ☀ ⚙ 💬 │
 ├────────┬──────────────────────────┬──────────────┤
 │ 左レール │ グラフ（React Flow, 縦方向）  │ ノードパネル   │  ＋ 右ドロワー
-│ プロジェクト│ or 台帳ビュー（ルーティーン） │ 詳細/会話/履歴 │   Workflow AI
+│ プロジェクト│ or 台帳ビュー（ルーティーン） │ 詳細/会話/履歴 │   GraphWrangler AI
 │ ルーティーン│                          │              │
 │ アーカイブ │                          │              │
 └────────┴──────────────────────────┴──────────────┘
@@ -448,7 +448,7 @@ impl.command はワークスペースルートからの相対パスで書く。�
 - **UI状態はリロードを跨いで保持する**（表示中ページ・選択ノード・チャット開閉・パネル開閉・
   各種の幅・テーマ）。localStorage 側の責務で、正データには混ぜない
 - **モバイル（<768px）は4ビュー専有設計**（2026-08-02 本人指定）: ヘッダーと下部タブバーを
-  除き、一覧（プロジェクト）/ グラフ / ノード詳細（Task AI）/ ワークフローAI のどれか1つが
+  除き、一覧（プロジェクト）/ グラフ / ノード詳細（Task AI）/ GraphWrangler AI のどれか1つが
   画面を専有する。下部タブバー（MobileNav）で切替、ノードタブには選択中ノード名が出る。
   自動遷移: 一覧でプロジェクト選択→グラフ、ノードをタップ→ノード詳細、×やゴール作成→グラフ。
   グラフとチャットは非表示中もマウント維持（再レイアウト回避・応答ストリーミング継続）、

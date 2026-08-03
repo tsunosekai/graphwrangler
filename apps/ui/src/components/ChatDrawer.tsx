@@ -1,4 +1,4 @@
-// 内蔵チャット（グラフ整理の Workflow AI）。TopBar の 💬 から開く右ドロワー。
+// 内蔵チャット（グラフ整理の GraphWrangler AI）。TopBar の 💬 から開く右ドロワー。
 // @ai-sdk/react の useChat + ai の DefaultChatTransport で UIMessageStream(SSE) を処理する。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
@@ -315,7 +315,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       {/* ヘッダー行に下線は付けない（2026-08-03 本人指定「この線は不要」） */}
       <div className="flex flex-shrink-0 items-center gap-2 px-4 py-3">
         <span className="inline-flex items-center gap-2 font-semibold">
-          <Icon name="chat" size={15} /> Workflow AI
+          <Icon name="chat" size={15} /> GraphWrangler AI
         </span>
         {pageTitle && (
           <span className="min-w-0 flex-1 truncate text-right text-sm text-muted-foreground">{pageTitle}</span>

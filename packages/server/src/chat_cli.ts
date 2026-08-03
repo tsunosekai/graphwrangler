@@ -26,7 +26,7 @@ const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
 export const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_HISTORY_MESSAGES = 20; // 「最大10往復」= user+assistant で20件
 
-/** Workflow AI / Task AI に既定で許可するツールのフルセット。
+/** GraphWrangler AI / Task AI に既定で許可するツールのフルセット。
  *  2026-08-03 本人指示「権限が無さ過ぎて何もできない。Claw（OpenClaw）と同じぐらい色々
  *  できるように」で、それまでの「読み取り+Write/Edit のみ・Bash はあえて許可しない」の
  *  縛りを撤廃した。危険な操作の歯止めはツールの出し渋りではなく、グラフ側の

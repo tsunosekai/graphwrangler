@@ -1,6 +1,6 @@
 // 初回セットアップ + いつでも開ける⚙設定。2026-08-02 本人指示「設定はモーダルじゃなくて
 // 全面表示に」でダイアログから全画面レイヤーへ変更（fixed inset-0。ヘッダー行 + スクロール本体）。
-// 「チャットAI」（Workflow AI）と「実行AI＝エンジン」それぞれについて、まず「接続方式」
+// 「チャットAI」（GraphWrangler AI）と「実行AI＝エンジン」それぞれについて、まず「接続方式」
 // （APIキー / ヘッドレスエージェントCLI）をドロップダウンで選ばせ、選んだ方式に応じて
 // 入力欄を出し分ける（docs/design.md: LLM選択は「APIキーの差し替え」でなく
 // 「エージェントごと差し替え」。2026-07-29 本人フィードバック「どっちを使う設定か分からない」対応）。
@@ -173,7 +173,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
         <div className="mx-auto flex w-full max-w-xl flex-col gap-3.5">
 
         <section className={section}>
-          <h3 className={heading}>チャットAI（Workflow AI）</h3>
+          <h3 className={heading}>チャットAI（GraphWrangler AI）</h3>
           <label className={field}>
             <span>接続方式</span>
             <Select value={chatMode} onValueChange={(v) => setChatMode(v as ChatMode)}>
@@ -251,7 +251,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                 />
               </label>
               <p className={desc}>
-                Workflow AI / Task AI の --allowedTools に追記するツール（空白区切り）。
+                GraphWrangler AI / Task AI の --allowedTools に追記するツール（空白区切り）。
                 Bash 含むフルセットが既定で許可済みなので、MCP ツール等を足す用途
               </p>
             </>
@@ -326,7 +326,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
             />
           </label>
           <p className={desc}>
-            三役（Workflow AI / Task AI / 実行AI）共通。claude の --add-dir
+            三役（GraphWrangler AI / Task AI / 実行AI）共通。claude の --add-dir
             に渡すディレクトリ（空白区切り）。ファイル操作はワークスペースルートに閉じるのが既定なので、
             外のリポジトリ等を触らせたいときにここへ足す
           </p>

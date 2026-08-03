@@ -17,7 +17,7 @@ export interface Actor {
 export type NodeKind = "goal" | "task" | "decision" | "trigger";
 
 /** スクリプトのパラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1）。
- *  宣言（name/label/example）は Workflow AI が書き、値（value）は人間がパネルで入力する。
+ *  宣言（name/label/example）は GraphWrangler AI が書き、値（value）は人間がパネルで入力する。
  *  command 中の `{name}` プレースホルダに対応する（packages/core/src/schema.ts ScriptParamSchema と同形） */
 export interface ScriptParam {
   name: string;

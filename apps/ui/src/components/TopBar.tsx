@@ -63,7 +63,7 @@ function IconButton({
  *  思いついたゴールを一行書いて Enter を押すだけで、新しいプロジェクト（空の goal ページ）が
  *  生まれてそこへ移動する。溜め置き（未整理の受信箱）は作らない——溜まる場所を作ると
  *  「捌く」仕事が増えるため、書いた瞬間にプロジェクトになる（docs/design.md 4章 ②）。
- *  分解は自動で走らせない: 開いた先で自分から Workflow AI に頼む。 */
+ *  分解は自動で走らせない: 開いた先で自分から GraphWrangler AI に頼む。 */
 function GoalCapture({ onCapture }: { onCapture: (title: string) => Promise<void> }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -162,7 +162,7 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
         </IconButton>
         {/* モバイルでは下部タブバーの「チャット」と重複するので隠す（2026-08-02 本人指示） */}
         <span className="max-md:hidden">
-          <IconButton title="Workflow AI とチャット" onClick={onToggleChat} active={chatOpen}>
+          <IconButton title="GraphWrangler AI とチャット" onClick={onToggleChat} active={chatOpen}>
             <Icon name="chat" size={16} />
           </IconButton>
         </span>

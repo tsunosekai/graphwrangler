@@ -1,4 +1,4 @@
-// 内蔵チャット（グラフ整理の Workflow AI）。
+// 内蔵チャット（グラフ整理の GraphWrangler AI）。
 // Vercel AI SDK の streamText + tool-calling を使い、AIは人間のUI操作と同じ書き込み経路
 // （GraphStore/ThreadStore を直接呼ぶ）でグラフを変更する。帰属は via:"chat" /
 // actor:{kind:"agent", name:"chat:<model>"} に統一する（docs/design.md 3.2）。
@@ -80,7 +80,7 @@ function describeImpl(impl: Node["impl"]): string {
 }
 
 /** 表示中ページ（group=pageId）のメンバーノード一覧。多い場合は先頭 MEMBER_LIST_LIMIT 件
- *  + 「他N件」にする（Workflow AI に「この画面に何があるか」を把握させるための文脈、機能2） */
+ *  + 「他N件」にする（GraphWrangler AI に「この画面に何があるか」を把握させるための文脈、機能2） */
 function pageMemberLines(graph: GraphStore, pageId: string | null): string[] {
   if (!pageId) return [];
   const members = graph.state().nodes.filter((n) => n.group === pageId);
@@ -95,7 +95,7 @@ function pageMemberLines(graph: GraphStore, pageId: string | null): string[] {
 }
 
 /** 全プロジェクト（kind:goal のページ）の横断一覧。「他のプロジェクトで何が動いているか」を
- *  Workflow AI が把握するための薄い文脈（2026-08-02 本人要望「プロジェクトをまたいだ全体も
+ *  GraphWrangler AI が把握するための薄い文脈（2026-08-02 本人要望「プロジェクトをまたいだ全体も
  *  見れるように」）。各行はタイトル+進行状況の件数だけに絞り、ノードの中身は必要になったら
  *  get_state / state_get ツールで見に行かせる */
 function projectOverviewLines(graph: GraphStore, currentPageId: string | null): string[] {
@@ -122,7 +122,7 @@ function selectedNodeThreadLines(threads: ThreadStore, nodeId: string): string[]
   });
 }
 
-/** chat_cli.ts（chat.mode="cli"）でも同じ Workflow AI 人格を使うため export する。
+/** chat_cli.ts（chat.mode="cli"）でも同じ GraphWrangler AI 人格を使うため export する。
  *  機能2（2026-07-31）: 選択ノードの詳細文脈とページのメンバー一覧を加え、AIが
  *  「今開いている画面に何があるか」を把握できるようにする */
 export function systemPrompt(
@@ -159,7 +159,7 @@ export function systemPrompt(
   const overviewLines = projectOverviewLines(graph, pageId);
 
   return [
-    "あなたは Workflow AI。タスクグラフ整理の相棒として、ユーザーと会話しながらノードを作成・整理する。",
+    "あなたは GraphWrangler AI。タスクグラフ整理の相棒として、ユーザーと会話しながらノードを作成・整理する。",
     "**必ずユーザーが話しかけてきた言語で書くこと**（日本語で話しかけられたら日本語）。" +
       "最終的な答えだけでなく、作業の途中経過の実況・ツール実行前後の一言・確認の問いかけも同じ言語で書く。",
     "話題は基本、表示中のページ（下記のページとノード）についての会話として扱う。" +

@@ -1,5 +1,5 @@
 // AI設定の保存（dataDir/settings.json）。OpenClaw のプロバイダ設定の思想を参考に、
-// チャットAI（Workflow AI）と実行AI（エンジン）それぞれについて「接続方式（API / CLI）」を
+// チャットAI（GraphWrangler AI）と実行AI（エンジン）それぞれについて「接続方式（API / CLI）」を
 // ドロップダウンで選ばせる。方式ごとに必要な項目だけを使う:
 //   chat.mode="api"  → provider/model/apiKey を使う（APIキーで直接プロバイダを呼ぶ）
 //   chat.mode="cli"  → cliPath/cliModel を使う（claude 等のヘッドレスCLIを使う。APIキー不要）
@@ -24,7 +24,7 @@ export const ChatSettingsSchema = z.object({
   cliPath: z.string().default("claude"),
   /** mode="cli" のときの --model */
   cliModel: z.string().default("opus"),
-  /** mode="cli" の Workflow AI / Task AI に**追加で**許可するツール（--allowedTools へ追記）。
+  /** mode="cli" の GraphWrangler AI / Task AI に**追加で**許可するツール（--allowedTools へ追記）。
    *  2026-08-03 の権限拡張で既定が Bash 含むフルセット（chat_cli.ts DEFAULT_CLI_TOOLS）に
    *  なったため、この設定は MCP ツール等（例: "mcp__foo__*"）をさらに足す用途 */
   cliExtraTools: z.array(z.string()).default([]),

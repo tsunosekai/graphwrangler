@@ -1,5 +1,5 @@
 // モバイル（<768px）専用の下部タブバー。ヘッダーを除く画面は常に
-// 一覧（プロジェクト）/ グラフ / ノード詳細（Task AI）/ ワークフローAI の
+// 一覧（プロジェクト）/ グラフ / ノード詳細（Task AI）/ GraphWrangler AI の
 // どれか1つが専有する（2026-08-02 本人指定）。親指で届く位置に切替を置く。
 // ノードタブは選択中ノードが無いときは無効（タップ先が無いため）
 import { ClipboardList, List, MessageSquare, Network } from "lucide-react";

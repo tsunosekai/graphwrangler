@@ -181,12 +181,12 @@ export function runPlainClaude(
 const runningThreadAiNodes = new Set<string>();
 
 /** UI の「考え中」表示用（GET /api/nodes/:id/thread が aiBusy として返す。
- *  2026-08-03 本人報告「ノードのAIチャット欄、考え中がでない」——Workflow AI と挙動を揃える） */
+ *  2026-08-03 本人報告「ノードのAIチャット欄、考え中がでない」——GraphWrangler AI と挙動を揃える） */
 export function isThreadAiRunning(nodeId: string): boolean {
   return runningThreadAiNodes.has(nodeId);
 }
 
-/** 応答失敗をスレッドに見える形で残す（Workflow AI がエラーを画面に出すのと同じ扱い。
+/** 応答失敗をスレッドに見える形で残す（GraphWrangler AI がエラーを画面に出すのと同じ扱い。
  *  以前はサーバログだけで、人間には「考え中が出ない・返事も来ない」に見えていた） */
 function postThreadAiFailure(threads: ThreadStore, nodeId: string, reason: string): void {
   try {

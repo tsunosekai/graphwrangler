@@ -79,7 +79,7 @@ export interface SettingsView {
     keySource: "settings" | "env" | "none";
     cliPath: string;
     cliModel: string;
-    /** Workflow AI / Task AI（CLIモード）の --allowedTools に追記するツール。
+    /** GraphWrangler AI / Task AI（CLIモード）の --allowedTools に追記するツール。
      *  既定でフルセット（Bash 等）が許可済みのため、MCP ツール等を足す用途 */
     cliExtraTools: string[];
   };
@@ -210,7 +210,7 @@ export const api = {
       resolvedCommand: string;
     }>(`/nodes/${id}/trial`, { method: "POST", body: "{}" })),
 
-  /** aiBusy: Task AI が応答生成中か（「考え中」表示用。Workflow AI と挙動を揃える） */
+  /** aiBusy: Task AI が応答生成中か（「考え中」表示用。GraphWrangler AI と挙動を揃える） */
   getThread: (id: string) =>
     request<{ messages: MaterializedMessage[]; aiBusy?: boolean }>(`/nodes/${id}/thread`),
 
@@ -294,7 +294,7 @@ export const api = {
     request<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
 
   /**
-   * 内蔵チャット（Workflow AI）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側
+   * 内蔵チャット（GraphWrangler AI）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側
    * (ChatDrawer) が行う — この関数は「api キー未設定 400」だけをエラーとして解釈する。
    */
   chatStream: async (

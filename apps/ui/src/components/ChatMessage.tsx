@@ -1,4 +1,4 @@
-// 内蔵チャット（Workflow AI）の1メッセージ分の表示。
+// 内蔵チャット（GraphWrangler AI）の1メッセージ分の表示。
 // 型は AI SDK v5系（ai / @ai-sdk/react）の UIMessage / UIMessagePart をそのまま使う。
 import { useState } from "react";
 import type { UIMessage, UIMessagePart, UIDataTypes, UITools } from "ai";

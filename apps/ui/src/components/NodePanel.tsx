@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronUp,
   CircleHelp,
   Copy,
@@ -18,6 +19,7 @@ import { api, postReads, type NodePatchInput } from "../lib/api";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { isRoutinePage } from "../lib/routine";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
@@ -25,6 +27,7 @@ import { missingParamNames } from "../lib/params";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage, Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -57,6 +60,13 @@ interface Props {
 
 // 種別はノードの3種のみ（ゴールはページなので選択肢に出さない。現在値がゴール等の時だけ表示）
 const KIND_OPTIONS: Node["kind"][] = ["task", "decision", "trigger"];
+
+/** 履歴カードに出す「最初の人間の発言の先頭40字」（GraphWrangler AI＝ChatDrawer の
+ *  firstUserPreview と同じ規約。履歴タブの見た目を両者でそろえる） */
+function firstHumanPreview(messages: MaterializedMessage[]): string {
+  const first = messages.find((m) => m.kind === "say" && m.author.kind === "human");
+  return (first?.body ?? "").slice(0, 40) || "(発言なし)";
+}
 const KIND_JA: Record<Node["kind"], string> = {
   task: "実行",
   decision: "判断",
@@ -152,7 +162,7 @@ function BranchRow({
 }
 
 /** パラメータ宣言(1件)の値入力行（docs/design.md 3.5.1）。宣言（name/label/example）は
- *  Workflow AI が書く前提で v1 では追加/削除UIを持たず、値の編集だけを行う。
+ *  GraphWrangler AI が書く前提で v1 では追加/削除UIを持たず、値の編集だけを行う。
  *  blur で確定する流儀は title/detail/BranchRow と同じ */
 function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: string) => void }) {
   const [draft, setDraft] = useState(param.value ?? "");
@@ -196,11 +206,14 @@ function UnreadDot() {
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
 export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutated, onClose, onSelect }: Props) {
-  // 会話=今の会話 / 履歴=過去の会話（Workflow AI の「履歴」と同じ意味） / 実行記録=status・artifact
+  // 会話=今の会話 / 履歴=過去の会話（GraphWrangler AI の「履歴」と同じ意味） / 実行記録=status・artifact
   // （2026-08-02 本人要望「会話の履歴と実行の履歴を分けてほしい」で2タブ→3タブ化。
   // それまで「新しい会話」で区切った過去の会話は UI のどこからも見えなくなっていた）
   const isMobile = useIsMobile();
   const [tab, setTab] = useState<"talk" | "history" | "log">("talk");
+  // 履歴タブで開いている過去セッション（chatBreak メッセージの id。null = 一覧）。
+  // GraphWrangler AI の履歴タブ（セッション一覧→クリックで中身）と同じ動線に揃える
+  const [historySessionId, setHistorySessionId] = useState<string | null>(null);
   // ノード詳細は既定で開いておく（2026-07-31 本人指定）。会話に集中したいときだけ
   // タブ行右端の「会話を広げる」で閉じる。開閉はリロードを跨いで保持
   // （key={node.id} で再マウントされるため、ノード横断のグローバル設定として保存）
@@ -605,6 +618,24 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
     return (m.kind === "status" || m.kind === "artifact") && !isChatBreak(m);
   };
   const filtered = (tab === "talk" ? talkSource : messages).filter((m) => inTab(m, tab));
+  // 履歴タブ用: chatBreak で区切った過去セッション一覧（GraphWrangler AI のアーカイブ一覧と
+  // 同じ意味）。スレッドは経緯の正史なので実体は動かさず、区切りから毎回導出する。
+  // ts は区切った時刻＝GraphWrangler AI の「新しい会話を押した時刻」に対応する
+  const pastSessions: { id: string; ts: string; messages: MaterializedMessage[] }[] = [];
+  {
+    let seg: MaterializedMessage[] = [];
+    for (const m of messages) {
+      if (isChatBreak(m)) {
+        const convo = seg.filter((x) => inTab(x, "talk"));
+        if (convo.length > 0) pastSessions.push({ id: m.id, ts: m.ts, messages: convo });
+        seg = [];
+      } else {
+        seg.push(m);
+      }
+    }
+  }
+  const currentTalk = talkSource.filter((m) => inTab(m, "talk"));
+  const openedSession = pastSessions.find((s) => s.id === historySessionId) ?? null;
   // モバイルは「ノード詳細」か「会話」のどちらか一方だけを画面に出す（2026-08-02 本人指示
   // 「（詰まった会話節は）いらねぇっつってんだよ、その分上広げろよ」）。切替は一番下の
   // 「会話を広げる」トグル。デスクトップは従来どおり両方出す
@@ -644,6 +675,18 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
     >
       <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
       <div className="flex items-center gap-2">
+        {/* 何を開いているかの種別バッジ（2026-08-04 本人要望「プロジェクトかルーティーンか
+            タスクかが分かるようにタイトルの左にバッジ」）。ページ（goal）はトリガーの有無で
+            プロジェクト/ルーティーンに分かれる（PageList の節分けと同じ導出 = isRoutinePage） */}
+        <Badge variant="outline" className="flex-shrink-0 text-muted-foreground">
+          {node.kind === "goal"
+            ? isRoutinePage(node, allNodes)
+              ? "ルーティーン"
+              : "プロジェクト"
+            : node.kind === "task"
+              ? "タスク"
+              : KIND_JA[node.kind]}
+        </Badge>
         <Input
           className="flex-1 border-transparent bg-transparent text-lg font-semibold hover:border-input focus-visible:border-input"
           value={titleDraft}
@@ -1247,7 +1290,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
 
                 {/* パラメータ宣言（docs/design.md 3.5.1）: 宣言=AI、値=人間がここで入力。
                     Fix中でも値の入力だけは活かす（docs/design.md 3.5 実効化: 値は実行時入力でやり方ではない）。
-                    宣言の追加/削除UIはv1では作らない（Workflow AIが command と一緒に書く想定） */}
+                    宣言の追加/削除UIはv1では作らない（GraphWrangler AIが command と一緒に書く想定） */}
                 {(node.impl.params?.length ?? 0) > 0 && (
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">パラメータ</span>
@@ -1378,7 +1421,15 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
           一番下の行へ移した（同日の本人指示）ので、ここに並ぶのはデスクトップのときだけ */}
       {showTalk && (
       <div data-tabrow className="flex items-center justify-between gap-1">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "talk" | "history" | "log")} className="min-w-0 gap-3">
+        <Tabs
+          value={tab}
+          onValueChange={(v) => {
+            setTab(v as "talk" | "history" | "log");
+            // タブを離れたら履歴のセッション詳細は閉じる（次に開いたときは一覧から）
+            setHistorySessionId(null);
+          }}
+          className="min-w-0 gap-3"
+        >
           <TabsList>
             <TabsTrigger value="talk">
               <MessageSquare className="size-3.5" /> 会話
@@ -1436,7 +1487,71 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
       </div>
       )}
 
-      {showTalk && (
+      {/* 履歴タブは GraphWrangler AI（ChatDrawer）と同じ「セッションカード一覧 → クリックで
+          中身」の動線（2026-08-04 本人指示「Task AI の履歴の仕組み（＆UI）を揃えて」。
+          それまではベタ流し + 区切り行だった）。スレッドが正史なので中身は読み取り専用で
+          開く（GraphWrangler AI は読み込んで続きを話せるが、こちらの「続き」は会話タブ＝
+          今のセッションの役割） */}
+      {showTalk && tab === "history" ? (
+        openedSession ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="flex flex-shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={() => setHistorySessionId(null)}
+              >
+                <ChevronLeft className="size-3.5" /> 履歴一覧
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {new Date(openedSession.ts).toLocaleString("ja-JP")} ・ {openedSession.messages.length}件
+              </span>
+            </div>
+            <Thread
+              nodeId={node.id}
+              messages={openedSession.messages}
+              aiBusy={false}
+              showReplyBox={false}
+              onMutated={() => {
+                onMutated();
+                refreshThread();
+              }}
+            />
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
+            {/* 今の会話は一覧の先頭（GraphWrangler AI と同じ）。クリックで会話タブへ */}
+            {currentTalk.length > 0 && (
+              <button
+                type="button"
+                className="flex flex-shrink-0 flex-col gap-0.5 rounded-md border border-ai/40 px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                onClick={() => setTab("talk")}
+              >
+                <span className="text-xs text-ai">今の会話 ・ {currentTalk.length}件（保存済み）</span>
+                <span className="truncate">{firstHumanPreview(currentTalk)}</span>
+              </button>
+            )}
+            {pastSessions.length === 0 && currentTalk.length === 0 && (
+              <div className="p-2 text-sm text-muted-foreground">まだありません</div>
+            )}
+            {[...pastSessions].reverse().map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className="flex flex-shrink-0 flex-col gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                onClick={() => setHistorySessionId(s.id)}
+              >
+                <span className="text-xs text-muted-foreground">
+                  {new Date(s.ts).toLocaleString("ja-JP")} ・ {s.messages.length}件
+                </span>
+                <span className="truncate">{firstHumanPreview(s.messages)}</span>
+              </button>
+            ))}
+          </div>
+        )
+      ) : showTalk ? (
       <Thread
         nodeId={node.id}
         messages={filtered}
@@ -1449,7 +1564,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
           refreshThread();
         }}
       />
-      )}
+      ) : null}
 
       {/* モバイルでノード詳細だけを出しているときの戻り口。タブ行（右肩のトグル）が
           消えている状態なので、ここに同じボタンを出して会話へ切り替える。

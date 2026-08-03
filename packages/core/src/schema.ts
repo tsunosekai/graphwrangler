@@ -49,7 +49,7 @@ export const StatusSchema = z.enum([
 ]);
 
 /** スクリプトのパラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1）。
- *  宣言（name/label/example）は Workflow AI が書き、値（value）は人間がパネルで入力する。
+ *  宣言（name/label/example）は GraphWrangler AI が書き、値（value）は人間がパネルで入力する。
  *  command 中の `{name}` プレースホルダに対応する（server: substituteParams / engine: 複製、
  *  UI: NodePanel が同じ規約で表示・編集する）。value が null/空文字のままだと未入力扱い */
 export const ScriptParamSchema = z.object({
