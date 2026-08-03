@@ -52,6 +52,7 @@ interface ClipboardNode {
   impl: Node["impl"];
   executor: Node["executor"];
   impact: Node["impact"];
+  autonomy: Node["autonomy"];
   kind: Node["kind"];
   /** kind=decision のときの選択肢定義（コピーで引き継ぐ。他kindではnull。docs/design.md 3.9） */
   branches: Node["branches"];
@@ -785,6 +786,7 @@ function GraphViewInner({
         impl: n.impl,
         executor: n.executor,
         impact: n.impact,
+        autonomy: n.autonomy,
         kind: n.kind,
         // kind=decision の選択肢定義はそのまま引き継ぐ（無いと貼り付け時にサーバ検証で弾かれる）
         branches: n.branches,
@@ -815,6 +817,7 @@ function GraphViewInner({
           impl: entry.impl,
           executor: entry.executor,
           impact: entry.impact,
+          autonomy: entry.autonomy,
           kind: entry.kind,
           branches: entry.branches,
           group: pageNode?.id ?? null,
@@ -868,6 +871,7 @@ function GraphViewInner({
         impl: n.impl,
         executor: n.executor,
         impact: n.impact,
+        autonomy: n.autonomy,
         kind: n.kind,
         branches: n.branches,
         parentOrigIds: n.parents.filter((p) => idSet.has(p)),

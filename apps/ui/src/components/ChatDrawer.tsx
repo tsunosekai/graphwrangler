@@ -312,7 +312,8 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       style={{ width }}
     >
       <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
-      <div className="flex flex-shrink-0 items-center gap-2 border-b px-4 py-3">
+      {/* ヘッダー行に下線は付けない（2026-08-03 本人指定「この線は不要」） */}
+      <div className="flex flex-shrink-0 items-center gap-2 px-4 py-3">
         <span className="inline-flex items-center gap-2 font-semibold">
           <Icon name="chat" size={15} /> Workflow AI
         </span>

@@ -2,7 +2,8 @@
 // 同型（shell 経由ではなく argv 配列で渡す。プロンプトはコマンドライン引数として渡すので
 // シェルクォート事故が起きない）。--dangerously-skip-permissions は絶対に使わない。
 import { spawn } from "node:child_process";
-import type { Node } from "../types.js";
+import { autonomyPromptLines } from "../ask.js";
+import type { Autonomy, Node } from "../types.js";
 
 export interface ExecResult {
   success: boolean;
@@ -45,6 +46,11 @@ export interface AiPromptInput {
   goal: Pick<Node, "title" | "detail"> | null;
   /** 親ノードのスレッド末尾の say メッセージ（文脈）。"タイトル: 本文" の形で渡す */
   parentSayMessages: string[];
+  /** 自律度（ask.ts）。省略時 normal（QUESTION プロトコルあり・最終手段） */
+  autonomy?: Autonomy;
+  /** 自ノードのスレッドから拾った経緯（人間へのQ&A・直前の失敗。ask.ts の
+   *  buildThreadContextLines）。質問への回答を踏まえた再実行で使う */
+  threadContext?: string[];
 }
 
 export interface AiPromptResult {
@@ -61,7 +67,7 @@ export interface AiPromptResult {
  * 実際に組み込んだ文脈は sources として合わせて返す（AI発言の出典バッジ用）。
  */
 export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
-  const { node, goal, parentSayMessages } = input;
+  const { node, goal, parentSayMessages, autonomy = "normal", threadContext = [] } = input;
   const lines: string[] = [];
   const sources: string[] = [];
   lines.push(
@@ -81,6 +87,12 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
     for (const s of parentSayMessages) lines.push(`- ${s}`);
     lines.push("");
   }
+  if (threadContext.length > 0) {
+    sources.push("スレッドの経緯");
+    lines.push("この作業のこれまでの経緯:");
+    for (const s of threadContext) lines.push(`- ${s}`);
+    lines.push("");
+  }
   lines.push(`作業内容: ${node.title}`);
   if (node.detail) lines.push(`補足: ${node.detail}`);
   if (node.impl && node.impl.type === "doc" && node.impl.text) {
@@ -89,8 +101,9 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
   }
   lines.push(
     "",
-    "作業結果の要約テキストのみを返してください"
+    "作業が完了したら、作業結果の要約テキストのみを返してください"
       + "（ツールでの自己報告は不要です。あなたの標準出力がそのまま記録されます）。",
+    ...autonomyPromptLines(autonomy),
   );
   return { prompt: lines.join("\n"), sources };
 }

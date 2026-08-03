@@ -20,6 +20,7 @@ function node(partial: Partial<Node> = {}): Node {
     kind: partial.kind ?? "task",
     executor: partial.executor ?? "script",
     impact: partial.impact ?? "safe",
+    autonomy: partial.autonomy ?? "normal",
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending",
     fixed: partial.fixed ?? false,

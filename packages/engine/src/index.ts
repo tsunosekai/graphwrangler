@@ -35,6 +35,15 @@ import {
   type RunGateState,
 } from "./approval.js";
 import {
+  AI_QUESTION_WAITING_NOTE,
+  MAX_AUTO_RETRIES,
+  buildAiQuestionRequest,
+  buildThreadContextLines,
+  parseAiQuestion,
+  shouldAutoRetry,
+  type AiQuestion,
+} from "./ask.js";
+import {
   buildDecisionPrompt,
   buildDecisionRequest,
   parseBranchChoice,
@@ -196,6 +205,23 @@ async function lastMessagesFor(nodeIds: string[]): Promise<Record<string, Messag
   return result;
 }
 
+/** autonomy=high の自動リトライ回数（プロジェクトはノードid、ランは gateKey で数える。
+ *  エンジンのメモリ管理: プロセス再起動でリセットされるのは aiTriggerLastCheckedAt と
+ *  同じく許容する。成功・質問・人間へ渡した時点で消す */
+const autoRetryCounts = new Map<string, number>();
+
+/** 自ノードのスレッドから再実行プロンプト用の経緯（人間へのQ&A・直前の失敗）を拾う。
+ *  取得失敗時は経緯なしで実行を続ける（経緯は補助文脈であり必須ではない） */
+async function threadContextFor(nodeId: string): Promise<string[]> {
+  try {
+    const { messages } = await getThread(nodeId);
+    return buildThreadContextLines(messages);
+  } catch (err) {
+    log(`スレッド経緯の取得に失敗（経緯なしで実行継続）: node=${nodeId} ${String(err)}`);
+    return [];
+  }
+}
+
 /** 親ノードのスレッド末尾の say メッセージ（文脈）を集める */
 async function parentSayContext(node: Node, nodes: Node[]): Promise<string[]> {
   const out: string[] = [];
@@ -255,12 +281,19 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
   } else {
     const goal = node.group ? (nodes.find((n) => n.id === node.group) ?? null) : null;
     const parentSayMessages = await parentSayContext(node, nodes);
+    const threadContext = await threadContextFor(node.id);
     const resolved = await resolveDocForPrompt(node);
     if (resolved.error) {
       executorName = engineMode === "api" ? "executor:api" : "executor:claude";
       result = { success: false, output: "", error: resolved.error };
     } else {
-      const built = buildAiPrompt({ node: resolved.node, goal, parentSayMessages });
+      const built = buildAiPrompt({
+        node: resolved.node,
+        goal,
+        parentSayMessages,
+        autonomy: node.autonomy,
+        threadContext,
+      });
       aiSources = built.sources;
       if (engineMode === "api") {
         executorName = "executor:api";
@@ -275,6 +308,35 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
   const actor: Actor = { kind: "agent", name: executorName };
 
   if (result.success) {
+    // AIが QUESTION プロトコルで人間の判断を求めた（ask.ts）→ done にせず判断リクエストを
+    // 開く。status は running のまま（失敗リカバリと同じ作法: 回答が来るとサーバが
+    // pending に戻し、次周の実行がスレッド経緯として回答を読み込む）
+    const question = node.executor === "ai" ? parseAiQuestion(result.output) : null;
+    if (question) {
+      autoRetryCounts.delete(node.id);
+      await postMessage(
+        node.id,
+        {
+          kind: "say",
+          body: result.output.trim(),
+          payload: { sources: aiSources, aiQuestion: question },
+        },
+        actor,
+        VIA,
+      );
+      try {
+        await openRequest(node.id, buildAiQuestionRequest(node, question), ENGINE_ACTOR, VIA);
+        log(`AIが人間へ質問: id=${node.id} question=${truncate(question.question, 100)}`);
+      } catch (err) {
+        // 別のリクエストが既に開いている等。running のまま放置すると再選択されず詰むので
+        // pending に戻す（次周の実行でAIがもう一度質問し直せる）
+        log(`AI質問カードを開けなかった（pendingへ戻す）: id=${node.id} ${String(err)}`);
+        await patchNode(node.id, { status: "pending" }, ENGINE_ACTOR, VIA);
+      }
+      return;
+    }
+
+    autoRetryCounts.delete(node.id);
     const summary = truncate(result.output || "(出力なし)", 500);
     await postMessage(node.id, { kind: "status", body: `実行成功: ${summary}` }, actor, VIA);
     // AI発言の出典バッジ用データ（docs/design.md 3.8）。script executor には該当する文脈が無いので付けない
@@ -291,6 +353,25 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
   }
 
   const reason = result.error || "不明なエラー";
+
+  // autonomy=high の AI ノードは失敗を人間に渡す前に自動で試し直す（ask.ts）。
+  // 失敗の status を積んでから pending に戻すと、次周の実行がスレッド経緯として
+  // 失敗理由を読み込み、やり方を変えて再試行する
+  if (node.executor === "ai" && shouldAutoRetry(node.autonomy, autoRetryCounts.get(node.id) ?? 0)) {
+    const count = (autoRetryCounts.get(node.id) ?? 0) + 1;
+    autoRetryCounts.set(node.id, count);
+    await postMessage(
+      node.id,
+      { kind: "status", body: truncate(`実行失敗（自律リトライ ${count}/${MAX_AUTO_RETRIES}）: ${reason}`, 500) },
+      actor,
+      VIA,
+    );
+    await patchNode(node.id, { status: "pending" }, ENGINE_ACTOR, VIA);
+    log(`実行失敗→自律リトライ ${count}/${MAX_AUTO_RETRIES}: id=${node.id} reason=${reason}`);
+    return;
+  }
+
+  autoRetryCounts.delete(node.id);
   await postMessage(
     node.id,
     { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) },
@@ -453,12 +534,19 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
     }
   } else {
     const pageNode = nodes.find((n) => n.id === run.procedure) ?? null;
+    const threadContext = await threadContextFor(node.id);
     const resolved = await resolveDocForPrompt(node);
     if (resolved.error) {
       executorName = engineMode === "api" ? "executor:api" : "executor:claude";
       result = { success: false, output: "", error: resolved.error };
     } else {
-      const built = buildAiPrompt({ node: resolved.node, goal: pageNode, parentSayMessages: [] });
+      const built = buildAiPrompt({
+        node: resolved.node,
+        goal: pageNode,
+        parentSayMessages: [],
+        autonomy: node.autonomy,
+        threadContext,
+      });
       aiSources = built.sources;
       if (engineMode === "api") {
         executorName = "executor:api";
@@ -472,8 +560,42 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
 
   const actor: Actor = { kind: "agent", name: executorName };
   const payload = { runId: run.id };
+  const retryKey = gateKey(run.id, node.id);
 
   if (result.success) {
+    // AIが QUESTION プロトコルで人間の判断を求めた（ask.ts）→ done にせず waiting に倒し、
+    // 判断リクエストを開く。回答の往復は tickRunAiQuestions が担当する（承認連携と同じ2段構え。
+    // カードを開けなくても waiting+note が残るので次周の gate=none 経路が開き直す）
+    const question = node.executor === "ai" ? parseAiQuestion(result.output) : null;
+    if (question) {
+      autoRetryCounts.delete(retryKey);
+      await postMessage(
+        node.id,
+        {
+          kind: "say",
+          body: result.output.trim(),
+          payload: { ...payload, sources: aiSources, aiQuestion: question },
+        },
+        actor,
+        VIA,
+      );
+      await patchRunItem(
+        run.id,
+        node.id,
+        { status: "waiting", note: AI_QUESTION_WAITING_NOTE },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      try {
+        await openRequest(node.id, buildAiQuestionRequest(node, question, run.id), ENGINE_ACTOR, VIA);
+        log(`AIが人間へ質問(ラン): run=${run.id} node=${node.id} question=${truncate(question.question, 100)}`);
+      } catch (err) {
+        log(`AI質問カードを開けなかった（次周に持ち越し）: run=${run.id} node=${node.id} ${String(err)}`);
+      }
+      return;
+    }
+
+    autoRetryCounts.delete(retryKey);
     const summary = truncate(result.output || "(出力なし)", 500);
     await postMessage(node.id, { kind: "status", body: `実行成功: ${summary}`, payload }, actor, VIA);
     // AI発言の出典バッジ用データ（docs/design.md 3.8）。script executor には該当する文脈が無いので付けない
@@ -484,12 +606,36 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
       actor,
       VIA,
     );
-    await patchRunItem(run.id, node.id, { status: "done" }, ENGINE_ACTOR, VIA);
+    // note: null で「AI質問待ち」「失敗→自律リトライ」等の古いノートを掃除する
+    await patchRunItem(run.id, node.id, { status: "done", note: null }, ENGINE_ACTOR, VIA);
     log(`ラン実行成功: run=${run.id} node=${node.id}`);
     return;
   }
 
   const reason = result.error || "不明なエラー";
+
+  // autonomy=high の AI アイテムは失敗を人間に渡す前に自動で試し直す（プロジェクト側と同じ）
+  if (node.executor === "ai" && shouldAutoRetry(node.autonomy, autoRetryCounts.get(retryKey) ?? 0)) {
+    const count = (autoRetryCounts.get(retryKey) ?? 0) + 1;
+    autoRetryCounts.set(retryKey, count);
+    await postMessage(
+      node.id,
+      { kind: "status", body: truncate(`実行失敗（自律リトライ ${count}/${MAX_AUTO_RETRIES}）: ${reason}`, 500), payload },
+      actor,
+      VIA,
+    );
+    await patchRunItem(
+      run.id,
+      node.id,
+      { status: "pending", note: `失敗→自律リトライ ${count}/${MAX_AUTO_RETRIES}` },
+      ENGINE_ACTOR,
+      VIA,
+    );
+    log(`ラン実行失敗→自律リトライ ${count}/${MAX_AUTO_RETRIES}: run=${run.id} node=${node.id} reason=${reason}`);
+    return;
+  }
+
+  autoRetryCounts.delete(retryKey);
   await postMessage(
     node.id,
     { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload },
@@ -598,6 +744,99 @@ async function tickRunApprovals(nodes: Node[], runs: Run[]): Promise<boolean> {
       );
       return true;
   }
+}
+
+// ---- ルーティーンページ: AI質問（QUESTION プロトコル。ask.ts）の回答連携 ----
+
+/** 「AI質問待ち」（waiting かつ note=AI_QUESTION_WAITING_NOTE）のランアイテムを、
+ *  ラン created 昇順→テンプレート created 昇順で集める（承認連携と同じ並び） */
+function collectPendingAiQuestions(nodes: Node[], runs: Run[]): Array<{ run: Run; node: Node }> {
+  const nodesById = new Map(nodes.map((n) => [n.id, n]));
+  const out: Array<{ run: Run; node: Node }> = [];
+  const runningRuns = [...runs]
+    .filter((r) => r.status === "running")
+    .sort((a, b) => a.created.localeCompare(b.created));
+  for (const run of runningRuns) {
+    const entries = Object.entries(run.items)
+      .map(([nodeId, item]) => ({ item, node: nodesById.get(nodeId) }))
+      .filter((e): e is { item: (typeof run.items)[string]; node: Node } => e.node !== undefined)
+      .sort((a, b) => a.node.created.localeCompare(b.node.created));
+    for (const { item, node } of entries) {
+      if (item.status !== "waiting" || item.note !== AI_QUESTION_WAITING_NOTE) continue;
+      if (node.executor !== "ai") continue;
+      out.push({ run, node });
+    }
+  }
+  return out;
+}
+
+/** AI質問待ちのランアイテムを1件処理する。処理した(=何かアクションを起こした)ら true。
+ *  ゲート判定は承認連携と同じ findRunGate（質問カードの question にランのマーカー入り）:
+ *  - 未発行（executeRunItem 時に開けなかった）→ スレッドの say payload から質問を復元して開き直す
+ *  - 発行済み・未回答 → 次の候補へ
+ *  - 回答済み: abort → 中止(dropped) / それ以外（ai:* や自由文）→ 回答をスレッド経緯として
+ *    読み込ませて再実行 */
+async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> {
+  const pending = collectPendingAiQuestions(nodes, runs);
+  for (const { run, node } of pending) {
+    let messages;
+    try {
+      ({ messages } = await getThread(node.id));
+    } catch (err) {
+      log(`AI質問のスレッド取得に失敗（この周は保留）: run=${run.id} node=${node.id} ${String(err)}`);
+      continue;
+    }
+    const gate = findRunGate(messages, run.id);
+
+    if (gate.status === "open") continue; // 回答待ち。次の候補へ
+
+    if (gate.status === "none") {
+      // カード未発行。say payload に保存した質問（executeRunItem が積む）から開き直す
+      const say = [...messages]
+        .reverse()
+        .find(
+          (m) =>
+            m.kind === "say" &&
+            (m.payload as { runId?: string; aiQuestion?: AiQuestion } | null)?.runId === run.id &&
+            (m.payload as { aiQuestion?: AiQuestion } | null)?.aiQuestion,
+        );
+      const question = (say?.payload as { aiQuestion?: AiQuestion } | null)?.aiQuestion;
+      if (!question) {
+        await patchRunItem(
+          run.id,
+          node.id,
+          { status: "waiting", note: "失敗: AIの質問内容を復元できない" },
+          ENGINE_ACTOR,
+          VIA,
+        );
+        log(`AI質問の復元に失敗: run=${run.id} node=${node.id}`);
+        return true;
+      }
+      try {
+        await openRequest(node.id, buildAiQuestionRequest(node, question, run.id), ENGINE_ACTOR, VIA);
+        log(`AI質問カードを開き直した: run=${run.id} node=${node.id}`);
+      } catch (err) {
+        log(`AI質問カードを開けなかった（次周に持ち越し）: run=${run.id} node=${node.id} ${String(err)}`);
+      }
+      return true;
+    }
+
+    // answered
+    if (gate.option === "abort") {
+      await patchRunItem(
+        run.id,
+        node.id,
+        { status: "dropped", note: "質問への回答で中止" },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      log(`AI質問の回答で中止(dropped): run=${run.id} node=${node.id} title=${node.title}`);
+      return true;
+    }
+    await executeRunItem(nodes, run, node);
+    return true;
+  }
+  return false;
 }
 
 // ---- ルーティーンページ: ランの分岐アイテム（kind=decision。docs/design.md 3.8/3.9） ----
@@ -819,6 +1058,7 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
   if (runningRuns.length === 0) return;
 
   if (await tickRunApprovals(nodes, runningRuns)) return;
+  if (await tickRunAiQuestions(nodes, runningRuns)) return;
 
   const action = selectRunAction(nodes, runningRuns);
   switch (action.type) {

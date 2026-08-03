@@ -12,6 +12,7 @@ import type {
   NodeKindSchema,
   ExecutorSchema,
   ImpactSchema,
+  AutonomySchema,
   LifecycleSchema,
   StatusSchema,
   MessageKindSchema,
@@ -21,6 +22,7 @@ import type {
 export type NodeKind = z.infer<typeof NodeKindSchema>;
 export type Executor = z.infer<typeof ExecutorSchema>;
 export type Impact = z.infer<typeof ImpactSchema>;
+export type Autonomy = z.infer<typeof AutonomySchema>;
 export type Lifecycle = z.infer<typeof LifecycleSchema>;
 export type Status = z.infer<typeof StatusSchema>;
 export type MessageKind = z.infer<typeof MessageKindSchema>;

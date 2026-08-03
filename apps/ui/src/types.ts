@@ -35,6 +35,9 @@ export type NodeImpl =
 export type Executor = "human" | "ai" | "script";
 /** ノードの影響度。irreversible = 実行前承認（人間の承認ゲートを通る） */
 export type Impact = "safe" | "irreversible";
+/** AI executor の自律度（UI名「自律度」）。high=人間に聞かず進む（失敗も自動リトライ）/
+ *  normal=必要なときだけ質問 / low=迷ったら質問に倒す。executor=ai の kind=task でのみ意味を持つ */
+export type Autonomy = "high" | "normal" | "low";
 /** 判断リクエスト自身の影響度（ノードの impact とは別の3値） */
 export type RequestImpact = "safe" | "reversible" | "irreversible";
 export type Lifecycle = "draft" | "committed";
@@ -75,6 +78,8 @@ export interface Node {
   kind: NodeKind;
   executor: Executor;
   impact: Impact;
+  /** AI executor の自律度。AI以外の担当では使われない（値は常に持つ。既定 normal） */
+  autonomy: Autonomy;
   lifecycle: Lifecycle;
   status: NodeStatus;
   /** Fix（=ロック）。やり方が確定したか。AIは fixed ノードの impl を書き換えない */

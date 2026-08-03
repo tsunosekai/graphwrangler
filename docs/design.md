@@ -128,6 +128,20 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
   **承認ゲートは「機械（AI/スクリプト）の仕事」の直前に挟まるもの**: task は実行前、
   trigger は発火前（3.8）。担当=人間のノードでは本人の操作が承認そのものなので
   トグル自体を出さない（既に irreversible のノードだけ解除用に表示する）
+- **autonomy**: `high` / `normal` / `low` — AI がどこまで人間に聞かずに進むか
+  （UI名「自律度」。executor=ai の kind=task でのみ意味を持つ。2026-08-03）。
+  実行AIのプロンプトには「人間の判断が必要なら `QUESTION: 質問文`（+任意の
+  `OPTION: 選択肢` 最大3行）だけを出力して止まる」規約が入り、エンジンが
+  この出力を検知すると done にせず判断リクエストへ変換する（選択肢は id `ai:N`、
+  末尾に必ず「中止」= 予約id `abort`）。回答（選択肢・自由文どちらでも）は
+  次回実行のプロンプトに「スレッドの経緯」として差し込まれ、再実行される。
+  - `high`: 質問規約を出さず「合理的な仮定を置いて最後まで進め（仮定は成果に明記）」。
+    実行失敗もまず自動リトライ（2回、失敗理由を経緯として与える）し、尽きて初めて
+    失敗リカバリカードを開く
+  - `normal`（既定）: 規約あり。本当に人間にしか決められないことだけ質問する
+  - `low`: 規約あり。前提が曖昧・優劣不明・好みが分かれるなら質問するほうに倒す
+  - **impact の承認ゲートは autonomy では外れない**（安全装置はノード属性で無効化
+    できない。ゲートを外したければ impact を safe に戻す＝別の明示操作）
 
 新しいノード種を足したくなったら「スケジューラはそれで挙動を変えるか？」と問う。
 変えないならタグでよい。エンジンが自動実行するのは lifecycle=committed のノードだけ
@@ -435,6 +449,8 @@ impl.command はワークスペースルートからの相対パスで書く。�
   "kind": "task",                 // goal(ページ) / task / decision(分岐 3.9) / trigger(起点 3.8)
   "executor": "ai",               // human / ai / script
   "impact": "safe",               // safe / irreversible（UI名「実行前承認」）
+  "autonomy": "normal",           // high / normal / low（UI名「自律度」。AI executor が人間に
+                                  //   どこまで聞かずに進むか——3.4。旧データには無く既定 normal）
   "lifecycle": "draft",           // draft / committed（= プラン済み）
   "status": "pending",            // unplanned / pending / running / done / dropped / skipped
   "fixed": false,                 // Fix（やり方の確定=ロック）。未Fixで生まれる

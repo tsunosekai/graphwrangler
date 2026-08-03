@@ -24,6 +24,15 @@ export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
 /** ノードの影響度。irreversible = 実行前に人間の承認ゲートを通る（UI名「実行前承認」） */
 export const ImpactSchema = z.enum(["safe", "irreversible"]);
+/** AI executor の自律度（2026-08-03 本人指示。UI名「自律度」）。
+ *  - high: 人間に判断を仰がず、合理的な仮定を置いて最後まで進む。実行失敗も
+ *    まず自動リトライし、尽きて初めて失敗リカバリカードを開く
+ *  - normal: 基本は自分で判断し、本当に必要なときだけ QUESTION 形式で人間に質問する
+ *  - low: 前提が曖昧・選択肢の優劣が明確でない場面では自分で決めず積極的に質問する
+ *  executor=ai の kind=task でのみ意味を持つ（script は決定的、decision/trigger は別の判断系）。
+ *  impact=irreversible の実行前承認ゲートは autonomy では外れない（安全装置はノード属性で
+ *  無効化できない。ゲートを外したければ impact を safe に戻す＝別の明示操作） */
+export const AutonomySchema = z.enum(["high", "normal", "low"]);
 /** 判断リクエスト自身の影響度（5.4）。ノードの impact とは別の軸で、中間の
  *  reversible（戻せるが軽くない）を持つ */
 export const RequestImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
@@ -116,6 +125,8 @@ export const NodeSchema = z.object({
   kind: NodeKindSchema,
   executor: ExecutorSchema,
   impact: ImpactSchema,
+  /** AI executor の自律度。既存データ互換のため default "normal"（旧データには無いフィールド） */
+  autonomy: AutonomySchema.default("normal"),
   lifecycle: LifecycleSchema,
   status: StatusSchema,
   /** Fix フラグ（= Houdini のロック）。true = やり方が確定し、AIは impl を書き換えない。
@@ -152,6 +163,7 @@ export const NodeInputSchema = z.object({
   kind: NodeKindSchema.default("task"),
   executor: ExecutorSchema.default("human"),
   impact: ImpactSchema.default("safe"),
+  autonomy: AutonomySchema.default("normal"),
   lifecycle: LifecycleSchema.default("draft"),
   status: StatusSchema.default("pending"),
   fixed: z.boolean().default(false),

@@ -473,6 +473,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
         branches: node.branches,
         executor: node.executor,
         impact: node.impact,
+        autonomy: node.autonomy,
         status: "pending",
         lifecycle: "draft",
       });
@@ -868,6 +869,38 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
                   disabled={node.fixed}
                   onCheckedChange={(v) => patch({ impact: v ? "irreversible" : "safe" })}
                 />
+              </label>
+            )}
+            {/* 自律度（autonomy）は AI が実行するタスクにだけ意味を持つ。
+                高=人間に聞かず進む（失敗もまず自動リトライ）/ 標準=必要なときだけ質問 /
+                低=迷ったら人間に質問するほうへ倒す。実行前承認（impact）は自律度では外れない */}
+            {node.kind === "task" && node.executor === "ai" && (
+              <label className="col-span-2 flex flex-col gap-1 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  自律度
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex cursor-help text-muted-foreground">
+                        <CircleHelp className="size-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-64">
+                      AIがどこまで人間に聞かずに進むか。高=聞かずに最後まで（失敗も自動で試し直す）。低=迷ったら質問カードで人間に判断を仰ぐ。実行前承認とは独立
+                    </TooltipContent>
+                  </Tooltip>
+                </span>
+                <Select
+                  value={node.autonomy}
+                  disabled={node.fixed}
+                  onValueChange={(v) => patch({ autonomy: v as Node["autonomy"] })}
+                >
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="high">高（聞かずに進む）</SelectItem>
+                    <SelectItem value="normal">標準（必要なときだけ質問）</SelectItem>
+                    <SelectItem value="low">低（積極的に相談）</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
             )}
             {/* トリガーに進捗はない（docs/design.md 3.8。発火はあってもステータス遷移という概念が無い）。

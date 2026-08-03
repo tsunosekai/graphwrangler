@@ -13,6 +13,7 @@ import {
   NodeKindSchema,
   ExecutorSchema,
   ImpactSchema,
+  AutonomySchema,
   LifecycleSchema,
   StatusSchema,
   RunItemStatusSchema,
@@ -149,6 +150,10 @@ server.registerTool(
       ),
       executor: ExecutorSchema.optional().describe("誰にディスパッチするか。既定 human"),
       impact: ImpactSchema.optional().describe("不可逆な外部副作用は承認ゲートを通す。既定 safe"),
+      autonomy: AutonomySchema.optional().describe(
+        "AI executor の自律度。high=人間に判断を仰がず進む（失敗も自動リトライ）/ " +
+          "normal=必要なときだけ QUESTION 形式で質問 / low=迷ったら質問に倒す。既定 normal",
+      ),
       lifecycle: LifecycleSchema.optional().describe("draft=審議中/committed=実行対象。既定 draft"),
       status: StatusSchema.optional().describe("既定 pending。unplanned=やり方未定"),
       parents: z.array(z.string()).optional().describe("先行ノードid配列。空=ルート"),
@@ -168,7 +173,7 @@ server.registerTool(
   {
     description:
       "既存ノードを部分更新する。patch には変えたいフィールドだけを渡す（title/detail/impl/parents/group/kind/" +
-      "executor/impact/lifecycle/status/fixed/pendingRequest の部分集合）。更新後のノードを返す。",
+      "executor/impact/autonomy/lifecycle/status/fixed/pendingRequest の部分集合）。更新後のノードを返す。",
     inputSchema: {
       nodeId: z.string().describe("更新対象のノードid"),
       patch: z.object(NodePatchShape).describe("変更したいフィールドだけを含む部分オブジェクト"),
