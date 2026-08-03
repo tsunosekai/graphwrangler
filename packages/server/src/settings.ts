@@ -47,6 +47,10 @@ export const GitSettingsSchema = z.object({
   autoPush: z.boolean().default(false),
   /** チェック間隔（秒）。変更は次周から効く */
   intervalSec: z.number().int().min(15).max(3600).default(60),
+  /** 既定の対象（正データ + .graphwrangler/）に**追加で** commit/push するワークスペース内
+   *  相対パス。例: グラフの手順書ノードが参照する docs ディレクトリ（2026-08-03 stremix の
+   *  claw-skills 一本化で追加）。ワークスペース外を指す値は gitsync 側で無視する */
+  extraPaths: z.array(z.string()).default([]),
 });
 
 export const SettingsSchema = z.object({
@@ -146,6 +150,7 @@ export class SettingsStore {
       git: {
         autoPush: this.cache.git.autoPush,
         intervalSec: this.cache.git.intervalSec,
+        extraPaths: this.cache.git.extraPaths,
       },
       setupDone: this.cache.setupDone,
     };

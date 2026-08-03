@@ -36,11 +36,11 @@ function writeWorkspaceFiles(work: string): void {
   fs.writeFileSync(path.join(sidecar, "runs", "r-1.json"), "{}\n"); // gitignore 対象＝コミットされない
 }
 
-function makeSync(work: string): GitSync {
+function makeSync(work: string, extraPaths: string[] = []): GitSync {
   return new GitSync({
     root: work,
     paths: ["workflow.gw.json", ".graphwrangler"],
-    getConfig: () => ({ autoPush: true, intervalSec: 60 }),
+    getConfig: () => ({ autoPush: true, intervalSec: 60, extraPaths }),
     log: () => {},
   });
 }
@@ -71,6 +71,19 @@ test("runOnce: 対象パスだけ commit して push する（初回は -u で u
 
   // docs.md は untracked のまま残る
   assert.match(git(work, "status", "--porcelain"), /\?\? docs\.md/);
+});
+
+test("runOnce: extraPaths のディレクトリも同期し、脱出パスは無視する", async () => {
+  const { work } = setupRepo();
+  writeWorkspaceFiles(work);
+  fs.mkdirSync(path.join(work, "docs", "skills"), { recursive: true });
+  fs.writeFileSync(path.join(work, "docs", "skills", "a.md"), "手順\n");
+  fs.writeFileSync(path.join(work, "other.md"), "対象外\n");
+  const result = await makeSync(work, ["docs/skills", "../escape", "/etc"]).runOnce();
+  assert.equal(result.ok, true, result.message);
+  const files = git(work, "ls-tree", "-r", "--name-only", "HEAD").trim().split("\n");
+  assert.ok(files.includes("docs/skills/a.md"));
+  assert.ok(!files.includes("other.md"));
 });
 
 test("runOnce: 変更が無ければ何もしない（冪等）", async () => {

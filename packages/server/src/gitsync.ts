@@ -17,6 +17,8 @@ const GIT_TIMEOUT_MS = 120 * 1000; // push はネットワーク越しなので�
 export interface GitSyncConfig {
   autoPush: boolean;
   intervalSec: number;
+  /** 既定パスに追加で同期するワークスペース内相対パス（settings.git.extraPaths） */
+  extraPaths?: string[];
 }
 
 export interface GitSyncStatus {
@@ -156,7 +158,13 @@ export class GitSync {
     if (!fs.existsSync(path.join(this.root, ".git"))) {
       return this.fail("ワークスペースが git リポジトリではありません");
     }
-    const existing = this.paths.filter((p) => fs.existsSync(path.join(this.root, p)));
+    // extraPaths（設定由来）はワークスペース内に解決されるものだけ受ける（.. 脱出や絶対パスを無視）
+    const rootAbs = path.resolve(this.root);
+    const extras = (this.getConfig().extraPaths ?? []).filter((p) => {
+      const abs = path.resolve(this.root, p);
+      return abs.startsWith(rootAbs + path.sep) && abs !== rootAbs;
+    });
+    const existing = [...this.paths, ...extras].filter((p) => fs.existsSync(path.join(this.root, p)));
     if (existing.length === 0) return this.fail("同期対象のファイルがありません");
 
     // 1) 変更があればコミット（対象パスのみ。gitignore は git 側が尊重する）

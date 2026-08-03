@@ -94,6 +94,8 @@ export interface SettingsView {
   git: {
     autoPush: boolean;
     intervalSec: number;
+    /** 既定対象に追加で同期するワークスペース内相対パス */
+    extraPaths: string[];
   };
   setupDone: boolean;
 }
@@ -109,7 +111,7 @@ export interface SettingsPatch {
     cliExtraTools?: string[];
   };
   engine?: { mode?: "cli" | "api"; cliPath?: string; model?: string; extraArgs?: string[]; apiModel?: string | null };
-  git?: { autoPush?: boolean; intervalSec?: number };
+  git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   setupDone?: boolean;
 }
 
