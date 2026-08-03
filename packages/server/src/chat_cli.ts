@@ -307,6 +307,7 @@ function runCli(
   mcpConfigFile: string,
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
+  extraTools: string[] = [],
 ): Promise<void> {
   return new Promise((resolve) => {
     // 切断済み controller への enqueue はサーバを落とすので必ず握りつぶす（emitStreamJsonLine と同じ理由）
@@ -361,6 +362,9 @@ function runCli(
       "Glob",
       "Write",
       "Edit",
+      // 設定 chat.cliExtraTools（例: "Bash"）。既定は空。"-" 始まりはツール名でなく
+      // フラグとして解釈されてしまう（--dangerously-skip-permissions の混入経路になる）ので落とす
+      ...extraTools.filter((t) => !t.startsWith("-")),
       "--append-system-prompt",
       q(cliSafeArg(system)),
       "--output-format",
@@ -439,7 +443,7 @@ export function handleChatCli(
   serverPort: number,
 ): Response {
   const pageId = body.pageId ?? null;
-  const { cliPath, cliModel } = settings.get().chat;
+  const { cliPath, cliModel, cliExtraTools } = settings.get().chat;
   const system = [
     systemPrompt(graph, threads, pageId, body.selectedNodeId ?? null),
     "グラフの操作（ノード作成・更新・削除・スレッド投稿等）は graphwrangler の MCP ツールで行うこと。",
@@ -471,6 +475,7 @@ export function handleChatCli(
         mcpConfigFile,
         controller,
         encoder,
+        cliExtraTools,
       ).catch((err) => {
         try {
           controller.enqueue(

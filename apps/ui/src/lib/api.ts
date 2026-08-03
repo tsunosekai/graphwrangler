@@ -79,6 +79,8 @@ export interface SettingsView {
     keySource: "settings" | "env" | "none";
     cliPath: string;
     cliModel: string;
+    /** Workflow AI / Task AI（CLIモード）の --allowedTools に追記するツール（既定空） */
+    cliExtraTools: string[];
   };
   engine: {
     /** cli = ヘッドレスCLI(claude -p 等)を起動する / api = チャット側のAPIキーで直接呼ぶ */
@@ -104,6 +106,7 @@ export interface SettingsPatch {
     apiKey?: string | null;
     cliPath?: string;
     cliModel?: string;
+    cliExtraTools?: string[];
   };
   engine?: { mode?: "cli" | "api"; cliPath?: string; model?: string; extraArgs?: string[]; apiModel?: string | null };
   git?: { autoPush?: boolean; intervalSec?: number };

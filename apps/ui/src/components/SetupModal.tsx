@@ -74,6 +74,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [editingKey, setEditingKey] = useState(!settings.chat.hasApiKey);
   const [chatCliPath, setChatCliPath] = useState(settings.chat.cliPath);
   const [chatCliModel, setChatCliModel] = useState(settings.chat.cliModel);
+  const [chatCliExtraTools, setChatCliExtraTools] = useState(settings.chat.cliExtraTools.join(" "));
 
   const [engineMode, setEngineMode] = useState<EngineMode>(settings.engine.mode);
   const [cliPath, setCliPath] = useState(settings.engine.cliPath);
@@ -108,6 +109,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           model: model.trim() || null,
           cliPath: chatCliPath.trim() || "claude",
           cliModel: chatCliModel.trim() || "opus",
+          cliExtraTools: chatCliExtraTools.trim() ? chatCliExtraTools.trim().split(/\s+/) : [],
         },
         engine: {
           mode: engineMode,
@@ -232,6 +234,18 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                 <span>モデル</span>
                 <CliModelSelect value={chatCliModel} onChange={setChatCliModel} />
               </label>
+              <label className={field}>
+                <span>追加許可ツール</span>
+                <Input
+                  value={chatCliExtraTools}
+                  onChange={(e) => setChatCliExtraTools(e.target.value)}
+                  placeholder='空欄=読み取りのみ。例: Bash / "Bash(ssh:*)"'
+                />
+              </label>
+              <p className={desc}>
+                Workflow AI / Task AI の --allowedTools に追記するツール（空白区切り）。
+                Bash を足すとサーバ上でコマンド実行できるようになるので、共有サーバでは慎重に
+              </p>
             </>
           )}
         </section>

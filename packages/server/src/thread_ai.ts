@@ -108,11 +108,23 @@ export function runPlainClaude(
   cliModel: string,
   prompt: string,
   cwd: string,
+  extraTools: string[] = [],
 ): Promise<PlainCliResult> {
   return new Promise((resolve) => {
     // 読み取り専用ツールを許可（cwd=workspace root で impl.path の手順書を読める。
-    // chat_cli.ts と同じ方針: 書き込み系ツールは持たせない）
-    const args = ["-p", "--model", cliModel, "--allowedTools", "Read", "Grep", "Glob"];
+    // chat_cli.ts と同じ方針: 書き込み系ツールは持たせない）。
+    // extraTools = 設定 chat.cliExtraTools（例: "Bash"。2026-08-03 本人指示「ブロックされない
+    // ようにして」）。"-" 始まりはフラグ解釈されるので落とす（chat_cli.ts と同じサニタイズ）
+    const args = [
+      "-p",
+      "--model",
+      cliModel,
+      "--allowedTools",
+      "Read",
+      "Grep",
+      "Glob",
+      ...extraTools.filter((t) => !t.startsWith("-")),
+    ];
     const isWindows = process.platform === "win32";
     let child;
     try {
@@ -241,6 +253,7 @@ async function respondInThread(
       chat.cliModel,
       prompt,
       graph.workspaceInfo().root ?? os.tmpdir(),
+      chat.cliExtraTools,
     );
     if (!result.success) {
       console.error(`[thread-ai] node ${node.id}: ヘッドレスCLIの起動に失敗しました: ${result.error}`);
