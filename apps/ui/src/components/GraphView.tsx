@@ -371,7 +371,8 @@ function GraphViewInner({
         positionsRef.current = layoutGraph(nodes, measuredSizes());
       } else {
         // 既存ノードの現在位置は保持し、新規に現れたノードだけレイアウト結果の位置を使う
-        const computed = layoutGraph(nodes, measuredSizes());
+        // （現在位置を渡し、新規ノードの置き場所も既存の左右関係に沿わせる）
+        const computed = layoutGraph(nodes, measuredSizes(), positionsRef.current);
         for (const n of nodes) {
           if (!positionsRef.current.has(n.id)) {
             const pos = computed.get(n.id);
@@ -678,7 +679,8 @@ function GraphViewInner({
     setRealigning(true);
     // クラスが付いた次フレームで位置を更新しないと transition が効かない
     requestAnimationFrame(() => {
-      positionsRef.current = layoutGraph(nodes, measuredSizes());
+      // 現在位置を渡して、整列前の左右関係を保ったまま並べ直す（2026-08-03 本人指示）
+      positionsRef.current = layoutGraph(nodes, measuredSizes(), positionsRef.current);
       setRfNodes((prev) =>
         prev.map((rn) => ({ ...rn, position: positionsRef.current.get(rn.id) ?? rn.position })),
       );
