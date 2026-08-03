@@ -59,7 +59,7 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加�
      `skip` はエンジンログのみ。チェック時刻はエンジンのメモリ管理
    - **human** = エンジンは何もしない（手動 `/fire` のみ）
    - 重複防止: そのページに `status=running` のランが既にあれば発火しない
-   - **発火前承認**: `impact=irreversible` のトリガーは発火の代わりに go/skip の承認カードを
+   - **発火前承認**: `approval=true`（発火前承認）のトリガーは発火の代わりに go/skip の承認カードを
      トリガーのスレッドへ開き、go 回答の1回だけ発火する（発火すると回答は消費され、次の
      周期では改めて確認する）。skip はその回の発火とみなして次の周期まで黙る。
      手動 `/fire` はゲートを通らない（`src/trigger.ts` の `buildFireApprovalRequest` /
@@ -69,7 +69,7 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加�
      frontier（parents が全て done|skipped）
    - トリガーを持つページ（ルーティーンページ）のメンバーは対象外（ラン側が実行を担う。
      二重実行防止）
-   - `impact=irreversible` は直前のスレッドの `decision_answer` が `option=go` のときだけ
+   - `approval=true` は直前のスレッドの `decision_answer` が `option=go` のときだけ
      実行を許可（この1回だけ）。それ以外は承認カード（`POST /request`）を開く
    - `option=abort`/`skip` の回答は `status=dropped` にする
    - `option=modify`（内容を変える）の回答は **`lifecycle=draft` に戻して人間の編集を待つ**
@@ -100,7 +100,7 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加�
   結果はテンプレートノードのスレッドへ `payload:{runId}` 付きで記録する。
   実行失敗は `{status:"waiting", note:"失敗: <理由>"}` に倒す——エンジンは waiting を
   拾わないため、リトライ/見送りは UI（ノードパネルの「もう一度 / このランでは飛ばす」）が担う
-- **不可逆アイテムの承認連携**（`src/approval.ts`）: `impact=irreversible` のアイテムは
+- **不可逆アイテムの承認連携**（`src/approval.ts`）: `approval=true` のアイテムは
   実行せず `{status:"waiting", note:"承認待ち"}` にし、次tick以降にテンプレートノードへ
   `go`(実行して)/`skip`(このランでは飛ばす) の承認カードを開く。判断リクエストの question
   文中に `[ラン <runId>]` マーカーを埋め込んでランと紐付ける（同じテンプレートが複数の
@@ -114,7 +114,7 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・追加�
 - **`--dangerously-skip-permissions` は絶対に使わない**（間接プロンプトインジェクション対策）。
   `ai` executor に許可するツールは `Read Grep Glob Write Edit WebSearch WebFetch`
   （Bash は許可しない——コマンド実行は試走ボタンと script executor の管轄）
-- **`impact=irreversible` は無条件に実行しない**。承認カードで人間が `go` を選んだ、その1回の
+- **`approval=true`（実行前承認）は無条件に実行しない**。承認カードで人間が `go` を選んだ、その1回の
   実行だけを許可する。再実行時は改めて承認を求め直す（「不可逆は毎回確認する」）
 - ネットワークI/Oを伴わない判断ロジック（pick / pickRun / approval / decision / decisionRun /
   schedule / trigger）は全て純粋関数に切り出し、vitest でユニットテストしている

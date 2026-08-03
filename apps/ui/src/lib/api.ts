@@ -55,7 +55,7 @@ export interface NodeCreateInput {
   group?: string | null;
   kind?: Node["kind"];
   executor?: Node["executor"];
-  impact?: Node["impact"];
+  approval?: Node["approval"];
   autonomy?: Node["autonomy"];
   lifecycle?: Node["lifecycle"];
   status?: Node["status"];

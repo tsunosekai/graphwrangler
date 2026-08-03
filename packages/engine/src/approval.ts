@@ -19,7 +19,7 @@ export function runGateMarker(runId: string): string {
   return `[ラン ${runId}]`;
 }
 
-/** impact=irreversible なランアイテムの実行許可を求める判断リクエスト */
+/** approval=true（実行前承認）なランアイテムの実行許可を求める判断リクエスト */
 export function buildRunApprovalRequest(node: Node, run: Run): DecisionRequest {
   const detail = node.detail ? `\n補足: ${node.detail}` : "";
   return {
@@ -69,7 +69,7 @@ export function collectPendingApprovalItems(nodes: Node[], runs: Run[]): Array<{
     for (const [nodeId, item] of Object.entries(run.items)) {
       if (item.status !== "waiting" || item.note !== APPROVAL_WAITING_NOTE) continue;
       const node = nodesById.get(nodeId);
-      if (node && node.impact === "irreversible") out.push({ run, node });
+      if (node && node.approval) out.push({ run, node });
     }
   }
   return out;
@@ -117,7 +117,7 @@ export function selectRunApprovalAction(
 
     for (const { nodeId, item, node } of entries) {
       if (item.status !== "waiting" || item.note !== APPROVAL_WAITING_NOTE) continue;
-      if (node.impact !== "irreversible") continue;
+      if (!node.approval) continue;
 
       const gate = gateStates[gateKey(run.id, nodeId)] ?? { status: "none" };
       if (gate.status === "none") return { type: "open-gate", run, node };

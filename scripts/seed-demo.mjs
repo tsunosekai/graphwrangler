@@ -100,7 +100,7 @@ await post("/api/nodes", {
   parents: [review.id],
   parentOptions: { [review.id]: "ship" },
   executor: "script",
-  impact: "irreversible", // 公開は取り消しても「見られた」事実は戻らない → 実行前承認
+  approval: true, // 公開は取り消しても「見られた」事実は戻らない → 実行前承認
   detail: "デプロイスクリプトで公開。実行前に必ず人間の承認を挟む",
   impl: { type: "script", command: "echo デプロイ完了: https://example.com/lp" },
   lifecycle: "draft",
@@ -148,7 +148,7 @@ const req = await post(`/api/nodes/${axis.id}/request`, {
       { id: "trust", label: "安心", then: "導入実績とサポート体制を前面に。堅い業界に刺さる" },
       { id: "price", label: "価格", then: "最安級を打ち出す。比較サイト経由の流入には強い" },
     ],
-    impact: "safe",
+    approval: false,
     undo: "構成案の段階なら差し替えは1日で済む",
   },
 });
@@ -329,7 +329,7 @@ await post("/api/nodes", {
   group: inbox.id,
   parents: [reply.id],
   executor: "human",
-  impact: "irreversible", // 送ったメールは取り消せない → 実行前承認
+  approval: true, // 送ったメールは取り消せない → 実行前承認
   lifecycle: "committed",
 });
 

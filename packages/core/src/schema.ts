@@ -22,19 +22,17 @@ export const ViaSchema = z.string().min(1);
  *  メンバーに持つかどうかから導出する */
 export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
-/** ノードの影響度。irreversible = 実行前に人間の承認ゲートを通る（UI名「実行前承認」） */
-export const ImpactSchema = z.enum(["safe", "irreversible"]);
 /** AI executor の自律度（2026-08-03 本人指示。UI名「自律度」）。
  *  - high: 人間に判断を仰がず、合理的な仮定を置いて最後まで進む。実行失敗も
  *    まず自動リトライし、尽きて初めて失敗リカバリカードを開く
  *  - normal: 基本は自分で判断し、本当に必要なときだけ QUESTION 形式で人間に質問する
  *  - low: 前提が曖昧・選択肢の優劣が明確でない場面では自分で決めず積極的に質問する
  *  executor=ai の kind=task でのみ意味を持つ（script は決定的、decision/trigger は別の判断系）。
- *  impact=irreversible の実行前承認ゲートは autonomy では外れない（安全装置はノード属性で
- *  無効化できない。ゲートを外したければ impact を safe に戻す＝別の明示操作） */
+ *  approval（実行前承認ゲート）は autonomy では外れない（安全装置はノード属性で
+ *  無効化できない。ゲートを外したければ approval を false に戻す＝別の明示操作） */
 export const AutonomySchema = z.enum(["high", "normal", "low"]);
-/** 判断リクエスト自身の影響度（5.4）。ノードの impact とは別の軸で、中間の
- *  reversible（戻せるが軽くない）を持つ */
+/** 判断リクエスト自身の影響度（5.4）。ノードの approval（実行前承認ゲートの有無）とは
+ *  別の軸で、中間の reversible（戻せるが軽くない）を持つ */
 export const RequestImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
 export const LifecycleSchema = z.enum(["draft", "committed"]);
 /** unplanned = やり方未定（「ここだけまだ考えてない」）。依存が揃っていても実行エンジンは拾わない。
@@ -124,7 +122,11 @@ export const NodeSchema = z.object({
   group: z.string().nullable(),
   kind: NodeKindSchema,
   executor: ExecutorSchema,
-  impact: ImpactSchema,
+  /** 実行前承認（trigger では発火前承認）。true = 実行の直前に人間の承認ゲートを通る。
+   *  旧名 impact("safe"|"irreversible")（2026-08-03 改名。impl と紛らわしい・
+   *  「承認ゲートの有無」の実態と名前がズレていた・判断リクエストの impact と同名衝突、
+   *  の3点を解消。旧データは *CompatSchema の読み替えレイヤで受ける） */
+  approval: z.boolean().default(false),
   /** AI executor の自律度。既存データ互換のため default "normal"（旧データには無いフィールド） */
   autonomy: AutonomySchema.default("normal"),
   lifecycle: LifecycleSchema,
@@ -162,7 +164,7 @@ export const NodeInputSchema = z.object({
   group: z.string().nullable().default(null),
   kind: NodeKindSchema.default("task"),
   executor: ExecutorSchema.default("human"),
-  impact: ImpactSchema.default("safe"),
+  approval: z.boolean().default(false),
   autonomy: AutonomySchema.default("normal"),
   lifecycle: LifecycleSchema.default("draft"),
   status: StatusSchema.default("pending"),
@@ -181,16 +183,37 @@ export const NodePatchSchema = NodeSchema.omit({
 }).partial();
 export type NodePatch = z.infer<typeof NodePatchSchema>;
 
+// ---- 旧フィールド互換（2026-08-03 impact → approval 改名） ----
+
+/** 旧 impact("safe"|"irreversible") を approval(boolean) へ読み替える。保存済みノード・
+ *  過去の ops.jsonl・古いクライアントの入力を無停止で受けるための互換レイヤ。
+ *  approval が明示されていればそちらが勝ち、余った impact キーは zod が落とす */
+function legacyApprovalPreprocess(v: unknown): unknown {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    if (!("approval" in o) && (o.impact === "irreversible" || o.impact === "safe")) {
+      return { ...o, approval: o.impact === "irreversible" };
+    }
+  }
+  return v;
+}
+
+/** 保存データ・opsログ・API入力の読み込みにはこちらを使う（出力型は素のスキーマと同じ）。
+ *  素の NodeSchema/NodePatchSchema は .omit/.shape 派生用に ZodObject のまま残す */
+export const NodeCompatSchema = z.preprocess(legacyApprovalPreprocess, NodeSchema);
+export const NodeInputCompatSchema = z.preprocess(legacyApprovalPreprocess, NodeInputSchema);
+export const NodePatchCompatSchema = z.preprocess(legacyApprovalPreprocess, NodePatchSchema);
+
 // ---- 操作ログ（ops.jsonl の1行） ----
 
 export const OpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("node.add"),
-    payload: z.object({ node: NodeSchema }),
+    payload: z.object({ node: NodeCompatSchema }),
   }),
   z.object({
     op: z.literal("node.patch"),
-    payload: z.object({ nodeId: z.string(), patch: NodePatchSchema }),
+    payload: z.object({ nodeId: z.string(), patch: NodePatchCompatSchema }),
   }),
   z.object({
     op: z.literal("node.remove"),
@@ -324,6 +347,6 @@ export type Run = z.infer<typeof RunSchema>;
 export const WorkspaceFileSchema = z.object({
   format: z.literal("graphwrangler-workspace"),
   version: z.literal(1),
-  nodes: z.array(NodeSchema),
+  nodes: z.array(NodeCompatSchema),
 });
 export type WorkspaceFile = z.infer<typeof WorkspaceFileSchema>;

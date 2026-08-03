@@ -19,7 +19,7 @@ function node(partial: Partial<Node> = {}): Node {
     group: partial.group ?? null,
     kind: partial.kind ?? "task",
     executor: partial.executor ?? "script",
-    impact: partial.impact ?? "safe",
+    approval: partial.approval ?? false,
     autonomy: partial.autonomy ?? "normal",
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending",
@@ -108,25 +108,25 @@ describe("selectAction: kind/executor 除外", () => {
 });
 
 describe("selectAction: irreversible除外と承認後許可", () => {
-  it("impact=irreversibleは承認なしでは実行されずopen-gateになる", () => {
-    const n = node({ impact: "irreversible" });
+  it("approval=trueは承認なしでは実行されずopen-gateになる", () => {
+    const n = node({ approval: true });
     expect(selectAction([n])).toEqual({ type: "open-gate", node: n });
   });
 
   it("直近のdecision_answerがoption=goならこの1回だけexecuteを許可する", () => {
-    const n = node({ impact: "irreversible" });
+    const n = node({ approval: true });
     const action = selectAction([n], { [n.id]: decisionAnswer("go") });
     expect(action).toEqual({ type: "execute", node: n });
   });
 
   it("直近のdecision_answerがoption=skipならdropになる", () => {
-    const n = node({ impact: "irreversible" });
+    const n = node({ approval: true });
     const action = selectAction([n], { [n.id]: decisionAnswer("skip") });
     expect(action).toEqual({ type: "drop", node: n });
   });
 
   it("goでない回答(retry等)は再度open-gateで確認を求める", () => {
-    const n = node({ impact: "irreversible" });
+    const n = node({ approval: true });
     const action = selectAction([n], { [n.id]: decisionAnswer("retry") });
     expect(action).toEqual({ type: "open-gate", node: n });
   });
@@ -134,13 +134,13 @@ describe("selectAction: irreversible除外と承認後許可", () => {
 
 describe("selectAction: modify回答は下書きへ戻す（即再実行しない）", () => {
   it("直近のdecision_answerがoption=modifyならdemote", () => {
-    const n = node({ impact: "safe" });
+    const n = node({ approval: false });
     const action = selectAction([n], { [n.id]: decisionAnswer("modify") });
     expect(action).toEqual({ type: "demote", node: n });
   });
 
   it("irreversibleでもmodifyはdemote（open-gateより先に編集を待つ）", () => {
-    const n = node({ impact: "irreversible" });
+    const n = node({ approval: true });
     const action = selectAction([n], { [n.id]: decisionAnswer("modify") });
     expect(action).toEqual({ type: "demote", node: n });
   });
@@ -155,13 +155,13 @@ describe("selectAction: 人間待ち（open な判断リクエスト）の除外
   it("失敗リカバリでretryが返り status=pending に戻ったノードは通常どおりexecuteされる", () => {
     // server 側は option!=null の回答で status を pending に戻す（answerRequest の仕様）。
     // その状態を模した入力で、通常の実行候補として扱われることを確認する
-    const n = node({ impact: "safe", status: "pending", pendingRequest: null });
+    const n = node({ approval: false, status: "pending", pendingRequest: null });
     const action = selectAction([n], { [n.id]: decisionAnswer("retry") });
     expect(action).toEqual({ type: "execute", node: n });
   });
 
   it("失敗リカバリでabortが返ったノードはdropになる", () => {
-    const n = node({ impact: "safe", status: "pending", pendingRequest: null });
+    const n = node({ approval: false, status: "pending", pendingRequest: null });
     const action = selectAction([n], { [n.id]: decisionAnswer("abort") });
     expect(action).toEqual({ type: "drop", node: n });
   });
@@ -177,8 +177,8 @@ describe("selectAction: 選択順序", () => {
 });
 
 describe("buildIrreversibleGateRequest / buildFailureRecoveryRequest", () => {
-  it("irreversibleゲートは go/skip の2択で impact=irreversible", () => {
-    const n = node({ impact: "irreversible", title: "本番へ反映" });
+  it("approvalゲートは go/skip の2択でリクエストimpact=irreversible", () => {
+    const n = node({ approval: true, title: "本番へ反映" });
     const req = buildIrreversibleGateRequest(n);
     expect(req.options.map((o) => o.id)).toEqual(["go", "skip"]);
     expect(req.impact).toBe("irreversible");

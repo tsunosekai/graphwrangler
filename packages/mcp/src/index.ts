@@ -12,7 +12,6 @@ import {
   NodePatchShape,
   NodeKindSchema,
   ExecutorSchema,
-  ImpactSchema,
   AutonomySchema,
   LifecycleSchema,
   StatusSchema,
@@ -33,7 +32,7 @@ type NodeSummary = {
   kind: unknown;
   executor: unknown;
   status: unknown;
-  impact: unknown;
+  approval: unknown;
   lifecycle: unknown;
   group: unknown;
   parents: unknown;
@@ -48,7 +47,7 @@ function summarize(node: Record<string, unknown>): NodeSummary {
     kind: node.kind,
     executor: node.executor,
     status: node.status,
-    impact: node.impact,
+    approval: node.approval,
     lifecycle: node.lifecycle,
     group: node.group,
     parents: node.parents,
@@ -93,7 +92,7 @@ server.registerTool(
   {
     description:
       "グラフ全体の要約を取得する。ノード数、ページ（kind=goalのノード、または他ノードのgroupとして参照されている=メンバーを持つノード）の一覧、" +
-      "各ノードの {id,title,kind,executor,status,impact,lifecycle,group,parents,pendingRequest} を返す。" +
+      "各ノードの {id,title,kind,executor,status,approval,lifecycle,group,parents,pendingRequest} を返す。" +
       "detail/impl は含まない（トークン節約のため）。特定ノードの全フィールドが必要なら node_get を使うこと。",
     inputSchema: {},
   },
@@ -136,7 +135,7 @@ server.registerTool(
   {
     description:
       "新しいノードを作成する。title以外は省略可でサーバ側の既定値が使われる" +
-      "（kind=task, executor=human, impact=safe, lifecycle=draft, status=pending）。" +
+      "（kind=task, executor=human, approval=false, lifecycle=draft, status=pending）。" +
       "group は所属ページ(ゴール)のノードid。ページ直下に作るならそのゴールノードのidを渡す（省略時はどのページにも属さない）。" +
       "parents は先行ノードid（依存/順序、DAG）。impl は実装形態: null=会話段（AIの裁量）、" +
       "{type:'doc',text}=手順書、{type:'script',command}=決定的スクリプト。",
@@ -149,7 +148,7 @@ server.registerTool(
           "trigger_fire)。既定 task",
       ),
       executor: ExecutorSchema.optional().describe("誰にディスパッチするか。既定 human"),
-      impact: ImpactSchema.optional().describe("不可逆な外部副作用は承認ゲートを通す。既定 safe"),
+      approval: z.boolean().optional().describe("実行前承認。true=実行の直前に人間の承認ゲートを通す（不可逆な外部副作用がある作業など）。既定 false"),
       autonomy: AutonomySchema.optional().describe(
         "AI executor の自律度。high=人間に判断を仰がず進む（失敗も自動リトライ）/ " +
           "normal=必要なときだけ QUESTION 形式で質問 / low=迷ったら質問に倒す。既定 normal",
@@ -173,7 +172,7 @@ server.registerTool(
   {
     description:
       "既存ノードを部分更新する。patch には変えたいフィールドだけを渡す（title/detail/impl/parents/group/kind/" +
-      "executor/impact/autonomy/lifecycle/status/fixed/pendingRequest の部分集合）。更新後のノードを返す。",
+      "executor/approval/autonomy/lifecycle/status/fixed/pendingRequest の部分集合）。更新後のノードを返す。",
     inputSchema: {
       nodeId: z.string().describe("更新対象のノードid"),
       patch: z.object(NodePatchShape).describe("変更したいフィールドだけを含む部分オブジェクト"),

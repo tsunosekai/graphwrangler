@@ -28,7 +28,7 @@ function node(partial: Partial<Node> = {}): Node {
     group: partial.group ?? null,
     kind: partial.kind ?? "trigger",
     executor: partial.executor ?? "script",
-    impact: partial.impact ?? "safe",
+    approval: partial.approval ?? false,
     autonomy: partial.autonomy ?? "normal",
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending",
@@ -130,7 +130,7 @@ describe("parseAiFireDecision: fire/skipパース", () => {
   });
 });
 
-// ---- 発火前承認（impact=irreversible のトリガー） ----
+// ---- 発火前承認（approval=true のトリガー） ----
 
 function gateRequest(id: string, ts: string, answered: string | null = null): Message {
   return {
@@ -162,7 +162,7 @@ function gateAnswer(id: string, requestId: string, option: string | null, ts: st
 }
 
 describe("buildFireApprovalRequest", () => {
-  it("go/skip の2択・impact=irreversible・question にマーカーを含む", () => {
+  it("go/skip の2択・リクエストimpact=irreversible・question にマーカーを含む", () => {
     const req = buildFireApprovalRequest({ title: "毎週月曜9時", detail: null });
     expect(req.options.map((o) => o.id)).toEqual(["go", "skip"]);
     expect(req.impact).toBe("irreversible");

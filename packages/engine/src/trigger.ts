@@ -6,7 +6,7 @@
 //   - ai トリガー     = schedule をチェック間隔として使い、間隔ごとにエンジンがAIへ
 //     「今発火すべきか」を判定させる
 //   - human トリガー  = 手動発火(POST /fire)のみ。エンジンは何もしない
-// impact=irreversible のトリガーは「発火前承認」: 自動発火の直前に go/skip の承認カードを
+// approval=true のトリガーは「発火前承認」: 自動発火の直前に go/skip の承認カードを
 // トリガーのスレッドへ開き、go 回答の1回だけ発火する（task の実行前承認と同型。手動▶は
 // 人間が押すこと自体が承認なのでゲートを通らない）。
 // ネットワークI/Oを一切持たない純粋関数のみを置く（vitest でユニットテストする対象）。
@@ -82,7 +82,7 @@ export function parseAiFireDecision(output: string): "fire" | "skip" | null {
   return null;
 }
 
-// ---- 発火前承認（impact=irreversible のトリガー。docs/design.md 3.8） ----
+// ---- 発火前承認（approval=true のトリガー。docs/design.md 3.8） ----
 
 /** 発火前承認カードの question に埋め込むマーカー。トリガーのスレッドから
  *  ゲート状態を復元するのに使う（approval.ts の runGateMarker と同じ方式） */

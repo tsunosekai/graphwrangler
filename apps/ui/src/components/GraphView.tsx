@@ -51,7 +51,7 @@ interface ClipboardNode {
   detail: string | null;
   impl: Node["impl"];
   executor: Node["executor"];
-  impact: Node["impact"];
+  approval: Node["approval"];
   autonomy: Node["autonomy"];
   kind: Node["kind"];
   /** kind=decision のときの選択肢定義（コピーで引き継ぐ。他kindではnull。docs/design.md 3.9） */
@@ -785,7 +785,7 @@ function GraphViewInner({
         detail: n.detail,
         impl: n.impl,
         executor: n.executor,
-        impact: n.impact,
+        approval: n.approval,
         autonomy: n.autonomy,
         kind: n.kind,
         // kind=decision の選択肢定義はそのまま引き継ぐ（無いと貼り付け時にサーバ検証で弾かれる）
@@ -816,7 +816,7 @@ function GraphViewInner({
           detail: entry.detail,
           impl: entry.impl,
           executor: entry.executor,
-          impact: entry.impact,
+          approval: entry.approval,
           autonomy: entry.autonomy,
           kind: entry.kind,
           branches: entry.branches,
@@ -870,7 +870,7 @@ function GraphViewInner({
         detail: n.detail,
         impl: n.impl,
         executor: n.executor,
-        impact: n.impact,
+        approval: n.approval,
         autonomy: n.autonomy,
         kind: n.kind,
         branches: n.branches,

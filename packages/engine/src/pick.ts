@@ -69,9 +69,9 @@ function lastAnswerOption(message: Message | undefined): string | undefined {
  * - option="modify"（内容を変える）→ demote（lifecycle=draft に戻し、人間の編集と
  *   「プラン済みにする」を待つ。回答直後に同じ内容で再実行してしまわないため。
  *   呼び出し側=index.ts が demote 後に status メッセージを積むことで回答を消費する）
- * - impact=irreversible: 直前の decision_answer が option="go" のときだけ execute
+ * - approval=true（実行前承認）: 直前の decision_answer が option="go" のときだけ execute
  *   （この1回だけ許可）。それ以外（未承認・retry等）は open-gate で承認カードを開く
- * - 上記以外（impact=safe）はそのまま execute。AI質問カード（ask.ts。option "ai:*" や
+ * - 上記以外（approval=false）はそのまま execute。AI質問カード（ask.ts。option "ai:*" や
  *   自由文回答）はここに落ちて再実行になり、回答は executeNode がスレッド経緯として
  *   プロンプトに差し込む（abort だけは上の drop 分岐が拾う）
  */
@@ -99,7 +99,7 @@ export function selectAction(
       return { type: "demote", node };
     }
 
-    if (node.impact === "irreversible") {
+    if (node.approval) {
       if (option === "go") {
         return { type: "execute", node };
       }
@@ -117,7 +117,7 @@ function summarizeNodeForHuman(node: Node): string {
   return `作業: ${node.title}${detail}`;
 }
 
-/** impact=irreversible ノードの実行許可を求める判断リクエスト */
+/** approval=true（実行前承認）ノードの実行許可を求める判断リクエスト */
 export function buildIrreversibleGateRequest(node: Node): DecisionRequest {
   return {
     context: summarizeNodeForHuman(node),

@@ -22,7 +22,7 @@ describe("GraphStore", () => {
     const n = g.addNode({ title: "最初の仕事" });
     expect(n.id).toMatch(/^n-\d{8}-0001$/);
     expect(n.executor).toBe("human");
-    expect(n.impact).toBe("safe");
+    expect(n.approval).toBe(false);
     expect(n.lifecycle).toBe("draft");
     expect(n.status).toBe("pending");
     expect(n.pendingRequest).toBeNull();

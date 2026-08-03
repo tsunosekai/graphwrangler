@@ -344,7 +344,7 @@ app.post("/api/nodes/:id/remove", async (c) => {
 app.post("/api/nodes/:id/trial", async (c) => {
   const id = c.req.param("id");
   const node = graph.get(id);
-  assertTrialAllowed(node); // 400: impl.type!=="script" または impact==="irreversible"
+  assertTrialAllowed(node); // 400: impl.type!=="script"
   const sub = substituteParams(node.impl.command, node.impl.params);
   if (!sub.ok) {
     throw new GraphError(`パラメータが未入力です: ${sub.missing.join(", ")}`, 400);

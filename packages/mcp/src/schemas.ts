@@ -6,7 +6,6 @@
 import {
   NodeKindSchema,
   ExecutorSchema,
-  ImpactSchema,
   AutonomySchema,
   LifecycleSchema,
   StatusSchema,
@@ -19,7 +18,6 @@ import {
 export {
   NodeKindSchema,
   ExecutorSchema,
-  ImpactSchema,
   AutonomySchema,
   LifecycleSchema,
   StatusSchema,

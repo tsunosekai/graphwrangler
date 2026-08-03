@@ -22,7 +22,7 @@ function node(partial: Partial<Node> = {}): Node {
     group: partial.group ?? "proc-1",
     kind: partial.kind ?? "task",
     executor: partial.executor ?? "script",
-    impact: partial.impact ?? "irreversible",
+    approval: partial.approval ?? true,
     autonomy: partial.autonomy ?? "normal",
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending",
@@ -111,7 +111,7 @@ describe("findRunGate", () => {
 });
 
 describe("buildRunApprovalRequest", () => {
-  it("go/skipの2択・impact=irreversible・questionにランIDのマーカーを含む", () => {
+  it("go/skipの2択・リクエストimpact=irreversible・questionにランIDのマーカーを含む", () => {
     const n = node({ title: "本番へ反映" });
     const r = run({}, { id: "r-99", title: "夜間バッチ" });
     const req = buildRunApprovalRequest(n, r);
@@ -125,8 +125,8 @@ describe("buildRunApprovalRequest", () => {
 
 describe("collectPendingApprovalItems", () => {
   it("waiting+承認待ちノートのirreversibleアイテムだけを集める", () => {
-    const irr = node({ id: "irr1", impact: "irreversible" });
-    const safe = node({ id: "safe1", impact: "safe" });
+    const irr = node({ id: "irr1", approval: true });
+    const safe = node({ id: "safe1", approval: false });
     const r = run({
       irr1: item({ status: "waiting", note: APPROVAL_WAITING_NOTE }),
       safe1: item({ status: "waiting", note: APPROVAL_WAITING_NOTE }),
@@ -136,7 +136,7 @@ describe("collectPendingApprovalItems", () => {
   });
 
   it("statusがwaiting以外、またはnoteが違うものは除外", () => {
-    const irr = node({ id: "irr1", impact: "irreversible" });
+    const irr = node({ id: "irr1", approval: true });
     const r = run({ irr1: item({ status: "pending", note: null }) });
     expect(collectPendingApprovalItems([irr], [r])).toEqual([]);
   });

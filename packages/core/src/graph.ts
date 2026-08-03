@@ -13,9 +13,10 @@ import {
   type Node,
   type NodeBranch,
   type NodeImpl,
-  NodeInputSchema,
+  NodeInputCompatSchema,
   type NodeInput,
   NodePatchSchema,
+  NodePatchCompatSchema,
   type NodePatch,
   type OpRecord,
   OpRecordSchema,
@@ -122,7 +123,7 @@ export function collectDescendantsAmong(nodes: Node[], id: string): Set<string> 
 // ---- Fix（= ロック。やり方の確定）の実効化（docs/design.md 3.5）----
 //
 // Fix 中に守るのは「やり方」であって進捗ではない。保護対象は
-// title/detail/kind/executor/impact/parents/group/branches/parentOptions/schedule/impl
+// title/detail/kind/executor/approval/parents/group/branches/parentOptions/schedule/impl
 // （impl は params[].value の変更だけ例外で許可——値は実行時入力でありやり方ではない）。
 // status/lifecycle/fixed/pendingRequest/implTrial/choice は進捗・ロック自体の
 // 操作なので常に変更できる（許可リストではなく、保護リストに載っていないもの全て、という形で表す）。
@@ -132,7 +133,7 @@ const FIXED_PROTECTED_SIMPLE_FIELDS = [
   "detail",
   "kind",
   "executor",
-  "impact",
+  "approval",
   "parents",
   "group",
   "branches",
@@ -256,7 +257,8 @@ export class GraphStore {
   // ---- 書き込み（すべて操作ログ経由） ----
 
   addNode(input: NodeInput, meta: OpMeta = {}): Node {
-    const parsed = NodeInputSchema.parse(input);
+    // Compat: 旧クライアントの impact("safe"|"irreversible") を approval に読み替えて受ける
+    const parsed = NodeInputCompatSchema.parse(input);
     this.validateParents(null, parsed.parents);
     this.validateTriggerHasNoParents(parsed.kind, parsed.parents);
     this.validateGroup(null, parsed.group);
@@ -286,7 +288,7 @@ export class GraphStore {
 
   patchNode(id: string, patch: NodePatch, meta: OpMeta = {}): Node {
     const current = this.get(id);
-    const parsed = NodePatchSchema.parse(patch);
+    const parsed = NodePatchCompatSchema.parse(patch);
     assertPatchAllowedWhileFixed(current, parsed, FIXED_PATCH_MESSAGE);
     if (parsed.parents) this.validateParents(id, parsed.parents);
     if (parsed.group !== undefined) this.validateGroup(id, parsed.group ?? null);

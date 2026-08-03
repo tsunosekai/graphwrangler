@@ -78,7 +78,8 @@ const NODE_DEFAULTS = {
   group: null,
   kind: "task",
   executor: "human",
-  impact: "safe",
+  approval: false,
+  autonomy: "normal",
   lifecycle: "draft",
   status: "unplanned",
   fixed: false,
@@ -89,13 +90,16 @@ const NODE_DEFAULTS = {
   parentOptions: {},
 };
 
-/** 旧スキーマの値を現行 enum へ正規化する（waiting は pendingRequest からの導出値に、
- *  impact の中間値 reversible は safe 扱いに変わった）。旧フィールド（order/updated 等）は
- *  サーバ読込時に zod が捨てるためここでは触らない */
+/** 旧スキーマの値を現行スキーマへ正規化する（waiting は pendingRequest からの導出値に、
+ *  impact("safe"|"reversible"|"irreversible") は approval(boolean) に変わった。2026-08-03 改名）。
+ *  旧フィールド（order/updated 等）はサーバ読込時に zod が捨てるためここでは触らない */
 function normalizeNode(n) {
   const out = { ...n };
   if (out.status === "waiting") out.status = "pending";
-  if (out.impact === "reversible") out.impact = "safe";
+  if ("impact" in out) {
+    if (!("approval" in out) || out.approval === undefined) out.approval = out.impact === "irreversible";
+    delete out.impact;
+  }
   return out;
 }
 
@@ -107,7 +111,9 @@ if (fs.existsSync(snapshotPath)) {
 } else {
   console.warn(`警告: snapshot.json が見つかりません（空グラフとして続行します）: ${snapshotPath}`);
 }
-nodes = nodes.map((n) => normalizeNode({ ...NODE_DEFAULTS, ...n }));
+// 正規化（旧impact→approval）を先に行う。defaults を先に混ぜると approval:false が
+// 旧 impact:"irreversible" より勝ってしまう
+nodes = nodes.map((n) => ({ ...NODE_DEFAULTS, ...normalizeNode(n) }));
 // graph.ts の sortNodesById と同じ比較（id 昇順）
 nodes = [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 

@@ -10,7 +10,7 @@
 （実行・判断・起点のすべてが executor 軸で 人間/AI/スクリプト に割り当てられる）。
 
 「AIが全部やる」路線ではなく、「人間とAIの担当を明示して人間が主導権を持つ」路線。
-ball 所有・impact 段階・「確定させてから実行」の思想で貫く。
+ball 所有・承認ゲート(approval)・「確定させてから実行」の思想で貫く。
 
 ## 2. アーキテクチャ
 
@@ -122,9 +122,12 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
 
 - **executor**: `human` / `ai` / `script` — 誰にディスパッチするか
 - **決定性**: script は決定的、ai は非決定的
-- **impact**: `safe` / `irreversible` — 不可逆な外部副作用は承認ゲートを通す
-  （UI上の名称は「実行前承認」トグル。判断リクエスト自身の impact は中間の
-  reversible を含む3値で、これとは別の軸——5.4）。
+- **approval**: `true` / `false` — 実行の直前に人間の承認ゲートを通すか
+  （UI上の名称は「実行前承認」トグル。不可逆な外部副作用を持つ作業に立てる。
+  旧名 impact("safe"|"irreversible")——2026-08-03 改名: impl と紛らわしい・
+  「ゲートの有無」という実態と名前がズレていた・判断リクエスト自身の impact
+  （reversible を含む3値でこれとは別の軸——5.4）と同名衝突、の3点を解消。
+  旧データ・旧クライアントは core の *CompatSchema が読み替える）。
   **承認ゲートは「機械（AI/スクリプト）の仕事」の直前に挟まるもの**: task は実行前、
   trigger は発火前（3.8）。担当=人間のノードでは本人の操作が承認そのものなので
   トグル自体を出さない（既に irreversible のノードだけ解除用に表示する）
@@ -140,8 +143,8 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
     失敗リカバリカードを開く
   - `normal`（既定）: 規約あり。本当に人間にしか決められないことだけ質問する
   - `low`: 規約あり。前提が曖昧・優劣不明・好みが分かれるなら質問するほうに倒す
-  - **impact の承認ゲートは autonomy では外れない**（安全装置はノード属性で無効化
-    できない。ゲートを外したければ impact を safe に戻す＝別の明示操作）
+  - **approval の承認ゲートは autonomy では外れない**（安全装置はノード属性で無効化
+    できない。ゲートを外したければ approval を false に戻す＝別の明示操作）
 
 新しいノード種を足したくなったら「スケジューラはそれで挙動を変えるか？」と問う。
 変えないならタグでよい。エンジンが自動実行するのは lifecycle=committed のノードだけ
@@ -164,7 +167,7 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
   なったページは形が固まった証拠で、ルーティーン昇格の合図になる
 - 3軸の直交: lifecycle（実行してよいか）/ impl（やり方の素材）/ fixed（やり方が確定したか）
 - **Fix はソフトな印ではなく実効的なロック**: 保護対象は「やり方」フィールド
-  （title/detail/kind/executor/impact/parents/group/branches/parentOptions/schedule/impl）で、
+  （title/detail/kind/executor/approval/parents/group/branches/parentOptions/schedule/impl）で、
   fixed=true の間はサーバ（`GraphStore.patchNode`）がこれらの実質的な変更を 409 で拒否する
   （同値の patch=no-op は許可）。impl だけ params[].value の変更は例外で許可する——
   値は実行時入力であってやり方ではないため（`implEqualIgnoringParamValues`、
@@ -203,7 +206,7 @@ AIとの整理は draft 側で自由に行い、人間の確定操作で committ
 
 - `POST /api/nodes/:id/trial`（実装 `packages/server/src/trial.ts`）が command を実際に
   1回子プロセスで実行し、結果を `node.implTrial = {hash, success, ts}` としてノードへ記録する
-  （hash は command の sha256 hex）。impact="irreversible"（実行前承認）でも試走は可能
+  （hash は command の sha256 hex）。approval=true（実行前承認）でも試走は可能
   （試走は常に --dry-run の予告編で副作用が無いため）
 - **hash は鮮度チェック**: command を編集すると hash が変わり、過去の試走結果は
   「stale」（コマンドが変更されています）に落ちる。UI（NodePanel）が
@@ -267,7 +270,7 @@ impl.command はワークスペースルートからの相対パスで書く。�
   エンジンは全ての実行中ランのアイテムを並行して進める（1並列・ラン created 昇順）。
   **自動発火（script/AI トリガー）は実行中ランがあると発火しない**のは従来どおり
   （積み残し防止）——並列で回すのは手動▶の管轄
-- **発火前承認（impact=irreversible のトリガー）**: script/AI の自動発火の直前に、
+- **発火前承認（approval=true のトリガー）**: script/AI の自動発火の直前に、
   トリガーのスレッドへ go（発火して）/ skip（今回は見送る）の承認カードを開き、
   go 回答の1回だけ発火する（task の実行前承認と同型。「不可逆は毎回確認する」）。
   **skip はその回の発火とみなす**（発火判定の基準を「最新ランと skip 回答の新しい方」に
@@ -448,7 +451,8 @@ impl.command はワークスペースルートからの相対パスで書く。�
   "group": null,                  // 包含（所属ページのid）。parents とは独立な軸（3.1）
   "kind": "task",                 // goal(ページ) / task / decision(分岐 3.9) / trigger(起点 3.8)
   "executor": "ai",               // human / ai / script
-  "impact": "safe",               // safe / irreversible（UI名「実行前承認」）
+  "approval": false,              // 実行前承認（trigger では発火前承認）。true=実行直前に承認ゲート
+                                  //   （旧名 impact。2026-08-03 改名、旧データは読み替え互換あり）
   "autonomy": "normal",           // high / normal / low（UI名「自律度」。AI executor が人間に
                                   //   どこまで聞かずに進むか——3.4。旧データには無く既定 normal）
   "lifecycle": "draft",           // draft / committed（= プラン済み）
@@ -528,7 +532,7 @@ open/answered は後続の decision_answer から導出する（過去行を書�
         "recommended": true }
     ],
     "impact": "irreversible",     // この判断自体の影響（safe/reversible/irreversible の3値。
-                                  //   ノードの impact とは別の軸）
+                                  //   ノードの approval とは別の軸）
     "undo": "戻し方 or null"
   }
 }

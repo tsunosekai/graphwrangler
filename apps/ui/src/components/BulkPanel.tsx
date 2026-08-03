@@ -79,7 +79,7 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
   // ---- 実行前承認（担当=人間には意味が無い。Fix済みも対象外） ----
   const approvalTargets = unfixed.filter((n) => n.executor !== "human");
   const allIrreversible =
-    approvalTargets.length > 0 && approvalTargets.every((n) => n.impact === "irreversible");
+    approvalTargets.length > 0 && approvalTargets.every((n) => n.approval);
 
   // ---- プラン済み / 下書き ----
   const commitTargets = nodes.filter((n) => n.lifecycle === "draft" || n.status === "unplanned");
@@ -207,7 +207,7 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
             checked={allIrreversible}
             disabled={busy}
             onCheckedChange={(v) =>
-              void apply("実行前承認", approvalTargets, () => ({ impact: v ? "irreversible" : "safe" }))
+              void apply("実行前承認", approvalTargets, () => ({ approval: v }))
             }
           />
         </label>

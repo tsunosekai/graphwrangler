@@ -14,7 +14,7 @@ function node(partial: Partial<Node> = {}): Node {
     group: partial.group ?? "proc-1",
     kind: partial.kind ?? "task",
     executor: partial.executor ?? "script",
-    impact: partial.impact ?? "safe",
+    approval: partial.approval ?? false,
     autonomy: partial.autonomy ?? "normal",
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending", // ランには関係しない（テンプレートは status を持たない扱い）
@@ -119,8 +119,8 @@ describe("selectRunAction: lifecycle除外(3.8新モデル: draftもitemsには�
 });
 
 describe("selectRunAction: irreversible", () => {
-  it("impact=irreversibleは実行せずwaiting-irreversibleを返す", () => {
-    const n = node({ id: "irr1", impact: "irreversible" });
+  it("approval=trueは実行せずwaiting-irreversibleを返す", () => {
+    const n = node({ id: "irr1", approval: true });
     const r = run({ irr1: item({ status: "pending" }) });
     const action = selectRunAction([n], [r]);
     expect(action).toEqual({ type: "waiting-irreversible", run: r, node: n });

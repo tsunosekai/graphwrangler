@@ -312,7 +312,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             <Icon name="alert" size={12} />
           </span>
         )}
-        {node.impact === "irreversible" && (
+        {node.approval && (
           <span
             className="flex-shrink-0 text-destructive"
             title={

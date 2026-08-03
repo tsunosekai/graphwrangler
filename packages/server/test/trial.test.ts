@@ -25,7 +25,7 @@ function fixedNode(overrides: Partial<Node> = {}): Node {
     group: null,
     kind: "task",
     executor: "script",
-    impact: "safe",
+    approval: false,
     lifecycle: "draft",
     status: "pending",
     fixed: false,
@@ -58,7 +58,7 @@ test("sha256Hex は入力が変われば値も変わる", () => {
 
 test("assertTrialAllowed: script かつ safe/reversible なら通る", () => {
   assert.doesNotThrow(() =>
-    assertTrialAllowed(fixedNode({ impl: { type: "script", command: "echo hi" }, impact: "safe" })),
+    assertTrialAllowed(fixedNode({ impl: { type: "script", command: "echo hi" }, approval: false })),
   );
 });
 
@@ -81,10 +81,10 @@ test("assertTrialAllowed: impl.type が doc なら 400", () => {
   );
 });
 
-test("assertTrialAllowed: impact が irreversible でも試走できる（試走=常に--dry-runの予告編。2026-07-31 旧ルール撤廃）", () => {
+test("assertTrialAllowed: approval=true でも試走できる（試走=常に--dry-runの予告編。2026-07-31 旧ルール撤廃）", () => {
   assert.doesNotThrow(() =>
     assertTrialAllowed(
-      fixedNode({ impl: { type: "script", command: "echo hi" }, impact: "irreversible" }),
+      fixedNode({ impl: { type: "script", command: "echo hi" }, approval: true }),
     ),
   );
 });

@@ -472,7 +472,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
         kind: node.kind,
         branches: node.branches,
         executor: node.executor,
-        impact: node.impact,
+        approval: node.approval,
         autonomy: node.autonomy,
         status: "pending",
         lifecycle: "draft",
@@ -847,7 +847,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
                 ノードでは本人の操作が承認そのものなのでトグルを出さない（既に irreversible の
                 ノードだけは解除できるよう表示する）。トリガーでは意味が「発火前承認」になる
                 （script の定刻発火・AI の自動発火の直前にゲート。手動▶はそのまま発火） */}
-            {(node.executor !== "human" || node.impact === "irreversible") && (
+            {(node.executor !== "human" || node.approval) && (
               <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
                 <span className="flex items-center gap-1.5">
                   <span>{node.kind === "trigger" ? "発火前承認" : "実行前承認"}</span>
@@ -865,15 +865,15 @@ export function NodePanel({ node, allNodes, activeRun, reads, onMutated, onClose
                   </Tooltip>
                 </span>
                 <Switch
-                  checked={node.impact === "irreversible"}
+                  checked={node.approval}
                   disabled={node.fixed}
-                  onCheckedChange={(v) => patch({ impact: v ? "irreversible" : "safe" })}
+                  onCheckedChange={(v) => patch({ approval: v })}
                 />
               </label>
             )}
             {/* 自律度（autonomy）は AI が実行するタスクにだけ意味を持つ。
                 高=人間に聞かず進む（失敗もまず自動リトライ）/ 標準=必要なときだけ質問 /
-                低=迷ったら人間に質問するほうへ倒す。実行前承認（impact）は自律度では外れない */}
+                低=迷ったら人間に質問するほうへ倒す。実行前承認（approval）は自律度では外れない */}
             {node.kind === "task" && node.executor === "ai" && (
               <label className="col-span-2 flex flex-col gap-1 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1.5">

@@ -99,7 +99,8 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
       group: null,
       kind: "task",
       executor: "human",
-      impact: "safe",
+      approval: false,
+      autonomy: "normal",
       lifecycle: "draft",
       status: "pending",
       fixed: false,
@@ -137,7 +138,8 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
           group: null,
           kind: "task",
           executor: "human",
-          impact: "safe",
+          // 旧フィールド名のまま（2026-08-03 改名前のデータ互換テスト: impact → approval に読み替わる）
+          impact: "irreversible",
           lifecycle: "draft",
           status: "pending",
           fixed: false,
@@ -156,6 +158,8 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
     fs.writeFileSync(canonicalFile, JSON.stringify(handwritten, null, 2), "utf8");
     const g = GraphStore.workspace(canonicalFile, sidecarDir);
     expect(g.get("n-20260101-0001").title).toBe("手書きノード");
+    // 旧 impact:"irreversible" が approval:true として読める（互換レイヤ）
+    expect(g.get("n-20260101-0001").approval).toBe(true);
   });
 
   it("impl.doc は path だけでも通る（text 必須を外した後方互換）", () => {

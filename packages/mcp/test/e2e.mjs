@@ -187,7 +187,7 @@ try {
   await step("tools/call node_add (task, groupあり)", async () => {
     const result = await rpc("tools/call", {
       name: "node_add",
-      arguments: { title: "E2Eテストタスク", group: goalId, executor: "ai", impact: "irreversible" },
+      arguments: { title: "E2Eテストタスク", group: goalId, executor: "ai", approval: true },
     });
     const node = toolResultJson(result);
     assert.equal(node.group, goalId);

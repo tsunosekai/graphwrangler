@@ -107,7 +107,7 @@ describe("implEqualIgnoringParamValues", () => {
 });
 
 describe("GraphStore: fixed ノードの patch 拒否", () => {
-  it("保護フィールド（title/detail/kind/executor/impact/group/schedule）の実質変更は409", () => {
+  it("保護フィールド（title/detail/kind/executor/approval/group/schedule）の実質変更は409", () => {
     const a = g.addNode({ title: "a" });
     g.patchNode(a.id, { fixed: true });
 
@@ -117,7 +117,7 @@ describe("GraphStore: fixed ノードの patch 拒否", () => {
       GraphError,
     );
     expect(() => g.patchNode(a.id, { executor: "ai" })).toThrow(GraphError);
-    expect(() => g.patchNode(a.id, { impact: "irreversible" })).toThrow(GraphError);
+    expect(() => g.patchNode(a.id, { approval: true })).toThrow(GraphError);
     expect(() => g.patchNode(a.id, { schedule: "daily 09:00" })).toThrow(GraphError);
 
     try {

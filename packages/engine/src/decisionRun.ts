@@ -100,7 +100,8 @@ export function buildRunDecisionRequest(node: Node, run: Run): DecisionRequest {
       label: b.label,
       then: b.then ?? `「${b.label}」の枝に進む`,
     })),
-    impact: node.impact,
+    // リクエスト自身の影響度。承認ゲート付きノードなら irreversible として見せる
+    impact: node.approval ? "irreversible" : "safe",
     undo: null,
   };
 }

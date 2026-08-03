@@ -48,7 +48,7 @@ export function substituteParams(
  * node.impl が {type:"script",command} であることが以降の型で保証される）。
  * 許可されなければ GraphError(400) を投げる。
  * - impl.type !== "script" のノードは試走できない（何を動かすか無い）
- * - impact === "irreversible"（実行前承認）でも試走は**できる**: 試走は常に --dry-run の
+ * - approval=true（実行前承認）でも試走は**できる**: 試走は常に --dry-run の
  *   予告編で副作用が無いため、承認ゲートと矛盾しない（2026-07-31 本人指示で旧ルール撤廃。
  *   dry-run 固定化以前の名残だった）
  */

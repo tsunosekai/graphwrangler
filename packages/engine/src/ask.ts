@@ -7,7 +7,7 @@
 //   質問なら done にせず判断リクエストを開く。人間の回答は次回実行のプロンプトに
 //   スレッド経緯として差し込まれる（buildThreadContextLines）
 // - autonomy=high は逆方向: 質問規約を出さず「聞かずに進め」と指示し、実行失敗も
-//   まず自動リトライする（shouldAutoRetry）。impact=irreversible の承認ゲートは
+//   まず自動リトライする（shouldAutoRetry）。approval（実行前承認ゲート）は
 //   autonomy に関わらず残る（安全装置はノード属性で無効化しない）
 import { runGateMarker } from "./approval.js";
 import type { Autonomy, DecisionAnswer, DecisionRequest, Message, Node } from "./types.js";

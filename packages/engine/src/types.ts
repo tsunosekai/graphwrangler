@@ -4,14 +4,13 @@
 // （package.json に "@graphwrangler/core": "workspace:*" を追加。実行時コードは
 // 相変わらず HTTP API のみを叩き、core の実装（GraphStore 等）には依存しない）。
 //
-// core は enum 系（NodeKind/Executor/Impact/Lifecycle/Status/MessageKind/DecisionOption）に
+// core は enum 系（NodeKind/Executor/Lifecycle/Status/MessageKind/DecisionOption）に
 // ついて型エイリアスを export しておらず Schema（zod オブジェクト）しか export していないため、
 // それらは z.infer で導出する（import type なのでランタイムには残らない）。
 import type { z } from "zod";
 import type {
   NodeKindSchema,
   ExecutorSchema,
-  ImpactSchema,
   AutonomySchema,
   LifecycleSchema,
   StatusSchema,
@@ -21,7 +20,6 @@ import type {
 
 export type NodeKind = z.infer<typeof NodeKindSchema>;
 export type Executor = z.infer<typeof ExecutorSchema>;
-export type Impact = z.infer<typeof ImpactSchema>;
 export type Autonomy = z.infer<typeof AutonomySchema>;
 export type Lifecycle = z.infer<typeof LifecycleSchema>;
 export type Status = z.infer<typeof StatusSchema>;

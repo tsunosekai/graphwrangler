@@ -43,7 +43,7 @@ interface RunnableEntry {
  * - **lifecycle=draft のテンプレートは対象外**（items には入るが実行はされない。3.8
  *   「Fix/committed をランの参加条件にしない」の裏側: 参加＝items に入ることと、
  *   自動実行されることは別の話。committedのみ自動実行、という3.4の原則はここで担保する）
- * - impact=irreversible のテンプレートは実行せず waiting-irreversible を返す
+ * - approval=true（実行前承認）のテンプレートは実行せず waiting-irreversible を返す
  *   （呼び出し側が items patch {status:"waiting", note:"承認待ち"} し、以後の承認往復は
  *   approval.ts が担当する）
  */
@@ -66,7 +66,7 @@ export function selectRunAction(nodes: Node[], runs: Run[]): RunAction {
       if (node.executor !== "ai" && node.executor !== "script") continue;
       if (!dependenciesSettled(node, run)) continue;
 
-      if (node.impact === "irreversible") {
+      if (node.approval) {
         return { type: "waiting-irreversible", run, node };
       }
       return { type: "execute", run, node };

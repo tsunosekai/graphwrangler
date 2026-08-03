@@ -1094,7 +1094,7 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
  *  許容する。docs/design.md「チェック時刻はエンジンのメモリ管理」） */
 const aiTriggerLastCheckedAt = new Map<string, number>();
 
-/** script トリガーを1件処理する（判定は schedule.ts）。impact=irreversible なら
+/** script トリガーを1件処理する（判定は schedule.ts）。approval=true（発火前承認）なら
  *  発火の代わりに発火前承認カードを開き、go 回答の1回だけ発火する（trigger.ts 参照） */
 async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   const hasRunningRun = runsForPage.some((r) => r.status === "running");
@@ -1102,7 +1102,7 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
   if (trigger.pendingRequest) return; // 発火前承認カード等の回答待ち
 
   let gate: FireGateState = { status: "none" };
-  if (trigger.impact === "irreversible") {
+  if (trigger.approval) {
     try {
       const { messages } = await getThread(trigger.id);
       gate = findFireGate(messages);
@@ -1129,7 +1129,7 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
   }
   if (!should) return;
 
-  if (trigger.impact === "irreversible" && !hasUnconsumedGo(gate, latestRun)) {
+  if (trigger.approval && !hasUnconsumedGo(gate, latestRun)) {
     try {
       await openRequest(trigger.id, buildFireApprovalRequest(trigger), ENGINE_ACTOR, VIA);
       log(`発火前承認カードを開いた: trigger=${trigger.id} title=${trigger.title}`);
@@ -1150,12 +1150,12 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
 /** ai トリガーを1件処理する。schedule をチェック間隔として使い、間隔経過かつ実行中ランなしの
  *  ときだけ AI に「今発火すべきか」を判定させる。fire ならスレッドへ理由を残して発火し、
  *  skip はエンジンログのみ（スレッドは汚さない。docs/design.md「skipはエンジンログのみ」）。
- *  impact=irreversible なら AI の fire 判定後に発火前承認カードを開き、go 回答の1回だけ発火する */
+ *  approval=true（発火前承認）なら AI の fire 判定後に発火前承認カードを開き、go 回答の1回だけ発火する */
 async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   const hasRunningRun = runsForPage.some((r) => r.status === "running");
   if (trigger.pendingRequest) return; // 発火前承認カード等の回答待ち
 
-  if (trigger.impact === "irreversible") {
+  if (trigger.approval) {
     let gate: FireGateState;
     try {
       const { messages } = await getThread(trigger.id);
@@ -1196,7 +1196,7 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   if (decision === "fire") {
     try {
       await postMessage(trigger.id, { kind: "say", body: result.output.trim() || "(理由なし)" }, actor, VIA);
-      if (trigger.impact === "irreversible") {
+      if (trigger.approval) {
         await openRequest(trigger.id, buildFireApprovalRequest(trigger), ENGINE_ACTOR, VIA);
         log(`AI判定fire→発火前承認カードを開いた: trigger=${trigger.id} title=${trigger.title}`);
       } else {
