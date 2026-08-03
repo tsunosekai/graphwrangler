@@ -974,6 +974,10 @@ if (fs.existsSync(uiDist)) {
   app.get("*", serveStatic({ root, path: "index.html" }));
 }
 
-serve({ fetch: app.fetch, port }, () => {
-  console.log(`graphwrangler server: http://localhost:${port} (${serverModeLabel})`);
+// バインド先。既定は従来どおり全インターフェイス（Tailscale 内アクセス等の互換）だが、
+// リバースプロキシ越しに公開する構成では **GRAPHWRANGLER_HOST=127.0.0.1 を必ず設定する**
+// （露出したままだと試走APIほかが認証なしで外から叩ける。2026-08-03 stremix 公開時に対応）
+const host = process.env.GRAPHWRANGLER_HOST ?? "0.0.0.0";
+serve({ fetch: app.fetch, port, hostname: host }, () => {
+  console.log(`graphwrangler server: http://${host}:${port} (${serverModeLabel})`);
 });
