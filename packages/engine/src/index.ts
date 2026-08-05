@@ -1261,8 +1261,13 @@ async function tick(): Promise<void> {
   await refreshEngineConfig(); // 起動時+10分ごと（内部で throttle）
   await refreshWorkspaceInfo(); // 未取得なら毎tick再試行、取得後は10分ごと（内部で throttle）
 
-  // UIの稼働インジケータ用ハートビート（失敗しても実行は続ける）
-  void heartbeat().catch(() => {});
+  // UIの稼働インジケータ用ハートビート（失敗しても実行は続ける）。
+  // ついでにサーバ側アプリの版（HEAD sha）を見て、自動アップデートで入れ替わっていたら
+  // 自分も降りる——エンジンは別プロセスなので、放っておくと古いコードのまま回り続ける
+  // （プロセス管理が無い環境では降りない。selfupdate.ts と同じ原則。2026-08-05）
+  void heartbeat()
+    .then(({ version }) => noteServerVersion(version))
+    .catch(() => {});
 
   const { nodes } = await getState();
 
@@ -1294,6 +1299,33 @@ async function tick(): Promise<void> {
   if (await tickDecision(nodes)) return;
 
   await tickRunItem(nodes);
+}
+
+// ---- 自動アップデート追随（2026-08-05。selfupdate.ts の相方） ----
+// サーバが再起動して別の版になったら、エンジンも降りて新しいコードで上がり直す。
+// 自分から再起動はしない（それはプロセス管理の仕事）ので、監視されていない環境では
+// 降りずにそのまま回り続ける——落ちたきり戻らないほうが困るため
+let seenServerVersion: string | null = null;
+
+function supervised(): boolean {
+  return Boolean(process.env.INVOCATION_ID) || process.env.pm_id !== undefined;
+}
+
+function noteServerVersion(version: string | null): void {
+  if (!version) return;
+  if (seenServerVersion === null) {
+    seenServerVersion = version;
+    return;
+  }
+  if (seenServerVersion === version) return;
+  log(`サーバのアプリ版が ${seenServerVersion} → ${version} に変わりました`);
+  seenServerVersion = version;
+  if (!supervised()) {
+    log("プロセス管理下ではないため自動終了しません（手動で再起動してください）");
+    return;
+  }
+  log("新しいコードで上がり直すため終了します");
+  process.exit(0);
 }
 
 function sleep(ms: number): Promise<void> {

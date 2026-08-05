@@ -183,9 +183,12 @@ export async function completeAi(prompt: string, maxTokens?: number): Promise<st
   return res.text;
 }
 
-/** UIの稼働インジケータ用ハートビート（POST /api/engine/heartbeat）。失敗は呼び出し側で握りつぶす */
-export async function heartbeat(): Promise<void> {
-  await request("POST", "/api/engine/heartbeat", {});
+/** UIの稼働インジケータ用ハートビート（POST /api/engine/heartbeat）。失敗は呼び出し側で握りつぶす。
+ *  応答の version はサーバ側アプリの HEAD sha（selfupdate.ts）。自動アップデートで
+ *  サーバが入れ替わったことを、エンジンがこの値の変化から知るために返している */
+export async function heartbeat(): Promise<{ version: string | null }> {
+  const res = (await request("POST", "/api/engine/heartbeat", {})) as { version?: string | null };
+  return { version: res?.version ?? null };
 }
 
 // ---- ワークスペース=1ファイル化（GET /api/workspace・GET /api/files） ----

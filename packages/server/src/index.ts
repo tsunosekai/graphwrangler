@@ -30,8 +30,10 @@ import {
   ChatSettingsSchema,
   EngineSettingsSchema,
   GitSettingsSchema,
+  UpdateSettingsSchema,
 } from "./settings.js";
 import { GitSync } from "./gitsync.js";
+import { SelfUpdate } from "./selfupdate.js";
 import { resolveWorkspacePath } from "./files.js";
 import { isThreadAiRunning, maybeTriggerThreadAi } from "./thread_ai.js";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
@@ -151,6 +153,12 @@ if (workspaceArg) {
   authDir = dataDir;
   serverModeLabel = `data: ${dataDir}`;
 }
+
+// ---- 本体の自動アップデート（selfupdate.ts。2026-08-05 本人要望「zinsei と stremix で
+//      別インスタンスなので自動アップデートが欲しい」）。対象はワークスペース（データ）ではなく
+//      **このアプリのクローン**なので、モードに関わらず常に立ち上げる ----
+const selfUpdate = new SelfUpdate({ root: repoRoot, getConfig: () => settings.get().update });
+void selfUpdate.init().then(() => selfUpdate.start());
 
 // ---- 内蔵ログイン（auth.ts。2026-08-03 本人指示「ちゃんとシステム化してほしい、ログインを」）----
 // users.json にユーザーが1人でも居ればログイン必須になる。ただし適用は「外部経由」
@@ -657,7 +665,9 @@ let engineLastSeen: string | null = null;
 
 app.post("/api/engine/heartbeat", (c) => {
   engineLastSeen = nowIso();
-  return c.json({ ok: true });
+  // version = サーバ起動時のアプリ HEAD sha。エンジンは自分が見てきた値と食い違ったら
+  // 自分から降りる（＝別プロセスの古いコードが動き続けるのを防ぐ。selfupdate.ts）
+  return c.json({ ok: true, version: selfUpdate.version() });
 });
 
 app.get("/api/engine/status", (c) => {
@@ -1084,6 +1094,7 @@ const SettingsPatchSchema = z.object({
   engine: EngineSettingsSchema.partial().optional(),
   ai: AiSettingsSchema.partial().optional(),
   git: GitSettingsSchema.partial().optional(),
+  update: UpdateSettingsSchema.partial().optional(),
   setupDone: z.boolean().optional(),
 });
 
@@ -1116,6 +1127,20 @@ app.post("/api/gitsync/run", async (c) => {
   if (!gitSync) return c.json({ error: "ワークスペースモードではないため使えません" }, 400);
   const result = await gitSync.runOnce();
   return c.json(result, result.ok ? 200 : 500);
+});
+
+// ---- 本体の自動アップデート（selfupdate.ts） ----
+
+app.get("/api/update", (c) => c.json(selfUpdate.status()));
+
+/** 今すぐ origin を見に行く（取り込みはしない） */
+app.post("/api/update/check", async (c) => c.json(await selfUpdate.check()));
+
+/** 今すぐ取り込む（pull --ff-only → install → ui build → 監視下なら自動再起動）。
+ *  応答を返しきってから終了するよう、selfupdate 側が少し待ってから exit する */
+app.post("/api/update/run", async (c) => {
+  const result = await selfUpdate.apply();
+  return c.json({ ...result, status: selfUpdate.status() }, result.ok ? 200 : 500);
 });
 
 // GraphWrangler AI の会話履歴（GET=読み込み / PUT=丸ごと保存。UIMessage[] はサーバでは

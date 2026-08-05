@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Keyboard, KeyRound, LogOut, Search, Settings, Undo2, Users } from "lucide-react";
+import { ArrowUpCircle, Keyboard, KeyRound, LogOut, Search, Settings, Undo2, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
 import { subscribeFocusGoalCapture } from "../lib/capture";
@@ -188,6 +188,11 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
   // ノード数バッジも同時に廃止: 常時出る情報バッジは圧になるだけ）
   const { data: engineStatus } = usePolling(() => api.getEngineStatus(), 5000);
   const engineDown = engineStatus != null && !engineStatus.alive;
+  // 本体の更新（selfupdate.ts。2026-08-05）。エンジン停止表示と同じ流儀で、
+  // 「更新がある」ときだけ小さく出す（クリックで設定の「アップデート」節へ）。
+  // 5分毎の**表示用**ポーリングで、origin を見に行くのはサーバ側の定期チェック
+  const { data: updateStatus } = usePolling(() => api.getUpdate(), 5 * 60 * 1000);
+  const updateAvailable = (updateStatus?.behind ?? 0) > 0 || updateStatus?.restartPending === true;
 
   return (
     // 3カラム構造: 左右を flex-1 の等分にして、ゴール捕獲欄が**画面の中心**に来るようにする
@@ -219,6 +224,26 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
               <i className="inline-block size-2 flex-shrink-0 rounded-full bg-text-lo" />
               エンジン停止中
             </span>
+          </Hint>
+        )}
+        {updateAvailable && (
+          <Hint
+            id="update-available"
+            always={
+              updateStatus?.restartPending
+                ? "更新を取り込み済み（再起動待ち）"
+                : `更新が ${updateStatus?.behind} コミットあります`
+            }
+            text="GraphWrangler 本体の新しい版が origin にある。押すと設定の「アップデート」節が開く（取り込みと再起動はそこから）"
+          >
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-full border border-ai/40 px-2 py-0.5 text-xs text-ai transition-colors hover:bg-ai/10"
+              onClick={onOpenSettings}
+            >
+              <ArrowUpCircle className="size-3.5" />
+              {updateStatus?.restartPending ? "再起動待ち" : "更新あり"}
+            </button>
           </Hint>
         )}
       </div>

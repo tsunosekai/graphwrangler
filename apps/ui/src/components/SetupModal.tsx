@@ -4,8 +4,8 @@
 // （APIキー / ヘッドレスエージェントCLI）をドロップダウンで選ばせ、選んだ方式に応じて
 // 入力欄を出し分ける（docs/design.md: LLM選択は「APIキーの差し替え」でなく
 // 「エージェントごと差し替え」。2026-07-29 本人フィードバック「どっちを使う設定か分からない」対応）。
-import { useState } from "react";
-import { api, type SettingsPatch, type SettingsView } from "../lib/api";
+import { useEffect, useState } from "react";
+import { api, type SettingsPatch, type SettingsView, type UpdateStatus } from "../lib/api";
 import { hintsEnabled, resetHints, setHintsEnabled, useHintsVersion } from "../lib/hints";
 import { pushToast } from "../lib/toast";
 import { useTheme, type ThemeMode } from "../lib/theme";
@@ -91,6 +91,39 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [gitAutoPush, setGitAutoPush] = useState(settings.git.autoPush);
   const [gitIntervalSec, setGitIntervalSec] = useState(String(settings.git.intervalSec));
 
+  // 本体の自動アップデート（2026-08-05）。設定値は下の「保存」で送り、版の状態
+  // （何コミット遅れ・最終結果）は /api/update から別途読む
+  const [updAutoCheck, setUpdAutoCheck] = useState(settings.update?.autoCheck ?? true);
+  const [updAutoApply, setUpdAutoApply] = useState(settings.update?.autoApply ?? false);
+  const [updIntervalMin, setUpdIntervalMin] = useState(String(settings.update?.intervalMin ?? 60));
+  const [updStatus, setUpdStatus] = useState<UpdateStatus | null>(null);
+  const [updBusy, setUpdBusy] = useState(false);
+  useEffect(() => {
+    void api.getUpdate().then(setUpdStatus);
+  }, []);
+  const checkUpdate = async () => {
+    setUpdBusy(true);
+    try {
+      setUpdStatus(await api.checkUpdate());
+    } catch {
+      // api 側でトースト済み
+    } finally {
+      setUpdBusy(false);
+    }
+  };
+  const runUpdate = async () => {
+    setUpdBusy(true);
+    try {
+      const res = await api.runUpdate();
+      setUpdStatus(res.status);
+      pushToast(res.message, res.ok ? "info" : "error");
+    } catch {
+      // api 側でトースト済み
+    } finally {
+      setUpdBusy(false);
+    }
+  };
+
   const [saving, setSaving] = useState(false);
 
   // あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際の発火は App 側）
@@ -135,6 +168,11 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
         git: {
           autoPush: gitAutoPush,
           intervalSec: Math.min(3600, Math.max(15, parseInt(gitIntervalSec, 10) || 60)),
+        },
+        update: {
+          autoCheck: updAutoCheck,
+          autoApply: updAutoApply,
+          intervalMin: Math.min(1440, Math.max(5, parseInt(updIntervalMin, 10) || 60)),
         },
         setupDone: true,
       };
@@ -360,6 +398,73 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                 onChange={(e) => setGitIntervalSec(e.target.value)}
               />
             </label>
+          )}
+        </section>
+
+        {/* 本体の自動アップデート（2026-08-05 本人要望。zinsei と stremix で別インスタンスが
+            走っているので、それぞれが自分で追随できるようにする）。
+            取り込みは fast-forward のみ・未コミットの変更があるときは見送り（selfupdate.ts） */}
+        <section className={section}>
+          <h3 className={heading}>アップデート</h3>
+          {updStatus?.unavailableReason ? (
+            <p className={desc}>{updStatus.unavailableReason}</p>
+          ) : (
+            <>
+              <p className={desc}>
+                現在の版: {updStatus?.current ?? "—"}
+                {updStatus?.branch ? `（${updStatus.branch}）` : ""}
+                {updStatus?.currentSubject ? ` ${updStatus.currentSubject}` : ""}
+              </p>
+              <p className={desc}>
+                {updStatus === null
+                  ? "状態を取得中…"
+                  : updStatus.behind > 0
+                    ? `更新が ${updStatus.behind} コミットあります`
+                    : "最新です"}
+                {updStatus?.restartPending && "（更新済み・再起動待ち）"}
+                {updStatus && !updStatus.supervised && " / プロセス管理下ではないので再起動は手動です"}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" size="sm" disabled={updBusy} onClick={() => void checkUpdate()}>
+                  今すぐ確認
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={updBusy || !updStatus || updStatus.behind === 0}
+                  onClick={() => void runUpdate()}
+                >
+                  今すぐ更新
+                </Button>
+              </div>
+              {updStatus?.lastResult && <p className={desc}>直近の結果: {updStatus.lastResult}</p>}
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <Switch checked={updAutoCheck} onCheckedChange={setUpdAutoCheck} />
+                <span>更新があるか定期的に確認する</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <Switch checked={updAutoApply} onCheckedChange={setUpdAutoApply} />
+                <span>見つけたら自動で取り込んで再起動する</span>
+              </label>
+              <p className={desc}>
+                git pull（fast-forward のみ）→ 依存の導入 → UI ビルド → 再起動まで自動で行います。
+                アプリのリポジトリに未コミットの変更があるときは何もしません（開発中のツリーを壊さないため）。
+                再起動は systemd / pm2 に任せるので、それらの管理下でないときは取り込みだけ行って停止しません
+              </p>
+              {updAutoCheck && (
+                <label className={field}>
+                  <span>確認の間隔（分）</span>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={1440}
+                    value={updIntervalMin}
+                    onChange={(e) => setUpdIntervalMin(e.target.value)}
+                  />
+                </label>
+              )}
+            </>
           )}
         </section>
 

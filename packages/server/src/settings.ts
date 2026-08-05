@@ -65,11 +65,22 @@ export const GitSettingsSchema = z.object({
   extraPaths: z.array(z.string()).default([]),
 });
 
+/** GraphWrangler 本体の自動アップデート（selfupdate.ts。2026-08-05 本人要望——
+ *  zinsei と stremix の2インスタンスを手で追随させるのをやめるため）。
+ *  チェック（見るだけ）は副作用が無いので既定ON、取り込み（再起動を伴う）は既定OFF */
+export const UpdateSettingsSchema = z.object({
+  autoCheck: z.boolean().default(true),
+  autoApply: z.boolean().default(false),
+  /** チェック間隔（分）。5分未満・1日超は selfupdate 側で丸める */
+  intervalMin: z.number().int().min(5).max(1440).default(60),
+});
+
 export const SettingsSchema = z.object({
   chat: ChatSettingsSchema.default({}),
   engine: EngineSettingsSchema.default({}),
   ai: AiSettingsSchema.default({}),
   git: GitSettingsSchema.default({}),
+  update: UpdateSettingsSchema.default({}),
   /** 初回セットアップ画面を完了したか（スキップ含む） */
   setupDone: z.boolean().default(false),
 });
@@ -107,6 +118,7 @@ export class SettingsStore {
     engine?: Partial<z.input<typeof EngineSettingsSchema>>;
     ai?: Partial<z.input<typeof AiSettingsSchema>>;
     git?: Partial<z.input<typeof GitSettingsSchema>>;
+    update?: Partial<z.input<typeof UpdateSettingsSchema>>;
     setupDone?: boolean;
   }): Settings {
     const next: Settings = SettingsSchema.parse({
@@ -119,6 +131,7 @@ export class SettingsStore {
       engine: { ...this.cache.engine, ...patch.engine },
       ai: { ...this.cache.ai, ...patch.ai },
       git: { ...this.cache.git, ...patch.git },
+      update: { ...this.cache.update, ...patch.update },
       setupDone: patch.setupDone ?? this.cache.setupDone,
     });
     const tmp = `${this.file}.tmp`;
@@ -170,6 +183,11 @@ export class SettingsStore {
         autoPush: this.cache.git.autoPush,
         intervalSec: this.cache.git.intervalSec,
         extraPaths: this.cache.git.extraPaths,
+      },
+      update: {
+        autoCheck: this.cache.update.autoCheck,
+        autoApply: this.cache.update.autoApply,
+        intervalMin: this.cache.update.intervalMin,
       },
       setupDone: this.cache.setupDone,
     };
