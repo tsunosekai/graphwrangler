@@ -42,7 +42,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Switch } from "./ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { DecisionCard } from "./DecisionCard";
 import { Hint } from "./Hint";
 import { Icon } from "./Icon";
@@ -159,16 +158,19 @@ function BranchRow({
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
       />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        disabled={disabled || disableRemove}
-        title={disabled ? "ロック中は編集できません" : disableRemove ? "分岐は最低2つ必要です" : "この枝を削除"}
-        onClick={onRemove}
-      >
-        <Trash2 className="size-3.5" />
-      </Button>
+      <Hint id="branch-remove" always="この枝を削除">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          disabled={disabled || disableRemove}
+          // disabled 理由だけは native title（disabled にはポインタイベントが来ない）
+          title={disabled ? "ロック中は編集できません" : disableRemove ? "分岐は最低2つ必要です" : undefined}
+          onClick={onRemove}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </Hint>
     </div>
   );
 }
@@ -212,7 +214,11 @@ function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: s
 /** タブの未読ちょぼ。色はノードカード/レールの未読バッジと同じ bg-ai（青）で、
  *  「あなたの番」の橙(--attention)とは別物であることを色で示す */
 function UnreadDot() {
-  return <span className="size-1.5 flex-shrink-0 rounded-full bg-ai" title="このタブに未読があります" />;
+  return (
+    <Hint id="unread" always="このタブに未読があります" text={HINT_TEXT.unread}>
+      <span className="size-1.5 flex-shrink-0 rounded-full bg-ai" />
+    </Hint>
+  );
 }
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
@@ -735,27 +741,29 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             {node.fixed ? <Lock /> : <Unlock />}
           </Button>
         </Hint>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" onClick={handleDuplicate}>
-              <Copy />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>このノードを複製</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={handleDelete}
-            >
-              <Trash2 />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{node.fixed ? "このノードを削除（ロック中なので確認します）" : "このノードを削除"}</TooltipContent>
-        </Tooltip>
+        <Hint
+          id="node-duplicate"
+          always="このノードを複製"
+          text="依存・実装・担当なども引き継いだコピーを同じページに作る（進捗は待ちから）"
+        >
+          <Button type="button" variant="ghost" size="icon" onClick={handleDuplicate}>
+            <Copy />
+          </Button>
+        </Hint>
+        <Hint
+          id="node-delete"
+          always={node.fixed ? "このノードを削除（ロック中なので確認します）" : "このノードを削除"}
+          text="Ctrl+Z で戻せる。子や依存の巻き添えがあるときは削除前に確認が出る"
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleDelete}
+          >
+            <Trash2 />
+          </Button>
+        </Hint>
         {/* モバイルは下部タブバーでビューを移動するので ✕ は不要（2026-08-02 本人指示）。
             デスクトップはパネルを閉じる唯一の導線なので残す */}
         {!isMobile && (
@@ -776,9 +784,14 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             <span className="flex-1" />
             {/* 選び直し（手戻り）。自分が上流の分岐でskipされた場合(choice無し)は対象外 */}
             {node.status === "done" && node.choice && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => void revertDecision()}>
-                選び直す
-              </Button>
+              <Hint
+                id="decision-revert"
+                text="選択を取り消し、スキップされた枝を待ちに戻す（進んだ作業は戻らない）"
+              >
+                <Button type="button" variant="ghost" size="sm" onClick={() => void revertDecision()}>
+                  選び直す
+                </Button>
+              </Hint>
             )}
           </div>
         ) : (
@@ -1032,10 +1045,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               <div className="col-span-2 flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">下書き（未確定）</span>
                 <span className="flex-1" />
-                <Button type="button" variant="outline" size="sm"
-                  onClick={() => patch({ lifecycle: "committed" })}>
-                  プラン済みにする
-                </Button>
+                <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
+                  <Button type="button" variant="outline" size="sm"
+                    onClick={() => patch({ lifecycle: "committed" })}>
+                    プラン済みにする
+                  </Button>
+                </Hint>
               </div>
             )}
             {/* ルーティーン（トリガーを持つページ）のメンバーはテンプレート＝それ自体は進捗を持たない
@@ -1055,17 +1070,19 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     {node.lifecycle === "draft" ? "下書き（未確定）" : "未計画"}
                   </span>
                   <span className="flex-1" />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={async () => {
-                      if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
-                      patch({ status: "pending", lifecycle: "committed" });
-                    }}
-                  >
-                    プラン済みにする
-                  </Button>
+                  <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
+                        patch({ status: "pending", lifecycle: "committed" });
+                      }}
+                    >
+                      プラン済みにする
+                    </Button>
+                  </Hint>
                 </div>
               )}
             {node.kind !== "trigger" &&
@@ -1103,26 +1120,28 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       承認待ち・分岐待ちは判断カードが往復を担うので出さない */}
                   {activeRunItem.status === "waiting" && activeRunItem.note?.startsWith("失敗") && (
                     <>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={runItemBusy}
-                        title="待ちに戻す（エンジンがもう一度実行する）"
-                        onClick={() => patchRunItemStatus("pending")}
-                      >
-                        もう一度
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={runItemBusy}
-                        title="このランではこのステップを見送る"
-                        onClick={() => patchRunItemStatus("skipped")}
-                      >
-                        このランでは飛ばす
-                      </Button>
+                      <Hint id="run-retry" text="待ちに戻して、エンジンにもう一度実行させる">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={runItemBusy}
+                          onClick={() => patchRunItemStatus("pending")}
+                        >
+                          もう一度
+                        </Button>
+                      </Hint>
+                      <Hint id="run-skip" text="このランではこのステップを見送る（テンプレートは変えない）">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={runItemBusy}
+                          onClick={() => patchRunItemStatus("skipped")}
+                        >
+                          このランでは飛ばす
+                        </Button>
+                      </Hint>
                     </>
                   )}
                   {/* 分岐(decision)のアイテムは「分岐を選ぶ」で決着する（choice を経ずに done に
@@ -1154,16 +1173,17 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       </Button>
                     )}
                   {node.executor === "human" && node.kind === "task" && activeRunItem.status === "running" && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={runItemBusy}
-                      title="着手前（待ち）に戻す"
-                      onClick={() => patchRunItemStatus("pending")}
-                    >
-                      戻す
-                    </Button>
+                    <Hint id="status-back" text="着手前（待ち）に戻す">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={runItemBusy}
+                        onClick={() => patchRunItemStatus("pending")}
+                      >
+                        戻す
+                      </Button>
+                    </Hint>
                   )}
                 </div>
               ) : (
@@ -1200,13 +1220,15 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     </span>
                     <span className="flex-1" />
                     {(vs === "unplanned" || node.lifecycle === "draft") && (
-                      <Button type="button" variant="outline" size="sm"
-                        onClick={async () => {
-                          if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
-                          patch({ status: "pending", lifecycle: "committed" });
-                        }}>
-                        プラン済みにする
-                      </Button>
+                      <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
+                        <Button type="button" variant="outline" size="sm"
+                          onClick={async () => {
+                            if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
+                            patch({ status: "pending", lifecycle: "committed" });
+                          }}>
+                          プラン済みにする
+                        </Button>
+                      </Hint>
                     )}
                     {/* プラン済みの取り消し（計画系なので decision でも frontier 前でも出す。
                         2026-08-01 本人要望「プラン済みを未プランに戻す方法が無い」）。
@@ -1214,15 +1236,16 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                         エンジンは unplanned を拾わないため安全で、「プラン済みにする」が
                         再表示されて行き止まりにならない */}
                     {vs === "pending" && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        title="プランを取り消して未計画に戻す（エンジンの実行対象から外す）"
-                        onClick={() => patch({ status: "unplanned" })}
-                      >
-                        未計画に戻す
-                      </Button>
+                      <Hint id="status-unplan" text="プランを取り消して未計画に戻す（エンジンの実行対象から外す）">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => patch({ status: "unplanned" })}
+                        >
+                          未計画に戻す
+                        </Button>
+                      </Hint>
                     )}
                     {exec && vs === "pending" && node.lifecycle === "committed" && !frontier && (
                       <span className="text-xs text-muted-foreground">前のノードが終わると着手できます</span>
@@ -1240,21 +1263,25 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     {/* dropped（中止）は kind を問わず復帰できる（エンジンの abort 回答で
                         dropped になったノードが行き止まりにならないように） */}
                     {((exec && (vs === "running" || vs === "done")) || vs === "dropped") && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        title={
+                      <Hint
+                        id="status-back"
+                        text={
                           vs === "running"
                             ? "着手前（待ち）に戻す"
                             : vs === "done"
                               ? "未完了（待ち）に戻す"
                               : "中止を取り消して待ちに戻す"
                         }
-                        onClick={() => patch({ status: "pending" })}
                       >
-                        戻す
-                      </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => patch({ status: "pending" })}
+                        >
+                          戻す
+                        </Button>
+                      </Hint>
                     )}
                   </div>
                 );
@@ -1291,16 +1318,17 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       style={{ background: colorOf(m) }}
                     />
                     {displayNameOf(m, users)}
-                    <button
-                      type="button"
-                      className="inline-flex text-muted-foreground transition-colors hover:text-foreground"
-                      title="関係者から外す"
-                      onClick={() =>
-                        patch({ members: (node.members ?? []).filter((x) => !sameEmail(x, m)) })
-                      }
-                    >
-                      <X className="size-3" />
-                    </button>
+                    <Hint id="member-remove" always="関係者から外す">
+                      <button
+                        type="button"
+                        className="inline-flex text-muted-foreground transition-colors hover:text-foreground"
+                        onClick={() =>
+                          patch({ members: (node.members ?? []).filter((x) => !sameEmail(x, m)) })
+                        }
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </Hint>
                   </span>
                 ))}
                 {/* ページのみ: 配下ノード由来の継承分（手動 members に無い人）。集計値なので
@@ -1309,14 +1337,17 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   effectiveMembers(node, allNodes)
                     .filter((m) => !(node.members ?? []).some((x) => sameEmail(x, m)))
                     .map((m) => (
-                      <span
+                      <Hint
                         key={m}
-                        className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-text-lo"
-                        title="配下ノードの担当・関係者・作成者から自動集計"
+                        id="members-auto"
+                        always="自動集計の関係者"
+                        text="配下ノードの担当者・関係者・作成者から自動で集まった分。ここでは外せない（外すには配下ノード側の帰属を変える）"
                       >
-                        {displayNameOf(m, users)}
-                        <span className="text-[9px]">自動</span>
-                      </span>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-text-lo">
+                          {displayNameOf(m, users)}
+                          <span className="text-[9px]">自動</span>
+                        </span>
+                      </Hint>
                     ))}
                 {/* まだ手動 members に居ないロスターの人だけを候補に出す（無効化ユーザーは除外。
                     2026-08-04 アカウント管理）。候補ゼロなら＋自体を出さない */}
@@ -1324,17 +1355,18 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   (u) => !u.disabled && !(node.members ?? []).some((m) => sameEmail(m, u.email)),
                 ) && (
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-6 rounded-full text-muted-foreground"
-                        title="関係者を追加"
-                      >
-                        <Plus className="size-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
+                    <Hint id="member-add" always="関係者を追加">
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 rounded-full text-muted-foreground"
+                        >
+                          <Plus className="size-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                    </Hint>
                     <DropdownMenuContent align="start">
                       {users
                         .filter(
@@ -1418,21 +1450,23 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   rows={4}
                 />
                 {implTextDraft.trim() && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="self-start"
-                    disabled={node.fixed}
-                    title={
-                      node.fixed
-                        ? "ロック中はファイル化できません（先に解除）"
-                        : "本文をワークスペース内の .md ファイルへ書き出し、path 参照に切り替える（git で版管理される）"
-                    }
-                    onClick={() => void fileifyImplDoc()}
+                  <Hint
+                    id="impl-fileify"
+                    text="本文をワークスペース内の .md ファイルへ書き出し、path 参照に切り替える（git で版管理される）"
                   >
-                    <Icon name="doc" size={13} /> 本文をファイル化
-                  </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="self-start"
+                      disabled={node.fixed}
+                      // disabled 理由だけは native title（disabled にはポインタイベントが来ない）
+                      title={node.fixed ? "ロック中はファイル化できません（先に解除）" : undefined}
+                      onClick={() => void fileifyImplDoc()}
+                    >
+                      <Icon name="doc" size={13} /> 本文をファイル化
+                    </Button>
+                  </Hint>
                 )}
               </>
             )}
@@ -1477,21 +1511,23 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   {/* ラベルは「試走」だけにし、説明はツールチップへ（2026-07-31 本人指定）。
                       試走=常に--dry-runの予告編なので、実行前承認ノードでも試走できる
                       （旧「承認ノードは試走不可」ルールは撤廃） */}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={trialRunning || missingParams.length > 0}
-                    title={
-                      missingParams.length > 0
-                        ? `未入力: ${missingParams.join(", ")}`
-                        : "--dry-run 付きで実行します（何も変えず、やる予定の操作を表示するだけ）"
-                    }
-                    onClick={runTrial}
+                  <Hint
+                    id="trial"
+                    text="--dry-run を付けて実行し、何も変えずに「やる予定の操作」だけを表示する。実行前承認のノードでも安全に試せる"
                   >
-                    {trialRunning && <Loader2 className="size-3.5 animate-spin" />}
-                    試走
-                  </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={trialRunning || missingParams.length > 0}
+                      // disabled 理由だけは native title（disabled にはポインタイベントが来ない）
+                      title={missingParams.length > 0 ? `未入力: ${missingParams.join(", ")}` : undefined}
+                      onClick={runTrial}
+                    >
+                      {trialRunning && <Loader2 className="size-3.5 animate-spin" />}
+                      試走
+                    </Button>
+                  </Hint>
                   {missingParams.length > 0 && (
                     <span className="text-xs text-destructive">未入力: {missingParams.join(", ")}</span>
                   )}
@@ -1606,32 +1642,41 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               <MessageSquare className="size-3.5" /> 会話
               {hasUnreadIn("talk") && <UnreadDot />}
             </TabsTrigger>
-            <TabsTrigger value="history">
-              <History className="size-3.5" /> 履歴
-              {hasUnreadIn("history") && <UnreadDot />}
-            </TabsTrigger>
-            <TabsTrigger value="log">
-              <ScrollText className="size-3.5" /> 実行記録
-              {hasUnreadIn("log") && <UnreadDot />}
-            </TabsTrigger>
+            <Hint id="tab-history" text="「新しい会話」で区切った過去の会話。カードで選んで読み返せる">
+              <TabsTrigger value="history">
+                <History className="size-3.5" /> 履歴
+                {hasUnreadIn("history") && <UnreadDot />}
+              </TabsTrigger>
+            </Hint>
+            <Hint id="tab-log" text="エンジンの実行・試走・状態変化・成果物の記録（会話とは別ストリーム）">
+              <TabsTrigger value="log">
+                <ScrollText className="size-3.5" /> 実行記録
+                {hasUnreadIn("log") && <UnreadDot />}
+              </TabsTrigger>
+            </Hint>
           </TabsList>
         </Tabs>
         <span className="flex shrink-0 items-center">
         {/* 狭い画面ではラベルを落としてアイコンだけにする（2026-08-02 本人指示
             「新しい会話ボタンは入りきってないからアイコンに」）。右肩のトグルは
             文字のままにしたいので、縮めるのはこちらだけ */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="px-2 text-muted-foreground md:px-3"
-          title="ここまでの会話を区切って新しく始める（過去分は履歴タブに残る）"
-          aria-label="新しい会話"
-          onClick={() => void startNewTalk()}
+        <Hint
+          id="chat-new"
+          always="新しい会話"
+          text="ここまでの会話を区切って新しく始める（過去分は履歴タブに残る）"
         >
-          <MessageSquarePlus className="size-3.5 md:hidden" />
-          <span className="hidden md:inline">新しい会話</span>
-        </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="px-2 text-muted-foreground md:px-3"
+            aria-label="新しい会話"
+            onClick={() => void startNewTalk()}
+          >
+            <MessageSquarePlus className="size-3.5 md:hidden" />
+            <span className="hidden md:inline">新しい会話</span>
+          </Button>
+        </Hint>
         {/* トグルは元どおりタブ行の右肩（＝会話の上）。モバイルでノード詳細だけを出して
             いる間はこのタブ行ごと消えるので、そのときだけ一番下の行に同じボタンを出す
             （下の isMobile && metaOpen のブロック） */}

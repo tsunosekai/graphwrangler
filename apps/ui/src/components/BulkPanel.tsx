@@ -13,10 +13,13 @@ import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from ".
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { displayNameOf, useTeam } from "../lib/team";
 import { pushToast } from "../lib/toast";
+import { cn } from "../lib/utils";
 import type { Node } from "../types";
 import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
+import { HINT_TEXT } from "../lib/hints";
+import { Hint } from "./Hint";
 
 interface Props {
   /** 選択中のノード群（2件以上） */
@@ -185,7 +188,9 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
       </p>
 
       <div className="flex flex-col gap-1.5">
-        <span className={sectionLabel}>担当</span>
+        <Hint id="executor" text={HINT_TEXT.executor}>
+          <span className={cn(sectionLabel, "self-start")}>担当</span>
+        </Hint>
         <Select
           value={commonExecutor}
           disabled={busy || unfixed.length === 0}
@@ -208,10 +213,12 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
           変更した瞬間に対象へ順に適用してトーストで件数を知らせる */}
       {teamEnabled && (
         <div className="flex flex-col gap-1.5">
-          <span className={sectionLabel}>
-            担当者
-            <span className="ml-1.5 font-normal">（人間担当 {assigneeTargets.length}件）</span>
-          </span>
+          <Hint id="assignee" text={HINT_TEXT.assignee}>
+            <span className={cn(sectionLabel, "self-start")}>
+              担当者
+              <span className="ml-1.5 font-normal">（人間担当 {assigneeTargets.length}件）</span>
+            </span>
+          </Hint>
           <Select
             value={commonAssignee}
             disabled={busy || assigneeTargets.length === 0}
@@ -241,12 +248,14 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
 
       {approvalTargets.length > 0 && (
         <label className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
-          <span>
-            実行前承認
-            <span className="ml-1.5 text-xs text-muted-foreground">
-              （AI/スクリプト担当 {approvalTargets.length}件）
+          <Hint id="approval" text={HINT_TEXT.approval}>
+            <span>
+              実行前承認
+              <span className="ml-1.5 text-xs text-muted-foreground">
+                （AI/スクリプト担当 {approvalTargets.length}件）
+              </span>
             </span>
-          </span>
+          </Hint>
           <Switch
             checked={allIrreversible}
             disabled={busy}
@@ -258,7 +267,9 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
       )}
 
       <div className="flex flex-col gap-1.5">
-        <span className={sectionLabel}>プラン</span>
+        <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
+          <span className={cn(sectionLabel, "self-start")}>プラン</span>
+        </Hint>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" disabled={busy || commitTargets.length === 0} onClick={commitAll}>
             プラン済みにする（{commitTargets.length}）
@@ -276,7 +287,9 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className={sectionLabel}>Fix（ロック）</span>
+        <Hint id="fixed" text={HINT_TEXT.fixed}>
+          <span className={cn(sectionLabel, "self-start")}>Fix（ロック）</span>
+        </Hint>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"

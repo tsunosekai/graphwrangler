@@ -6,6 +6,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "../lib/utils";
 import { Badge } from "./ui/badge";
+import { Hint } from "./Hint";
 
 type ChatToolPart = Extract<UIMessagePart<UIDataTypes, UITools>, { type: "dynamic-tool" }>;
 
@@ -109,15 +110,16 @@ function ReasoningPart({ text }: { text: string }) {
   const preview = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
   return (
     <div className="px-3 py-0.5 text-sm text-text-lo">
+      <Hint id="reasoning-toggle" always={open ? "思考を畳む" : "思考を開く"}>
       <button
         type="button"
         className="inline-flex max-w-full items-baseline gap-1 text-left italic transition-colors hover:text-foreground/80"
         onClick={() => setOpen((v) => !v)}
-        title={open ? "思考を畳む" : "思考を開く"}
       >
         <span className={cn("inline-block text-[0.7em] transition-transform", open && "rotate-90")}>▶</span>
         <span className="truncate">思考{open ? "" : `: ${preview}`}</span>
       </button>
+      </Hint>
       {open && (
         <div className="chat-md mt-1 break-words border-l-2 border-border pl-2 italic">
           <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>

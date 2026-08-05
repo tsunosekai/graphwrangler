@@ -23,6 +23,7 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Switch } from "./ui/switch";
+import { Hint } from "./Hint";
 
 interface Props {
   open: boolean;
@@ -158,17 +159,18 @@ export function UserAdminDialog({ open, onOpenChange }: Props) {
                   </span>
                   <span className="truncate text-xs text-muted-foreground">{u.email}</span>
                 </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground"
-                  title="表示名を変更"
-                  disabled={busy}
-                  onClick={() => void rename(u.email, u.displayName)}
-                >
-                  <Pencil className="size-3.5" />
-                </Button>
+                <Hint id="user-rename" always="表示名を変更">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-muted-foreground"
+                    disabled={busy}
+                    onClick={() => void rename(u.email, u.displayName)}
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                </Hint>
                 <label
                   className="flex items-center gap-1 text-xs text-muted-foreground"
                   title={self ? "自分自身の admin は外せません" : "管理者権限"}
@@ -191,17 +193,22 @@ export function UserAdminDialog({ open, onOpenChange }: Props) {
                 >
                   {u.disabled ? "有効化" : "無効化"}
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-muted-foreground"
-                  title="パスワードをリセット（新パスワードを一度だけ表示）"
-                  disabled={busy}
-                  onClick={() => void resetPassword(u.email)}
+                <Hint
+                  id="user-passwd-reset"
+                  always="パスワードをリセット"
+                  text="新しいパスワードを生成して一度だけ表示する。本人の既存ログインは即失効する"
                 >
-                  <KeyRound className="size-3.5" />
-                </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-muted-foreground"
+                    disabled={busy}
+                    onClick={() => void resetPassword(u.email)}
+                  >
+                    <KeyRound className="size-3.5" />
+                  </Button>
+                </Hint>
               </div>
             );
           })}

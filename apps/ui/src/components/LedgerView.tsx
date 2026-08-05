@@ -6,10 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { promptDialog } from "../lib/dialogs";
 import { usePolling } from "../hooks/usePolling";
+import { HINT_TEXT } from "../lib/hints";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { Node, RunItem, RunItemStatus, RunStatus, Status, TraceEvent } from "../types";
 import { Button } from "./ui/button";
+import { Hint } from "./Hint";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 
@@ -234,27 +236,36 @@ export function LedgerView({ page, members, onMutated }: Props) {
         <span className="text-xs text-muted-foreground">{runs.length} 件のラン</span>
         <div className="flex items-center gap-2">
           {selectedRun?.status === "running" && (
+            <Hint id="run-cancel" text="選択中のランを打ち切る（アイテムはそれ以上進まなくなる）">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-destructive/40 text-destructive"
+                onClick={cancelSelected}
+              >
+                キャンセル
+              </Button>
+            </Hint>
+          )}
+          <Hint
+            id="fire"
+            always={triggerNode ? `トリガー「${triggerNode.title || "（無題）"}」を発火` : undefined}
+            text={HINT_TEXT.fire}
+          >
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="border-destructive/40 text-destructive"
-              onClick={cancelSelected}
+              className="border-ai/40 text-ai"
+              disabled={starting || !triggerNode}
+              // disabled 理由だけは native title（disabled にはポインタイベントが来ない）
+              title={triggerNode ? undefined : "トリガーがありません"}
+              onClick={startRun}
             >
-              キャンセル
+              ▶ 発火
             </Button>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="border-ai/40 text-ai"
-            disabled={starting || !triggerNode}
-            onClick={startRun}
-            title={triggerNode ? `トリガー「${triggerNode.title || "（無題）"}」を発火` : "トリガーがありません"}
-          >
-            ▶ 発火
-          </Button>
+          </Hint>
         </div>
       </div>
 
@@ -338,28 +349,30 @@ export function LedgerView({ page, members, onMutated }: Props) {
           <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-3.5 py-2 text-xs font-semibold text-muted-foreground">
             <span className="flex min-w-0 items-center gap-1">
               <span className="truncate">トレース: {selectedRun.title}</span>
+              <Hint id="run-rename" always="ラン名を変更">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-muted-foreground"
+                  onClick={() => void renameSelected()}
+                >
+                  ✎
+                </Button>
+              </Hint>
+            </span>
+            <Hint id="ledger-replay" text="このランの記録（トレース）を1.1秒間隔で順に再生する">
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="h-6 px-1.5 text-muted-foreground"
-                title="ラン名を変更"
-                onClick={() => void renameSelected()}
+                className="border-ai/40 text-ai"
+                disabled={events.length === 0}
+                onClick={toggleReplay}
               >
-                ✎
+                {replaying ? "⏸" : "▶再生"}
               </Button>
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="border-ai/40 text-ai"
-              disabled={events.length === 0}
-              onClick={toggleReplay}
-              title="1.1秒間隔でイベントを順に再生する"
-            >
-              {replaying ? "⏸" : "▶再生"}
-            </Button>
+            </Hint>
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3.5 py-1.5" ref={traceBodyRef}>
             {events.length === 0 && <div className="py-2 text-xs text-text-lo">まだありません</div>}

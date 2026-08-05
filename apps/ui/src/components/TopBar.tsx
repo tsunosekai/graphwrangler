@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Hint } from "./Hint";
 import { Icon } from "./Icon";
 
 /** ルーティーンページのラン待ち項目。App がデスクトップ通知の判定に使う
@@ -40,32 +40,35 @@ interface Props {
 }
 
 
+/** ヘッダーのアイコンボタン。ホバーは Hint（吹き出し）で統一——title=操作名（常時）、
+ *  hint=一歩踏み込んだ説明（OKで消える。無い操作は省略でラベルだけの吹き出し） */
 function IconButton({
+  id,
   title,
+  hint,
   onClick,
   active,
   children,
 }: {
+  id: string;
   title: string;
+  hint?: string;
   onClick: () => void;
   active?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={active ? "text-ai" : undefined}
-          onClick={onClick}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{title}</TooltipContent>
-    </Tooltip>
+    <Hint id={id} always={title} text={hint}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={active ? "text-ai" : undefined}
+        onClick={onClick}
+      >
+        {children}
+      </Button>
+    </Hint>
   );
 }
 
@@ -197,22 +200,26 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
         {/* 元に戻すはタイトルの右（2026-08-01 本人指定。グラフ操作の直後に目が行く位置）。
             モバイルでは非表示（2026-08-02 本人指示「前のページに戻るボタンだと思って押してしまう」） */}
         <span className="max-md:hidden">
-          <IconButton title="元に戻す (Ctrl+Z)" onClick={onUndo}>
+          <IconButton
+            id="undo"
+            title="元に戻す (Ctrl+Z)"
+            hint="直前のグラフ操作を取り消す（操作ログへの補償追記なので、AIの変更も戻せる）"
+            onClick={onUndo}
+          >
             <Undo2 />
           </IconButton>
         </span>
         {engineDown && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                <i className="inline-block size-2 flex-shrink-0 rounded-full bg-text-lo" />
-                エンジン停止中
-              </span>
-            </TooltipTrigger>
-            <TooltipContent className="whitespace-pre-line">
-              {`最終確認: ${engineStatus?.lastSeen ?? "-"}\n起動: pnpm --filter @graphwrangler/engine start`}
-            </TooltipContent>
-          </Tooltip>
+          <Hint
+            id="engine-down"
+            always={`最終確認: ${engineStatus?.lastSeen ?? "-"}\n起動: pnpm --filter @graphwrangler/engine start`}
+            text="AI・スクリプトのノードを自動で進めるプロセスが動いていない。起動するまでノードは進まない"
+          >
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <i className="inline-block size-2 flex-shrink-0 rounded-full bg-text-lo" />
+              エンジン停止中
+            </span>
+          </Hint>
         )}
       </div>
       {/* 旧「あなたの番 N」＝受信箱があった場所。数を数える箱をやめ、ゴールを投げ込む口にした */}
@@ -220,21 +227,32 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
         <GoalCapture onCapture={onCaptureGoal} />
       </div>
       <div className="flex flex-1 items-center justify-end gap-3">
-        <IconButton title="全ノード検索 (Ctrl+K)" onClick={() => openPalette()}>
+        <IconButton
+          id="search"
+          title="全ノード検索 (Ctrl+K)"
+          hint="タイトル・detail で全ページのノードを横断検索して移動"
+          onClick={() => openPalette()}
+        >
           <Search />
         </IconButton>
         {/* キーボードショートカットはモバイルでは無意味なので隠す */}
         <span className="max-md:hidden">
-          <IconButton title="ショートカット一覧 (?)" onClick={() => openShortcuts()}>
+          <IconButton id="shortcuts" title="ショートカット一覧 (?)" onClick={() => openShortcuts()}>
             <Keyboard />
           </IconButton>
         </span>
-        <IconButton title="設定" onClick={onOpenSettings}>
+        <IconButton id="settings" title="設定" onClick={onOpenSettings}>
           <Settings />
         </IconButton>
         {/* モバイルでは下部タブバーの「チャット」と重複するので隠す（2026-08-02 本人指示） */}
         <span className="max-md:hidden">
-          <IconButton title="GraphWrangler AI とチャット" onClick={onToggleChat} active={chatOpen}>
+          <IconButton
+            id="chat-ai"
+            title="GraphWrangler AI とチャット"
+            hint="グラフ全体を見て分解・整理・一括操作を手伝うAI。ノード単位の相談はノードを開いた先の Task AI へ"
+            onClick={onToggleChat}
+            active={chatOpen}
+          >
             <Icon name="chat" size={16} />
           </IconButton>
         </span>

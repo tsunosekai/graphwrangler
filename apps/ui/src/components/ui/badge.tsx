@@ -26,23 +26,25 @@ const badgeVariants = cva(
   }
 )
 
-function Badge({
-  className,
-  variant = "default",
-  asChild = false,
-  ...props
-}: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+// forwardRef 必須: TooltipTrigger（Hint）等の asChild は Radix Slot が ref を子へ渡すため、
+// React 18 の関数コンポーネントのままでは ref が落ちて吹き出しの位置決めができない
+// （button.tsx と同じ理由）
+const Badge = React.forwardRef<
+  HTMLSpanElement,
+  React.ComponentProps<"span"> & VariantProps<typeof badgeVariants> & { asChild?: boolean }
+>(({ className, variant = "default", asChild = false, ...props }, ref) => {
   const Comp = asChild ? Slot.Root : "span"
 
   return (
     <Comp
+      ref={ref}
       data-slot="badge"
       data-variant={variant}
       className={cn(badgeVariants({ variant }), className)}
       {...props}
     />
   )
-}
+})
+Badge.displayName = "Badge"
 
 export { Badge, badgeVariants }

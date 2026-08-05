@@ -6,6 +6,7 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { History, MessageSquare } from "lucide-react";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { pushToast } from "../lib/toast";
+import { Hint } from "./Hint";
 import { Button } from "./ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
@@ -399,9 +400,11 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
               }}
             />
             {busy ? (
-              <Button type="button" variant="secondary" onClick={() => stop()} title="応答を止める">
-                停止
-              </Button>
+              <Hint id="chat-stop" text="応答の生成を打ち切る（途中までの内容は残る）">
+                <Button type="button" variant="secondary" onClick={() => stop()}>
+                  停止
+                </Button>
+              </Hint>
             ) : (
               <Button type="button" variant="secondary" disabled={!input.trim()} onClick={send}>
                 送信

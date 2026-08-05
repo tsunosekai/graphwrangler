@@ -203,37 +203,44 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       {/* PDG風の完了/中止マーク（カード左外側の丸バッジ）。テンプレートには出さない
           ——ただしアクティブなランの投影中は item.status で描く（docs/design.md 3.8） */}
       {showStatus && visualStatus === "done" && (
-        <span className="pdg-badge text-ok" title="完了">
-          <Icon name="check" size={14} />
-        </span>
+        <Hint id="badge-done" always="完了">
+          <span className="pdg-badge text-ok">
+            <Icon name="check" size={14} />
+          </span>
+        </Hint>
       )}
       {showStatus && visualStatus === "dropped" && (
-        <span className="pdg-badge text-text-lo" title="中止">
-          <Icon name="x" size={13} />
-        </span>
+        <Hint id="badge-dropped" always="中止" text="進捗の「戻す」で待ちに復帰できる">
+          <span className="pdg-badge text-text-lo">
+            <Icon name="x" size={13} />
+          </span>
+        </Hint>
       )}
       {/* 処理中スピナーもチェックと同じ左外の丸バッジ（同位置・同サイズ。2026-07-31 本人指定）。
           done/running は排他なので左スロットは衝突しない */}
       {showStatus && visualStatus === "running" && (
-        <span className="pdg-badge" style={{ color: "var(--active-color)" }} title="処理中">
-          <Loader2 className="size-3.5 animate-spin" />
-        </span>
+        <Hint id="badge-running" always="処理中">
+          <span className="pdg-badge" style={{ color: "var(--active-color)" }}>
+            <Loader2 className="size-3.5 animate-spin" />
+          </span>
+        </Hint>
       )}
       {/* 右側のバッジ列: 発火(▶) + Fix（ロック）トグル */}
       <span className="absolute -right-[30px] inset-y-0 flex flex-col items-center justify-center gap-1">
         {node.kind === "trigger" && (
-          <button
-            type="button"
-            className="nodrag inline-flex size-[22px] items-center justify-center rounded-full border border-border bg-background text-text-lo transition-opacity hover:opacity-90 disabled:opacity-40"
-            title="手動発火"
-            disabled={firing}
-            onClick={(e) => {
-              e.stopPropagation();
-              void fire();
-            }}
-          >
-            <Play className="size-3" />
-          </button>
+          <Hint id="fire" always="手動発火" text={HINT_TEXT.fire}>
+            <button
+              type="button"
+              className="nodrag inline-flex size-[22px] items-center justify-center rounded-full border border-border bg-background text-text-lo transition-opacity hover:opacity-90 disabled:opacity-40"
+              disabled={firing}
+              onClick={(e) => {
+                e.stopPropagation();
+                void fire();
+              }}
+            >
+              <Play className="size-3" />
+            </button>
+          </Hint>
         )}
         <Hint
           id="fixed"
@@ -262,15 +269,20 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           他人の番（assignee が他人。チーム化 2026-08-04）は attention 色にせず human 席色で
           「誰かの回答待ち」だけ伝える */}
       {((!isTemplate && node.pendingRequest) || (projecting && visualStatus === "waiting")) && (
-        <span
-          className="absolute -right-1 -top-1 size-2 flex-shrink-0 rounded-full"
-          style={{ background: turnMine ? "var(--attention)" : "var(--human)" }}
-          title={
+        <Hint
+          id="turn"
+          always={
             turnMine || !node.assignee
               ? "あなたの番"
               : `${displayNameOf(node.assignee, users)}の番（回答待ち）`
           }
-        />
+          text="質問・承認・分岐の回答待ち。ノードを開いて判断カードから回答すると先へ進む"
+        >
+          <span
+            className="absolute -right-1 -top-1 size-2 flex-shrink-0 rounded-full"
+            style={{ background: turnMine ? "var(--attention)" : "var(--human)" }}
+          />
+        </Hint>
       )}
       <div
         className={cn(
@@ -349,9 +361,15 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             kind=trigger は対象外——トリガーの executor=script は「schedule で発火する」の意味で
             あって command 実行ではない（docs/design.md 3.8）ため、impl 不要 */}
         {node.executor === "script" && node.kind !== "trigger" && node.impl?.type !== "script" && (
-          <span className="flex-shrink-0 text-destructive" title="実装が未接続（実行すると失敗します）">
-            <Icon name="alert" size={12} />
-          </span>
+          <Hint
+            id="impl-missing"
+            always="実装が未接続"
+            text="担当がスクリプトなのに実装がスクリプトでない=実行すると失敗する。実装欄でコマンドを設定するか担当を変える"
+          >
+            <span className="flex-shrink-0 text-destructive">
+              <Icon name="alert" size={12} />
+            </span>
+          </Hint>
         )}
         {node.approval && (
           <Hint
@@ -366,23 +384,31 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         )}
         {/* 未読はカード内の右側（レールの未読バッジと同じ「右端」ポジション。旧: 左肩の外付けドット） */}
         {data.unread && (
-          <span className="size-2 flex-shrink-0 rounded-full bg-ai" title="未読メッセージあり" />
+          <Hint id="unread" always="未読メッセージあり" text={HINT_TEXT.unread}>
+            <span className="size-2 flex-shrink-0 rounded-full bg-ai" />
+          </Hint>
         )}
       </div>
       {(showFoot || phaseAction || runButtons.length > 0) && (
         <div className="mt-1.5 flex items-center gap-2">
           {showFoot && <span className="text-xs text-muted-foreground">{STATUS_LABEL[node.status]}</span>}
           {phaseAction && (
-            <button
-              type="button"
-              className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
-              onClick={async (e) => {
-                e.stopPropagation();
-                await api.patchNode(node.id, phaseAction.patch);
-              }}
+            <Hint
+              id="commit-plan"
+              // 「完了」ボタンのときは text なし=ヒント自体を出さない（自明）
+              text={phaseAction.label === "プラン済みにする" ? HINT_TEXT.commitPlan : undefined}
             >
-              {phaseAction.label}
-            </button>
+              <button
+                type="button"
+                className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  await api.patchNode(node.id, phaseAction.patch);
+                }}
+              >
+                {phaseAction.label}
+              </button>
+            </Hint>
           )}
           {/* ラン投影の段階ボタン（docs/design.md 3.8）。担当が human のワークアイテムのみ。
               テンプレートの patchNode ではなく、ランのアイテムを更新する（api.patchRunItem） */}

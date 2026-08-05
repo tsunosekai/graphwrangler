@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { PanelLeft, PanelLeftClose, Settings2 } from "lucide-react";
 import { focusGoalCapture } from "../lib/capture";
+import { HINT_TEXT } from "../lib/hints";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { isRoutinePage } from "../lib/routine";
 import { colorOf, displayNameOf, effectiveMembers, initialOf, sameEmail, turnIsMine, useTeam } from "../lib/team";
@@ -247,9 +248,15 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       >
         <span className="flex min-w-0 items-center gap-2">
           {routine ? (
-            <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground" title="ルーティーンページ">
-              <Icon name="repeat" size={12} />
-            </span>
+            <Hint
+              id="page-routine"
+              always="ルーティーンページ"
+              text="トリガーを持つページ。発火のたびにラン（実行インスタンス）が生まれ、進捗はランごとに付く"
+            >
+              <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground">
+                <Icon name="repeat" size={12} />
+              </span>
+            </Hint>
           ) : (
             <StatusCircle status={f.status} size={12} />
           )}
@@ -279,37 +286,48 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
           )}
           {/* 実行中のラン数（並走中の世界線）。1本でも「回っている」ことが分かるように出す */}
           {routine && (runningCounts[f.id] ?? 0) > 0 && (
-            <span
-              className="flex-shrink-0 rounded border border-ai/40 px-1 text-[10px] leading-4 text-ai"
-              title={`実行中のラン ${runningCounts[f.id]} 本`}
+            <Hint
+              id="running-runs"
+              always={`実行中のラン ${runningCounts[f.id]} 本`}
+              text="並走中のラン（世界線）の数。グラフ上部のセレクタで投影するランを切り替えられる"
             >
-              ▶ {runningCounts[f.id]}
-            </span>
+              <span className="flex-shrink-0 rounded border border-ai/40 px-1 text-[10px] leading-4 text-ai">
+                ▶ {runningCounts[f.id]}
+              </span>
+            </Hint>
           )}
           {unreadCount > 0 && (
-            <span
-              className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white"
-              title={`未読メッセージのあるノード ${unreadCount} 件`}
+            <Hint
+              id="unread"
+              always={`未読メッセージのあるノード ${unreadCount} 件`}
+              text={HINT_TEXT.unread}
             >
-              {unreadCount}
-            </span>
+              <span className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white">
+                {unreadCount}
+              </span>
+            </Hint>
           )}
           {/* ページ自身のノード詳細（タイトル編集・関係者・削除）への導線（2026-08-04 追修）。
               goal ノードはグラフに描画されないため、この⚙が NodePanel を開く唯一の入口。
               モバイルでも押せるよう hover 表示にはしない（常時表示・控えめな色） */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
-            title="ページの詳細を開く"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenPageNode(f.id);
-            }}
+          <Hint
+            id="page-open"
+            always="ページの詳細を開く"
+            text="タイトル編集・関係者・削除・ページ自体との会話はここから"
           >
-            <Settings2 className="size-3.5" />
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenPageNode(f.id);
+              }}
+            >
+              <Settings2 className="size-3.5" />
+            </Button>
+          </Hint>
         </span>
         {dots.length > 0 && (
           <span className="flex flex-wrap items-center gap-[3px] pl-5">
@@ -331,16 +349,17 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
   if (!railOpen && !forceExpanded) {
     return (
       <div className="flex flex-shrink-0 flex-col items-center border-r border-border bg-muted py-1.5">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground"
-          title="プロジェクト一覧を開く"
-          onClick={toggleRail}
-        >
-          <PanelLeft className="size-4" />
-        </Button>
+        <Hint id="rail-toggle" always="プロジェクト一覧を開く">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground"
+            onClick={toggleRail}
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+        </Hint>
       </div>
     );
   }
@@ -367,26 +386,32 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
           <span>プロジェクト</span>
         </Hint>
         <span className="flex items-center">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-6 text-muted-foreground"
-            title="ゴールを追加（ヘッダーの入力欄へ）"
-            onClick={addGoal}
+          <Hint
+            id="add-goal"
+            always="ゴールを追加"
+            text="ヘッダーの入力欄へ移動する。ゴールを書いて Enter で新しいプロジェクトができる"
           >
-            ＋
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-6 text-muted-foreground"
-            title="プロジェクト一覧を閉じる"
-            onClick={toggleRail}
-          >
-            <PanelLeftClose className="size-3.5" />
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground"
+              onClick={addGoal}
+            >
+              ＋
+            </Button>
+          </Hint>
+          <Hint id="rail-toggle" always="プロジェクト一覧を閉じる">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground"
+              onClick={toggleRail}
+            >
+              <PanelLeftClose className="size-3.5" />
+            </Button>
+          </Hint>
         </span>
       </div>
       {/* 人フィルタ（チーム化 2026-08-04）: ページを人で絞り込む。ルーティーン節にも同じ
@@ -394,9 +419,14 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       {teamEnabled && (
         <div className="px-2 pb-1.5">
           <Select value={personFilterValue} onValueChange={setPersonFilter}>
-            <SelectTrigger className="h-7 w-full text-xs" title="人でページを絞り込む">
-              <SelectValue />
-            </SelectTrigger>
+            <Hint
+              id="person-filter"
+              text="実効関係者（担当者・関係者・作成者の集計）でページを絞り込む。帰属なし=誰も付いていないページだけ"
+            >
+              <SelectTrigger className="h-7 w-full text-xs">
+                <SelectValue />
+              </SelectTrigger>
+            </Hint>
             <SelectContent>
               <SelectItem value="all">全員</SelectItem>
               {me.email && <SelectItem value="me">自分</SelectItem>}

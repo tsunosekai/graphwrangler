@@ -2,6 +2,7 @@
 // 実データの切断（parents から source を除く patch）は呼び出し元（GraphView）の onCut に一任する
 // ——このコンポーネントは見た目とクリック位置だけを持つ。
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
+import { Hint } from "./Hint";
 
 export interface CutEdgeData {
   selected: boolean;
@@ -64,22 +65,23 @@ export function CutEdge({
       )}
       {selected && (
         <EdgeLabelRenderer>
-          <button
-            type="button"
-            className="nodrag nopan flex size-5 items-center justify-center rounded-full border border-border-strong bg-card text-xs leading-none text-foreground hover:bg-accent"
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              pointerEvents: "all",
-            }}
-            title="依存を切る"
-            onClick={(e) => {
-              e.stopPropagation();
-              d?.onCut(id);
-            }}
-          >
-            ✂
-          </button>
+          <Hint id="edge-cut" always="依存を切る" text="このエッジ（前後の依存）を外す。Ctrl+Z で戻せる">
+            <button
+              type="button"
+              className="nodrag nopan flex size-5 items-center justify-center rounded-full border border-border-strong bg-card text-xs leading-none text-foreground hover:bg-accent"
+              style={{
+                position: "absolute",
+                transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+                pointerEvents: "all",
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                d?.onCut(id);
+              }}
+            >
+              ✂
+            </button>
+          </Hint>
         </EdgeLabelRenderer>
       )}
     </>

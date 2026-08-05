@@ -1030,21 +1030,27 @@ function GraphViewInner({
       {/* max-md: 右端も止めて折り返す（モバイルでボタンが画面外へはみ出さないように。2026-08-02） */}
       <div className="absolute left-3 top-3 z-10 flex items-center gap-2 max-md:right-3 max-md:flex-wrap">
         {pageNode && (
-          <Button
-            type="button"
-            variant="ghost"
-            className="font-semibold text-muted-foreground hover:text-foreground"
-            title="ゴールの詳細を開く"
-            onClick={() => onSelect(pageNode.id)}
-          >
-            {pageNode.title || "（無題）"}
-          </Button>
+          <Hint id="page-open" text="ページ自身の詳細（関係者・削除・ページとの会話）を開く">
+            <Button
+              type="button"
+              variant="ghost"
+              className="font-semibold text-muted-foreground hover:text-foreground"
+              onClick={() => onSelect(pageNode.id)}
+            >
+              {pageNode.title || "（無題）"}
+            </Button>
+          </Hint>
         )}
         {isRoutine && (
           <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "graph" | "ledger")}>
             <TabsList>
               <TabsTrigger value="graph">グラフ</TabsTrigger>
-              <TabsTrigger value="ledger">台帳</TabsTrigger>
+              <Hint
+                id="ledger-tab"
+                text="ラン×ノードの進捗表。セルのクリックで完了/待ちを切り替え、下段で各ランのトレースを再生できる"
+              >
+                <TabsTrigger value="ledger">台帳</TabsTrigger>
+              </Hint>
             </TabsList>
           </Tabs>
         )}
@@ -1076,12 +1082,12 @@ function GraphViewInner({
         )}
         {/* 投影中ランの名前を後から編集（並列ラン=世界線の区別用ラベル） */}
         {!showLedger && activeRun && (
+          <Hint id="run-rename" always="ラン名を変更">
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-8 text-muted-foreground"
-            title="ラン名を変更"
             onClick={() => {
               void (async () => {
                 const title = await promptDialog("ランの名前", {
@@ -1098,15 +1104,20 @@ function GraphViewInner({
           >
             ✎
           </Button>
+          </Hint>
         )}
         {!showLedger && (
           <>
-            <Button type="button" variant="outline" onClick={() => createNode(selectedInPage)}>
-              + ノード
-            </Button>
-            <Button type="button" variant="outline" title="dagre で並べ直す" onClick={realign}>
-              整列
-            </Button>
+            <Hint id="add-node" text="このページに新しいノードを作る（ノードを選択中ならその後続としてつながる）">
+              <Button type="button" variant="outline" onClick={() => createNode(selectedInPage)}>
+                + ノード
+              </Button>
+            </Hint>
+            <Hint id="realign" text="dagre で自動配置し直す（手で並べた位置は整い直される）">
+              <Button type="button" variant="outline" onClick={realign}>
+                整列
+              </Button>
+            </Hint>
             {/* 「元に戻す」「ショートカット一覧」ボタンはヘッダー（TopBar）へ移動
                 （2026-07-31 本人指示）。Ctrl+Z / "?" キーとダイアログ本体は引き続きここが持つ */}
             {hardening.m > 0 && (
