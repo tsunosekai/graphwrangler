@@ -697,7 +697,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
   return (
     <aside
       data-mobile-panel="right"
-      className="relative flex flex-shrink-0 flex-col gap-3 overflow-hidden border-l bg-background p-4"
+      // @container/panel: タブ行の段階縮小はビューポートでなく**パネルの実幅**で判定する
+      // （パネルはドラッグでリサイズされるため md: では追従できず、狭くすると
+      // タブと右肩ボタンの文字が重なっていた。2026-08-05 本人報告）
+      className="@container/panel relative flex flex-shrink-0 flex-col gap-3 overflow-hidden border-l bg-background p-4"
       style={{ width }}
     >
       <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
@@ -1656,28 +1659,34 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
           }}
           className="min-w-0 gap-3"
         >
+          {/* パネルが狭い（24rem未満）ときはタブをアイコンだけにして1行に収める
+              （文字の重なり対策。アイコンは3タブとも既にあるので誤読しない） */}
           <TabsList>
             <TabsTrigger value="talk">
-              <MessageSquare className="size-3.5" /> 会話
+              <MessageSquare className="size-3.5" />
+              <span className="@max-[24rem]/panel:hidden">会話</span>
               {hasUnreadIn("talk") && <UnreadDot />}
             </TabsTrigger>
             <Hint id="tab-history" text="「新しい会話」で区切った過去の会話。カードで選んで読み返せる">
               <TabsTrigger value="history">
-                <History className="size-3.5" /> 履歴
+                <History className="size-3.5" />
+                <span className="@max-[24rem]/panel:hidden">履歴</span>
                 {hasUnreadIn("history") && <UnreadDot />}
               </TabsTrigger>
             </Hint>
             <Hint id="tab-log" text="エンジンの実行・試走・状態変化・成果物の記録（会話とは別ストリーム）">
               <TabsTrigger value="log">
-                <ScrollText className="size-3.5" /> 実行記録
+                <ScrollText className="size-3.5" />
+                <span className="@max-[24rem]/panel:hidden">実行記録</span>
                 {hasUnreadIn("log") && <UnreadDot />}
               </TabsTrigger>
             </Hint>
           </TabsList>
         </Tabs>
         <span className="flex shrink-0 items-center">
-        {/* 狭い画面ではラベルを落としてアイコンだけにする（2026-08-02 本人指示
-            「新しい会話ボタンは入りきってないからアイコンに」）。右肩のトグルは
+        {/* 狭いときはラベルを落としてアイコンだけにする（2026-08-02 本人指示
+            「新しい会話ボタンは入りきってないからアイコンに」）。判定はビューポート（md:）
+            でなくパネルの実幅（@container。2026-08-05 重なり修正）。右肩のトグルは
             文字のままにしたいので、縮めるのはこちらだけ */}
         <Hint
           id="chat-new"
@@ -1688,12 +1697,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             type="button"
             variant="ghost"
             size="sm"
-            className="px-2 text-muted-foreground md:px-3"
+            className="px-2 text-muted-foreground @min-[27rem]/panel:px-3"
             aria-label="新しい会話"
             onClick={() => void startNewTalk()}
           >
-            <MessageSquarePlus className="size-3.5 md:hidden" />
-            <span className="hidden md:inline">新しい会話</span>
+            <MessageSquarePlus className="size-3.5 @min-[27rem]/panel:hidden" />
+            <span className="hidden @min-[27rem]/panel:inline">新しい会話</span>
           </Button>
         </Hint>
         {/* トグルは元どおりタブ行の右肩（＝会話の上）。モバイルでノード詳細だけを出して
