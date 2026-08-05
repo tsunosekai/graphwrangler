@@ -135,8 +135,8 @@ function AppInner() {
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
   const serverReads = useMemo(() => data?.reads ?? {}, [data]);
 
-  // 既読のローカル上書き（2026-08-03 本人指示「通知バッジは見た1秒後に消える」）。
-  // NodePanel がスレッドを1秒表示すると onViewed が呼ばれ、サーバの reads が次の
+  // 既読のローカル上書き（2026-08-05 本人指示「見たら即」。旧: 1秒待ち）。
+  // NodePanel がスレッドを表示すると onViewed が呼ばれ、サーバの reads が次の
   // ポーリング（最大3秒）で追いつくのを待たずにバッジを消す。マージは新しいほう勝ち
   const [readOverrides, setReadOverrides] = useState<Record<string, string>>({});
   const reads = useMemo(() => {
@@ -146,8 +146,10 @@ function AppInner() {
     }
     return merged;
   }, [serverReads, readOverrides]);
-  const markViewed = useCallback((nodeId: string) => {
-    setReadOverrides((prev) => ({ ...prev, [nodeId]: new Date().toISOString() }));
+  // lastTs（スレッド最終メッセージ＝サーバ発行の時刻）があればそれを使う。端末の時計が
+  // サーバより遅れていると、クライアント時刻の上書きでは未読が消えないため（2026-08-05）
+  const markViewed = useCallback((nodeId: string, lastTs: string | null) => {
+    setReadOverrides((prev) => ({ ...prev, [nodeId]: lastTs ?? new Date().toISOString() }));
   }, []);
 
   // 旧 localStorage 既読（gw.read.<id>）を一度だけサーバへ引き継ぐ。これをやらないと
@@ -169,11 +171,15 @@ function AppInner() {
     saveUiState("gw.readsMigrated", "1");
   }, []);
 
-  // ページ = フォルダ（kind=goal、またはメンバーを持つノード）。zinsei desk の左レール方式
+  // ページ = フォルダ（kind=goal、またはメンバーを持つノード）。zinsei desk の左レール方式。
+  // kind=folder（左レールの整理棚。2026-08-05）はページではないので除く——棚はページを
+  // group ではなく folder フィールドで束ねるので、メンバー判定にも引っかからない
   const folders = useMemo(() => {
     const hasMembers = new Set(nodes.map((n) => n.group).filter(Boolean) as string[]);
-    return nodes.filter((n) => n.kind === "goal" || hasMembers.has(n.id));
+    return nodes.filter((n) => n.kind !== "folder" && (n.kind === "goal" || hasMembers.has(n.id)));
   }, [nodes]);
+  // 整理棚そのもの（左レールだけが使う）
+  const folderNodes = useMemo(() => nodes.filter((n) => n.kind === "folder"), [nodes]);
 
   // 表示中ページが削除された場合も先頭ページへフォールバックする（削除直後に空画面へ
   // 取り残されないように。localStorage の古い pageId も同じ経路で吸収される）
@@ -445,7 +451,9 @@ function AppInner() {
         {(mv === null || mv === "pages") && (
           <PageList
             folders={folders}
+            folderNodes={folderNodes}
             allNodes={nodes}
+            onMutated={handleMutated}
             pageId={pageId}
             threadMeta={threadMeta}
             reads={reads}

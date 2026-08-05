@@ -17,12 +17,13 @@ const EXEC_ICON: Record<Node["executor"], "user" | "bot" | "terminal"> = {
   ai: "bot",
   script: "terminal",
 };
-// 種別の文字チップ（本人選定「A+D」）。goal はカードとして描かれないが型のため網羅
+// 種別の文字チップ（本人選定「A+D」）。goal / folder はカードとして描かれないが型のため網羅
 const KIND_CHIP: Record<Node["kind"], string> = {
   task: "実行",
   decision: "判断",
   trigger: "トリガー",
   goal: "ゴール",
+  folder: "フォルダ",
 };
 const STATUS_LABEL: Record<Node["status"], string> = {
   unplanned: "未計画",

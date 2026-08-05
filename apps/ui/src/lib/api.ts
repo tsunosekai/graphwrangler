@@ -53,6 +53,10 @@ export interface NodeCreateInput {
   impl?: Node["impl"];
   parents?: string[];
   group?: string | null;
+  /** 左レールの整理棚（kind=folder ノードの id）。ページの見せ方の軸で実行には無関係 */
+  folder?: string | null;
+  /** 左レールでの手動並び順（昇順。null=未指定＝後ろ） */
+  order?: number | null;
   kind?: Node["kind"];
   executor?: Node["executor"];
   approval?: Node["approval"];
@@ -109,7 +113,33 @@ export interface SettingsView {
     /** 既定対象に追加で同期するワークスペース内相対パス */
     extraPaths: string[];
   };
+  /** GraphWrangler 本体（アプリのクローン）の自動アップデート（2026-08-05） */
+  update: {
+    autoCheck: boolean;
+    autoApply: boolean;
+    intervalMin: number;
+  };
   setupDone: boolean;
+}
+
+/** GET /api/update（packages/server/src/selfupdate.ts の UpdateStatus と同形） */
+export interface UpdateStatus {
+  unavailableReason: string | null;
+  autoCheck: boolean;
+  autoApply: boolean;
+  intervalMin: number;
+  branch: string | null;
+  current: string | null;
+  currentSubject: string | null;
+  behind: number;
+  checking: boolean;
+  applying: boolean;
+  lastCheckAt: string | null;
+  lastApplyAt: string | null;
+  lastResult: string | null;
+  /** systemd / pm2 に見られているか。false だと取り込み後の再起動は人手 */
+  supervised: boolean;
+  restartPending: boolean;
 }
 
 export interface SettingsPatch {
@@ -132,6 +162,7 @@ export interface SettingsPatch {
   };
   ai?: { addDirs?: string[] };
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
+  update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
   setupDone?: boolean;
 }
 
@@ -371,6 +402,30 @@ export const api = {
 
   updateSettings: (patch: SettingsPatch) =>
     request<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
+
+  // ---- 本体の自動アップデート（packages/server/src/selfupdate.ts。2026-08-05） ----
+  // 更新の有無はヘッダーの表示にも使うので、取得失敗はトーストせず null へ degrade する
+  // （古いサーバには /api/update が無い＝404 になるため）
+
+  getUpdate: async (): Promise<UpdateStatus | null> => {
+    try {
+      const res = await fetch("/api/update", { headers: { "Content-Type": "application/json" } });
+      if (!res.ok) return null;
+      return (await res.json()) as UpdateStatus;
+    } catch {
+      return null;
+    }
+  },
+
+  /** 今すぐ origin を見に行く（取り込みはしない） */
+  checkUpdate: () => request<UpdateStatus>("/update/check", { method: "POST", body: "{}" }),
+
+  /** 今すぐ取り込む。監視下（systemd/pm2）ならサーバはこの直後に再起動する */
+  runUpdate: () =>
+    request<{ ok: boolean; updated: boolean; message: string; status: UpdateStatus }>("/update/run", {
+      method: "POST",
+      body: "{}",
+    }),
 
   /**
    * 内蔵チャット（GraphWrangler AI）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側

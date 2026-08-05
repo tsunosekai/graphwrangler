@@ -57,9 +57,10 @@ interface Props {
   activeRun: Run | null;
   /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
   reads: Record<string, string>;
-  /** スレッドを1秒見たら呼ばれる（App が既読オーバーレイでカード/レールの未読バッジを
-   *  即消すため。2026-08-03 本人指示「通知バッジは見た1秒後に消える」） */
-  onViewed?: (nodeId: string) => void;
+  /** スレッドを表示した時点で呼ばれる（App が既読オーバーレイでカード/レールの未読バッジを
+   *  即消すため。2026-08-05 本人指示「何秒かじゃなくて即で」）。lastTs はスレッド最終
+   *  メッセージの ts（サーバ発行）で、端末の時計ズレに影響されない既読の基準になる */
+  onViewed?: (nodeId: string, lastTs: string | null) => void;
   onMutated: () => void;
   onClose: () => void;
   /** ノード複製後に新規ノードを選択するため。ページ切替も面倒を見る App.selectNode を渡す */
@@ -80,6 +81,8 @@ const KIND_JA: Record<Node["kind"], string> = {
   decision: "判断",
   trigger: "トリガー",
   goal: "ゴール（ページ）",
+  // 左レールの整理棚（2026-08-05）。パネルからは開かないが型のため網羅
+  folder: "フォルダ",
 };
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
 const EXECUTOR_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
@@ -269,11 +272,18 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
 
   // スレッドを表示したら既読tsをサーバへ書く（thread取得のたびに更新=開いたまま新着が
   // 来ても「読んだ」扱いを追随させる）。サーバ側は巻き戻さない（max を採る）ので、
-  // 別端末で先に進んだ既読をこちらが古い時刻で戻すことはない
+  // 別端末で先に進んだ既読をこちらが古い時刻で戻すことはない。
+  // 送る値は**クライアントの現在時刻ではなく、スレッド最終メッセージの ts**（サーバが
+  // 発行した時刻）にする: 未読判定は threadMeta（＝この ts）との大小比較なので、
+  // 端末の時計がサーバより遅れていると「開いたのにバッジが消えない」が起き続ける
+  // （2026-08-05 本人報告「青ちょぼが消えない」の再発防止）
+  const lastThreadTs = thread?.messages?.length
+    ? thread.messages[thread.messages.length - 1].ts
+    : null;
   useEffect(() => {
-    if (!thread) return;
-    postReads({ [node.id]: new Date().toISOString() });
-  }, [thread, node.id]);
+    if (!lastThreadTs) return;
+    postReads({ [node.id]: lastThreadTs });
+  }, [lastThreadTs, node.id]);
 
   // Task AI が応答生成中（考え中）の間だけ2秒間隔でスレッドを取りにいく
   // （通常ポーリングは10秒。返事が着いてから最大10秒「考え中」が残るのを防ぐ）
@@ -283,23 +293,17 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
     return () => window.clearInterval(timer);
   }, [thread?.aiBusy, refreshThread]);
 
-  // 「見た1秒後に消える」（2026-08-03 本人指示）: 表示中のタブは、スレッドが表示されて
-  // 1秒経ったら未読扱いを解く（タブのちょぼ・「ここから未読」区切り・カード/レールの
-  // バッジ（onViewed 経由）が対象）。見ていないタブのちょぼは、そのタブを開いて1秒で消える
-  const [viewedTabs, setViewedTabs] = useState<Set<string>>(() => new Set());
+  // 「見たら即消える」（2026-08-05 本人指示。それまでは1秒待ちだった）: 表示中のタブは、
+  // スレッドが出た時点で未読扱いを解く（タブのちょぼ・カード/レールのバッジ（onViewed 経由）
+  // が対象）。見ていないタブのちょぼは、そのタブを開いた時点で消える。
+  // 「ここから未読」の区切り線だけは開いている間ずっと残す——どこから読めばいいかの目印で、
+  // 消えてしまうと開いた意味が無い（次に開いたときは既読が進んでいるので自然に消える）
+  const [seenTabs, setSeenTabs] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (!thread) return;
-    const timer = window.setTimeout(() => {
-      setViewedTabs((prev) => {
-        if (prev.has(tab)) return prev;
-        const next = new Set(prev);
-        next.add(tab);
-        return next;
-      });
-      onViewed?.(node.id);
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [thread !== null, tab, node.id, onViewed]);
+    setSeenTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
+    onViewed?.(node.id, lastThreadTs);
+  }, [thread !== null, tab, node.id, onViewed, lastThreadTs]);
 
   const [titleDraft, setTitleDraft] = useState(node.title);
   const [titleFocused, setTitleFocused] = useState(false);
@@ -674,11 +678,17 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
   // 開いている間はタブを見に行っても消えない（区切り線と足並みを揃える）
   // 既読記録が無い（この端末では初見）ときは全部未読扱い。カード/レールのバッジと同じ規約に
   // 揃える（揃えないと「バッジは付いているのに開いてもちょぼが無い」になる。2026-08-02 本人報告）
-  // ただし「見た（1秒表示した）」タブのちょぼは消す（2026-08-03 本人指示で
-  // 「開いている間は消えない」から「見た1秒後に消える」へ変更）
-  const hasUnreadIn = (t: "talk" | "history" | "log") =>
-    !viewedTabs.has(t) &&
-    (t === "talk" ? talkSource : messages).some((m) => m.ts > (unreadSince ?? "") && inTab(m, t));
+  // 「見た（表示した）」タブのちょぼは即座に消す（2026-08-05 本人指示）。
+  // 履歴タブの対象は**過去セッション（最後の「新しい会話」区切りより前）だけ**にする:
+  // 履歴は会話の上位集合なので、同じ新着メッセージで会話と履歴の両方にちょぼが点き、
+  // 会話を読んでも履歴側だけが残って消せなかった（2026-08-05 本人報告
+  // 「履歴のところに出てる青ちょぼが全部見ても消えない」）
+  const hasUnreadIn = (t: "talk" | "history" | "log") => {
+    if (seenTabs.has(t)) return false;
+    const source =
+      t === "talk" ? talkSource : t === "history" ? messages.slice(0, lastBreak + 1) : messages;
+    return source.some((m) => m.ts > (unreadSince ?? "") && inTab(m, t));
+  };
 
   const startNewTalk = async () => {
     await fetch(`/api/nodes/${node.id}/messages`, {
@@ -1799,8 +1809,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
       <Thread
         nodeId={node.id}
         messages={filtered}
-        // 「ここから未読」区切りは1秒見たら消す（undefined で区切りなし扱いになる）
-        unreadSince={viewedTabs.has(tab) ? undefined : unreadSince}
+        // 「ここから未読」区切りは開いている間ずっと残す（ちょぼは即消えるが、
+        //  どこから読めばいいかの目印は読み終わるまで要る。2026-08-05）
+        unreadSince={unreadSince}
         aiBusy={thread?.aiBusy ?? false}
         showReplyBox={tab === "talk"}
         onMutated={() => {

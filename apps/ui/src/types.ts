@@ -13,8 +13,9 @@ export interface Actor {
 /** goal=プロジェクトページ（ノード群のフォルダ） / task=作業 /
  *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） /
  *  trigger=起点ノード（発火するとそのページ(group)でランが生成される。3.4/3.8/3.9。
- *  parents を持てない=グラフの起点であることを構造的に保証する） */
-export type NodeKind = "goal" | "task" | "decision" | "trigger";
+ *  parents を持てない=グラフの起点であることを構造的に保証する） /
+ *  folder=左レールの整理棚（2026-08-05）。ページを束ねるだけでグラフ・実行には関与しない */
+export type NodeKind = "goal" | "task" | "decision" | "trigger" | "folder";
 
 /** スクリプトのパラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1）。
  *  宣言（name/label/example）は GraphWrangler AI が書き、値（value）は人間がパネルで入力する。
@@ -73,6 +74,11 @@ export interface Node {
   parents: string[];
   /** 所属グループ（フォルダ）ノードの id。包含であり依存(parents)とは独立 */
   group: string | null;
+  /** 左レールの整理用フォルダ（kind=folder ノードの id）。null = 直下。
+   *  包含(group)・依存(parents)とは独立した「見せ方だけ」の軸（2026-08-05） */
+  folder: string | null;
+  /** 左レールでの手動並び順（昇順。同じ入れ物の中でだけ意味を持つ）。null = 未指定＝後ろ */
+  order: number | null;
   kind: NodeKind;
   executor: Executor;
   /** 実行前承認（trigger では発火前承認）。true = 実行の直前に人間の承認ゲートを通る。

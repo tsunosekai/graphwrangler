@@ -18,9 +18,14 @@ export const ViaSchema = z.string().min(1);
  *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） /
  *  trigger=起点ノード（Rx の Observable のソース。発火するとそのページ(group)でランが
  *  生成される。docs/design.md 3.4/3.8/3.9。parents を持てない=グラフの起点であることを
- *  構造的に保証する）。「ルーティーンであること」はページ種別ではなく、trigger ノードを
+ *  構造的に保証する） /
+ *  folder=左レールの整理棚（2026-08-05）。ページを束ねるだけの入れ物で、グラフ・実行・
+ *  ランには一切関与しない（エンジンは kind=task しか拾わない）。ページの所属は group では
+ *  なく folder フィールドで表す——group（包含）を使うと「メンバーを持つノード＝ページ」の
+ *  導出や巻き添え削除にフォルダが乗ってしまうため。
+ *  「ルーティーンであること」はページ種別ではなく、trigger ノードを
  *  メンバーに持つかどうかから導出する */
-export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger"]);
+export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger", "folder"]);
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
 /** AI executor の自律度（2026-08-03 本人指示。UI名「自律度」）。
  *  - high: 人間に判断を仰がず、合理的な仮定を置いて最後まで進む。実行失敗も
@@ -120,6 +125,15 @@ export const NodeSchema = z.object({
   /** 所属するグループ（フォルダ）ノードの id。包含を表す。依存(parents)とは独立。
    *  ゴールはグラフの先頭ノードではなく「ノード群のフォルダ」（Houdiniのネットワークボックス） */
   group: z.string().nullable(),
+  /** 左レールの整理用フォルダ（kind=folder ノードの id）。null = 直下（フォルダ無し）。
+   *  包含(group)・依存(parents)とは独立した「見せ方だけ」の軸で、実行にもラン生成にも
+   *  関与しない（2026-08-05 追加）。ページ（kind=goal）とフォルダ自身が持ちうる
+   *  （フォルダの入れ子も型としては可能。UIは現状1階層で使う）。既存データ互換で default null */
+  folder: z.string().nullable().default(null),
+  /** 左レールでの手動並び順（昇順。同じ入れ物の中でだけ意味を持つ）。null = 未指定で、
+   *  指定済みより後ろに落ちて created 昇順で並ぶ。整数を詰め直す運用（UI が並べ替えのたびに
+   *  変わったノードだけ patch する）。既存データ互換で default null */
+  order: z.number().nullable().default(null),
   kind: NodeKindSchema,
   executor: ExecutorSchema,
   /** 実行前承認（trigger では発火前承認）。true = 実行の直前に人間の承認ゲートを通る。
@@ -174,6 +188,8 @@ export const NodeInputSchema = z.object({
   impl: NodeImplSchema.nullable().default(null),
   parents: z.array(z.string()).default([]),
   group: z.string().nullable().default(null),
+  folder: z.string().nullable().default(null),
+  order: z.number().nullable().default(null),
   kind: NodeKindSchema.default("task"),
   executor: ExecutorSchema.default("human"),
   approval: z.boolean().default(false),

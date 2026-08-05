@@ -9,11 +9,32 @@
 // 担当色はテンプレートノードの executor を allNodes から引く）。
 // 最新ランの取得は App 側でまとめてポーリングする（受信箱のラン待ち統合と共有し、
 // ページ数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
-import { useState } from "react";
-import { PanelLeft, PanelLeftClose, Settings2 } from "lucide-react";
+//
+// 整理（2026-08-05 本人要望「フォルダ機能と手動並べ替え」）:
+// - フォルダ = kind=folder のノード。ページを束ねるだけの棚で、グラフ・実行・ランには
+//   関与しない。ページの所属は group ではなく folder フィールド（design.md 3.1）
+// - 並びは order（数値）。掴んで（⠿）動かすたびに、動いた入れ物のぶんだけ 0..n-1 へ
+//   詰め直す（差分だけ patch する。lib/rail.ts）
+// - ドラッグはマウスもタッチも pointer events 1本で扱う（モバイルでも並べ替えられる）
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderPlus,
+  GripVertical,
+  PanelLeft,
+  PanelLeftClose,
+  Pencil,
+  Settings2,
+  Trash2,
+} from "lucide-react";
+import { api } from "../lib/api";
 import { focusGoalCapture } from "../lib/capture";
+import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { HINT_TEXT } from "../lib/hints";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { moveWithin, railPatches, sortRail } from "../lib/rail";
 import { isRoutinePage } from "../lib/routine";
 import { colorOf, displayNameOf, effectiveMembers, initialOf, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { cn } from "../lib/utils";
@@ -26,6 +47,8 @@ import { StatusCircle } from "./StatusCircle";
 
 interface Props {
   folders: Node[];
+  /** 整理用フォルダ（kind=folder）。ページではないので folders とは別に受ける（2026-08-05） */
+  folderNodes: Node[];
   allNodes: Node[];
   pageId: string | null;
   /** ノードid → 最終メッセージ時刻。ページ行の未読数バッジに使う（本人指定 2026-07-31:
@@ -44,6 +67,8 @@ interface Props {
   /** 行の⚙からページ自身のノード詳細を開く（タイトル編集・関係者・削除の導線。
    *  goal ノードはグラフに描画されないため、ここが NodePanel への唯一の入口。2026-08-04） */
   onOpenPageNode: (id: string) => void;
+  /** フォルダ操作・並べ替えを打った直後の再取得（ポーリング待ちの3秒を出さない） */
+  onMutated: () => void;
 }
 
 const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
@@ -76,7 +101,49 @@ function seatColor(status: Status, executor: Node["executor"]): string {
 const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 
-export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestRuns, runningCounts, forceExpanded, onSelectPage, onOpenPageNode }: Props) {
+// ---- ドラッグ（フォルダ分け + 手動並べ替え。2026-08-05） ----
+/** 節。フォルダはプロジェクト節の中だけの概念で、ルーティーンは節内の並べ替えのみ */
+type Section = "project" | "routine";
+/** 掴んでいるもの */
+interface DragState {
+  id: string;
+  kind: "page" | "folder";
+  section: Section;
+}
+/** 落とし先。into = フォルダの中／節の末尾、before|after = その行の前後 */
+interface DropTarget {
+  id: string;
+  kind: "page" | "folder" | "root";
+  section: Section;
+  pos: "before" | "after" | "into";
+}
+/** 節見出し（＝その節の直下・末尾）を指す擬似 id */
+const ROOT_ROW: Record<Section, string> = { project: "__root__", routine: "__routine__" };
+
+const CLOSED_KEY = "gw.railFolderClosed";
+function loadClosedFolders(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CLOSED_KEY) ?? "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function PageList({
+  folders,
+  folderNodes,
+  allNodes,
+  pageId,
+  threadMeta,
+  reads,
+  latestRuns,
+  runningCounts,
+  forceExpanded,
+  onSelectPage,
+  onOpenPageNode,
+  onMutated,
+}: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // チーム化（2026-08-04）: 人フィルタとイニシャルバッジ。ロスターが2人未満なら出さない
   const { me, users, enabled: teamEnabled } = useTeam();
@@ -152,16 +219,241 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
   const activeFolders = folders.filter(
     (f) => isRoutinePage(f, allNodes) || (f.status !== "done" && f.status !== "dropped"),
   );
-  const archivedFolders = folders.filter(
-    (f) => !isRoutinePage(f, allNodes) && (f.status === "done" || f.status === "dropped"),
+  const archivedFolders = sortRail(
+    folders.filter((f) => !isRoutinePage(f, allNodes) && (f.status === "done" || f.status === "dropped")),
   );
+
+  // ---- 並び・フォルダ分け ----
+  const nodeById = useMemo(() => new Map(allNodes.map((n) => [n.id, n])), [allNodes]);
+  const folderList = useMemo(() => sortRail(folderNodes), [folderNodes]);
+  const folderIds = useMemo(() => new Set(folderNodes.map((f) => f.id)), [folderNodes]);
+  /** ページの所属フォルダ（消えたフォルダを指していたら直下扱いにする） */
+  const folderOf = (f: Node): string | null =>
+    f.folder && folderIds.has(f.folder) ? f.folder : null;
+  const sectionOf = (f: Node): Section => (isRoutinePage(f, allNodes) ? "routine" : "project");
+
   // プロジェクト（トリガー無し）/ ルーティーン（トリガー有り）のビュー的な分類（本人指定）。
   // 人フィルタ中はプロジェクト節・ルーティーン節の両方に同じ述語（上の byPerson）を適用する
   // （チーム化 2026-08-04）
-  const projectFolders = activeFolders.filter((f) => !isRoutinePage(f, allNodes) && byPerson(f));
-  const routineFolders = activeFolders.filter((f) => isRoutinePage(f, allNodes) && byPerson(f));
+  const projectFolders = sortRail(
+    activeFolders.filter((f) => sectionOf(f) === "project" && byPerson(f)),
+  );
+  const routineFolders = sortRail(
+    activeFolders.filter((f) => sectionOf(f) === "routine" && byPerson(f)),
+  );
+  /** 表示用: 直下のプロジェクト / フォルダ id → その中のプロジェクト */
+  const rootProjects = projectFolders.filter((f) => folderOf(f) === null);
+  const inFolder = (folderId: string) => projectFolders.filter((f) => folderOf(f) === folderId);
 
-  const renderRow = (f: Node, archived: boolean) => {
+  /** 並べ替えの計算対象は**絞り込み前の全ページ**にする（フィルタで隠れている行の
+   *  相対順序を壊さないため）。アーカイブ済みも同じ入れ物として一緒に数える */
+  const pageIdsIn = (section: Section, folderId: string | null): string[] =>
+    sortRail(
+      folders.filter((f) => sectionOf(f) === section && (section === "project" ? folderOf(f) === folderId : true)),
+    ).map((f) => f.id);
+
+  // 折り畳み状態（localStorage。UI状態なので正データには混ぜない）
+  const [closedFolders, setClosedFolders] = useState<Set<string>>(loadClosedFolders);
+  const toggleFolder = (id: string) =>
+    setClosedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(CLOSED_KEY, JSON.stringify([...next]));
+      } catch {
+        // 無視
+      }
+      return next;
+    });
+
+  // ---- ドラッグ（掴んで並べ替え・フォルダへ入れる） ----
+  const dragRef = useRef<DragState | null>(null);
+  const dropRef = useRef<DropTarget | null>(null);
+  const draggedAtRef = useRef(0);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const [drop, setDrop] = useState<DropTarget | null>(null);
+
+  /** 座標の下にある行を読んで落とし先を決める（要素の data-rail-* 属性が正）。
+   *  ページ: フォルダ行の上=中へ / 同じ節のページ行の上下半分=その前後。
+   *  フォルダ: フォルダ行の前後だけ（フォルダの入れ子はUIでは扱わない） */
+  const resolveDrop = (x: number, y: number, st: DragState): DropTarget | null => {
+    const el = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>(
+      "[data-rail-row]",
+    );
+    if (!el) return null;
+    const id = el.dataset.railRow!;
+    const kind = el.dataset.railKind as DropTarget["kind"];
+    const section = el.dataset.railSection as Section;
+    if (id === st.id) return null;
+    if (kind === "root") {
+      if (st.kind === "folder") return null; // フォルダは節をまたがない
+      return { id, kind, section, pos: "into" };
+    }
+    const rect = el.getBoundingClientRect();
+    const pos: "before" | "after" = y < rect.top + rect.height / 2 ? "before" : "after";
+    if (st.kind === "folder") {
+      return kind === "folder" ? { id, kind, section, pos } : null;
+    }
+    if (kind === "folder") return { id, kind, section, pos: "into" };
+    if (section !== st.section) return null; // プロジェクトとルーティーンは行き来させない
+    return { id, kind, section, pos };
+  };
+
+  const beginDrag = (e: React.PointerEvent, st: DragState) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      // 取っ手の外へ出ても pointermove/up を取りこぼさないための捕捉。
+      // 捕捉できない環境（既にポインタが離れている等）でも掴み自体は続行する
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // 無視
+    }
+    dragRef.current = st;
+    setDrag(st);
+  };
+  const moveDrag = (e: React.PointerEvent) => {
+    const st = dragRef.current;
+    if (!st) return;
+    const target = resolveDrop(e.clientX, e.clientY, st);
+    dropRef.current = target;
+    setDrop(target);
+  };
+  const endDrag = (e: React.PointerEvent) => {
+    const st = dragRef.current;
+    const target = dropRef.current;
+    dragRef.current = null;
+    dropRef.current = null;
+    setDrag(null);
+    setDrop(null);
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // 既に外れている場合は無視
+    }
+    if (!st) return;
+    draggedAtRef.current = Date.now(); // 直後の click でページを開かないための印
+    if (target) void applyDrop(st, target);
+  };
+  // ドラッグ中は画面外へ出た pointerup も拾う（掴んだまま離しても状態が残らないように）
+  useEffect(() => {
+    if (!drag) return;
+    const cancel = () => {
+      dragRef.current = null;
+      dropRef.current = null;
+      setDrag(null);
+      setDrop(null);
+    };
+    window.addEventListener("pointercancel", cancel);
+    return () => window.removeEventListener("pointercancel", cancel);
+  }, [drag]);
+
+  /** 落とした結果の並びを order（と必要なら folder）へ書き戻す。変わった行だけ patch する */
+  const applyOrder = async (orderedIds: string[], folder?: string | null) => {
+    const patches = railPatches(orderedIds, nodeById, folder);
+    if (patches.length === 0) return;
+    for (const p of patches) {
+      try {
+        await api.patchNode(p.id, p.patch);
+      } catch {
+        break; // エラーは api 側でトースト済み。中途半端な連打は避けて止める
+      }
+    }
+    onMutated();
+  };
+
+  const applyDrop = async (st: DragState, target: DropTarget) => {
+    if (st.kind === "folder") {
+      // フォルダ同士の並べ替え（resolveDrop がフォルダ行 + before|after だけを通す）
+      const ordered = moveWithin(
+        folderList.map((f) => f.id),
+        st.id,
+        target.id,
+        target.pos === "before" ? "before" : "after",
+      );
+      await applyOrder(ordered);
+      return;
+    }
+    // ページ: 行き先の入れ物（フォルダ / 節の直下）を決める
+    const section: Section = target.kind === "folder" ? "project" : target.section;
+    const targetNode = target.kind === "page" ? (nodeById.get(target.id) ?? null) : null;
+    const folderId =
+      target.kind === "folder"
+        ? target.id
+        : section === "project" && targetNode
+          ? folderOf(targetNode)
+          : null;
+    const siblings = pageIdsIn(section, folderId).filter((id) => id !== st.id);
+    const ordered =
+      target.kind === "page"
+        ? moveWithin([...siblings, st.id], st.id, target.id, target.pos === "before" ? "before" : "after")
+        : [...siblings, st.id];
+    await applyOrder(ordered, section === "project" ? folderId : null);
+  };
+
+  // ---- フォルダの作成・リネーム・削除 ----
+  const addFolder = async () => {
+    const name = await promptDialog("新しいフォルダの名前", { placeholder: "例: 受託", confirmLabel: "作成" });
+    if (name === null || !name.trim()) return;
+    try {
+      await api.addNode({ title: name.trim(), kind: "folder", order: folderList.length });
+      onMutated();
+    } catch {
+      // api 側でトースト済み
+    }
+  };
+  const renameFolder = async (f: Node) => {
+    const name = await promptDialog("フォルダ名", { defaultValue: f.title, confirmLabel: "変更" });
+    if (name === null || !name.trim() || name.trim() === f.title) return;
+    try {
+      await api.patchNode(f.id, { title: name.trim() });
+      onMutated();
+    } catch {
+      // api 側でトースト済み
+    }
+  };
+  const removeFolder = async (f: Node) => {
+    const count = inFolder(f.id).length;
+    const ok = await confirmDialog(
+      count > 0
+        ? `フォルダ「${f.title || "（無題）"}」を削除しますか？\n中の ${count} 件のプロジェクトは消えず、直下へ出ます。`
+        : `フォルダ「${f.title || "（無題）"}」を削除しますか？`,
+      { danger: true, confirmLabel: "削除" },
+    );
+    if (!ok) return;
+    try {
+      await api.removeNode(f.id, { force: true });
+      onMutated();
+    } catch {
+      // api 側でトースト済み
+    }
+  };
+
+  /** 落とし先の見せ方: 前後は行の内側に線、中へはフォルダ行を縁取る */
+  const dropClass = (id: string) =>
+    drop?.id !== id
+      ? undefined
+      : drop.pos === "into"
+        ? "ring-1 ring-ai"
+        : drop.pos === "before"
+          ? "shadow-[inset_0_2px_0_0_var(--ai)]"
+          : "shadow-[inset_0_-2px_0_0_var(--ai)]";
+
+  /** 掴む取っ手（⠿）。マウスもタッチも同じ pointer events で扱う */
+  const gripFor = (st: DragState) => (
+    <span
+      className="flex size-3.5 flex-shrink-0 cursor-grab touch-none items-center justify-center text-text-lo/60 hover:text-muted-foreground"
+      onPointerDown={(e) => beginDrag(e, st)}
+      onPointerMove={moveDrag}
+      onPointerUp={endDrag}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <GripVertical className="size-3.5" />
+    </span>
+  );
+
+  const renderRow = (f: Node, archived: boolean, indented = false) => {
     const routine = isRoutinePage(f, allNodes);
     const latestRun = latestRuns?.[f.id] ?? null;
     // ページ内（ゴール自身 + メンバー）の未読ノード数。数字バッジで行の右端に出す
@@ -233,12 +525,21 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
         key={f.id}
         role="button"
         tabIndex={0}
+        data-rail-row={f.id}
+        data-rail-kind="page"
+        data-rail-section={routine ? "routine" : "project"}
         className={cn(
           "flex w-full cursor-pointer flex-col items-stretch gap-0.5 rounded-sm px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/60",
+          indented && "ml-3 w-[calc(100%-0.75rem)]",
           pageId === f.id && "bg-accent text-foreground",
           archived && "opacity-70",
+          drag?.id === f.id && "opacity-40",
+          dropClass(f.id),
         )}
-        onClick={() => onSelectPage(f.id)}
+        onClick={() => {
+          if (Date.now() - draggedAtRef.current < 300) return; // ドラッグ直後の click は無視
+          onSelectPage(f.id);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -246,7 +547,8 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
           }
         }}
       >
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          {!archived && gripFor({ id: f.id, kind: "page", section: routine ? "routine" : "project" })}
           {routine ? (
             <Hint id="page-routine" always="ルーティーンページ" text={HINT_TEXT.pageRoutine}>
               <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground">
@@ -347,6 +649,78 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
     );
   };
 
+  const renderFolder = (f: Node) => {
+    const children = inFolder(f.id);
+    const open = !closedFolders.has(f.id);
+    return (
+      <div key={f.id} className="flex flex-col gap-px">
+        <div
+          role="button"
+          tabIndex={0}
+          data-rail-row={f.id}
+          data-rail-kind="folder"
+          data-rail-section="project"
+          className={cn(
+            "flex w-full cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 text-left text-muted-foreground hover:bg-accent/60",
+            drag?.id === f.id && "opacity-40",
+            dropClass(f.id),
+          )}
+          onClick={() => {
+            if (Date.now() - draggedAtRef.current < 300) return;
+            toggleFolder(f.id);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggleFolder(f.id);
+            }
+          }}
+        >
+          {gripFor({ id: f.id, kind: "folder", section: "project" })}
+          {open ? (
+            <ChevronDown className="size-3.5 flex-shrink-0" />
+          ) : (
+            <ChevronRight className="size-3.5 flex-shrink-0" />
+          )}
+          <Folder className="size-3.5 flex-shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
+          {!open && children.length > 0 && (
+            <span className="flex-shrink-0 text-[10px] text-text-lo">{children.length}</span>
+          )}
+          <Hint id="folder-rename" always="フォルダ名を変更">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
+              onClick={(e) => {
+                e.stopPropagation();
+                void renameFolder(f);
+              }}
+            >
+              <Pencil className="size-3" />
+            </Button>
+          </Hint>
+          <Hint id="folder-remove" always="フォルダを削除" text="中のプロジェクトは消えず、直下へ出る">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-5 flex-shrink-0 text-text-lo hover:text-destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                void removeFolder(f);
+              }}
+            >
+              <Trash2 className="size-3" />
+            </Button>
+          </Hint>
+        </div>
+        {open && children.map((c) => renderRow(c, false, true))}
+      </div>
+    );
+  };
+
   if (!railOpen && !forceExpanded) {
     return (
       <div className="flex flex-shrink-0 flex-col items-center border-r border-border bg-muted py-1.5">
@@ -378,12 +752,68 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       {/* プロジェクト節: トリガー無しのページ。「＋」はここに1個だけ（ルーティーン化はトリガーを
           置けば自動でルーティーン節へ移る、という体験に任せる。本人指定）。
           見出しは0件でも常に出す — 消すと「＋」の導線が無くなるコールドスタート問題があるため
-          （その「＋」自体は作成せず、ヘッダーのゴール捕獲欄へ案内する） */}
-      <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
-        <Hint id="page-project" text={HINT_TEXT.pageProject}>
-          <span>プロジェクト</span>
-        </Hint>
-        <span className="flex items-center">
+          （その「＋」自体は作成せず、ヘッダーのゴール捕獲欄へ案内する）。
+          見出し行はドラッグの落とし先（＝フォルダから出して直下の末尾へ）も兼ねる */}
+      <div
+        data-rail-row={ROOT_ROW.project}
+        data-rail-kind="root"
+        data-rail-section="project"
+        className={cn(
+          "flex items-center justify-between gap-1 rounded-sm px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo",
+          dropClass(ROOT_ROW.project),
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Hint id="page-project" text={HINT_TEXT.pageProject}>
+            <span className="flex-shrink-0">プロジェクト</span>
+          </Hint>
+          {/* 人フィルタ（チーム化 2026-08-04。2026-08-05 見出しの隣へ小さく寄せた——
+              幅いっぱいのセレクタは主張が強すぎた）。ルーティーン節にも同じ述語が効く。
+              ロスターが2人未満の運用では出さない（degrade 原則） */}
+          {teamEnabled && (
+            <Select value={personFilterValue} onValueChange={setPersonFilter}>
+              <Hint
+                id="person-filter"
+                text="実効関係者（担当者・関係者・作成者の集計）でページを絞り込む。帰属なし=誰も付いていないページだけ"
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="h-5 w-auto max-w-24 gap-0.5 border-transparent bg-transparent px-1 py-0 text-[11px] font-normal shadow-none hover:bg-accent/60 [&_svg]:size-3"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+              </Hint>
+              <SelectContent>
+                <SelectItem value="all">全員</SelectItem>
+                {me.email && <SelectItem value="me">自分</SelectItem>}
+                {/* 無効化ユーザーは選択肢から除外（2026-08-04 アカウント管理）。保存値に
+                    無効化済みメールが残っていた場合は上の正規化が「全員」に倒す */}
+                {users
+                  .filter((u) => !u.disabled && !sameEmail(u.email, me.email))
+                  .map((u) => (
+                    <SelectItem key={u.email} value={u.email}>
+                      {displayNameOf(u.email, users)}
+                    </SelectItem>
+                  ))}
+                {/* 帰属なし = 実効関係者が空のページだけ。人フィルタは厳格絞り込みなので、
+                    帰属未記入の既存データはここで見つけて付けて回る（2026-08-04 追修） */}
+                <SelectItem value="none">帰属なし</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </span>
+        <span className="flex flex-shrink-0 items-center">
+          <Hint id="folder-add" always="フォルダを追加" text="プロジェクトをまとめる棚。掴んで（⠿）出し入れする">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground"
+              onClick={() => void addFolder()}
+            >
+              <FolderPlus className="size-3.5" />
+            </Button>
+          </Hint>
           <Hint
             id="add-goal"
             always="ゴールを追加"
@@ -412,42 +842,23 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
           </Hint>
         </span>
       </div>
-      {/* 人フィルタ（チーム化 2026-08-04）: ページを人で絞り込む。ルーティーン節にも同じ
-          述語が効く。ロスターが2人未満の運用では出さない（degrade 原則） */}
-      {teamEnabled && (
-        <div className="px-2 pb-1.5">
-          <Select value={personFilterValue} onValueChange={setPersonFilter}>
-            <Hint
-              id="person-filter"
-              text="実効関係者（担当者・関係者・作成者の集計）でページを絞り込む。帰属なし=誰も付いていないページだけ"
-            >
-              <SelectTrigger className="h-7 w-full text-xs">
-                <SelectValue />
-              </SelectTrigger>
-            </Hint>
-            <SelectContent>
-              <SelectItem value="all">全員</SelectItem>
-              {me.email && <SelectItem value="me">自分</SelectItem>}
-              {/* 無効化ユーザーは選択肢から除外（2026-08-04 アカウント管理）。保存値に
-                  無効化済みメールが残っていた場合は上の正規化が「全員」に倒す */}
-              {users
-                .filter((u) => !u.disabled && !sameEmail(u.email, me.email))
-                .map((u) => (
-                  <SelectItem key={u.email} value={u.email}>
-                    {displayNameOf(u.email, users)}
-                  </SelectItem>
-                ))}
-              {/* 帰属なし = 実効関係者が空のページだけ。人フィルタは厳格絞り込みなので、
-                  帰属未記入の既存データはここで見つけて付けて回る（2026-08-04 追修） */}
-              <SelectItem value="none">帰属なし</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-      {projectFolders.map((f) => renderRow(f, false))}
+      {/* フォルダ（上）→ 直下のプロジェクト（下）の順。人フィルタ中は中身が全部隠れた
+          フォルダを畳んで出さない（絞り込みの意味が薄れるため） */}
+      {folderList
+        .filter((f) => personFilterValue === "all" || inFolder(f.id).length > 0)
+        .map((f) => renderFolder(f))}
+      {rootProjects.map((f) => renderRow(f, false))}
       {routineFolders.length > 0 && (
         <>
-          <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
+          <div
+            data-rail-row={ROOT_ROW.routine}
+            data-rail-kind="root"
+            data-rail-section="routine"
+            className={cn(
+              "flex items-center justify-between rounded-sm px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo",
+              dropClass(ROOT_ROW.routine),
+            )}
+          >
             <Hint id="page-routine" text={HINT_TEXT.pageRoutine}>
               <span>ルーティーン</span>
             </Hint>

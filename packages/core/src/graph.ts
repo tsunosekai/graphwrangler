@@ -131,6 +131,8 @@ export function collectDescendantsAmong(nodes: Node[], id: string): Set<string> 
 // （impl は params[].value の変更だけ例外で許可——値は実行時入力でありやり方ではない）。
 // status/lifecycle/fixed/pendingRequest/implTrial/choice は進捗・ロック自体の
 // 操作なので常に変更できる（許可リストではなく、保護リストに載っていないもの全て、という形で表す）。
+// folder/order（左レールの整理棚と並び順。2026-08-05）も保護しない — どこにどの順で
+// 並べて見せるかは「やり方」ではないので、Fix 済みのページも片付けられる。
 
 const FIXED_PROTECTED_SIMPLE_FIELDS = [
   "title",
@@ -266,6 +268,7 @@ export class GraphStore {
     this.validateParents(null, parsed.parents);
     this.validateTriggerHasNoParents(parsed.kind, parsed.parents);
     this.validateGroup(null, parsed.group);
+    this.validateFolder(null, parsed.folder);
     this.validateBranches(parsed.kind, parsed.branches);
     this.validateParentOptions(parsed.parents, parsed.parentOptions);
     // 決着済みの分岐の「選ばれなかった枝」へ後付けしたノードは最初から skipped にする
@@ -300,6 +303,7 @@ export class GraphStore {
     assertPatchAllowedWhileFixed(current, parsed, FIXED_PATCH_MESSAGE);
     if (parsed.parents) this.validateParents(id, parsed.parents);
     if (parsed.group !== undefined) this.validateGroup(id, parsed.group ?? null);
+    if (parsed.folder !== undefined) this.validateFolder(id, parsed.folder ?? null);
     if (parsed.kind !== undefined || parsed.branches !== undefined) {
       const kind = parsed.kind ?? current.kind;
       const branches = parsed.branches !== undefined ? parsed.branches : current.branches;
@@ -478,6 +482,7 @@ export class GraphStore {
           `node ${id} has ${members.length} members; ungroup or remove them first`,
         );
       }
+      this.detachFolderRefs(new Set([id]), meta);
       this.commit({ op: "node.remove", payload: { nodeId: id } }, meta);
       return;
     }
@@ -510,6 +515,9 @@ export class GraphStore {
       }
     }
 
+    // 消える一式を folder に持つノード（フォルダを消したときの中のページ）は直下へ出す
+    this.detachFolderRefs(toRemove, meta);
+
     // メンバー → 自分の順で削除（undo は逆順に1opずつ戻るため、グループが先に復活する）
     for (const rid of [...toRemove].filter((x) => x !== id)) {
       this.commit({ op: "node.remove", payload: { nodeId: rid } }, meta);
@@ -533,6 +541,41 @@ export class GraphStore {
         if (seen.has(cur)) break;
         seen.add(cur);
         cur = this.nodes.get(cur)?.group ?? null;
+      }
+    }
+  }
+
+  /** folder の検証（2026-08-05 左レールの整理棚）: 実在すること・相手が kind=folder で
+   *  あること・入れ子の循環を作らないこと。group（包含）とは別軸なので検証も別に持つ */
+  private validateFolder(selfId: string | null, folder: string | null): void {
+    if (folder === null) return;
+    const target = this.nodes.get(folder);
+    if (!target) throw new GraphError(`folder not found: ${folder}`);
+    if (target.kind !== "folder") {
+      throw new GraphError(`node ${folder} is not a folder (kind=${target.kind})`);
+    }
+    if (!selfId) return;
+    let cur: string | null = folder;
+    const seen = new Set<string>();
+    while (cur !== null) {
+      if (cur === selfId) {
+        throw new GraphError(`folder cycle: ${folder} is inside ${selfId}`);
+      }
+      if (seen.has(cur)) break;
+      seen.add(cur);
+      cur = this.nodes.get(cur)?.folder ?? null;
+    }
+  }
+
+  /** 消えるノードを folder に持つノードから、その参照を外す。フォルダは整理棚なので
+   *  **巻き添え削除しない**（中のページは直下へ出るだけ）。patchNode の fixed ガードを
+   *  通さず直接 commit するのは parents の切り離しと同じ理由——削除の後始末であって
+   *  「やり方の変更」ではないため */
+  private detachFolderRefs(removed: Set<string>, meta: OpMeta): void {
+    for (const n of [...this.nodes.values()]) {
+      if (removed.has(n.id)) continue;
+      if (n.folder !== null && removed.has(n.folder)) {
+        this.commit({ op: "node.patch", payload: { nodeId: n.id, patch: { folder: null } } }, meta);
       }
     }
   }
@@ -700,7 +743,10 @@ export class GraphStore {
         const id = target.payload.node.id;
         const children = [...this.nodes.values()].filter((n) => n.parents.includes(id));
         const members = [...this.nodes.values()].filter((n) => n.group === id);
-        if (children.length || members.length) {
+        // フォルダ（kind=folder）は中身を folder 参照で持つ。参照が残ったまま消すと
+        // 迷子のページができるので、削除（=add の補償）は同じく拒否する
+        const filed = [...this.nodes.values()].filter((n) => n.folder === id);
+        if (children.length || members.length || filed.length) {
           throw new GraphError(
             `undo できません: ${id} には後続ノードやメンバーが追加されています`,
             409,

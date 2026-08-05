@@ -220,4 +220,47 @@ describe("GraphStore: trigger ノード", () => {
     const patched = g.patchNode(b.id, { kind: "trigger", parents: [] });
     expect(patched.kind).toBe("trigger");
   });
+
+  // ---- 左レールの整理棚（kind=folder）と手動並び順（order）。2026-08-05 ----
+
+  it("folder: 実在検証・相手がfolderであることの検証・入れ子循環の禁止", () => {
+    const g = new GraphStore(dir);
+    const shelf = g.addNode({ title: "受託", kind: "folder" });
+    const page = g.addNode({ title: "ゴール", kind: "goal", folder: shelf.id });
+    expect(page.folder).toBe(shelf.id);
+    expect(() => g.addNode({ title: "x", kind: "goal", folder: "n-99999999-0001" })).toThrow(
+      /folder not found/,
+    );
+    // ページ（kind=goal）をフォルダ扱いにはできない
+    expect(() => g.patchNode(shelf.id, { folder: page.id })).toThrow(/is not a folder/);
+    const inner = g.addNode({ title: "内側", kind: "folder", folder: shelf.id });
+    expect(() => g.patchNode(shelf.id, { folder: inner.id })).toThrow(/folder cycle/);
+  });
+
+  it("folder: フォルダを消しても中のページは消えず、folder が外れるだけ", () => {
+    const g = new GraphStore(dir);
+    const shelf = g.addNode({ title: "受託", kind: "folder" });
+    const page = g.addNode({ title: "ゴール", kind: "goal", folder: shelf.id });
+    g.removeNode(shelf.id);
+    expect(() => g.get(shelf.id)).toThrow(GraphError);
+    expect(g.get(page.id).folder).toBeNull();
+  });
+
+  it("order/folder は Fix 済みでも変更できる（並べ方は「やり方」ではない）", () => {
+    const g = new GraphStore(dir);
+    const shelf = g.addNode({ title: "受託", kind: "folder" });
+    const page = g.addNode({ title: "ゴール", kind: "goal" });
+    g.patchNode(page.id, { fixed: true });
+    const moved = g.patchNode(page.id, { folder: shelf.id, order: 3 });
+    expect(moved.folder).toBe(shelf.id);
+    expect(moved.order).toBe(3);
+    // 一方で「やり方」側（title 等）は従来どおり拒否される
+    expect(() => g.patchNode(page.id, { title: "別名" })).toThrow(/Fix済み/);
+  });
+
+  it("order の既定は null（未指定＝作成順で後ろに落ちる）", () => {
+    const g = new GraphStore(dir);
+    expect(g.addNode({ title: "a", kind: "goal" }).order).toBeNull();
+    expect(g.addNode({ title: "b", kind: "goal", order: 0 }).order).toBe(0);
+  });
 });
