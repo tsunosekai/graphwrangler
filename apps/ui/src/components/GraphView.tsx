@@ -1058,9 +1058,14 @@ function GraphViewInner({
             1本だけのときも「今どのランを見ているか」が分かるようタイトルを出す */}
         {!showLedger && runningRuns.length > 1 && activeRun && (
           <Select value={activeRun.id} onValueChange={(v) => onProjectRun?.(v)}>
-            <SelectTrigger className="h-9 max-w-56">
-              <SelectValue />
-            </SelectTrigger>
+            <Hint
+              id="run-projection"
+              text="ランが並走中。どのランの進捗をグラフに投影するか選ぶ（カードの操作も選んだランに記録される）"
+            >
+              <SelectTrigger className="h-9 max-w-56">
+                <SelectValue />
+              </SelectTrigger>
+            </Hint>
             <SelectContent>
               {runningRuns.map((r) => (
                 <SelectItem key={r.id} value={r.id}>

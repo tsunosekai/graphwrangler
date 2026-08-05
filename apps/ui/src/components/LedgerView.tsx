@@ -83,7 +83,8 @@ function renderCell(item: RunItem | undefined, col: Node) {
       : null;
   return (
     <span className="inline-flex items-center justify-center gap-1">
-      <StatusCircle status={item.status} size={13} />
+      {/* 凡例ヒントはセル側（td を包む Hint）が持つので二重に出さない */}
+      <StatusCircle status={item.status} size={13} hint={false} />
       {choiceLabel && <span className="text-[10px] text-muted-foreground">{choiceLabel}</span>}
     </span>
   );
@@ -319,23 +320,32 @@ export function LedgerView({ page, members, onMutated }: Props) {
                   // 分岐はトグルではない（decide経由でしか確定しないため、セルクリックでの切替は無効）
                   const toggleDisabled = col.kind === "decision";
                   return (
-                    <td
+                    // waiting の理由（失敗: … / 承認待ち / 分岐待ち）は always でセルに残す
+                    <Hint
                       key={col.id}
-                      // waiting の理由（失敗: … / 承認待ち / 分岐待ち）をツールチップで見せる
-                      title={item?.note ?? undefined}
-                      className={cn(
-                        "border-b border-border px-2.5 py-1.5 text-center align-middle",
-                        !toggleDisabled && "cursor-pointer",
-                      )}
-                      onClick={(e) => {
-                        if (toggleDisabled) return;
-                        if (!item || (item.status !== "pending" && item.status !== "done")) return;
-                        e.stopPropagation();
-                        toggleCell(run.id, col.id, item.status);
-                      }}
+                      id="ledger-cell"
+                      always={item?.note}
+                      text={
+                        toggleDisabled
+                          ? "分岐のセルはクリックでは切り替わらない（「分岐を選ぶ」でのみ決着）"
+                          : "セルのクリックで完了⇄待ちを切り替えられる（—=対象外/スキップ）"
+                      }
                     >
-                      {renderCell(item, col)}
-                    </td>
+                      <td
+                        className={cn(
+                          "border-b border-border px-2.5 py-1.5 text-center align-middle",
+                          !toggleDisabled && "cursor-pointer",
+                        )}
+                        onClick={(e) => {
+                          if (toggleDisabled) return;
+                          if (!item || (item.status !== "pending" && item.status !== "done")) return;
+                          e.stopPropagation();
+                          toggleCell(run.id, col.id, item.status);
+                        }}
+                      >
+                        {renderCell(item, col)}
+                      </td>
+                    </Hint>
                   );
                 })}
               </tr>

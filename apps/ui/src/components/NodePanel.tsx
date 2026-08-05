@@ -705,15 +705,34 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
         {/* 何を開いているかの種別バッジ（2026-08-04 本人要望「プロジェクトかルーティーンか
             タスクかが分かるようにタイトルの左にバッジ」）。ページ（goal）はトリガーの有無で
             プロジェクト/ルーティーンに分かれる（PageList の節分けと同じ導出 = isRoutinePage） */}
-        <Badge variant="outline" className="flex-shrink-0 text-muted-foreground">
-          {node.kind === "goal"
-            ? isRoutinePage(node, allNodes)
-              ? "ルーティーン"
-              : "プロジェクト"
-            : node.kind === "task"
-              ? "タスク"
-              : KIND_JA[node.kind]}
-        </Badge>
+        {(() => {
+          const routine = node.kind === "goal" && isRoutinePage(node, allNodes);
+          const label =
+            node.kind === "goal"
+              ? routine
+                ? "ルーティーン"
+                : "プロジェクト"
+              : node.kind === "task"
+                ? "タスク"
+                : KIND_JA[node.kind];
+          return (
+            <Hint
+              id={node.kind === "goal" ? (routine ? "page-routine" : "page-project") : "kind"}
+              always={`種別: ${label}`}
+              text={
+                node.kind === "goal"
+                  ? routine
+                    ? HINT_TEXT.pageRoutine
+                    : HINT_TEXT.pageProject
+                  : HINT_TEXT.kind
+              }
+            >
+              <Badge variant="outline" className="flex-shrink-0 text-muted-foreground">
+                {label}
+              </Badge>
+            </Hint>
+          );
+        })()}
         <Input
           className="flex-1 border-transparent bg-transparent text-lg font-semibold hover:border-input focus-visible:border-input"
           value={titleDraft}

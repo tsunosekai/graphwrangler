@@ -248,11 +248,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       >
         <span className="flex min-w-0 items-center gap-2">
           {routine ? (
-            <Hint
-              id="page-routine"
-              always="ルーティーンページ"
-              text="トリガーを持つページ。発火のたびにラン（実行インスタンス）が生まれ、進捗はランごとに付く"
-            >
+            <Hint id="page-routine" always="ルーティーンページ" text={HINT_TEXT.pageRoutine}>
               <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground">
                 <Icon name="repeat" size={12} />
               </span>
@@ -332,12 +328,17 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
         {dots.length > 0 && (
           <span className="flex flex-wrap items-center gap-[3px] pl-5">
             {shown.map((d) => (
-              <i
+              <Hint
                 key={d.key}
-                className="size-[5px] flex-shrink-0 rounded-full"
-                title={d.title}
-                style={{ background: d.color }}
-              />
+                id="seat-dots"
+                always={d.title}
+                text="ページ内ノードの手番の内訳（ノード1つ=点1つ）。色はいま動くべき席=担当の色で、橙=あなたの番、沈んだ色=完了・中止・スキップ"
+              >
+                <i
+                  className="size-[5px] flex-shrink-0 rounded-full"
+                  style={{ background: d.color }}
+                />
+              </Hint>
             ))}
             {rest > 0 && <span className="font-mono text-xs text-text-lo">+{rest}</span>}
           </span>
@@ -379,10 +380,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
           見出しは0件でも常に出す — 消すと「＋」の導線が無くなるコールドスタート問題があるため
           （その「＋」自体は作成せず、ヘッダーのゴール捕獲欄へ案内する） */}
       <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
-        <Hint
-          id="page-project"
-          text="トリガーを持たないページ。ゴールに向かって一度きり進める。ノードにトリガーを置くと自動でルーティーン節へ移る"
-        >
+        <Hint id="page-project" text={HINT_TEXT.pageProject}>
           <span>プロジェクト</span>
         </Hint>
         <span className="flex items-center">
@@ -450,10 +448,7 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       {routineFolders.length > 0 && (
         <>
           <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
-            <Hint
-              id="page-routine"
-              text="トリガーを持つページ。発火のたびにラン（実行インスタンス）が生まれ、進捗はランごとに付く（台帳ビューで一覧できる）"
-            >
+            <Hint id="page-routine" text={HINT_TEXT.pageRoutine}>
               <span>ルーティーン</span>
             </Hint>
           </div>
@@ -462,14 +457,19 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       )}
       {archivedFolders.length > 0 && (
         <>
-          <button
-            type="button"
-            className="mt-1 flex items-center gap-1.5 border-t border-border px-2 py-1.5 text-left text-xs text-text-lo hover:bg-accent/40 hover:text-muted-foreground"
-            onClick={() => setArchiveOpen((v) => !v)}
+          <Hint
+            id="archive"
+            text="完了・中止になったプロジェクトが入る（ルーティーンは常にアクティブ扱いでここには来ない）"
           >
-            <span>{archiveOpen ? "▾" : "▸"}</span>
-            <span>アーカイブ {archivedFolders.length}</span>
-          </button>
+            <button
+              type="button"
+              className="mt-1 flex items-center gap-1.5 border-t border-border px-2 py-1.5 text-left text-xs text-text-lo hover:bg-accent/40 hover:text-muted-foreground"
+              onClick={() => setArchiveOpen((v) => !v)}
+            >
+              <span>{archiveOpen ? "▾" : "▸"}</span>
+              <span>アーカイブ {archivedFolders.length}</span>
+            </button>
+          </Hint>
           {archiveOpen && (
             <div className="flex flex-col gap-px">{archivedFolders.map((f) => renderRow(f, true))}</div>
           )}

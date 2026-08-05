@@ -7,6 +7,17 @@ interface ShortcutRow {
   desc: string;
 }
 
+// マウス操作の一覧（2026-08-05 追加）。エッジ接続・紐からのノード生成などは画面上に
+// ホバーで説明を付けられる要素が無い（キャンバス自体が対象）ため、発見の場をここに置く
+const MOUSE_ROWS: ShortcutRow[] = [
+  { keys: ["ドラッグ"], desc: "画面を動かす（ホイールでズーム）" },
+  { keys: ["Shift", "ドラッグ"], desc: "矩形選択（Shift/Ctrl+クリックで追加選択）" },
+  { keys: ["ダブルクリック"], desc: "カードのタイトルを編集" },
+  { keys: ["○からドラッグ"], desc: "カード下端の点から次のカードへ依存エッジをつなぐ" },
+  { keys: ["紐を空白で放す"], desc: "その位置に新しいノードを作って接続" },
+  { keys: ["エッジをクリック"], desc: "選択して✂で依存を切る" },
+];
+
 const ROWS: ShortcutRow[] = [
   { keys: ["Ctrl", "K"], desc: "ノード検索" },
   { keys: ["Ctrl", "Z"], desc: "元に戻す" },
@@ -45,7 +56,23 @@ export function ShortcutsDialog({ open, onOpenChange }: Props) {
           <DialogTitle>ショートカット一覧</DialogTitle>
           <DialogDescription>グラフビュー上で有効（入力欄・ダイアログにフォーカス中は無効）</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-2">
+        {/* 2節構成で縦に長くなったため、小さい画面でははみ出さず内部スクロール */}
+        <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto">
+          <h3 className="text-xs font-semibold tracking-wide text-text-lo">マウス</h3>
+          {MOUSE_ROWS.map((row) => (
+            <div key={row.desc} className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">{row.desc}</span>
+              <span className="flex flex-shrink-0 items-center gap-1">
+                {row.keys.map((k, i) => (
+                  <span key={k} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-muted-foreground">+</span>}
+                    <Kbd>{k}</Kbd>
+                  </span>
+                ))}
+              </span>
+            </div>
+          ))}
+          <h3 className="mt-2 text-xs font-semibold tracking-wide text-text-lo">キーボード</h3>
           {ROWS.map((row) => (
             <div key={row.desc} className="flex items-center justify-between gap-3 text-sm">
               <span className="text-muted-foreground">{row.desc}</span>

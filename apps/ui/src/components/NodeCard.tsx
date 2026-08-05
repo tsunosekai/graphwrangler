@@ -433,14 +433,31 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       {node.kind === "trigger" && node.executor === "script" && (
         <div className="mt-1.5 text-xs">
           {node.schedule ? (
-            <span className="text-muted-foreground">{node.schedule}</span>
+            <Hint
+              id="schedule"
+              text="スクリプト・トリガーの自動発火条件（書式: every 15m / daily 09:00 / weekly mon 09:00）"
+            >
+              <span className="text-muted-foreground">{node.schedule}</span>
+            </Hint>
           ) : (
-            <span className="text-destructive">schedule 未設定</span>
+            <Hint
+              id="schedule"
+              text="設定するまで手動▶でしか発火しない。パネルの起動方式欄に every 15m / daily 09:00 / weekly mon 09:00 の書式で書く"
+            >
+              <span className="text-destructive">schedule 未設定</span>
+            </Hint>
           )}
         </div>
       )}
       {node.kind === "trigger" && node.executor === "ai" && (
-        <div className="mt-1.5 text-xs text-muted-foreground">チェック間隔: {node.schedule || "every 1h"}</div>
+        <Hint
+          id="schedule"
+          text="AIに発火要否を判定させる間隔（every のみ解釈、無指定は1時間）。発火の条件自体は detail や手順書に書く"
+        >
+          <div className="mt-1.5 text-xs text-muted-foreground">
+            チェック間隔: {node.schedule || "every 1h"}
+          </div>
+        </Hint>
       )}
       {/* 分岐確定後: 選んだ枝を表示（docs/design.md 3.9） */}
       {node.kind === "decision" && node.choice && (

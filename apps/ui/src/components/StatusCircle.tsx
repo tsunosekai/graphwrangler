@@ -1,7 +1,9 @@
 // Linear 風のステータスサークル（backlog/todo/in-progress/done の円形インジケータの系譜）。
 // pending=空円 / running=半分埋まったリング / waiting=中点付き円 / done=塗り円+チェック /
 // dropped=×円 / skipped=薄い円+斜線（dropped の×とは区別。docs/design.md 3.9）
+import { HINT_TEXT } from "../lib/hints";
 import type { Status } from "../types";
+import { Hint } from "./Hint";
 
 const COLOR: Record<Status, string> = {
   unplanned: "var(--text-lo)",
@@ -13,19 +15,34 @@ const COLOR: Record<Status, string> = {
   skipped: "var(--text-lo)",
 };
 
+const STATUS_JA: Record<Status, string> = {
+  unplanned: "未計画",
+  pending: "待ち",
+  running: "進行中",
+  waiting: "あなたの番（回答待ち）",
+  done: "完了",
+  dropped: "中止",
+  skipped: "スキップ",
+};
+
 export function StatusCircle({
   status,
   size = 14,
   mine = true,
+  hint = true,
 }: {
   status: Status;
   size?: number;
   /** waiting のとき「自分の番」か（チーム化 2026-08-04）。他人の番なら橙(--attention)にせず
    *  人間の席色で「誰かの回答待ち」だけ伝える。waiting 以外では無視される */
   mine?: boolean;
+  /** 記号の凡例ヒント（2026-08-05）。既定で全使用箇所に付く。外側が自前の Hint で包む場合
+   *  （台帳のセル等）だけ false にして二重吹き出しを避ける */
+  hint?: boolean;
 }) {
   const c = status === "waiting" && !mine ? "var(--human)" : COLOR[status];
-  return (
+  const label = status === "waiting" && !mine ? "回答待ち（他の人の番）" : STATUS_JA[status];
+  const circle = (
     <svg
       viewBox="0 0 14 14"
       width={size}
@@ -82,5 +99,11 @@ export function StatusCircle({
         <circle cx="7" cy="7" r="5.4" fill="none" stroke={c} strokeWidth="1.4" />
       )}
     </svg>
+  );
+  if (!hint) return circle;
+  return (
+    <Hint id="status-legend" always={`状態: ${label}`} text={HINT_TEXT.statusLegend}>
+      {circle}
+    </Hint>
   );
 }
