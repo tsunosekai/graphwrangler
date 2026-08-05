@@ -6,6 +6,8 @@
 // 「エージェントごと差し替え」。2026-07-29 本人フィードバック「どっちを使う設定か分からない」対応）。
 import { useState } from "react";
 import { api, type SettingsPatch, type SettingsView } from "../lib/api";
+import { hintsEnabled, resetHints, setHintsEnabled, useHintsVersion } from "../lib/hints";
+import { pushToast } from "../lib/toast";
 import { useTheme, type ThemeMode } from "../lib/theme";
 import { Button } from "./ui/button";
 import { X } from "lucide-react";
@@ -93,6 +95,10 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
 
   // あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際の発火は App 側）
   const [notifyEnabled, setNotifyEnabled] = useState(() => localStorage.getItem("gw.notify") === "1");
+
+  // ヒント（マウスオーバーの説明吹き出し。lib/hints.ts）。テーマ・通知と同じく
+  // localStorage 持ちの即時反映で、下の「保存」を経由しない
+  useHintsVersion();
 
   const toggleNotify = async () => {
     const next = !notifyEnabled;
@@ -375,6 +381,29 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
               </SelectContent>
             </Select>
           </label>
+        </section>
+
+        <section className={section}>
+          <h3 className={heading}>ヒント</h3>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch checked={hintsEnabled()} onCheckedChange={setHintsEnabled} />
+            <span>マウスオーバーで説明の吹き出しを表示</span>
+          </label>
+          <p className={desc}>
+            各ヒントの「OK」を押すと、そのヒントは以後表示されません（この端末のみ）
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => {
+              resetHints();
+              pushToast("OKで消したヒントを再表示します", "info");
+            }}
+          >
+            OKで消したヒントを再表示
+          </Button>
         </section>
 
         <section className={section}>

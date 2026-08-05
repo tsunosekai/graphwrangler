@@ -25,6 +25,7 @@ import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { CutEdge, type CutEdgeData } from "./CutEdge";
+import { Hint } from "./Hint";
 import { LedgerView } from "./LedgerView";
 import { NodeCard, type NodeCardData } from "./NodeCard";
 import { ShortcutsDialog } from "./ShortcutsDialog";
@@ -1064,9 +1065,14 @@ function GraphViewInner({
           </Select>
         )}
         {!showLedger && runningRuns.length === 1 && activeRun && (
-          <Badge variant="secondary" title="投影中の実行中ラン">
-            ▶ {activeRun.title}
-          </Badge>
+          <Hint
+            id="run-projection"
+            always="投影中の実行中ラン"
+            text="このランの進捗を各カードに重ねて表示中。カードの着手/完了もこのランに記録される（テンプレート自体は進捗を持たない）"
+            side="bottom"
+          >
+            <Badge variant="secondary">▶ {activeRun.title}</Badge>
+          </Hint>
         )}
         {/* 投影中ランの名前を後から編集（並列ラン=世界線の区別用ラベル） */}
         {!showLedger && activeRun && (
@@ -1104,9 +1110,16 @@ function GraphViewInner({
             {/* 「元に戻す」「ショートカット一覧」ボタンはヘッダー（TopBar）へ移動
                 （2026-07-31 本人指示）。Ctrl+Z / "?" キーとダイアログ本体は引き続きここが持つ */}
             {hardening.m > 0 && (
-              <Badge variant="secondary" title="確定メンバーのうちスクリプト化済みの割合">
-                Fix {hardening.n}/{hardening.m}
-              </Badge>
+              <Hint
+                id="fix-ratio"
+                always="Fix済みノード / 全ノード"
+                text="このページのノードのうち、やり方が確定（Fix=ロック）した数。100%でこのページの固め切りが完了"
+                side="bottom"
+              >
+                <Badge variant="secondary">
+                  Fix {hardening.n}/{hardening.m}
+                </Badge>
+              </Hint>
             )}
           </>
         )}

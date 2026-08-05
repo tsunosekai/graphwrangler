@@ -4,6 +4,7 @@ import { cn } from "../lib/utils";
 import type { DecisionRequest, MaterializedMessage } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Hint } from "./Hint";
 
 interface Props {
   message: MaterializedMessage;
@@ -63,7 +64,12 @@ export function DecisionCard({ message, nodeId, onMutated }: Props) {
         ))}
       </div>
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <span>影響: {request.impact}</span>
+        <Hint
+          id="request-impact"
+          text="この判断で起きることの影響度。safe=安全な操作 / reversible=元に戻せる / irreversible=取り返しがつかない（慎重に）"
+        >
+          <span>影響: {request.impact}</span>
+        </Hint>
         {request.undo && <span>取消: {request.undo}</span>}
         {!open && <span className="text-done">回答済み</span>}
       </div>

@@ -4,9 +4,11 @@ import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
 import { promptDialog } from "../lib/dialogs";
 import { colorOf, displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
+import { HINT_TEXT } from "../lib/hints";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { Node, RunItemStatus } from "../types";
+import { Hint } from "./Hint";
 import { Icon } from "./Icon";
 
 // 担当アイコン（2026-07-31 本人選定「B. 明快系」: 人型 / ロボット顔 / ターミナル >_）
@@ -36,6 +38,7 @@ const EXEC_TEXT: Record<Node["executor"], string> = {
   ai: "text-ai",
   script: "text-script",
 };
+const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
 
 export interface NodeCardData {
   node: Node;
@@ -232,22 +235,27 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             <Play className="size-3" />
           </button>
         )}
-        <button
-          type="button"
-          className={cn(
-            "nodrag inline-flex size-[22px] items-center justify-center rounded-full border bg-background transition-opacity",
-            node.fixed
-              ? "border-ok text-ok" // Fix済み=濃く
-              : "border-border text-text-lo opacity-40 hover:opacity-90", // 未Fix=薄く
-          )}
-          title={node.fixed ? "Fix済み（クリックで解除）" : "未Fix・改善中（クリックで Fix）"}
-          onClick={async (e) => {
-            e.stopPropagation();
-            await api.patchNode(node.id, { fixed: !node.fixed });
-          }}
+        <Hint
+          id="fixed"
+          always={node.fixed ? "Fix済み（クリックで解除）" : "未Fix・改善中（クリックで Fix）"}
+          text={HINT_TEXT.fixed}
         >
-          {node.fixed ? <Lock className="size-3" /> : <Unlock className="size-3" />}
-        </button>
+          <button
+            type="button"
+            className={cn(
+              "nodrag inline-flex size-[22px] items-center justify-center rounded-full border bg-background transition-opacity",
+              node.fixed
+                ? "border-ok text-ok" // Fix済み=濃く
+                : "border-border text-text-lo opacity-40 hover:opacity-90", // 未Fix=薄く
+            )}
+            onClick={async (e) => {
+              e.stopPropagation();
+              await api.patchNode(node.id, { fixed: !node.fixed });
+            }}
+          >
+            {node.fixed ? <Lock className="size-3" /> : <Unlock className="size-3" />}
+          </button>
+        </Hint>
       </span>
       {/* 「あなたの番」の右肩ドット。非テンプレートは pendingRequest、投影中はランアイテムの
           waiting をそのまま使う（ランアイテムに pendingRequest 概念はない。docs/design.md 3.8）。
@@ -272,28 +280,36 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             "opacity-55",
         )}
       >
-        <span className={cn("inline-flex flex-shrink-0", EXEC_TEXT[node.executor])}>
-          <Icon name={EXEC_ICON[node.executor]} />
-        </span>
+        {/* 担当アイコンのヒント（2026-08-05 本人指定の最重要ヒント）: 担当=誰が始めるのか。
+            id はパネルの「担当」と共有——どちらかで OK すれば両方消える */}
+        <Hint id="executor" always={`担当: ${EXEC_JA[node.executor]}`} text={HINT_TEXT.executor}>
+          <span className={cn("inline-flex flex-shrink-0", EXEC_TEXT[node.executor])}>
+            <Icon name={EXEC_ICON[node.executor]} />
+          </span>
+        </Hint>
         {/* 担当者のイニシャルバッジ（チーム化 2026-08-04）: 担当=人間で assignee があるとき、
             「人間の誰がやるか」を1文字で示す。ロスターが2人未満の運用では出さない（degrade 原則） */}
         {teamEnabled && node.executor === "human" && node.assignee && (
-          <span
-            className="inline-flex size-4 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white"
-            style={{ background: colorOf(node.assignee) }}
-            title={`担当者: ${displayNameOf(node.assignee, users)}`}
+          <Hint
+            id="assignee"
+            always={`担当者: ${displayNameOf(node.assignee, users)}`}
+            text={HINT_TEXT.assignee}
           >
-            {initialOf(node.assignee, users)}
-          </span>
+            <span
+              className="inline-flex size-4 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white"
+              style={{ background: colorOf(node.assignee) }}
+            >
+              {initialOf(node.assignee, users)}
+            </span>
+          </Hint>
         )}
         {/* 2個目スロットは種別の文字チップ（本人選定「A+D」2026-07-31: アイコンをやめて
             実行/判断/トリガー の文字で誤読ゼロに）。実装(impl)バッジは別軸なのでタイトル右端 */}
-        <span
-          className="flex-shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground"
-          title="種別"
-        >
-          {KIND_CHIP[node.kind]}
-        </span>
+        <Hint id="kind" always={`種別: ${KIND_CHIP[node.kind]}`} text={HINT_TEXT.kind}>
+          <span className="flex-shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground">
+            {KIND_CHIP[node.kind]}
+          </span>
+        </Hint>
         {data.editing ? (
           <input
             autoFocus
@@ -317,12 +333,15 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         )}
         {/* 実装形態（impl）は種別と別軸なので右端に薄く出す（本人選定「B」の一部） */}
         {node.impl && (
-          <span
-            className="inline-flex flex-shrink-0 text-text-lo"
-            title={node.impl.type === "doc" ? "実装: 手順書（文書）" : "実装: スクリプト（決定的）"}
+          <Hint
+            id="impl"
+            always={node.impl.type === "doc" ? "実装: 手順書（文書）" : "実装: スクリプト（決定的）"}
+            text={HINT_TEXT.impl}
           >
-            <Icon name={node.impl.type === "doc" ? "doc" : "code"} size={12} />
-          </span>
+            <span className="inline-flex flex-shrink-0 text-text-lo">
+              <Icon name={node.impl.type === "doc" ? "doc" : "code"} size={12} />
+            </span>
+          </Hint>
         )}
         {/* 担当×実装の不整合⚠（docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）:
             担当=script なのに impl が script でない=実行すると失敗する。既存の不可逆⚠と
@@ -335,16 +354,15 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           </span>
         )}
         {node.approval && (
-          <span
-            className="flex-shrink-0 text-destructive"
-            title={
-              node.kind === "trigger"
-                ? "発火前承認（自動発火の直前に人間の承認ゲートを通る）"
-                : "実行前承認（不可逆な操作。実行前に人間の承認ゲートを通る）"
-            }
+          <Hint
+            id="approval"
+            always={node.kind === "trigger" ? "発火前承認" : "実行前承認"}
+            text={HINT_TEXT.approval}
           >
-            <Icon name="alert" size={12} />
-          </span>
+            <span className="flex-shrink-0 text-destructive">
+              <Icon name="alert" size={12} />
+            </span>
+          </Hint>
         )}
         {/* 未読はカード内の右側（レールの未読バッジと同じ「右端」ポジション。旧: 左肩の外付けドット） */}
         {data.unread && (

@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
-  CircleHelp,
   Copy,
   History,
   Loader2,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react";
 import { api, postReads, type NodePatchInput } from "../lib/api";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
+import { HINT_TEXT } from "../lib/hints";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { isRoutinePage } from "../lib/routine";
@@ -44,6 +44,7 @@ import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { DecisionCard } from "./DecisionCard";
+import { Hint } from "./Hint";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 import { Thread } from "./Thread";
@@ -95,6 +96,9 @@ type ImplTypeOption = "none" | "doc" | "script";
  *  同じ値を Web Crypto で計算して突き合わせる */
 type ImplStatusUi = "ok" | "stale" | "unverified" | "not-script";
 const TRIAL_CONFIRM_MESSAGE = "スクリプトの試走が成功していません。このまま続けますか？";
+// 進捗ラベルのヒント（プロジェクトの進捗とラン投影の進捗、2箇所で同じ id="status" を使う）
+const STATUS_HINT =
+  "未計画=やり方が決まっていない（エンジンは実行しない）。プラン済みにすると待ちになり、前のノードが終わると着手できる。スキップ=分岐で選ばれなかった枝";
 // 進捗はドロップダウンでなくボタン遷移（2026-07-31 本人指定）。
 // 人間の語彙: 未計画 →[プラン済みにする]→ 待ち →[着手]→ 進行中 →[完了]。
 // 待ち/進行中は人間ノードでは「やってるかどうかの目印」、AI/スクリプトでは機械が動かす。
@@ -715,25 +719,22 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
         />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              // Fix済み=濃く（緑の錠前）、未Fix=薄く（開いた錠前）
-              className={node.fixed ? "text-ok" : "text-text-lo opacity-60"}
-              onClick={() => patch({ fixed: !node.fixed })}
-            >
-              {node.fixed ? <Lock /> : <Unlock />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {node.fixed
-              ? "Fix済み: やり方が確定。AIは実装を書き換えない"
-              : "未Fix（改善中）: AIが実装を書き換えてよい。クリックで Fix する"}
-          </TooltipContent>
-        </Tooltip>
+        <Hint
+          id="fixed"
+          always={node.fixed ? "Fix済み（ロック中）" : "未Fix（改善中）"}
+          text={HINT_TEXT.fixed}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            // Fix済み=濃く（緑の錠前）、未Fix=薄く（開いた錠前）
+            className={node.fixed ? "text-ok" : "text-text-lo opacity-60"}
+            onClick={() => patch({ fixed: !node.fixed })}
+          >
+            {node.fixed ? <Lock /> : <Unlock />}
+          </Button>
+        </Hint>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button type="button" variant="ghost" size="icon" onClick={handleDuplicate}>
@@ -886,7 +887,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
 
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-              種別
+              <Hint id="kind" text={HINT_TEXT.kind}>
+                <span className="self-start">種別</span>
+              </Hint>
               <Select
                 value={node.kind}
                 disabled={node.fixed}
@@ -919,7 +922,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               </Select>
             </label>
             <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-              担当
+              {/* 最重要ヒント（2026-08-05 本人指定）: 担当=「誰がその作業を始めるのか」 */}
+              <Hint id="executor" text={HINT_TEXT.executor}>
+                <span className="self-start">担当</span>
+              </Hint>
               <Select
                 value={node.executor}
                 disabled={node.fixed}
@@ -940,7 +946,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 ロスターが2人未満の運用では出さない（degrade 原則） */}
             {teamEnabled && node.executor === "human" && (
               <label className="col-span-2 flex flex-col gap-1 text-sm text-muted-foreground">
-                担当者
+                <Hint id="assignee" text={HINT_TEXT.assignee}>
+                  <span className="self-start">担当者</span>
+                </Hint>
                 <Select
                   // 大文字小文字の表記ゆれはロスター側の表記に寄せて選択状態にする
                   // （メール比較は sameEmail。2026-08-04 追修）。無効化ユーザーは候補に
@@ -981,21 +989,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 （script の定刻発火・AI の自動発火の直前にゲート。手動▶はそのまま発火） */}
             {(node.executor !== "human" || node.approval) && (
               <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                <span className="flex items-center gap-1.5">
+                {/* 「?」アイコンは廃止し、ラベル自体のマウスオーバーに統一（2026-08-05 本人指定） */}
+                <Hint id="approval" text={HINT_TEXT.approval}>
                   <span>{node.kind === "trigger" ? "発火前承認" : "実行前承認"}</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex cursor-help text-muted-foreground">
-                        <CircleHelp className="size-3.5" />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-64">
-                      {node.kind === "trigger"
-                        ? "自動発火（scriptの定刻 / AIの判定）の直前に人間の承認ゲートを通る。手動の▶はそのまま発火する"
-                        : "実行前に人間の承認ゲートを通る（外部公開・送信・削除など取り返しのつかない操作）"}
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
+                </Hint>
                 <Switch
                   checked={node.approval}
                   disabled={node.fixed}
@@ -1008,19 +1005,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 低=迷ったら人間に質問するほうへ倒す。実行前承認（approval）は自律度では外れない */}
             {node.kind === "task" && node.executor === "ai" && (
               <label className="col-span-2 flex flex-col gap-1 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  自律度
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex cursor-help text-muted-foreground">
-                        <CircleHelp className="size-3.5" />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-64">
-                      AIがどこまで人間に聞かずに進むか。高=聞かずに最後まで（失敗も自動で試し直す）。低=迷ったら質問カードで人間に判断を仰ぐ。実行前承認とは独立
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
+                <Hint id="autonomy" text={HINT_TEXT.autonomy}>
+                  <span className="self-start">自律度</span>
+                </Hint>
                 <Select
                   value={node.autonomy}
                   disabled={node.fixed}
@@ -1086,7 +1073,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               allNodes.some((n) => n.kind === "trigger" && n.group === node.group) &&
               (activeRunItem ? (
                 <div className="col-span-2 flex flex-wrap items-center gap-2 text-sm">
-                  <span className="text-muted-foreground">進捗（実行中のラン）:</span>
+                  <Hint
+                    id="status"
+                    text={`${STATUS_HINT}。ここの進捗はテンプレートではなく実行中のランのもの`}
+                  >
+                    <span className="text-muted-foreground">進捗（実行中のラン）:</span>
+                  </Hint>
                   <span className="inline-flex items-center gap-1.5">
                     {/* waiting でも assignee が他人なら橙にせず「誰の番か」を名前で見せる
                         （チーム化 2026-08-04。プロジェクト側の進捗表示と同じ描き分け） */}
@@ -1195,7 +1187,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 });
                 return (
                   <div className="col-span-2 flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">進捗:</span>
+                    <Hint id="status" text={STATUS_HINT}>
+                      <span className="text-muted-foreground">進捗:</span>
+                    </Hint>
                     <span className="inline-flex items-center gap-1.5">
                       {/* waiting でも assignee が他人なら橙にせず「誰の番か」を名前で見せる
                           （チーム化 2026-08-04。判定は lib/team.ts の turnIsMine） */}
@@ -1278,7 +1272,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               ——detail や分岐の枝と同じ地のメタ項目として並べる（同日の実機指摘） */}
           {teamEnabled && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm text-muted-foreground">関係者</span>
+              <Hint
+                id="members"
+                text="このノードに関わる人。ページでは配下ノードの担当者・関係者・作成者からも自動で集まる（点線チップ）。左レールの人フィルタはこの実効関係者で絞り込む"
+              >
+                <span className="self-start text-sm text-muted-foreground">関係者</span>
+              </Hint>
               <div className="flex flex-wrap items-center gap-1.5">
                 {(node.members ?? []).map((m) => (
                   <span
@@ -1369,10 +1368,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               human→doc=読む手順書 / ai→doc=実行時プロンプトへインライン / script→script=command
               実行。それ以外の組み合わせ（例: 担当=humanでimpl=script）は実行に使われない */}
           <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2.5">
-            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Icon name={node.impl?.type === "script" ? "code" : "doc"} size={13} />
-              実装（{IMPL_LABEL_BY_EXECUTOR[node.executor]}）
-            </span>
+            <Hint id="impl" text={HINT_TEXT.impl}>
+              <span className="flex items-center gap-1.5 self-start text-sm text-muted-foreground">
+                <Icon name={node.impl?.type === "script" ? "code" : "doc"} size={13} />
+                実装（{IMPL_LABEL_BY_EXECUTOR[node.executor]}）
+              </span>
+            </Hint>
             <Select
               value={node.impl === null ? "none" : node.impl.type}
               disabled={node.fixed}
@@ -1527,9 +1528,14 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               （エッジが parentOptions[decisionId]=branchId で紐づいているため。docs/design.md 3.9） */}
           {node.kind === "decision" && (
             <div className="flex flex-col gap-1.5">
-              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Icon name="branch" size={13} /> 分岐の枝
-              </span>
+              <Hint
+                id="branches"
+                text="このノードが完了するときに選ぶ選択肢。枝ごとに別の後続ノードをつなげられ、選ばれなかった枝の先はスキップになる"
+              >
+                <span className="flex items-center gap-1.5 self-start text-sm text-muted-foreground">
+                  <Icon name="branch" size={13} /> 分岐の枝
+                </span>
+              </Hint>
               {(node.branches ?? []).map((b) => (
                 <BranchRow
                   key={b.id}

@@ -19,6 +19,7 @@ import { cn } from "../lib/utils";
 import type { Node, Run, Status } from "../types";
 import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Hint } from "./Hint";
 import { Icon } from "./Icon";
 import { StatusCircle } from "./StatusCircle";
 
@@ -359,7 +360,12 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
           見出しは0件でも常に出す — 消すと「＋」の導線が無くなるコールドスタート問題があるため
           （その「＋」自体は作成せず、ヘッダーのゴール捕獲欄へ案内する） */}
       <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
-        <span>プロジェクト</span>
+        <Hint
+          id="page-project"
+          text="トリガーを持たないページ。ゴールに向かって一度きり進める。ノードにトリガーを置くと自動でルーティーン節へ移る"
+        >
+          <span>プロジェクト</span>
+        </Hint>
         <span className="flex items-center">
           <Button
             type="button"
@@ -414,7 +420,12 @@ export function PageList({ folders, allNodes, pageId, threadMeta, reads, latestR
       {routineFolders.length > 0 && (
         <>
           <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo">
-            <span>ルーティーン</span>
+            <Hint
+              id="page-routine"
+              text="トリガーを持つページ。発火のたびにラン（実行インスタンス）が生まれ、進捗はランごとに付く（台帳ビューで一覧できる）"
+            >
+              <span>ルーティーン</span>
+            </Hint>
           </div>
           {routineFolders.map((f) => renderRow(f, false))}
         </>
