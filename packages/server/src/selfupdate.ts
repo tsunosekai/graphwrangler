@@ -21,6 +21,13 @@ import path from "node:path";
 const GIT_TIMEOUT_MS = 120 * 1000;
 const BUILD_TIMEOUT_MS = 15 * 60 * 1000; // install + build はネットワークとビルドで数分かかりうる
 
+/** 更新を当てるための自主終了コード。**0 で終わってはいけない**——zinsei / stremix の
+ *  unit はどちらも `Restart=on-failure` で、正常終了（0）だと systemd は上げ直さず
+ *  サーバが落ちたままになる。非0なら on-failure でも always でも再起動される
+ *  （pm2 は終了コードを問わず再起動するのでどちらでも良い）。
+ *  75 = EX_TEMPFAIL（sysexits.h の「一時的な失敗。あとで再試行」）を借りている */
+export const RESTART_EXIT_CODE = 75;
+
 export interface UpdateConfig {
   /** 定期的に origin を見に行くか（見るだけなら副作用が無いので既定ON） */
   autoCheck: boolean;
@@ -293,7 +300,7 @@ export class SelfUpdate {
     if (detectSupervisor() === null) return;
     setTimeout(() => {
       this.log("更新の適用のため終了します（プロセス管理が再起動します）");
-      process.exit(0);
+      process.exit(RESTART_EXIT_CODE);
     }, 1500).unref?.();
   }
 }

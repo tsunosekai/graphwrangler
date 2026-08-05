@@ -1324,8 +1324,10 @@ function noteServerVersion(version: string | null): void {
     log("プロセス管理下ではないため自動終了しません（手動で再起動してください）");
     return;
   }
+  // 非0で終える理由はサーバ側と同じ（unit が Restart=on-failure なので 0 だと
+  // 上げ直してもらえない）。75 = EX_TEMPFAIL。selfupdate.ts の RESTART_EXIT_CODE と同値
   log("新しいコードで上がり直すため終了します");
-  process.exit(0);
+  process.exit(75);
 }
 
 function sleep(ms: number): Promise<void> {

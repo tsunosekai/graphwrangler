@@ -472,9 +472,12 @@ impl.command はワークスペースルートからの相対パスで書く。�
 - 流れは一本道: `git fetch` → 遅れていれば `git pull --ff-only` → `pnpm install
   --frozen-lockfile` → `pnpm --filter ui build` → 自プロセスを終了
 - **再起動は自分でしない**。systemd（`INVOCATION_ID`）/ pm2（`pm_id`）に見られている
-  ときだけ `exit(0)` して「落ちたら上げ直す」に乗る。監視が無い環境（手元で
+  ときだけ終了して「落ちたら上げ直す」に乗る。監視が無い環境（手元で
   `pnpm start` しただけ）では終了せず「再起動してください」と伝えるだけ——
   自動更新がサーバを落としたまま戻らない事故を作らないため
+- **終了コードは 0 ではなく 75**（EX_TEMPFAIL。`RESTART_EXIT_CODE`）。zinsei・stremix の
+  unit はどちらも `Restart=on-failure` で、正常終了だと systemd が上げ直さずサーバが
+  落ちたままになる。非0なら on-failure でも always でも再起動される（エンジン側も同値）
 - **fast-forward のみ**・**未コミットの変更があるときは何もしない**（開発機で有効に
   なっていても作業ツリーを壊さない）
 - エンジンは別プロセスなので、`POST /api/engine/heartbeat` の応答に載るサーバ側の
