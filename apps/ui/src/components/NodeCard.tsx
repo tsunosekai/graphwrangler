@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
@@ -150,6 +150,30 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   useEffect(() => {
     if (data.editing) setDraft(node.title);
   }, [data.editing, node.title]);
+
+  // 編集開始時のフォーカス。autoFocus は使わない: マウント直後は React Flow の再計測で
+  // ノードが一瞬 visibility:hidden になることがあり、その間の focus() は静かに不発になる
+  // （2026-08-07 本人報告「タイトル編集中にフォーカスが外れる」。実測: autoFocus も
+  // rAF 1回でも不発だった）。フォーカスが実際に付くまで数フレーム リトライする
+  // （編集セッションにつき1回だけ走る。付いたら全選択して終了）
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (!data.editing) return;
+    let raf = 0;
+    let tries = 0;
+    const attempt = () => {
+      const el = titleInputRef.current;
+      if (!el) return; // 編集が終わって input が消えた
+      el.focus();
+      if (document.activeElement === el) {
+        el.select();
+        return;
+      }
+      if (++tries < 30) raf = requestAnimationFrame(attempt); // 最大 ~0.5秒
+    };
+    raf = requestAnimationFrame(attempt);
+    return () => cancelAnimationFrame(raf);
+  }, [data.editing]);
 
   // 人間に名前で見せる状態は「未計画」だけ（2026-07-31 本人方針: 人間の語彙は未計画かdoneかだけ。
   // 実行中=スピナー/回答待ち=橙ドット/完了=チェック/スキップ=斜線円と、他は絵で伝わっている）
@@ -325,7 +349,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         </Hint>
         {data.editing ? (
           <input
-            autoFocus
+            ref={titleInputRef}
             className="nodrag min-w-0 flex-1 rounded-sm border border-border bg-transparent px-1 py-px text-sm text-foreground outline-none focus:border-border-strong"
             value={draft}
             onClick={(e) => e.stopPropagation()}

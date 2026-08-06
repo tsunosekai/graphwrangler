@@ -1171,6 +1171,13 @@ function GraphViewInner({
           onDoubleClick={handlePaneDoubleClick}
           zoomOnDoubleClick={false}
           nodeDragThreshold={4}
+          // ノードのラッパーdivにフォーカスを取らせない（2026-08-07 本人報告「タイトル編集中に
+          // フォーカスが外れる」の修正）。React Flow 既定ではクリックでラッパーがフォーカスを
+          // 取り、タイトル編集の input の autoFocus に勝ってしまう。その状態で打鍵すると
+          // 文字がショートカット扱いされ（f=フィット/l=整列/Backspace=ノード削除）、
+          // 「編集できない+グラフが勝手に動く」の二重の不具合になっていた。
+          // キーボード操作は上の window keydown が一元管理しているので RF の a11y フォーカスは不要
+          nodesFocusable={false}
           onPaneContextMenu={(e) => {
             e.preventDefault();
             createNode(null);
