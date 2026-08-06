@@ -119,6 +119,11 @@ export interface SettingsView {
     autoApply: boolean;
     intervalMin: number;
   };
+  /** 「あなたの番」の Discord Webhook 通知（2026-08-07）。URL は書き込み専用で有無だけ返る */
+  notify: {
+    discordEnabled: boolean;
+    hasDiscordWebhook: boolean;
+  };
   setupDone: boolean;
 }
 
@@ -163,6 +168,8 @@ export interface SettingsPatch {
   ai?: { addDirs?: string[] };
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
+  /** discordWebhookUrl は apiKey と同じ書き込み専用3値（undefined=維持 / null=削除 / string=設定） */
+  notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null };
   setupDone?: boolean;
 }
 
@@ -211,6 +218,8 @@ export interface TeamUser {
   /** 無効化（Linear の Suspend 相当）。ログイン不可 + 新規の割当候補に出さない。
    *  既に assignee/members に入っている分の表示名解決は従来どおり効く */
   disabled: boolean;
+  /** Discord のユーザーID（あなたの番のメンション通知用。未登録は null） */
+  discordId: string | null;
 }
 
 export const api = {
@@ -235,6 +244,7 @@ export const api = {
             displayName: u.displayName ?? null,
             admin: !!u.admin,
             disabled: !!u.disabled,
+            discordId: u.discordId ?? null,
           })),
       };
     } catch {
@@ -265,8 +275,8 @@ export const api = {
       body: JSON.stringify({ email, ...(displayName ? { displayName } : {}) }),
     }),
 
-  /** admin: 表示名・admin・無効化の変更。400=自分自身の admin 剥奪・無効化 */
-  adminPatchUser: (input: { email: string; displayName?: string; admin?: boolean; disabled?: boolean }) =>
+  /** admin: 表示名・admin・無効化・Discord ID の変更。400=自分自身の admin 剥奪・無効化 */
+  adminPatchUser: (input: { email: string; displayName?: string; admin?: boolean; disabled?: boolean; discordId?: string | null }) =>
     request<{ ok: boolean }>("/admin/users/patch", {
       method: "POST",
       body: JSON.stringify(input),
@@ -278,6 +288,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email }),
     }),
+
+  /** Discord 通知のテスト送信（保存済み Webhook URL で1通送る。設定画面の「テスト送信」） */
+  testNotify: () =>
+    request<{ ok: boolean; error?: string }>("/notify/test", { method: "POST", body: "{}" }),
 
   // threadMeta: ノードごとの最終メッセージ時刻 / reads: ノードごとの既読時刻。
   // この2つの突き合わせが未読判定（どちらもサーバ持ち＝端末間で一致する）

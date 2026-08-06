@@ -129,6 +129,33 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   // あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際の発火は App 側）
   const [notifyEnabled, setNotifyEnabled] = useState(() => localStorage.getItem("gw.notify") === "1");
 
+  // Discord Webhook 通知（2026-08-07。こちらはサーバ設定＝タブを閉じていても届く）。
+  // URL は APIキーと同じ書き込み専用: 有無だけ受け取り、値は「変更」を押したときだけ送る
+  const [discordEnabled, setDiscordEnabled] = useState(settings.notify?.discordEnabled ?? false);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [editingWebhook, setEditingWebhook] = useState(!(settings.notify?.hasDiscordWebhook ?? false));
+  const [testingNotify, setTestingNotify] = useState(false);
+  const testNotify = async () => {
+    setTestingNotify(true);
+    try {
+      await api.testNotify();
+      pushToast("テスト通知を送りました（Discord のチャンネルを確認してください）", "info");
+    } catch {
+      // api() 側でトースト表示済み
+    } finally {
+      setTestingNotify(false);
+    }
+  };
+  const removeWebhook = async () => {
+    try {
+      const next = await api.updateSettings({ notify: { discordWebhookUrl: null } });
+      setEditingWebhook(true);
+      onSaved(next);
+    } catch {
+      // api() 側でトースト表示済み
+    }
+  };
+
   // ヒント（マウスオーバーの説明吹き出し。lib/hints.ts）。テーマ・通知と同じく
   // localStorage 持ちの即時反映で、下の「保存」を経由しない
   useHintsVersion();
@@ -174,12 +201,19 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           autoApply: updAutoApply,
           intervalMin: Math.min(1440, Math.max(5, parseInt(updIntervalMin, 10) || 60)),
         },
+        notify: { discordEnabled },
         setupDone: true,
       };
       if (editingKey) patch.chat = { ...patch.chat, apiKey: apiKey.trim() || null };
+      // URL 入力中のみ送る（空欄で保存しても既存の URL を消さない。消すのは「削除」ボタン）
+      if (editingWebhook && webhookUrl.trim()) {
+        patch.notify = { ...patch.notify, discordWebhookUrl: webhookUrl.trim() };
+      }
       const next = await api.updateSettings(patch);
       setApiKey("");
       setEditingKey(!next.chat.hasApiKey);
+      setWebhookUrl("");
+      setEditingWebhook(!next.notify.hasDiscordWebhook);
       onSaved(next);
     } catch {
       // api() 側でトースト表示済み
@@ -517,6 +551,43 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
             <Switch checked={notifyEnabled} onCheckedChange={toggleNotify} />
             <span>あなたの番が来たらデスクトップ通知</span>
           </label>
+          <p className={desc}>デスクトップ通知はこのブラウザのタブが開いている間だけ届きます</p>
+
+          {/* Discord Webhook（2026-08-07 本人要望）。サーバから送るのでタブを閉じていても届く。
+              担当者ありは <@discordId> メンション（ユーザー管理で ID を登録）、担当者なしは @here */}
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch checked={discordEnabled} onCheckedChange={setDiscordEnabled} />
+            <span>あなたの番が来たら Discord に通知（メンション付き）</span>
+          </label>
+          <label className={field}>
+            <span>Discord Webhook URL</span>
+            {editingWebhook ? (
+              <Input
+                type="password"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                placeholder="https://discord.com/api/webhooks/..."
+              />
+            ) : (
+              <span className="flex items-center gap-2 text-sm text-foreground">
+                設定済み（●●●）
+                <Button type="button" variant="outline" size="sm" onClick={() => setEditingWebhook(true)}>
+                  変更
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={removeWebhook}>
+                  削除
+                </Button>
+                <Button type="button" variant="outline" size="sm" disabled={testingNotify} onClick={() => void testNotify()}>
+                  テスト送信
+                </Button>
+              </span>
+            )}
+          </label>
+          <p className={desc}>
+            通知先チャンネルの設定 → 連携サービス → ウェブフックで URL を発行して貼り付け、下の「保存」で反映されます。
+            担当者が付いたノードはその人をメンション（ユーザー管理で Discord ID を登録）、担当者なしは
+            @here で全員に届きます
+          </p>
         </section>
 
         <section className={section}>

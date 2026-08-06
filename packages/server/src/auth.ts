@@ -41,6 +41,9 @@ const UserSchema = z.object({
    *  ロスターには残す＝過去の createdBy/assignee/members の表示名解決を壊さない。
    *  完全削除（remove）は CLI のみ＝帰属を壊す操作は UI に置かない */
   disabled: z.boolean().optional(),
+  /** Discord のユーザーID（数字）。「あなたの番」の Webhook 通知（discord.ts）で
+   *  <@id> メンションに使う。設定は管理者UI か gw-user.mjs discord */
+  discordId: z.string().optional(),
   created: z.string().optional(),
 });
 export type User = z.infer<typeof UserSchema>;

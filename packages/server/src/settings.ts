@@ -75,12 +75,22 @@ export const UpdateSettingsSchema = z.object({
   intervalMin: z.number().int().min(5).max(1440).default(60),
 });
 
+/** 「あなたの番」の Discord Webhook 通知（discord.ts。2026-08-07 本人要望）。
+ *  Webhook URL は書き込み専用: URL を知っていれば誰でもそのチャンネルへ投稿できる
+ *  秘密情報なので、apiKey と同じく GET では有無だけ返す */
+export const NotifySettingsSchema = z.object({
+  discordEnabled: z.boolean().default(false),
+  /** 書き込み専用。undefined=維持 / null=削除 / string=設定（apiKey と同じ扱い） */
+  discordWebhookUrl: z.string().nullable().default(null),
+});
+
 export const SettingsSchema = z.object({
   chat: ChatSettingsSchema.default({}),
   engine: EngineSettingsSchema.default({}),
   ai: AiSettingsSchema.default({}),
   git: GitSettingsSchema.default({}),
   update: UpdateSettingsSchema.default({}),
+  notify: NotifySettingsSchema.default({}),
   /** 初回セットアップ画面を完了したか（スキップ含む） */
   setupDone: z.boolean().default(false),
 });
@@ -119,6 +129,7 @@ export class SettingsStore {
     ai?: Partial<z.input<typeof AiSettingsSchema>>;
     git?: Partial<z.input<typeof GitSettingsSchema>>;
     update?: Partial<z.input<typeof UpdateSettingsSchema>>;
+    notify?: Partial<z.input<typeof NotifySettingsSchema>>;
     setupDone?: boolean;
   }): Settings {
     const next: Settings = SettingsSchema.parse({
@@ -132,6 +143,15 @@ export class SettingsStore {
       ai: { ...this.cache.ai, ...patch.ai },
       git: { ...this.cache.git, ...patch.git },
       update: { ...this.cache.update, ...patch.update },
+      notify: {
+        ...this.cache.notify,
+        ...patch.notify,
+        // Webhook URL は apiKey と同じ書き込み専用3値（undefined=維持 / null=削除 / string=設定）
+        discordWebhookUrl:
+          patch.notify && "discordWebhookUrl" in patch.notify
+            ? (patch.notify.discordWebhookUrl ?? null)
+            : this.cache.notify.discordWebhookUrl,
+      },
       setupDone: patch.setupDone ?? this.cache.setupDone,
     });
     const tmp = `${this.file}.tmp`;
@@ -188,6 +208,10 @@ export class SettingsStore {
         autoCheck: this.cache.update.autoCheck,
         autoApply: this.cache.update.autoApply,
         intervalMin: this.cache.update.intervalMin,
+      },
+      notify: {
+        discordEnabled: this.cache.notify.discordEnabled,
+        hasDiscordWebhook: this.cache.notify.discordWebhookUrl !== null,
       },
       setupDone: this.cache.setupDone,
     };

@@ -9,6 +9,7 @@
 //   node scripts/gw-user.mjs <users.json> name <email> <表示名>     # 表示名の設定（UIでメールの代わりに出る）
 //   node scripts/gw-user.mjs <users.json> admin <email> on|off      # 管理者（ユーザー管理UIが使える）
 //   node scripts/gw-user.mjs <users.json> disable <email> on|off    # 無効化（ログイン拒否・履歴の帰属は保持）
+//   node scripts/gw-user.mjs <users.json> discord <email> <ID|off>  # DiscordユーザーID（あなたの番のメンション通知用）
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -16,7 +17,7 @@ import path from "node:path";
 const [file, cmd, email, passwordArg] = process.argv.slice(2);
 if (!file || !cmd) {
   console.error(
-    "usage: gw-user.mjs <users.json> list|add|remove|passwd|name|admin|disable [email] [password|表示名|on|off]",
+    "usage: gw-user.mjs <users.json> list|add|remove|passwd|name|admin|disable|discord [email] [password|表示名|on|off|DiscordID]",
   );
   process.exit(1);
 }
@@ -95,6 +96,24 @@ switch (cmd) {
     u.displayName = passwordArg;
     save(data);
     console.log(`表示名を設定しました: ${email} → ${passwordArg}`);
+    break;
+  }
+  case "discord": {
+    const u = data.users.find((x) => x.email === email);
+    if (!u) throw new Error(`見つかりません: ${email}`);
+    if (!passwordArg) throw new Error("Discord のユーザーID（数字）か off を指定してください");
+    if (passwordArg === "off") {
+      delete u.discordId;
+      save(data);
+      console.log(`Discord ID を解除しました: ${email}`);
+      break;
+    }
+    if (!/^\d{5,25}$/.test(passwordArg)) {
+      throw new Error("Discord ID は数字です（開発者モード→ユーザー右クリック→IDをコピー）");
+    }
+    u.discordId = passwordArg;
+    save(data);
+    console.log(`Discord ID を設定しました: ${email} → ${passwordArg}`);
     break;
   }
   case "admin":

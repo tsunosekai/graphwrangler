@@ -30,8 +30,10 @@ import {
   ChatSettingsSchema,
   EngineSettingsSchema,
   GitSettingsSchema,
+  NotifySettingsSchema,
   UpdateSettingsSchema,
 } from "./settings.js";
+import { notifyTurn, sendDiscordWebhook } from "./discord.js";
 import { GitSync } from "./gitsync.js";
 import { SelfUpdate } from "./selfupdate.js";
 import { resolveWorkspacePath } from "./files.js";
@@ -288,6 +290,7 @@ app.get("/api/users", (c) =>
       displayName: u.displayName ?? null,
       admin: u.admin === true,
       disabled: u.disabled === true,
+      discordId: u.discordId ?? null,
     })),
   }),
 );
@@ -404,7 +407,7 @@ app.post("/api/admin/users", async (c) => {
   return c.json({ email: body.email, password });
 });
 
-/** ユーザー属性の変更（管理者）: 表示名・管理者・無効化。
+/** ユーザー属性の変更（管理者）: 表示名・管理者・無効化・Discord ID。
  *  自分自身の admin 剥奪・無効化は拒否（自分を締め出す操作は別の管理者がやる） */
 app.post("/api/admin/users/patch", async (c) => {
   if (!isAdminRequest(c)) return c.json({ error: "管理者のみ実行できます" }, 403);
@@ -414,6 +417,8 @@ app.post("/api/admin/users/patch", async (c) => {
       displayName: z.string().nullable().optional(),
       admin: z.boolean().optional(),
       disabled: z.boolean().optional(),
+      /** Discord のユーザーID（メンション通知用）。null/空文字で解除 */
+      discordId: z.string().nullable().optional(),
     })
     .parse(await c.req.json());
   const users = loadUsers(usersFile);
@@ -438,6 +443,17 @@ app.post("/api/admin/users/patch", async (c) => {
   if (body.disabled !== undefined) {
     if (body.disabled) user.disabled = true;
     else delete user.disabled;
+  }
+  if (body.discordId !== undefined) {
+    const id = body.discordId?.trim();
+    if (id) {
+      if (!/^\d{5,25}$/.test(id)) {
+        return c.json({ error: "Discord ID は数字です（開発者モード→ユーザー右クリック→IDをコピー）" }, 400);
+      }
+      user.discordId = id;
+    } else {
+      delete user.discordId;
+    }
   }
   saveUsers(usersFile, users);
   return c.json({ ok: true });
@@ -848,9 +864,10 @@ app.post("/api/nodes/:id/request", async (c) => {
   }
   const body = await c.req.json();
   const m = meta(body);
+  const request = DecisionRequestSchema.parse(body.request);
   const message = threads.openRequest(
     id,
-    DecisionRequestSchema.parse(body.request),
+    request,
     { author: m.actor.kind === "human" ? { kind: "agent" } : m.actor, via: m.via },
   );
   graph.patchNode(
@@ -858,6 +875,13 @@ app.post("/api/nodes/:id/request", async (c) => {
     { pendingRequest: message.id },
     { actor: { kind: "system" }, via: m.via },
   );
+  // Discord 通知（あなたの番の発生源①: ボールが人間へ渡った瞬間。discord.ts 参照）。
+  // 投げっぱなし＝リクエスト処理をブロックしない
+  notifyTurn(settings.get().notify, loadUsers(usersFile), {
+    assignee: node.assignee,
+    title: node.title,
+    extra: `> ${request.question.slice(0, 200)}`,
+  });
   return c.json(message);
 });
 
@@ -1018,6 +1042,14 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
       via: m.via,
     });
   }
+  // Discord 通知（あなたの番の発生源②: ワークアイテムが waiting へ遷移した瞬間。
+  // エンジンが人間タスクの順番到達で waiting を付ける経路もここを通る）
+  if (fromStatus !== "waiting" && toStatus === "waiting") {
+    notifyTurn(settings.get().notify, loadUsers(usersFile), {
+      assignee: node.assignee,
+      title: `${node.title}（ラン: ${run.title}）`,
+    });
+  }
   return c.json(run);
 });
 
@@ -1113,6 +1145,7 @@ const SettingsPatchSchema = z.object({
   ai: AiSettingsSchema.partial().optional(),
   git: GitSettingsSchema.partial().optional(),
   update: UpdateSettingsSchema.partial().optional(),
+  notify: NotifySettingsSchema.partial().optional(),
   setupDone: z.boolean().optional(),
 });
 
@@ -1122,6 +1155,25 @@ app.post("/api/settings", async (c) => {
   const body = SettingsPatchSchema.parse(await c.req.json());
   settings.update(body);
   return c.json(settings.publicView());
+});
+
+/** Discord 通知のテスト送信（設定画面の「テスト送信」）。保存済みの Webhook URL で
+ *  メンションなしの1通を実際に送り、結果を同期で返す。discordEnabled OFF でも送れる
+ *  （設定→確認→ONにする、の順で試せるように） */
+app.post("/api/notify/test", async (c) => {
+  const n = settings.get().notify;
+  if (!n.discordWebhookUrl) {
+    return c.json({ ok: false, error: "Webhook URL が未設定です（保存してから試してください）" }, 400);
+  }
+  try {
+    await sendDiscordWebhook(n.discordWebhookUrl, {
+      content: "GraphWrangler のテスト通知です（あなたの番が来るとここへ届きます）",
+      allowed_mentions: { parse: [] },
+    });
+    return c.json({ ok: true });
+  } catch (err) {
+    return c.json({ ok: false, error: String(err) }, 502);
+  }
 });
 
 // ---- 自動プッシュ（gitsync.ts。ワークスペースモードのみ） ----

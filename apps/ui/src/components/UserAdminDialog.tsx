@@ -6,7 +6,7 @@
 // - 自分自身の admin 剥奪・無効化はサーバが 400 で拒否するが、UI でも disabled にして防ぐ
 // - 操作後は TeamContext の refreshUsers でロスターを再取得（全画面のバッジ・候補が追従する）
 import { useState } from "react";
-import { Copy, KeyRound, Loader2, Pencil } from "lucide-react";
+import { AtSign, Copy, KeyRound, Loader2, Pencil } from "lucide-react";
 import { api } from "../lib/api";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { colorOf, displayNameOf, initialOf, sameEmail, useTeam } from "../lib/team";
@@ -86,6 +86,17 @@ export function UserAdminDialog({ open, onOpenChange }: Props) {
       });
       if (value === null) return; // キャンセル
       await api.adminPatchUser({ email, displayName: value.trim() });
+    });
+
+  // Discord ユーザーID（あなたの番のメンション通知用。settings の Discord 通知とセット。2026-08-07）
+  const setDiscordId = (email: string, current: string | null) =>
+    run(async () => {
+      const value = await promptDialog(
+        "Discord ユーザーID（数字）\nDiscordの設定→詳細設定→開発者モードをONにして、ユーザーを右クリック→「ユーザーIDをコピー」。空欄で解除",
+        { defaultValue: current ?? "", confirmLabel: "設定" },
+      );
+      if (value === null) return; // キャンセル
+      await api.adminPatchUser({ email, discordId: value.trim() || null });
     });
 
   const toggleAdmin = (email: string, next: boolean) =>
@@ -169,6 +180,22 @@ export function UserAdminDialog({ open, onOpenChange }: Props) {
                     onClick={() => void rename(u.email, u.displayName)}
                   >
                     <Pencil className="size-3.5" />
+                  </Button>
+                </Hint>
+                <Hint
+                  id="user-discord"
+                  always={u.discordId ? "Discord ID 設定済み" : "Discord ID を設定"}
+                  text="「あなたの番」の Discord 通知でこの人をメンションするためのユーザーID（設定→通知の Webhook とセットで使う）"
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn("size-7", u.discordId ? "text-ai" : "text-muted-foreground")}
+                    disabled={busy}
+                    onClick={() => void setDiscordId(u.email, u.discordId)}
+                  >
+                    <AtSign className="size-3.5" />
                   </Button>
                 </Hint>
                 <label
