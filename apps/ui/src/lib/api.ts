@@ -320,9 +320,16 @@ export const api = {
       resolvedCommand: string;
     }>(`/nodes/${id}/trial`, { method: "POST", body: "{}" })),
 
-  /** aiBusy: Task AI が応答生成中か（「考え中」表示用。GraphWrangler AI と挙動を揃える） */
+  /** aiBusy: Task AI が応答生成中か（「考え中」表示用。GraphWrangler AI と挙動を揃える）。
+   *  aiQueued: 応答中に書いた追い打ちを受けて、終わり次第もう一度応答する予約があるか */
   getThread: (id: string) =>
-    request<{ messages: MaterializedMessage[]; aiBusy?: boolean }>(`/nodes/${id}/thread`),
+    request<{ messages: MaterializedMessage[]; aiBusy?: boolean; aiQueued?: boolean }>(
+      `/nodes/${id}/thread`,
+    ),
+
+  /** Task AI の応答を止める（2026-08-05）。予約されていた追い打ちの再応答も取り消す */
+  stopThreadAi: (id: string) =>
+    request<{ stopped: boolean }>(`/nodes/${id}/thread-ai/cancel`, { method: "POST", body: "{}" }),
 
   postMessage: (id: string, body: string) =>
     withSelfRead(id, request<Message>(`/nodes/${id}/messages`, {

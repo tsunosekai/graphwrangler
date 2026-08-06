@@ -292,6 +292,9 @@ export async function handleChat(
   threads: ThreadStore,
   settings: SettingsStore,
   body: ChatRequestBody,
+  /** リクエストの中断シグナル（UI の「停止」）。プロバイダへの生成要求ごと止める
+   *  （2026-08-05。以前は fetch を切っても生成は最後まで走っていた） */
+  signal?: AbortSignal,
 ): Promise<Response> {
   const pageId = body.pageId ?? null;
   const actor: Actor = { kind: "agent", name: `chat:${modelId(settings)}` };
@@ -305,6 +308,7 @@ export async function handleChat(
     messages: await convertToModelMessages(body.messages ?? []),
     tools: buildTools(graph, threads, pageId, actor, user),
     stopWhen: stepCountIs(8),
+    ...(signal ? { abortSignal: signal } : {}),
   });
 
   return result.toUIMessageStreamResponse();
@@ -320,12 +324,15 @@ export async function completeText(
   settings: SettingsStore,
   prompt: string,
   maxTokens?: number,
+  /** 中断シグナル（Task AI の「停止」から渡る。2026-08-05） */
+  signal?: AbortSignal,
 ): Promise<string> {
   const overrideModelId = settings.get().engine.apiModel ?? undefined;
   const result = await generateText({
     model: resolveModel(settings, overrideModelId),
     prompt,
     ...(maxTokens ? { maxOutputTokens: maxTokens } : {}),
+    ...(signal ? { abortSignal: signal } : {}),
   });
   return result.text;
 }

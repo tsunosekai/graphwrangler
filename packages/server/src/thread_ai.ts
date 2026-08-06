@@ -8,7 +8,7 @@ import type { Actor, GraphStore, Node, ThreadStore } from "@graphwrangler/core";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import { chatKeyMissing, completeText } from "./chat.js";
-import { CLI_TIMEOUT_MS, DEFAULT_CLI_TOOLS, sanitizedClaudeEnv } from "./chat_cli.js";
+import { CLI_TIMEOUT_MS, DEFAULT_CLI_TOOLS, killTree, sanitizedClaudeEnv } from "./chat_cli.js";
 import type { SettingsStore } from "./settings.js";
 
 const MAX_THREAD_AI_HISTORY = 20;
@@ -97,6 +97,8 @@ export interface PlainCliResult {
   success: boolean;
   output: string;
   error?: string;
+  /** 人間が「停止」した（失敗ではないので、スレッドにエラーを書かない） */
+  cancelled?: boolean;
 }
 
 /** claude -p をプレーンに起動する（--output-format 指定なし＝素のテキスト出力、MCP接続なし）。
@@ -110,6 +112,9 @@ export function runPlainClaude(
   cwd: string,
   extraTools: string[] = [],
   addDirs: string[] = [],
+  /** 中断シグナル（UI の「停止」。2026-08-05）。落ちたら claude を木ごと殺して
+   *  cancelled:true で返す */
+  signal?: AbortSignal,
 ): Promise<PlainCliResult> {
   return new Promise((resolve) => {
     // chat_cli.ts と同じフルセットを許可（2026-08-03 権限拡張。それまでは読み取り専用だった）。
@@ -141,10 +146,19 @@ export function runPlainClaude(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let cancelled = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      killTree(child);
     }, CLI_TIMEOUT_MS);
+    const onAbort = () => {
+      cancelled = true;
+      killTree(child);
+    };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
 
     child.stdout?.on("data", (d: Buffer) => {
       stdout += d.toString();
@@ -160,6 +174,11 @@ export function runPlainClaude(
 
     child.on("close", (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      if (cancelled) {
+        resolve({ success: false, output: stdout, cancelled: true });
+        return;
+      }
       if (timedOut) {
         resolve({ success: false, output: stdout, error: "ヘッドレスCLIの応答がタイムアウトしました（5分）" });
         return;
@@ -176,14 +195,34 @@ export function runPlainClaude(
 
 // ---- オーケストレーション（副作用あり。ノードごとの簡潔な排他つき） ----
 
-/** 実行中のノードid集合。多重投稿されても「実行中なら今回はスキップ」という簡潔な排他で
- *  十分（詳細なキューイングは持たない） */
-const runningThreadAiNodes = new Set<string>();
+/** 実行中のノード id → その応答を止めるための AbortController（2026-08-05「AIの会話を
+ *  止められるように」）。以前は id の Set だけで、止める手段が無かった */
+const runningThreadAi = new Map<string, AbortController>();
+/** 応答中に人間がもう一度書いた（＝追い打ち）ノード。今の応答が終わったら、増えた発言も
+ *  含めた最新のスレッドでもう一度応答する。以前はここで黙って捨てていたので、
+ *  応答中に書いた分は永遠に返事が来なかった（2026-08-05 本人要望「追い打ちで話しかける機能」） */
+const pendingFollowUp = new Set<string>();
 
 /** UI の「考え中」表示用（GET /api/nodes/:id/thread が aiBusy として返す。
  *  2026-08-03 本人報告「ノードのAIチャット欄、考え中がでない」——GraphWrangler AI と挙動を揃える） */
 export function isThreadAiRunning(nodeId: string): boolean {
-  return runningThreadAiNodes.has(nodeId);
+  return runningThreadAi.has(nodeId);
+}
+
+/** 追い打ちを受けて再応答待ちか（UI の表示用） */
+export function isThreadAiFollowUpQueued(nodeId: string): boolean {
+  return pendingFollowUp.has(nodeId);
+}
+
+/** Task AI の応答を止める（POST /api/nodes/:id/thread-ai/cancel）。
+ *  予約されていた追い打ちの再応答も取り消す——「止めて」と言われたら全部止まるのが素直。
+ *  戻り値 false = そもそも動いていなかった */
+export function cancelThreadAi(nodeId: string): boolean {
+  const hadFollowUp = pendingFollowUp.delete(nodeId);
+  const controller = runningThreadAi.get(nodeId);
+  if (!controller) return hadFollowUp;
+  controller.abort();
+  return true;
 }
 
 /** 応答失敗をスレッドに見える形で残す（GraphWrangler AI がエラーを画面に出すのと同じ扱い。
@@ -206,6 +245,7 @@ async function respondInThread(
   threads: ThreadStore,
   settings: SettingsStore,
   node: Node,
+  signal: AbortSignal,
 ): Promise<void> {
   const messages = threads.list(node.id);
   const last = messages[messages.length - 1];
@@ -255,7 +295,9 @@ async function respondInThread(
       graph.workspaceInfo().root ?? os.tmpdir(),
       chat.cliExtraTools,
       settings.get().ai.addDirs,
+      signal,
     );
+    if (result.cancelled) return; // 人間が止めた（失敗ではないのでスレッドには書かない）
     if (!result.success) {
       console.error(`[thread-ai] node ${node.id}: ヘッドレスCLIの起動に失敗しました: ${result.error}`);
       postThreadAiFailure(threads, node.id, result.error ?? "ヘッドレスCLIの起動に失敗");
@@ -271,8 +313,9 @@ async function respondInThread(
     }
     modelLabel = chat.model ?? "default";
     try {
-      replyText = (await completeText(settings, prompt)).trim();
+      replyText = (await completeText(settings, prompt, undefined, signal)).trim();
     } catch (err) {
+      if (signal.aborted) return; // 人間が止めた
       console.error(`[thread-ai] node ${node.id}: API呼び出しに失敗しました: ${String(err)}`);
       postThreadAiFailure(threads, node.id, String(err));
       return;
@@ -280,6 +323,7 @@ async function respondInThread(
   }
 
   if (!replyText) return;
+  if (signal.aborted) return; // 止めた後に届いた応答は書き込まない
 
   threads.post(node.id, {
     kind: "say",
@@ -291,9 +335,16 @@ async function respondInThread(
 
 /**
  * POST /api/nodes/:id/messages のハンドラから、レスポンスを返した後（await しない）に
- * 呼ぶ。トリガー条件を満たさなければ何もしない。同じノードで既に応答ジョブが実行中なら
- * 今回の起動はスキップする（最後の1件だけに応答すればよいという要件を、簡潔な排他で満たす）。
- * 失敗（CLI起動失敗・タイムアウト・APIエラー）はログに出すだけでスレッドには書き込まない。
+ * 呼ぶ。トリガー条件を満たさなければ何もしない。
+ *
+ * 同じノードで応答ジョブが走っている最中の投稿（＝追い打ち）は、捨てずに**予約**して
+ * 今の応答が終わってから1回だけ再応答する（2026-08-05 本人要望「追い打ちで話しかける機能」。
+ * それまでは黙って捨てていたので、応答中に書いた分には永遠に返事が来なかった）。
+ * 何度追い打ちしても予約は1つ——プロンプトはそのときのスレッド全体から組み立て直すので、
+ * 溜まった発言はまとめて1回の応答で拾われる。
+ *
+ * 失敗（CLI起動失敗・タイムアウト・APIエラー）はスレッドに status として残す。
+ * 人間が「停止」した場合は何も書かない（失敗ではないため）。
  */
 export function maybeTriggerThreadAi(params: {
   graph: GraphStore;
@@ -307,14 +358,23 @@ export function maybeTriggerThreadAi(params: {
   if (!graph.has(nodeId)) return;
   const node = graph.get(nodeId);
   if (!shouldTriggerThreadAi({ kind, actor, pendingRequest: node.pendingRequest })) return;
-  if (runningThreadAiNodes.has(nodeId)) return;
+  if (runningThreadAi.has(nodeId)) {
+    pendingFollowUp.add(nodeId); // 追い打ち: 今の応答が終わったら最新のスレッドで応答し直す
+    return;
+  }
 
-  runningThreadAiNodes.add(nodeId);
-  respondInThread(graph, threads, settings, node)
+  const controller = new AbortController();
+  runningThreadAi.set(nodeId, controller);
+  respondInThread(graph, threads, settings, node, controller.signal)
     .catch((err) => {
+      if (controller.signal.aborted) return;
       console.error(`[thread-ai] node ${nodeId}: 予期しないエラー: ${String(err)}`);
     })
     .finally(() => {
-      runningThreadAiNodes.delete(nodeId);
+      runningThreadAi.delete(nodeId);
+      // 停止させられたときは予約も取り消し済み（cancelThreadAi）。ここに残っていれば
+      // 追い打ちがあったということなので、増えた発言込みでもう一度
+      if (!pendingFollowUp.delete(nodeId)) return;
+      maybeTriggerThreadAi({ ...params, actor: { kind: "human" }, kind: "say" });
     });
 }

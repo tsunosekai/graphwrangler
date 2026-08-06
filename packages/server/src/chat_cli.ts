@@ -317,8 +317,42 @@ export function emitStreamJsonLine(
   // event.type === "system" | "result" は制御イベントのみで、UI表示するテキストが無いため無視する
 }
 
+/** 子プロセスを**木ごと**確実に殺す（2026-08-05「AIの会話を止められるように」）。
+ *  Windows では shell:true で起動している＝直接の子は cmd.exe なので、`child.kill()` だと
+ *  シムだけ死んで claude 本体が残る。taskkill /T で木ごと落とす。
+ *  POSIX は spawn した本人を SIGTERM（それでも残る場合に備えて5秒後に SIGKILL） */
+export function killTree(child: { pid?: number; kill: (signal?: NodeJS.Signals) => boolean }): void {
+  if (!child.pid) return;
+  if (process.platform === "win32") {
+    try {
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      try {
+        child.kill();
+      } catch {
+        // 既に終了している
+      }
+    }
+    return;
+  }
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    return; // 既に終了している
+  }
+  setTimeout(() => {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // 既に終了している
+    }
+  }, 5000).unref?.();
+}
+
 /** claude -p を起動し、stream-json の出力を UIMessageStream(SSE) へ変換しながら
- *  controller に流す。呼び出し完了・失敗にかかわらず必ず [DONE] を送って close する */
+ *  controller に流す。呼び出し完了・失敗にかかわらず必ず [DONE] を送って close する。
+ *  signal が中断されたら claude を木ごと殺す——UI の「停止」で fetch を切っても、
+ *  以前は CLI が裏で走り続けて MCP 経由でグラフを書き換えていた（2026-08-05 修正） */
 function runCli(
   cliPath: string,
   cliModel: string,
@@ -330,6 +364,7 @@ function runCli(
   encoder: TextEncoder,
   extraTools: string[] = [],
   addDirs: string[] = [],
+  signal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve) => {
     // 切断済み controller への enqueue はサーバを落とすので必ず握りつぶす（emitStreamJsonLine と同じ理由）
@@ -411,6 +446,19 @@ function runCli(
     child.stdin?.write(prompt);
     child.stdin?.end();
 
+    // 「停止」（クライアントの中断・ストリームの cancel）で claude を木ごと落とす。
+    // 途中まで流したテキストは UI 側に残る（打ち切りであって取り消しではない）
+    let stopped = false;
+    const onAbort = () => {
+      if (stopped) return;
+      stopped = true;
+      killTree(child);
+    };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+
     let stdoutBuf = "";
     let stderrBuf = "";
     let sawAnyOutput = false;
@@ -435,6 +483,12 @@ function runCli(
     });
 
     child.on("close", (code) => {
+      signal?.removeEventListener("abort", onAbort);
+      if (stopped) {
+        // 人間が止めたので、失敗として騒がずに畳む（[DONE] は finish が送る）
+        finish();
+        return;
+      }
       if (stdoutBuf.trim()) emitStreamJsonLine(stdoutBuf, controller, encoder, streamState);
       if (code !== 0 && !sawAnyOutput) {
         // CLI 実装都合でエラー理由が stdout/stderr どちらに出るか一定しないため両方拾う
@@ -461,6 +515,8 @@ export function handleChatCli(
   settings: SettingsStore,
   body: ChatRequestBody,
   serverPort: number,
+  /** リクエストの中断シグナル（UI の「停止」＝ fetch の abort）。claude を木ごと落とすのに使う */
+  signal?: AbortSignal,
 ): Response {
   const pageId = body.pageId ?? null;
   const { cliPath, cliModel, cliExtraTools } = settings.get().chat;
@@ -472,6 +528,13 @@ export function handleChatCli(
   const prompt = buildPrompt(body.messages ?? []);
 
   const encoder = new TextEncoder();
+  // 中断は2経路ある: リクエスト側の signal（fetch の abort が届く）と、レスポンス
+  // ストリームの cancel（クライアントが読むのをやめた）。どちらでも同じ停止に畳む
+  const stopper = new AbortController();
+  if (signal) {
+    if (signal.aborted) stopper.abort();
+    else signal.addEventListener("abort", () => stopper.abort(), { once: true });
+  }
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let mcpConfigFile: string;
@@ -498,6 +561,7 @@ export function handleChatCli(
         encoder,
         cliExtraTools,
         addDirs,
+        stopper.signal,
       ).catch((err) => {
         try {
           controller.enqueue(
@@ -513,6 +577,10 @@ export function handleChatCli(
           // 既にcloseされていた場合は無視
         }
       });
+    },
+    cancel() {
+      // クライアントが読むのをやめた（タブを閉じた・停止した）。CLI を放置しない
+      stopper.abort();
     },
   });
 

@@ -36,6 +36,7 @@ ball 所有・承認ゲート(approval)・「確定させてから実行」の�
 |---|---|---|
 | **GraphWrangler AI** | `packages/server/src/chat.ts` / `chat_cli.ts`（右ドロワー） | ページ全体を相手にグラフを整理する。ノードの追加・並べ替え・手順書やスクリプトの起草。既定の話題は表示中のページだが、全プロジェクトの横断一覧を常時文脈に持ち、「全体」「他のプロジェクト」と言われたら get_state / state_get でグラフ全体を見て答える（2026-08-02） |
 | **Task AI** | `packages/server/src/thread_ai.ts` | 1ノードのスレッドで相談に乗る。人間が say を書くと非同期で応答する（open な判断リクエストがあるノードでは黙る——そこはエンジンの担当） |
+| — | | **止める・追い打ち**（2026-08-05 本人要望）: 会話2役はどちらも生成の途中で止められる。「停止」はUIの見た目だけでなく**サーバ側の claude を木ごと殺す**（`killTree`。API方式なら `abortSignal` で生成要求ごと止める）——以前は fetch を切っても CLI が裏で走り続け、MCP 経由でグラフを書き換えていた。応答中でも人間は書ける（**追い打ち**）: GraphWrangler AI は予約して応答後に自動送信（⌘/Ctrl+Enter で「止めて送る」）、Task AI はサーバ側で予約し、終わり次第**増えた発言込みの最新スレッド**でもう一度応答する（以前は黙って捨てていた）。API: `POST /api/nodes/:id/thread-ai/cancel`、`GET /thread` の `aiBusy` / `aiQueued` |
 | **実行AI** | `packages/engine/src/executors/claude.ts` | executor=ai のノードを実際に実行する。impl の手順書を読み、成果と経過をスレッドへ書く |
 
 **AIの権限（2026-08-03 拡張）**: 三役とも CLI モードでは Bash 含むツールのフルセットを

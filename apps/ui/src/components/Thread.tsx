@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Square } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
@@ -19,6 +20,8 @@ interface Props {
   unreadSince?: string | null;
   /** Task AI が応答生成中か（「考え中」表示。GraphWrangler AI＝ChatDrawer と同じ見た目にする） */
   aiBusy?: boolean;
+  /** 応答中に書いた追い打ちを受けて、終わり次第もう一度応答する予約があるか（2026-08-05） */
+  aiQueued?: boolean;
   showReplyBox: boolean;
   onMutated: () => void;
 }
@@ -56,7 +59,7 @@ function extractSources(payload: unknown): string[] | null {
  * 固定表示する（本人指定 2026-07-31）。ただし質問が開いている間の自由文が
  * 「聞き返し」（ラリー）になる挙動はここが持つ。
  */
-export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, onMutated }: Props) {
+export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showReplyBox, onMutated }: Props) {
   // 発言者の表示名解決と「自分/他人の human 発言」の描き分け（チーム化 2026-08-04）
   const { me, users } = useTeam();
   const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
@@ -193,16 +196,29 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, on
             </div>
           );
         })}
-        {/* Task AI の「考え中」。GraphWrangler AI（ChatDrawer）と同じ見た目・同じアニメーション */}
+        {/* Task AI の「考え中」。GraphWrangler AI（ChatDrawer）と同じ見た目・同じアニメーション。
+            右に停止ボタン（2026-08-05 本人要望「AIの会話を止められる機能」）と、追い打ちの
+            予約表示（応答中に書いた分は捨てず、終わり次第まとめて返事が来る） */}
         {aiBusy && (
           <div className="flex items-center gap-1.5 self-start px-1 py-1 text-sm text-text-lo">
             <span className="animate-pulse">✳</span>
-            <span>考え中</span>
+            <span>{aiQueued ? "考え中（追い打ちは応答後に届きます）" : "考え中"}</span>
             <span className="inline-flex items-center gap-0.5">
               <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "0ms" }} />
               <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "150ms" }} />
               <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "300ms" }} />
             </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                void api.stopThreadAi(nodeId).then(() => onMutated());
+              }}
+            >
+              <Square className="size-3" /> 停止
+            </Button>
           </div>
         )}
       </div>
@@ -213,9 +229,13 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, showReplyBox, on
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder={
-              openRequests.length > 0
-                ? "聞き返す・相談する…（Enter で送信 / Shift+Enter で改行）"
-                : "返信…（Enter で送信 / Shift+Enter で改行）"
+              // 応答中でも書ける（追い打ち）。届くのは今の応答が終わってから（サーバ側で
+              // 予約され、増えた発言込みでもう一度応答する。2026-08-05）
+              aiBusy
+                ? "追い打ちで話しかける…（応答が終わってから届きます）"
+                : openRequests.length > 0
+                  ? "聞き返す・相談する…（Enter で送信 / Shift+Enter で改行）"
+                  : "返信…（Enter で送信 / Shift+Enter で改行）"
             }
             rows={2}
             onKeyDown={(e) => {

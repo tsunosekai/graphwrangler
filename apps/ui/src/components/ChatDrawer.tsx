@@ -296,11 +296,52 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     setTab("talk");
   };
 
+  // 追い打ち（2026-08-05 本人要望「追い打ちで話しかける機能」）: 応答中でも書いて送れる。
+  // 送った分は**予約**として溜め、応答が終わり次第まとめて1通で送る（途中で割り込むと
+  // 今の応答が無駄になるため）。すぐ割り込みたいときは「止めて送る」（Ctrl/⌘+Enter）
+  const [queued, setQueued] = useState<string | null>(null);
+  const queuedRef = useRef<string | null>(null);
+  useEffect(() => {
+    queuedRef.current = queued;
+  }, [queued]);
+
+  const submit = (text: string) => {
+    void sendMessage({ text }, { body: { pageId, selectedNodeId } });
+  };
+
+  // 応答が終わったら、溜まっていた追い打ちを送る
+  useEffect(() => {
+    if (busy) return;
+    const text = queuedRef.current;
+    if (!text) return;
+    setQueued(null);
+    submit(text);
+    // submit / busy 以外に依存しない（queued は ref で読む＝送信のたびの再実行を避ける）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy]);
+
   const send = () => {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text) return;
     setInput("");
-    void sendMessage({ text }, { body: { pageId, selectedNodeId } });
+    if (busy) {
+      // 複数回の追い打ちは1通にまとめる（会話の往復を増やさない）
+      setQueued((prev) => (prev ? `${prev}\n${text}` : text));
+      return;
+    }
+    submit(text);
+  };
+
+  /** 今の応答を打ち切って、書いた内容をすぐ送る（Ctrl/⌘+Enter） */
+  const stopAndSend = () => {
+    const text = input.trim();
+    stop();
+    if (!text) return;
+    setInput("");
+    const merged = queuedRef.current ? `${queuedRef.current}\n${text}` : text;
+    setQueued(null);
+    // stop() の反映（status が ready に落ちる）を待ってから送る
+    setTimeout(() => submit(merged), 50);
   };
 
   return (
@@ -384,6 +425,23 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
               </div>
             )}
           </div>
+          {/* 追い打ちの予約（2026-08-05）: 応答が終わったら自動で送る。取り消しは ✕、
+              すぐ送りたいときは下の「止めて送る」 */}
+          {queued && (
+            <div className="mx-4 mb-2 flex flex-shrink-0 items-start gap-2 rounded-md border border-ai/40 bg-ai/[0.06] px-3 py-1.5 text-xs text-muted-foreground">
+              <span className="flex-shrink-0 pt-0.5 text-ai">追い打ち</span>
+              <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{queued}</span>
+              <Hint id="chat-queued-cancel" always="追い打ちを取り消す">
+                <button
+                  type="button"
+                  className="flex-shrink-0 pt-0.5 text-text-lo hover:text-foreground"
+                  onClick={() => setQueued(null)}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              </Hint>
+            </div>
+          )}
           {/* 入力欄は NodePanel（Task AI）の返信欄と同じ見た目に揃える（境界線なし・テキストボタン。
               2026-08-01 本人指摘「線が要らない・2つのチャットを合わせて」） */}
           <div className="flex flex-shrink-0 items-end gap-2 px-4 pb-4">
@@ -391,20 +449,45 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
               className="flex-1 resize-y"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="メッセージを入力…（Enter で送信 / Shift+Enter で改行）"
+              placeholder={
+                busy
+                  ? "追い打ちで話しかける…（Enter で予約 / ⌘・Ctrl+Enter で止めてすぐ送る）"
+                  : "メッセージを入力…（Enter で送信 / Shift+Enter で改行）"
+              }
               rows={2}
               onKeyDown={(e) => {
                 if (e.key !== "Enter" || e.nativeEvent.isComposing || e.shiftKey) return;
                 e.preventDefault();
+                if (busy && (e.metaKey || e.ctrlKey)) {
+                  stopAndSend();
+                  return;
+                }
                 send();
               }}
             />
             {busy ? (
-              <Hint id="chat-stop" text="応答の生成を打ち切る（途中までの内容は残る）">
-                <Button type="button" variant="secondary" onClick={() => stop()}>
-                  停止
-                </Button>
-              </Hint>
+              <span className="flex flex-shrink-0 flex-col gap-1">
+                <Hint id="chat-stop" text="応答の生成を打ち切る（途中までの内容は残る。AI 本体もサーバ側で止まる）">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => stop()}>
+                    停止
+                  </Button>
+                </Hint>
+                <Hint
+                  id="chat-stop-send"
+                  text="今の応答を打ち切って、書いた内容をすぐ送る（⌘・Ctrl+Enter）"
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground"
+                    disabled={!input.trim() && !queued}
+                    onClick={stopAndSend}
+                  >
+                    止めて送る
+                  </Button>
+                </Hint>
+              </span>
             ) : (
               <Button type="button" variant="secondary" disabled={!input.trim()} onClick={send}>
                 送信

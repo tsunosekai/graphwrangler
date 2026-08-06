@@ -35,7 +35,12 @@ import {
 import { GitSync } from "./gitsync.js";
 import { SelfUpdate } from "./selfupdate.js";
 import { resolveWorkspacePath } from "./files.js";
-import { isThreadAiRunning, maybeTriggerThreadAi } from "./thread_ai.js";
+import {
+  cancelThreadAi,
+  isThreadAiFollowUpQueued,
+  isThreadAiRunning,
+  maybeTriggerThreadAi,
+} from "./thread_ai.js";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import {
   SESSION_COOKIE,
@@ -798,7 +803,20 @@ app.get("/api/nodes/:id/thread", (c) => {
   const id = c.req.param("id");
   graph.get(id);
   // aiBusy: Task AI が応答生成中か（UI の「考え中」表示。GraphWrangler AI と挙動を揃える）
-  return c.json({ messages: threads.list(id), aiBusy: isThreadAiRunning(id) });
+  // aiQueued: 応答中の追い打ちを受けて、終わり次第もう一度応答する予約があるか（2026-08-05）
+  return c.json({
+    messages: threads.list(id),
+    aiBusy: isThreadAiRunning(id),
+    aiQueued: isThreadAiFollowUpQueued(id),
+  });
+});
+
+/** Task AI の応答を止める（2026-08-05 本人要望「AIの会話を止められる機能」）。
+ *  走っていなければ stopped:false を返すだけ（呼び手は成否を気にしなくてよい） */
+app.post("/api/nodes/:id/thread-ai/cancel", (c) => {
+  const id = c.req.param("id");
+  graph.get(id);
+  return c.json({ stopped: cancelThreadAi(id) });
 });
 
 const PostMessageSchema = z.object({
@@ -1197,12 +1215,15 @@ app.get("/api/chats/:pageId/archive", (c) => {
 
 app.post("/api/chat", async (c) => {
   const body = await c.req.json();
+  // 中断シグナル: UI の「停止」= fetch の abort がここへ届く。CLI なら claude を木ごと殺し、
+  // API なら生成要求ごと止める（2026-08-05。以前は裏で走り続けてグラフを書き換えていた）
+  const signal = c.req.raw.signal;
   if (settings.get().chat.mode === "cli") {
-    return handleChatCli(graph, threads, settings, body, port);
+    return handleChatCli(graph, threads, settings, body, port, signal);
   }
   const missing = chatKeyMissing(settings);
   if (missing) return c.json({ error: missing }, 400);
-  return handleChat(graph, threads, settings, body);
+  return handleChat(graph, threads, settings, body, signal);
 });
 
 // ---- エンジンの API 方式（engine.mode="api"）向け: ツールなしの単発テキスト生成 ----

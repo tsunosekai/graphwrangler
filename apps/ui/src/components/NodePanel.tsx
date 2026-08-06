@@ -1813,6 +1813,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
         //  どこから読めばいいかの目印は読み終わるまで要る。2026-08-05）
         unreadSince={unreadSince}
         aiBusy={thread?.aiBusy ?? false}
+        aiQueued={thread?.aiQueued ?? false}
         showReplyBox={tab === "talk"}
         onMutated={() => {
           onMutated();
