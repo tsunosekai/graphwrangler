@@ -26,7 +26,6 @@ import {
   PanelLeft,
   PanelLeftClose,
   Pencil,
-  Settings2,
   Trash2,
 } from "lucide-react";
 import { api } from "../lib/api";
@@ -64,9 +63,6 @@ interface Props {
    *  （2026-08-02 モバイル4ビュー化。畳む/開くはデスクトップのレール専用の概念） */
   forceExpanded?: boolean;
   onSelectPage: (id: string) => void;
-  /** 行の⚙からページ自身のノード詳細を開く（タイトル編集・関係者・削除の導線。
-   *  goal ノードはグラフに描画されないため、ここが NodePanel への唯一の入口。2026-08-04） */
-  onOpenPageNode: (id: string) => void;
   /** フォルダ操作・並べ替えを打った直後の再取得（ポーリング待ちの3秒を出さない） */
   onMutated: () => void;
 }
@@ -141,7 +137,6 @@ export function PageList({
   runningCounts,
   forceExpanded,
   onSelectPage,
-  onOpenPageNode,
   onMutated,
 }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
@@ -430,15 +425,19 @@ export function PageList({
     }
   };
 
-  /** 落とし先の見せ方: 前後は行の内側に線、中へはフォルダ行を縁取る */
-  const dropClass = (id: string) =>
-    drop?.id !== id
-      ? undefined
-      : drop.pos === "into"
-        ? "ring-1 ring-ai"
-        : drop.pos === "before"
-          ? "shadow-[inset_0_2px_0_0_var(--ai)]"
-          : "shadow-[inset_0_-2px_0_0_var(--ai)]";
+  /** 落とし先の見せ方: 前後は行の縁に線、中へはフォルダ行を縁取る。
+   *  線は inset の box-shadow ではなく絶対配置の擬似要素で描く——box-shadow は行の角丸
+   *  （rounded-sm）に沿って端が丸まり、まっすぐな横線に見えないため（2026-08-06 本人指摘）。
+   *  擬似要素は overflow-hidden が無い限り角丸に切られないので、端まで直線で出る */
+  const dropClass = (id: string) => {
+    if (drop?.id !== id) return undefined;
+    if (drop.pos === "into") return "ring-1 ring-ai";
+    return cn(
+      "relative before:pointer-events-none before:absolute before:inset-x-0 before:h-0.5 before:bg-ai before:content-['']",
+      // 行と行の隙間（gap-px）の中央に置き、どちらの行の線か迷わないようにする
+      drop.pos === "before" ? "before:-top-px" : "before:-bottom-px",
+    );
+  };
 
   /** 掴む取っ手（⠿）。マウスもタッチも同じ pointer events で扱う */
   const gripFor = (st: DragState) => (
@@ -519,8 +518,8 @@ export function PageList({
     const effMembers = teamEnabled ? effectiveMembers(f, allNodes) : [];
 
     return (
-      // 行の中に⚙ボタン（本物の <button>）を置くため、行自体は button でなく div[role=button]
-      // にする（button の入れ子は不正HTML。2026-08-04 追修）。Enter/Space の選択も維持する
+      // 行自体は button でなく div[role=button]（行の中に本物の <button> を置いても
+      // 入れ子にならないように。2026-08-04）。Enter/Space の選択も維持する
       <div
         key={f.id}
         role="button"
@@ -605,27 +604,10 @@ export function PageList({
               </span>
             </Hint>
           )}
-          {/* ページ自身のノード詳細（タイトル編集・関係者・削除）への導線（2026-08-04 追修）。
-              goal ノードはグラフに描画されないため、この⚙が NodePanel を開く唯一の入口。
-              モバイルでも押せるよう hover 表示にはしない（常時表示・控えめな色） */}
-          <Hint
-            id="page-open"
-            always="ページの詳細を開く"
-            text="タイトル編集・関係者・削除・ページ自体との会話はここから"
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenPageNode(f.id);
-              }}
-            >
-              <Settings2 className="size-3.5" />
-            </Button>
-          </Hint>
+          {/* ページ詳細への⚙は廃止（2026-08-06 本人指示「要らない」）。行のクリック自体が
+              ページ選択と同時にページ自身のノードを選ぶ（App の onSelectPage）ので、
+              タイトル編集・関係者・削除へはそのまま NodePanel が開く。グラフ左上のページ名
+              ボタンも同じ入口として残っている */}
         </span>
         {dots.length > 0 && (
           <span className="flex flex-wrap items-center gap-[3px] pl-5">

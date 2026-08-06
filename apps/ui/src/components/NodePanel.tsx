@@ -1085,6 +1085,30 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 </Hint>
               </div>
             )}
+            {/* トリガーのプラン取り消し（2026-08-06 本人要望「ルーティーンも未計画に戻せるように」）。
+                task と違い status ではなく lifecycle を draft へ戻す——エンジンの発火判定
+                （engine の isFireableTrigger）は committed のトリガーだけを拾うので、
+                トリガーにとっての「未計画」は draft。手動▶（POST /fire）は draft でも通るため、
+                自動発火だけが止まる */}
+            {node.kind === "trigger" && node.lifecycle === "committed" && (
+              <div className="col-span-2 flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">プラン済み</span>
+                <span className="flex-1" />
+                <Hint
+                  id="status-unplan"
+                  text="プランを取り消して未計画に戻す（自動発火が止まる。手動の▶はそのまま使える）"
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => patch({ lifecycle: "draft" })}
+                  >
+                    未計画に戻す
+                  </Button>
+                </Hint>
+              </div>
+            )}
             {/* ルーティーン（トリガーを持つページ）のメンバーはテンプレート＝それ自体は進捗を持たない
                 （docs/design.md 3.8。データモデルは不変——状態はラン側のみ）。ただし**アクティブな
                 ラン（status==="running"の最新1本）がある間だけ**、その進捗をプロジェクトと
