@@ -31,14 +31,17 @@ interface Props {
 // 会話を切り替えなくても「今見ているページの話」として続けられる
 const CHAT_KEY = "global";
 
-async function loadHistory(): Promise<UIMessage[]> {
+/** 履歴を読む。**失敗（ネットワーク・非2xx）は null** で返し、空配列と区別する——
+ *  失敗を [] と同一視すると、その後の保存で過去の会話が空で上書きされる
+ *  （2026-08-07「Wrangler AI の記憶が無くなる」の一因） */
+async function loadHistory(): Promise<UIMessage[] | null> {
   try {
     const res = await fetch(`/api/chats/${CHAT_KEY}`);
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     const data = await res.json();
     return Array.isArray(data.messages) ? (data.messages as UIMessage[]) : [];
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -138,22 +141,40 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   });
 
   // マウント時にサーバから履歴を読み込む（保存は下の messages 変更 effect が担う。
-  // 読み込み完了までの間に保存しないよう、ロード済みフラグを追跡する）
+  // 読み込み完了までの間に保存しないよう、ロード済みフラグを追跡する）。
+  // 読み込みに失敗したら**成功するまで保存を解禁しない**まま5秒おきに再試行する
+  // （失敗を空履歴と同一視して会話がまっさらに見え、そのまま話し始めると過去の履歴が
+  // 上書きで消えていた——2026-08-07「記憶が無くなる」対策）
   const loadedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
+    let timer: number | null = null;
     loadedRef.current = false;
-    void loadHistory().then((history) => {
-      if (cancelled) return;
-      setMessages(history);
-      loadedRef.current = true;
-    });
+    const attempt = (first: boolean) => {
+      void loadHistory().then((history) => {
+        if (cancelled) return;
+        if (history === null) {
+          if (first) pushToast("チャット履歴の読み込みに失敗しました。再試行します", "error");
+          timer = window.setTimeout(() => attempt(false), 5000);
+          return;
+        }
+        setMessages(history);
+        loadedRef.current = true;
+      });
+    };
+    attempt(true);
     return () => {
       cancelled = true;
+      if (timer !== null) clearTimeout(timer);
     };
     // setMessages は useChat の安定参照
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 「この画面で会話が進んだか」。**進んでいないなら保存しない**——複数タブ・複数端末で
+  // 開いているとき、古い履歴しか持たない画面の閉じ際保存が最新の会話を巻き戻していた
+  // （last-write-wins。2026-08-07「記憶が無くなる」のもう一つの経路）
+  const dirtyRef = useRef(false);
 
   // 「最後に見た messages」の控え。ストリーミング中は下の保存 effect がスキップするため、
   // 応答中にドロワーを閉じる（アンマウント）と会話が未保存のまま消えることがある
@@ -166,7 +187,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   }, [messages]);
   useEffect(() => {
     return () => {
-      if (!loadedRef.current) return; // ロード完了前に閉じた（上書き事故を防ぐ）
+      if (!loadedRef.current || !dirtyRef.current) return; // ロード前/会話が進んでいない（上書き事故を防ぐ）
       if (lastMessagesRef.current.length > 0) saveHistory(lastMessagesRef.current);
     };
   }, []);
@@ -203,7 +224,12 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     return "考え中";
   })();
 
+  // 追従スクロールは「最下部付近にいる間だけ」（2026-08-07 本人要望「スクロールを改善」。
+  // 旧: 新着のたび無条件で最下部へ——上に遡って読んでいても引き戻されていた）。
+  // 自分が送信したときは位置に関わらず最下部へ戻す（submit が stick を立てる）
+  const stickToBottomRef = useRef(true);
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, busy]);
 
@@ -214,7 +240,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   const lastSaveAtRef = useRef(0);
   const pendingSaveRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!loadedRef.current) return;
+    if (!loadedRef.current || !dirtyRef.current) return;
     const doSave = () => {
       lastSaveAtRef.current = Date.now();
       saveHistory(lastMessagesRef.current);
@@ -249,7 +275,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   // 長い履歴では送れないことがあるが、その場合も上の2秒間引き保存が直近状態を押さえている
   useEffect(() => {
     const onPageHide = () => {
-      if (!loadedRef.current || lastMessagesRef.current.length === 0) return;
+      if (!loadedRef.current || !dirtyRef.current || lastMessagesRef.current.length === 0) return;
       try {
         void fetch(`/api/chats/${CHAT_KEY}`, {
           method: "PUT",
@@ -282,6 +308,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       }
       setMessages([]);
       saveHistory([]);
+      dirtyRef.current = false; // 空を明示保存済み。以後は次の送信まで保存不要
       setTab("talk");
     } finally {
       setStartingNewChat(false);
@@ -293,6 +320,8 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   const loadArchiveSession = (session: ArchiveSession) => {
     if (busy) return;
     setMessages(session.messages);
+    dirtyRef.current = true; // 読み込んだセッションを現行スナップショットとして保存する（従来挙動）
+    stickToBottomRef.current = true;
     setTab("talk");
   };
 
@@ -306,6 +335,8 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   }, [queued]);
 
   const submit = (text: string) => {
+    dirtyRef.current = true; // この画面で会話が進んだ＝以後の保存を解禁
+    stickToBottomRef.current = true; // 自分の送信では最下部へ戻す
     void sendMessage({ text }, { body: { pageId, selectedNodeId } });
   };
 
@@ -392,7 +423,16 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       </div>
       {tab === "talk" ? (
         <>
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4 pt-3" ref={bodyRef}>
+          <div
+            className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4 pt-3"
+            ref={bodyRef}
+            onScroll={() => {
+              const el = bodyRef.current;
+              if (!el) return;
+              // 48px の遊び: ストリーミング中の行送りでわずかに離れても追従を切らない
+              stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+            }}
+          >
             {messages.length === 0 && !error && (
               <div className="py-2 text-sm text-muted-foreground">グラフの整理を話しかけてみてください</div>
             )}

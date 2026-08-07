@@ -5,6 +5,7 @@ import type { UIMessage, UIMessagePart, UIDataTypes, UITools } from "ai";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "../lib/utils";
+import { Linkify, mdComponents } from "../lib/linkify";
 import { Badge } from "./ui/badge";
 import { Hint } from "./Hint";
 
@@ -122,7 +123,9 @@ function ReasoningPart({ text }: { text: string }) {
       </Hint>
       {open && (
         <div className="chat-md mt-1 break-words border-l-2 border-border pl-2 italic">
-          <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+            {text}
+          </Markdown>
         </div>
       )}
     </div>
@@ -146,7 +149,13 @@ export function ChatMessageView({ message }: { message: UIMessage }) {
                 isUser ? "whitespace-pre-wrap border-human/40" : "chat-md border-ai/40",
               )}
             >
-              {isUser ? part.text : <Markdown remarkPlugins={[remarkGfm]}>{part.text}</Markdown>}
+              {isUser ? (
+                <Linkify text={part.text} />
+              ) : (
+                <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  {part.text}
+                </Markdown>
+              )}
             </div>
           );
         }

@@ -3,6 +3,7 @@ import { Square } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
+import { Linkify, mdComponents } from "../lib/linkify";
 import { displayNameOf, useTeam, type TeamUser } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage } from "../types";
@@ -87,7 +88,11 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
   const firstUnreadIndex =
     unreadSince !== undefined ? flow.findIndex((m) => m.ts > (unreadSince ?? "")) : -1;
 
+  // 追従スクロールは「最下部付近にいる間だけ」（2026-08-07 本人要望「スクロールを改善」。
+  // ChatDrawer と同じ流儀）。自分の送信時は sendReply が stick を立てて最下部へ戻す
+  const stickToBottomRef = useRef(true);
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, aiBusy]);
@@ -95,6 +100,7 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
   const sendReply = async () => {
     const body = reply.trim();
     if (!body) return;
+    stickToBottomRef.current = true; // 自分の送信では最下部へ戻す
     setSending(true);
     try {
       if (openRequests.length > 0) {
@@ -112,7 +118,15 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1" ref={bodyRef}>
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1"
+        ref={bodyRef}
+        onScroll={() => {
+          const el = bodyRef.current;
+          if (!el) return;
+          stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        }}
+      >
         {flow.length === 0 && openRequests.length === 0 && (
           <div className="py-2 text-sm text-muted-foreground">タスクを計画・実行しましょう</div>
         )}
@@ -176,11 +190,19 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
                   .chat-md）。人間・システムの本文は入力そのまま */}
               {m.author.kind === "agent" && m.body ? (
                 <div className="chat-md break-words text-sm">
-                  <Markdown remarkPlugins={[remarkGfm]}>{m.body}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                    {m.body}
+                  </Markdown>
                 </div>
               ) : (
                 <div className="whitespace-pre-wrap break-words text-sm">
-                  {m.body || (m.kind === "decision_answer" ? "(選択のみ)" : "")}
+                  {m.body ? (
+                    <Linkify text={m.body} />
+                  ) : m.kind === "decision_answer" ? (
+                    "(選択のみ)"
+                  ) : (
+                    ""
+                  )}
                 </div>
               )}
               {sources && sources.length > 0 && (

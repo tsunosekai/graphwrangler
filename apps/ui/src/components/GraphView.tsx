@@ -940,6 +940,11 @@ function GraphViewInner({
       }
       if (mod && keyLower === "c") {
         if (getSelectedNodeIds().length === 0) return; // 通常のテキストコピーを邪魔しない
+        // テキストを範囲選択しているときも奪わない（2026-08-07 本人報告「ctrl+c でテキストを
+        // コピーできない」）。チャット欄やパネルの文をマウス選択してもフォーカスは body に
+        // 残るため isShortcutBlocked では拾えない——選択の有無で判定する
+        const textSel = window.getSelection();
+        if (textSel && !textSel.isCollapsed && textSel.toString()) return;
         e.preventDefault();
         copySelection();
         return;
