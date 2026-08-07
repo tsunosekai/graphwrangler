@@ -248,24 +248,31 @@ function AppInner() {
   //      ため、現在ページの status==="running" を全部持ち、どの世界線をグラフに投影するかを
   //      projectedRunId で選ぶ（切替UIは GraphView のツールバー。既定は最新の1本） ----
   const isCurrentPageRoutine = pageNode ? isRoutinePage(pageNode, nodes) : false;
-  const { data: runningRunsData, refresh: refreshActiveRun } = usePolling(async (): Promise<Run[]> => {
+  // 実行中だけでなく**全ラン**を持つ（2026-08-07 本人要望「過去のランが選択（表示）できない」。
+  // 旧: running だけ絞っていたため、終わったランをグラフに投影して見返す手段が無かった）
+  const { data: pageRunsData, refresh: refreshActiveRun } = usePolling(async (): Promise<Run[]> => {
     if (!pageId || !isCurrentPageRoutine) return [];
     try {
       const { runs } = await api.listRuns(pageId);
       // listRuns は新しい順（LedgerView と同じ前提）
-      return runs.filter((r) => r.status === "running");
+      return runs;
     } catch {
       return [];
     }
   }, 3000);
-  const runningRuns = useMemo(() => runningRunsData ?? [], [runningRunsData]);
+  const pageRuns = useMemo(() => pageRunsData ?? [], [pageRunsData]);
+  const runningRuns = useMemo(() => pageRuns.filter((r) => r.status === "running"), [pageRuns]);
+  // projectedRunId: null = 自動（最新の実行中ラン）/ "none" = 明示的に投影なし / それ以外 = ラン id
   const [projectedRunId, setProjectedRunId] = useState<string | null>(null);
   // ページを切り替えたら投影選択をリセットし、次の3秒ポーリングを待たずに即座に取り直す
   useEffect(() => {
     setProjectedRunId(null);
     refreshActiveRun();
   }, [pageId, isCurrentPageRoutine, refreshActiveRun]);
-  const activeRun = runningRuns.find((r) => r.id === projectedRunId) ?? runningRuns[0] ?? null;
+  const activeRun =
+    projectedRunId === "none"
+      ? null
+      : (pageRuns.find((r) => r.id === projectedRunId) ?? runningRuns[0] ?? null);
 
   // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
   // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）
@@ -494,8 +501,8 @@ function AppInner() {
             threadMeta={threadMeta}
             reads={reads}
             activeRun={activeRun}
-            runningRuns={runningRuns}
-            onProjectRun={setProjectedRunId}
+            pageRuns={pageRuns}
+            onProjectRun={(runId) => setProjectedRunId(runId ?? "none")}
             onSelect={selectNode}
             onNodeTap={() => {
               if (isMobile) setMobileView("node"); // 実タップは同じノードでも詳細へ

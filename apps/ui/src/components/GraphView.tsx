@@ -97,10 +97,11 @@ interface Props {
   /** グラフに投影中のラン（docs/design.md 3.8）。ルーティーンページでない/実行中のランが
    *  無い間は null（App が算出して渡す）。ある間だけテンプレートのカードにその進捗を投影する */
   activeRun: Run | null;
-  /** 現在ページの実行中ラン一覧（新しい順）。2本以上並走しているとき（パラレルワールド）、
-   *  ツールバーのセレクトでどの世界線を投影するか切り替える */
-  runningRuns?: Run[];
-  onProjectRun?: (runId: string) => void;
+  /** 現在ページの全ラン一覧（新しい順。実行中も終了済みも）。ツールバーのセレクトで
+   *  どのランを投影するか切り替える（過去のランも見返せる。2026-08-07 本人要望） */
+  pageRuns?: Run[];
+  /** null = 投影なし（テンプレート表示）を明示的に選んだ */
+  onProjectRun?: (runId: string | null) => void;
   onSelect: (id: string | null) => void;
   /** ユーザーが**キャンバス上でノードを実際にタップ/クリックした**ときだけ呼ばれる。
    *  onSelect は React Flow の selection-change（ポーリング再描画でも再発火する）からも
@@ -119,7 +120,7 @@ function GraphViewInner({
   threadMeta,
   reads,
   activeRun,
-  runningRuns = [],
+  pageRuns = [],
   onProjectRun,
   onSelect,
   onNodeTap,
@@ -1059,36 +1060,31 @@ function GraphViewInner({
             </TabsList>
           </Tabs>
         )}
-        {/* 並列ラン（パラレルワールド）の世界線切替: 2本以上並走中はどのランを投影するか選ぶ。
-            1本だけのときも「今どのランを見ているか」が分かるようタイトルを出す */}
-        {!showLedger && runningRuns.length > 1 && activeRun && (
-          <Select value={activeRun.id} onValueChange={(v) => onProjectRun?.(v)}>
+        {/* ランの投影切替（世界線セレクタ）: 実行中だけでなく**過去のラン**も選んで
+            グラフに投影できる（2026-08-07 本人要望「過去のランが選択（表示）できない」）。
+            既定は最新の実行中ラン。「投影なし」でテンプレート表示に戻る */}
+        {!showLedger && pageRuns.length > 0 && (
+          <Select
+            value={activeRun?.id ?? "none"}
+            onValueChange={(v) => onProjectRun?.(v === "none" ? null : v)}
+          >
             <Hint
               id="run-projection"
-              text="ランが並走中。どのランの進捗をグラフに投影するか選ぶ（カードの操作も選んだランに記録される）"
+              text="どのランの進捗をグラフに投影するか選ぶ（▶=実行中 ✓=完了 ✕=中止。過去のランも見返せる。カードの操作は選んだランに記録される）"
             >
               <SelectTrigger className="h-9 max-w-56">
-                <SelectValue />
+                <SelectValue placeholder="ランを表示…" />
               </SelectTrigger>
             </Hint>
             <SelectContent>
-              {runningRuns.map((r) => (
+              <SelectItem value="none">投影なし（テンプレート）</SelectItem>
+              {pageRuns.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
-                  {r.title}
+                  {r.status === "running" ? "▶" : r.status === "done" ? "✓" : "✕"} {r.title}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        )}
-        {!showLedger && runningRuns.length === 1 && activeRun && (
-          <Hint
-            id="run-projection"
-            always="投影中の実行中ラン"
-            text="このランの進捗を各カードに重ねて表示中。カードの着手/完了もこのランに記録される（テンプレート自体は進捗を持たない）"
-            side="bottom"
-          >
-            <Badge variant="secondary">▶ {activeRun.title}</Badge>
-          </Hint>
         )}
         {/* 投影中ランの名前を後から編集（並列ラン=世界線の区別用ラベル） */}
         {!showLedger && activeRun && (

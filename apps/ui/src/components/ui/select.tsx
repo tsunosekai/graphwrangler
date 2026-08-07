@@ -51,8 +51,12 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
-  align = "center",
+  // 既定を popper（トリガーの下、入らなければ上に出す）へ変更（2026-08-07 本人要望
+  // 「ドロップダウンで元のやつが見えなくなるのがうざい」）。旧既定の item-aligned は
+  // 開いたメニューがトリガー自体を覆う Radix のネイティブ風モードだった
+  position = "popper",
+  align = "start",
+  sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
@@ -67,6 +71,7 @@ function SelectContent({
         )}
         position={position}
         align={align}
+        sideOffset={sideOffset}
         {...props}
       >
         <SelectScrollUpButton />

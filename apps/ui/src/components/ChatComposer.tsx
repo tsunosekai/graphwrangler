@@ -14,6 +14,11 @@ import { ArrowUp, Loader2, Mic, Plus, Square } from "lucide-react";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import { Icon } from "./Icon";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+
+/** コンポーザ下段の小さなセレクタ用トリガー装飾（モデル/エフォート共通） */
+const COMPACT_TRIGGER =
+  "data-[size=sm]:h-6 gap-1 border-0 bg-transparent px-1 py-0 text-xs text-muted-foreground shadow-none hover:text-foreground dark:bg-transparent dark:hover:bg-transparent";
 
 export interface ComposerAttachment {
   name: string;
@@ -306,33 +311,39 @@ export function ChatComposer({
             </button>
           )}
           {onModelChange && (
-            <select
-              className="cursor-pointer rounded bg-transparent px-1 py-0.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground"
+            <Select
               value={model ?? "default"}
-              title="この会話で使うモデル（既定は⚙の設定）"
-              onChange={(e) => onModelChange(e.target.value === "default" ? null : e.target.value)}
+              onValueChange={(v) => onModelChange(v === "default" ? null : v)}
             >
-              <option value="default">モデル: 既定</option>
-              <option value="fable">Fable 5</option>
-              <option value="opus">Opus 5</option>
-              <option value="sonnet">Sonnet 5</option>
-              <option value="haiku">Haiku 4.5</option>
-            </select>
+              <SelectTrigger size="sm" className={COMPACT_TRIGGER} title="この会話で使うモデル（既定は⚙の設定）">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">モデル: 既定</SelectItem>
+                <SelectItem value="fable">Fable 5</SelectItem>
+                <SelectItem value="opus">Opus 5</SelectItem>
+                <SelectItem value="sonnet">Sonnet 5</SelectItem>
+                <SelectItem value="haiku">Haiku 4.5</SelectItem>
+              </SelectContent>
+            </Select>
           )}
           {onEffortChange && (
-            <select
-              className="cursor-pointer rounded bg-transparent px-1 py-0.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground"
+            <Select
               value={effort ?? "default"}
-              title="思考の深さ（既定は⚙の設定）"
-              onChange={(e) => onEffortChange(e.target.value === "default" ? null : e.target.value)}
+              onValueChange={(v) => onEffortChange(v === "default" ? null : v)}
             >
-              <option value="default">エフォート: 既定</option>
-              <option value="low">低</option>
-              <option value="medium">中</option>
-              <option value="high">高</option>
-              <option value="xhigh">特高</option>
-              <option value="max">最大</option>
-            </select>
+              <SelectTrigger size="sm" className={COMPACT_TRIGGER} title="思考の深さ（既定は⚙の設定）">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">エフォート: 既定</SelectItem>
+                <SelectItem value="low">低</SelectItem>
+                <SelectItem value="medium">中</SelectItem>
+                <SelectItem value="high">高</SelectItem>
+                <SelectItem value="xhigh">特高</SelectItem>
+                <SelectItem value="max">最大</SelectItem>
+              </SelectContent>
+            </Select>
           )}
           {busy ? (
             <Loader2 className="ml-1 size-3.5 animate-spin text-ai" />
