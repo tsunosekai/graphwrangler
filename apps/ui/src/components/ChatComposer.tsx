@@ -302,7 +302,8 @@ export function ChatComposer({
           ) : (
             <button
               type="button"
-              className="ml-1 inline-flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
+              // 送信だけ強調色にする理由が無いので中間色に（2026-08-08 本人指定）
+              className="ml-1 inline-flex size-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground transition-colors hover:bg-border-strong disabled:opacity-30"
               title="送信（Enter）"
               disabled={!hasContent || disabled}
               onClick={send}
