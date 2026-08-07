@@ -18,6 +18,7 @@ import { cn } from "./lib/utils";
 import { usePolling } from "./hooks/usePolling";
 import { useIsMobile } from "./hooks/useIsMobile";
 import { isRoutinePage } from "./lib/routine";
+import { buildRoute, parseRoute, type RouteState } from "./lib/route";
 import { pushToast } from "./lib/toast";
 import type { Run } from "./types";
 
@@ -112,8 +113,16 @@ function AppInner() {
   // デスクトップ通知の見出しはインスタンスのサイト名（2026-08-08 ブランディング）
   const { siteTitle } = useBranding();
   const { data, refresh } = usePolling(() => api.getState(), 3000);
-  const [selectedId, setSelectedId] = useState<string | null>(() => loadUiState("gw.selectedId"));
-  const [pageIdRaw, setPageId] = useState<string | null>(() => loadUiState("gw.pageId"));
+  // 初期 hash のルート（2026-08-08）。**ルート付きで開かれたときは localStorage の選択/ページ
+  // 復元をスキップする**（hash が勝つ）——復元された旧選択とルートの選択が React Flow の
+  // 初期化と同時に走ると、内部選択が合流して「2件選択」で固着する競合があった（実測）
+  const [initialRoute] = useState<RouteState | null>(() => parseRoute(window.location.hash));
+  const [selectedId, setSelectedId] = useState<string | null>(() =>
+    initialRoute ? null : loadUiState("gw.selectedId"),
+  );
+  const [pageIdRaw, setPageId] = useState<string | null>(() =>
+    initialRoute ? null : loadUiState("gw.pageId"),
+  );
   const [chatOpen, setChatOpen] = useState(() => loadUiState("gw.chatOpen") === "1");
   // モバイル（<768px）はヘッダー+下部タブバーを除き、一覧/グラフ/ノード/チャットの
   // どれか1つが画面を専有する（2026-08-02 本人指定）。
@@ -135,6 +144,15 @@ function AppInner() {
   useEffect(() => saveUiState("gw.selectedId", selectedId), [selectedId]);
   useEffect(() => saveUiState("gw.pageId", pageIdRaw), [pageIdRaw]);
   useEffect(() => saveUiState("gw.chatOpen", chatOpen ? "1" : "0"), [chatOpen]);
+
+  // ---- ハッシュベース URL ルーティング（2026-08-08 本人指示。Discord 通知等のリンクから
+  //      特定ページ / ノード / ラン / チャットを直接開けるようにする。lib/route.ts が正本） ----
+  // 初期 hash はノード一覧のロード後でないとページ解決できないため、いったん「保留ルート」に
+  // 置き、nodes が非空になった最初のタイミングで適用する（適用 effect は selectNode 定義の後方）
+  const pendingRouteRef = useRef<RouteState | null>(initialRoute);
+  // 保留ルートを適用し終わるまで URL への書き戻しを止める（初期 hash を localStorage 由来の
+  // 状態で潰さないため）。初期 hash にルーティング情報が無ければ最初から書いてよい
+  const routeReadyRef = useRef(initialRoute === null);
   // ノードエディタ標準の複数選択: 選択中の id 一覧。2件以上で一括編集パネル（BulkPanel）を出す
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
@@ -272,11 +290,23 @@ function AppInner() {
   const runningRuns = useMemo(() => pageRuns.filter((r) => r.status === "running"), [pageRuns]);
   // projectedRunId: null = 自動（最新の実行中ラン）/ "none" = 明示的に投影なし / それ以外 = ラン id
   const [projectedRunId, setProjectedRunId] = useState<string | null>(null);
+  // URL ルート（?run=<id>）由来のラン指定の一時置き場（2026-08-08）。ルート適用でページも
+  // 一緒に切り替わると、下のリセット effect が次のコミットで null に潰してしまうため、
+  // ref に積んでおいてリセット側に引き継がせる
+  const routeRunRef = useRef<string | null>(null);
   // ページを切り替えたら投影選択をリセットし、次の3秒ポーリングを待たずに即座に取り直す
+  // （URL ルート由来の切替のときだけ、リセットではなく URL の run 指定を採用する）
   useEffect(() => {
-    setProjectedRunId(null);
+    setProjectedRunId(routeRunRef.current);
+    routeRunRef.current = null;
     refreshActiveRun();
   }, [pageId, isCurrentPageRoutine, refreshActiveRun]);
+  // ルート適用の1コミット後に必ず ref を空にする（ページが実際には切り替わらず、上の
+  // effect が消費しなかった場合の取り残し防止。適用時は setProjectedRunId も直接呼ぶので
+  // ここで消しても表示は失われない）
+  useEffect(() => {
+    routeRunRef.current = null;
+  });
   const activeRun =
     projectedRunId === "none"
       ? null
@@ -411,6 +441,69 @@ function AppInner() {
     },
     [nodes, folders, isMobile, selectedId],
   );
+
+  // --- URL ルートの適用（2026-08-08）。保留ルート（初期 hash）と hashchange の両方で使う ---
+  const applyRoute = useCallback(
+    (r: RouteState) => {
+      if (r.nodeId && nodes.some((n) => n.id === r.nodeId)) {
+        // ノード指定はページ切替 + 選択（パネルが開く）を selectNode に一任する
+        selectNode(r.nodeId);
+      } else if (r.pageId) {
+        // ノードが見つからない・ノード指定なしのときはページだけ適用
+        setPageId(r.pageId);
+      }
+      if (r.runId) {
+        // ページも一緒に切り替わる場合に備えて ref にも積む（リセット effect が引き継ぐ）
+        routeRunRef.current = r.runId;
+        setProjectedRunId(r.runId);
+      }
+      if (r.chat) setChatOpen(true);
+    },
+    [nodes, selectNode],
+  );
+
+  // 保留ルートの適用: nodes が非空になった最初のタイミングで一度だけ。適用後は URL への
+  // 書き戻し（下の effect）を解禁する
+  useEffect(() => {
+    const r = pendingRouteRef.current;
+    if (!r || nodes.length === 0) return;
+    pendingRouteRef.current = null;
+    routeReadyRef.current = true;
+    applyRoute(r);
+  }, [nodes, applyRoute]);
+
+  // hashchange（リンクの再クリック・手打ち編集）でも同じ適用処理を通す。この時点では
+  // 通常 nodes は読み込み済みだが、万一空なら保留ルートに積んで上の effect に任せる
+  useEffect(() => {
+    const onHashChange = () => {
+      const r = parseRoute(window.location.hash);
+      if (!r) return;
+      if (nodes.length === 0) {
+        pendingRouteRef.current = r;
+        return;
+      }
+      applyRoute(r);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [nodes, applyRoute]);
+
+  // 状態 → URL: 選択状態が変わるたび hash に反映する。hashchange を発火させないため
+  // replaceState を使う（pushState だと履歴も汚れる）。既存のモバイル「戻る」統合が
+  // history.state（gwView 等）を使っているので、state は現在値を維持して渡す
+  useEffect(() => {
+    if (!routeReadyRef.current) return; // 保留ルート適用前は書かない（初期 hash を潰さない）
+    const url = buildRoute({
+      pageId,
+      nodeId: selectedId,
+      // "none"（明示的に投影なし）と null（自動）はどちらも URL に載せない
+      runId: projectedRunId === "none" ? null : projectedRunId,
+      chat: chatOpen,
+    });
+    if (window.location.hash !== url) {
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, [pageId, selectedId, projectedRunId, chatOpen]);
 
   // モバイルの実効ビュー: 「ノード」ビューで表示できるものが無ければグラフへ倒す
   // （選択解除・削除直後に空画面へ取り残されないように）。デスクトップは null（全ペイン共存）

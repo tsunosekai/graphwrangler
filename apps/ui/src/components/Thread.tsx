@@ -142,7 +142,7 @@ export function Thread({
         }}
       >
         {flow.length === 0 && openRequests.length === 0 && (
-          <div className="py-2 text-sm text-text-lo">タスクを計画・実行しましょう</div>
+          <div className="py-2 text-sm text-text-lo">このノードの計画や作業をここで相談できます</div>
         )}
         {flow.map((m, idx) => {
           // 未読区切り（この位置から上が既読・下が未読）。メッセージ本体の前に挟む

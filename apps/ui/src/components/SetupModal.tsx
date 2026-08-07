@@ -205,6 +205,8 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   // URL は APIキーと同じ書き込み専用: 有無だけ受け取り、値は「変更」を押したときだけ送る
   const [discordEnabled, setDiscordEnabled] = useState(settings.notify?.discordEnabled ?? false);
   const [webhookUrl, setWebhookUrl] = useState("");
+  // 公開URL（通知に付くリンクの基底。2026-08-08 本人指示）。空欄 = リンク無しで通知
+  const [publicUrl, setPublicUrl] = useState(settings.notify?.publicUrl ?? "");
 
   // ユーザーごとの設定（2026-08-07「設定はユーザーごとと全体で分けて」）。
   // 読み込みはマウント時、書き込みはトグルの瞬間に即時反映（「保存」を経由しない＝
@@ -302,7 +304,8 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           autoApply: updAutoApply,
           intervalMin: Math.min(1440, Math.max(5, parseInt(updIntervalMin, 10) || 60)),
         },
-        notify: { discordEnabled },
+        // publicUrl は末尾スラッシュを落として保存（リンク組み立て時の // を防ぐ）。空欄 = null（2026-08-08）
+        notify: { discordEnabled, publicUrl: publicUrl.trim().replace(/\/+$/, "") || null },
         // 空欄で保存したら既定名へ戻す（min(1) のサーバ検証で弾かれないように畳んでおく）
         branding: { siteTitle: siteTitle.trim() || DEFAULT_SITE_TITLE },
         setupDone: true,
@@ -674,6 +677,17 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
             担当者が付いたノードはその人をメンション（ユーザー管理で Discord ID を登録）、担当者なしは
             @here で全員に届きます。受け取るかどうかの個人設定はユーザータブにあります
           </p>
+          {/* 公開URL（2026-08-08 本人指示）: 通知からこのインスタンスへ飛ぶリンクの基底。
+              サーバは自分の外向きURLを知らないのでここで教える */}
+          <label className={field}>
+            <span>公開URL（通知のリンク用）</span>
+            <Input
+              value={publicUrl}
+              onChange={(e) => setPublicUrl(e.target.value)}
+              placeholder="http://100.86.224.19:8770"
+            />
+          </label>
+          <p className={desc}>通知に付くリンクの基底。未設定だと通知はリンク無しになります</p>
         </section>
 
         {/* 外観（2026-08-08 本人要望）。同じコードで会社と個人の2インスタンスが動くので、

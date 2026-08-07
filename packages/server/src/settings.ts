@@ -87,6 +87,9 @@ export const NotifySettingsSchema = z.object({
   discordEnabled: z.boolean().default(false),
   /** 書き込み専用。undefined=維持 / null=削除 / string=設定（apiKey と同じ扱い） */
   discordWebhookUrl: z.string().nullable().default(null),
+  /** 通知リンクの基底URL。例 http://100.86.224.19:8770。未設定ならリンク無し
+   *  （2026-08-08 本人指示——通知3行目に `<publicUrl>/#/n/<nodeId>` を付けるため） */
+  publicUrl: z.string().nullable().default(null),
   // Task AI 返信通知の個別スイッチはユーザーごとの設定（user_settings.ts の
   // discordAiReplies）へ移動した（2026-08-07「設定はユーザーごとと全体で分けて」）
 });
@@ -239,6 +242,7 @@ export class SettingsStore {
       notify: {
         discordEnabled: this.cache.notify.discordEnabled,
         hasDiscordWebhook: this.cache.notify.discordWebhookUrl !== null,
+        publicUrl: this.cache.notify.publicUrl,
       },
       branding: {
         siteTitle: this.cache.branding.siteTitle,

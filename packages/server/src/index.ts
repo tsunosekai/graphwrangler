@@ -966,13 +966,17 @@ app.post("/api/nodes/:id/messages", async (c) => {
     attachmentsDir, // [添付ファイル: <パス>] を Task AI が Read で読めるように
 
     // Task AI の返信完了を Discord へ（2026-08-07「通知が来ない」対応。discord.ts 参照）。
-    // 受け取るかどうかは個人設定（担当者、未割当なら default 枠）で決める
-    onReply: (node, replyText) => {
+    // 受け取るかどうかは個人設定（担当者、未割当なら default 枠）で決める。
+    // 返信本文の引用（snippet）は廃止し、ページ名 + リンクの簡略フォーマットへ（2026-08-08 本人指示）
+    onReply: (node) => {
       if (!userSettings.get(node.assignee ?? null).discordAiReplies) return;
       notifyAiReply(settings.get().notify, loadUsers(usersFile), {
         assignee: node.assignee,
-        title: node.title || "（無題）",
-        snippet: replyText.slice(0, 150),
+        target: {
+          pageTitle: node.group && graph.has(node.group) ? graph.get(node.group).title : null,
+          nodeId: node.id,
+          nodeTitle: node.title || "（無題）",
+        },
       });
     },
   });
@@ -1002,12 +1006,16 @@ app.post("/api/nodes/:id/request", async (c) => {
   );
   // Discord 通知（あなたの番の発生源①: ボールが人間へ渡った瞬間。discord.ts 参照）。
   // 投げっぱなし＝リクエスト処理をブロックしない。担当者が居るときはその人の
-  // 個人設定（discordTurnNotify）を尊重する（2026-08-07 ユーザー別設定）
+  // 個人設定（discordTurnNotify）を尊重する（2026-08-07 ユーザー別設定）。
+  // 質問文の引用（extra）は廃止し、ページ名 + リンクの簡略フォーマットへ（2026-08-08 本人指示）
   if (!node.assignee || userSettings.get(node.assignee).discordTurnNotify) {
     notifyTurn(settings.get().notify, loadUsers(usersFile), {
       assignee: node.assignee,
-      title: node.title,
-      extra: `> ${request.question.slice(0, 200)}`,
+      target: {
+        pageTitle: node.group && graph.has(node.group) ? graph.get(node.group).title : null,
+        nodeId: node.id,
+        nodeTitle: node.title || "（無題）",
+      },
     });
   }
   return c.json(message);
@@ -1172,7 +1180,8 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
   }
   // Discord 通知（あなたの番の発生源②: ワークアイテムが waiting へ遷移した瞬間。
   // エンジンが人間タスクの順番到達で waiting を付ける経路もここを通る）。
-  // 担当者ありならその人の個人設定を尊重（2026-08-07 ユーザー別設定）
+  // 担当者ありならその人の個人設定を尊重（2026-08-07 ユーザー別設定）。
+  // ラン名は target.runTitle として渡す（簡略フォーマット化 2026-08-08 本人指示）
   if (
     fromStatus !== "waiting" &&
     toStatus === "waiting" &&
@@ -1180,7 +1189,12 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
   ) {
     notifyTurn(settings.get().notify, loadUsers(usersFile), {
       assignee: node.assignee,
-      title: `${node.title}（ラン: ${run.title}）`,
+      target: {
+        pageTitle: node.group && graph.has(node.group) ? graph.get(node.group).title : null,
+        nodeId: node.id,
+        nodeTitle: node.title || "（無題）",
+        runTitle: run.title,
+      },
     });
   }
   return c.json(run);

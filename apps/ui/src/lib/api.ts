@@ -130,6 +130,8 @@ export interface SettingsView {
   notify: {
     discordEnabled: boolean;
     hasDiscordWebhook: boolean;
+    /** 通知リンクの基底URL（2026-08-08）。null = リンク無しで通知する */
+    publicUrl: string | null;
   };
   /** インスタンスのブランディング（2026-08-08）。会社/個人の2インスタンスで見た目を分ける。
    *  faviconVersion はサーバ管理（アップロードで +1／既定に戻すと 0）で、patch からは書けない */
@@ -193,7 +195,7 @@ export interface SettingsPatch {
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
   /** discordWebhookUrl は apiKey と同じ書き込み専用3値（undefined=維持 / null=削除 / string=設定） */
-  notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null };
+  notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null; publicUrl?: string | null };
   /** ファビコンは画像なので別口（uploadFavicon / resetFavicon）。ここはサイト名だけ */
   branding?: { siteTitle?: string };
   setupDone?: boolean;

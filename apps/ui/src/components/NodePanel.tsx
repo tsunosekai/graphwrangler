@@ -762,9 +762,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               ? routine
                 ? "ルーティーン"
                 : "プロジェクト"
-              : node.kind === "task"
-                ? "タスク"
-                : KIND_JA[node.kind];
+              : // 種別ラベルはノード上のチップと同じ語彙（実行/判断/トリガー）に統一
+                // （2026-08-08 本人指摘「タスクとノードの表記ゆれ」——ここだけ「タスク」だった）
+                KIND_JA[node.kind];
           return (
             <Hint
               id={node.kind === "goal" ? (routine ? "page-routine" : "page-project") : "kind"}
