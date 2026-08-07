@@ -960,7 +960,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               script=cron的な発火条件、ai=発火要否を判定させる間隔 */}
           {node.kind === "trigger" &&
             (node.executor === "human" ? (
-              <p className="text-xs text-muted-foreground">手動開始のみ（カードの ▶ から開始）</p>
+              <p className="text-xs text-muted-foreground">手動開始のみ（ノードの ▶ から開始）</p>
             ) : (
               <Input
                 placeholder={
@@ -1841,7 +1841,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               <span className="@max-[24rem]/panel:hidden">会話</span>
               {hasUnreadIn("talk") && <UnreadDot />}
             </TabsTrigger>
-            <Hint id="tab-history" text="「新しい会話」で区切った過去の会話。カードで選んで読み返せる">
+            <Hint id="tab-history" text="「新しい会話」で区切った過去の会話。一覧から選んで読み返せる">
               <TabsTrigger value="history">
                 <History className="size-3.5" />
                 <span className="@max-[24rem]/panel:hidden">履歴</span>

@@ -1070,7 +1070,7 @@ function GraphViewInner({
           >
             <Hint
               id="run-projection"
-              text="どのランの進捗をグラフに表示するか選ぶ（▶=実行中 ✓=完了 ✕=中止。過去のランも見返せる。カードの操作は選んだランに記録される）"
+              text="どのランの進捗をグラフに表示するか選ぶ（▶=実行中 ✓=完了 ✕=中止。過去のランも見返せる。ノードの操作は選んだランに記録される）"
             >
               <SelectTrigger className="h-9 max-w-56">
                 <SelectValue placeholder="ランを表示…" />
