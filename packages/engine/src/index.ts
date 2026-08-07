@@ -27,6 +27,7 @@ import {
 import { selectRunAction } from "./pickRun.js";
 import {
   APPROVAL_WAITING_NOTE,
+  HUMAN_TURN_WAITING_NOTE,
   buildRunApprovalRequest,
   collectPendingApprovalItems,
   findRunGate,
@@ -1091,6 +1092,19 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
       log(
         `不可逆のため承認待ちへ: run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
       );
+      return;
+    case "human-turn":
+      // 担当=人間のステップに順番が回ってきた。waiting へ上げるとサーバが
+      // 「あなたの番」の Discord 通知を出し、UI にも橙ドットが出る（2026-08-08 追加。
+      // 着手/完了は人間が押すので、ここでは状態を上げるだけ）
+      await patchRunItem(
+        action.run.id,
+        action.node.id,
+        { status: "waiting", note: HUMAN_TURN_WAITING_NOTE },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      log(`あなたの番へ: run=${action.run.id} node=${action.node.id} title=${action.node.title}`);
       return;
     case "execute":
       await executeRunItem(nodes, action.run, action.node);

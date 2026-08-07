@@ -14,6 +14,10 @@ import type { DecisionAnswer, DecisionRequest, Message, Node, Run, RunItem } fro
  *  「承認カードを開いた不可逆アイテム」として扱う */
 export const APPROVAL_WAITING_NOTE = "承認待ち";
 
+/** 担当=人間のワークアイテムへ順番が回ってきたときの note（2026-08-08）。
+ *  「失敗:」で始まらないので、リトライ/見送りの導線は出ない（あれは実行失敗の器） */
+export const HUMAN_TURN_WAITING_NOTE = "あなたの番";
+
 /** decision_request の question に埋め込むランの紐付けマーカー */
 export function runGateMarker(runId: string): string {
   return `[ラン ${runId}]`;

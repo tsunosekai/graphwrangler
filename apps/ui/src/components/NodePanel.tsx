@@ -1332,7 +1332,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   {node.executor === "human" && node.kind === "task" && activeRunItem.status === "pending" && !runFrontier && (
                     <span className="text-xs text-text-lo">前のノードが終わると着手できます</span>
                   )}
-                  {node.executor === "human" && node.kind === "task" && activeRunItem.status === "pending" && runFrontier && (
+                  {node.executor === "human" && node.kind === "task" &&
+                    (activeRunItem.status === "pending" || activeRunItem.status === "waiting") && runFrontier && (
                     <Button
                       type="button"
                       variant="outline"
@@ -1344,7 +1345,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     </Button>
                   )}
                   {node.executor === "human" && node.kind === "task" &&
-                    ((activeRunItem.status === "pending" && runFrontier) || activeRunItem.status === "running") && (
+                    (((activeRunItem.status === "pending" || activeRunItem.status === "waiting") && runFrontier) ||
+                      activeRunItem.status === "running") && (
                       <Button
                         type="button"
                         variant="outline"

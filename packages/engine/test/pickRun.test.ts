@@ -96,11 +96,25 @@ describe("selectRunAction: skipped扱い", () => {
   });
 });
 
-describe("selectRunAction: executor 除外", () => {
-  it("executor=human のテンプレートは候補にならない", () => {
+describe("selectRunAction: executor=human は実行せず「あなたの番」へ上げる（2026-08-08）", () => {
+  it("順番が回ってきた human タスクは human-turn を返す（旧仕様では none で放置されていた）", () => {
     const n = node({ id: "h1", executor: "human" });
     const r = run({ h1: item({ status: "pending" }) });
+    expect(selectRunAction([n], [r])).toEqual({ type: "human-turn", run: r, node: n });
+  });
+
+  it("waiting へ上げた後は再び拾わない（通知の二重発火を防ぐ）", () => {
+    const n = node({ id: "h1", executor: "human" });
+    const r = run({ h1: item({ status: "waiting" }) });
     expect(selectRunAction([n], [r])).toEqual({ type: "none" });
+  });
+
+  it("親が終わっていない human タスクは対象外（順番が来ていない）", () => {
+    const parent = node({ id: "p1", executor: "ai" });
+    const child = node({ id: "h1", executor: "human", parents: ["p1"] });
+    const r = run({ p1: item({ status: "running" }), h1: item({ status: "pending" }) });
+    // p1 は running なので実行候補にも human-turn にもならない
+    expect(selectRunAction([parent, child], [r])).toEqual({ type: "none" });
   });
 });
 

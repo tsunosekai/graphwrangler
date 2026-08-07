@@ -9,8 +9,28 @@
 // native の title= を使ってよいのは (a) truncate された全文・メール・note 等の生データ開示、
 // (b) disabled 要素の理由（disabled にはポインタイベントが来ず吹き出しが開けない）のみ。
 // スマホ（タッチ）では出ないが許容（本人指定）。
+import { forwardRef } from "react";
+import { Slot } from "radix-ui";
 import { dismissHint, hintsEnabled, isHintDismissed, useHintsVersion } from "../lib/hints";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+
+/**
+ * TooltipTrigger と子の間に挟む中継（2026-08-08）。
+ *
+ * TooltipTrigger(asChild) は自分の `data-state`（closed / delayed-open）を子へ渡すが、
+ * 子が Radix 部品（TabsTrigger 等）だと内部の `data-state="active"` を上書きしてしまい、
+ * 選択中スタイルが消える。ここで data-state だけ落として残りは素通しすることで、
+ * 子の状態を守りつつ ref（＝吹き出しの位置基準）とホバー用ハンドラは正しく届く。
+ *
+ * 直前の実装（display:contents の span で包む）は data-state 衝突は避けられるものの、
+ * ラッパーの矩形が 0 になるため吹き出しが**画面左上**に出る不具合になっていた。
+ */
+type HintTargetProps = { children?: React.ReactNode } & Record<string, unknown>;
+
+const HintTarget = forwardRef<HTMLElement, HintTargetProps>(function HintTarget(props, ref) {
+  const { "data-state": _tooltipState, ...rest } = props;
+  return <Slot.Root ref={ref as React.Ref<never>} {...(rest as object)} />;
+});
 
 interface Props {
   /** ヒントの恒久id。同じ概念には同じidを使う（片方でOKすれば全部消える） */
@@ -31,13 +51,9 @@ export function Hint({ id, text, always, side = "top", children }: Props) {
   if (!active && always == null) return children;
   return (
     <Tooltip>
-      {/* 子へ asChild で直接合成しない: Tooltip 自身の data-state（closed 等）が、
-          子が Radix 部品（TabsTrigger/SelectTrigger 等）のときにその data-state="active" を
-          上書きし、選択中スタイルが消えていた（2026-08-07 本人報告「履歴・実行記録タブに
-          白い枠が出ない」）。display:contents の span はボックスを作らずレイアウトに
-          影響しないまま、ホバーは子からのバブリングで拾える */}
+      {/* HintTarget 経由で合成する（data-state だけ落として素通し）。理由は上の定義を参照 */}
       <TooltipTrigger asChild>
-        <span className="contents">{children}</span>
+        <HintTarget>{children}</HintTarget>
       </TooltipTrigger>
       {/* text-wrap: ベースの text-balance を打ち消す。balance だと行が均等長に折り返されて
           文の右側に余白が生まれ、OKボタンとの間が不自然に空いて見える（2026-08-05 本人報告） */}

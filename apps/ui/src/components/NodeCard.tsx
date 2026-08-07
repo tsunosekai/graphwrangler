@@ -98,7 +98,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // ボタンはランのアイテムを更新する（テンプレートの patchNode は使わない）
   const runButtons: { label: string; status: RunItemStatus }[] =
     projecting && node.executor === "human" && node.kind === "task"
-      ? runItem.status === "pending" && data.isRunFrontier
+      // waiting = エンジンが「あなたの番」へ上げた状態（2026-08-08）。pending と同じ操作を出す
+      ? (runItem.status === "pending" || runItem.status === "waiting") && data.isRunFrontier
         ? [
             { label: "着手", status: "running" },
             { label: "完了", status: "done" },

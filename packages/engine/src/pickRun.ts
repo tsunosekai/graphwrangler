@@ -5,6 +5,11 @@ import type { Node, Run, RunItem } from "./types.js";
 export type RunAction =
   | { type: "execute"; run: Run; node: Node }
   | { type: "waiting-irreversible"; run: Run; node: Node }
+  /** 担当=人間のタスクへ順番が回ってきた（ボールが人間へ渡った）。呼び出し側が
+   *  items patch {status:"waiting"} し、それがサーバの「あなたの番」通知の発生源になる
+   *  （2026-08-08 追加。それまで human アイテムは pending のまま放置され、ランが人間の
+   *  ステップに到達しても橙ドットも Discord 通知も出なかった） */
+  | { type: "human-turn"; run: Run; node: Node }
   | { type: "none" };
 
 /**
@@ -39,7 +44,9 @@ interface RunnableEntry {
  *
  * - kind=decision のテンプレートは対象外（decisionRun.ts の selectRunDecisionAction が扱う。
  *   3.9: 分岐は choice 確定+skip伝搬という別の完了経路を持つため、ここでは拾わない）
- * - executor=human のテンプレートは対象外（人間待ちのまま）
+ * - executor=human のテンプレートは実行しないが、順番が回ってきたら human-turn を返す
+ *   （2026-08-08。「実行しない」＝「放置してよい」ではない: waiting へ上げて
+ *   「あなたの番」の橙ドットと Discord 通知を発生させる。着手/完了は人間が押す）
  * - **lifecycle=draft のテンプレートは対象外**（items には入るが実行はされない。3.8
  *   「Fix/committed をランの参加条件にしない」の裏側: 参加＝items に入ることと、
  *   自動実行されることは別の話。committedのみ自動実行、という3.4の原則はここで担保する）
@@ -63,8 +70,13 @@ export function selectRunAction(nodes: Node[], runs: Run[]): RunAction {
       if (item.status !== "pending") continue; // running/waiting/done/dropped/skipped は対象外
       if (node.kind !== "task") continue; // decision は decisionRun.ts が扱う
       if (node.lifecycle !== "committed") continue; // draft は items に入るが自動実行はしない
-      if (node.executor !== "ai" && node.executor !== "script") continue;
       if (!dependenciesSettled(node, run)) continue;
+
+      // 担当=人間: 実行はしないが「あなたの番」へ上げる（通知と橙ドットの発生源）
+      if (node.executor === "human") {
+        return { type: "human-turn", run, node };
+      }
+      if (node.executor !== "ai" && node.executor !== "script") continue;
 
       if (node.approval) {
         return { type: "waiting-irreversible", run, node };

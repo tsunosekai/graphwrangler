@@ -1033,8 +1033,11 @@ function GraphViewInner({
     // isolate: ツールバー（absolute + z-10）のスタッキングをこのペイン内に閉じ込め、
     // 幅が狭いときに右のパネル群（NodePanel/BulkPanel/ChatDrawer）へ被らないようにする
     <div ref={paneRef} className={`graph-pane relative isolate min-w-0 flex-1${realigning ? " realigning" : ""}`}>
-      {/* max-md: 右端も止めて折り返す（モバイルでボタンが画面外へはみ出さないように。2026-08-02） */}
-      <div className="absolute left-3 top-3 z-10 flex items-center gap-2 max-md:right-3 max-md:flex-wrap">
+      {/* 2段構成（2026-08-08 本人指定「＋ノード以降を二段目に」）: 1段目=どこを見ているか
+          （ページ名・グラフ/実行一覧・表示するラン・ラン名変更）、2段目=このページへの操作。
+          max-md: 右端も止めて折り返す（モバイルでボタンが画面外へはみ出さないように。2026-08-02） */}
+      <div className="absolute left-3 top-3 z-10 flex flex-col items-start gap-2 max-md:right-3">
+      <div className="flex items-center gap-2 max-md:flex-wrap">
         {pageNode && (
           <Hint id="page-open" text="ページ自身の詳細（関係者・削除・ページとの会話）を開く">
             <Button
@@ -1112,8 +1115,9 @@ function GraphViewInner({
           </Button>
           </Hint>
         )}
+      </div>
         {!showLedger && (
-          <>
+          <div className="flex items-center gap-2 max-md:flex-wrap">
             <Hint id="add-node" text="このページに新しいノードを作る（ノードを選択中ならその後続としてつながる）">
               <Button type="button" variant="outline" onClick={() => createNode(selectedInPage)}>
                 + ノード
@@ -1138,7 +1142,7 @@ function GraphViewInner({
                 </Badge>
               </Hint>
             )}
-          </>
+          </div>
         )}
       </div>
       {showLedger && pageNode ? (
