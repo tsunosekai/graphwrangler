@@ -366,7 +366,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             onBlur={() => data.onCommitTitle(node.id, draft)}
           />
         ) : (
-          <span className="min-w-0 flex-1 truncate text-sm">{node.title || "（無題）"}</span>
+          // タイトルは2行まで見せてから省略（2026-08-07 本人要望「二行まで表示」。旧: 1行 truncate）
+          <span className="line-clamp-2 min-w-0 flex-1 break-words text-sm">{node.title || "（無題）"}</span>
         )}
         {/* 実装形態（impl）は種別と別軸なので右端に薄く出す（本人選定「B」の一部） */}
         {node.impl && (

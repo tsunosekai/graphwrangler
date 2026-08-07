@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -310,6 +310,15 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
   useEffect(() => {
     if (!titleFocused) setTitleDraft(node.title);
   }, [node.title, titleFocused]);
+  // タイトルは折り返して全文見せる（2026-08-07 本人要望「タイトルを別段にして全文読みやすく」。
+  // 旧: 1行 Input で長いタイトルは読めなかった）。textarea を内容の高さに追従させる
+  const titleRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [titleDraft, node.id]);
 
   const [detailDraft, setDetailDraft] = useState(node.detail ?? "");
   const [detailFocused, setDetailFocused] = useState(false);
@@ -746,17 +755,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             </Hint>
           );
         })()}
-        <Input
-          className="flex-1 border-transparent bg-transparent text-lg font-semibold hover:border-input focus-visible:border-input"
-          value={titleDraft}
-          disabled={node.fixed}
-          onFocus={() => setTitleFocused(true)}
-          onChange={(e) => setTitleDraft(e.target.value)}
-          onBlur={saveTitle}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          }}
-        />
+        <span className="flex-1" />
         <Hint
           id="fixed"
           always={node.fixed ? "Fix済み（ロック中）" : "未Fix（改善中）"}
@@ -804,6 +803,26 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
           </Button>
         )}
       </div>
+
+      {/* タイトルは種別バッジ・ボタン行とは別段の全幅で、折り返して全文見せる
+          （2026-08-07 本人要望「タイトルを別段にして全文読みやすく」。旧: 1行 Input で
+          長いタイトルの後半が読めなかった）。Enter で確定（タイトルに改行は入れない） */}
+      <textarea
+        ref={titleRef}
+        rows={1}
+        className="w-full flex-shrink-0 resize-none overflow-hidden rounded-md border border-transparent bg-transparent px-2 py-1 text-lg font-semibold leading-snug outline-none transition-colors hover:border-input focus-visible:border-input disabled:cursor-not-allowed disabled:opacity-60"
+        value={titleDraft}
+        disabled={node.fixed}
+        onFocus={() => setTitleFocused(true)}
+        onChange={(e) => setTitleDraft(e.target.value.replace(/\n/g, ""))}
+        onBlur={saveTitle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            (e.target as HTMLTextAreaElement).blur();
+          }
+        }}
+      />
 
       {/* decision ノード: choice 未確定なら分岐を選ぶボタン列、確定済みなら選択結果（docs/design.md 3.9）。
           human分岐はエンジンが開く判断リクエスト(Threadタブ)でも回答できるが、ここから直接 /decide も正 */}
@@ -1137,6 +1156,33 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       }}
                     >
                       プラン済みにする
+                    </Button>
+                  </Hint>
+                </div>
+              )}
+            {/* テンプレートのプラン取り消し（2026-08-07 本人要望「未プランに戻すボタンを追加」。
+                トリガー版 2026-08-06 と同じ流儀で lifecycle を draft へ戻す）。ラン投影中は
+                出さない——実行中のランの進捗操作と混ざるため */}
+            {node.kind !== "trigger" &&
+              node.group != null &&
+              allNodes.some((n) => n.kind === "trigger" && n.group === node.group) &&
+              node.lifecycle === "committed" &&
+              node.status !== "unplanned" &&
+              !activeRunItem && (
+                <div className="col-span-2 flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">プラン済み</span>
+                  <span className="flex-1" />
+                  <Hint
+                    id="status-unplan"
+                    text="プランを取り消して未計画（下書き）に戻す（エンジンの実行対象から外す）"
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => patch({ status: "unplanned", lifecycle: "draft" })}
+                    >
+                      未計画に戻す
                     </Button>
                   </Hint>
                 </div>
