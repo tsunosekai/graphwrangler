@@ -11,6 +11,7 @@
 // この行を Read して読む（chat.ts / thread_ai.ts）。
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Loader2, Mic, Plus, Square } from "lucide-react";
+import { effortLabel, modelLabel, useAiDefaults } from "../lib/aiDefaults";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import { Icon } from "./Icon";
@@ -85,6 +86,10 @@ export function ChatComposer({
   onEffortChange,
   disabled,
 }: Props) {
+  // 「既定」が実際に何か（⚙の設定値）をラベルに出す（2026-08-07 本人指摘）。
+  // 会話系AI（GraphWrangler AI / Task AI）はどちらも chat 設定が既定
+  const defaults = useAiDefaults();
+
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -319,7 +324,9 @@ export function ChatComposer({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="default">モデル: 既定</SelectItem>
+                <SelectItem value="default">
+                  モデル: {defaults ? `${modelLabel(defaults.chatModel)}（既定）` : "既定"}
+                </SelectItem>
                 <SelectItem value="fable">Fable 5</SelectItem>
                 <SelectItem value="opus">Opus 5</SelectItem>
                 <SelectItem value="sonnet">Sonnet 5</SelectItem>
@@ -336,7 +343,9 @@ export function ChatComposer({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="default">エフォート: 既定</SelectItem>
+                <SelectItem value="default">
+                  エフォート: {defaults ? `${effortLabel(defaults.chatEffort)}（既定）` : "既定"}
+                </SelectItem>
                 <SelectItem value="low">低</SelectItem>
                 <SelectItem value="medium">中</SelectItem>
                 <SelectItem value="high">高</SelectItem>

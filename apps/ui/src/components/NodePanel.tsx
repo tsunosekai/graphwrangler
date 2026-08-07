@@ -16,6 +16,7 @@ import {
   Unlock,
   X,
 } from "lucide-react";
+import { effortLabel, modelLabel, useAiDefaults } from "../lib/aiDefaults";
 import { api, postReads, type NodePatchInput } from "../lib/api";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { HINT_TEXT } from "../lib/hints";
@@ -328,6 +329,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
   }, [thread !== null, tab, node.id, onViewed, lastThreadTs]);
 
   const githubBase = useGithubBlobBase();
+  // 「既定」が実際に何か（⚙の実行AI設定）をセレクタのラベルに出す（2026-08-07 本人指摘）
+  const aiDefaults = useAiDefaults();
 
   const [titleDraft, setTitleDraft] = useState(node.title);
   const [titleFocused, setTitleFocused] = useState(false);
@@ -1111,7 +1114,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               </label>
             )}
             {/* AI のモデル・エフォート（2026-08-07 本人要望「切り替えられるように」）。
-                このノードの実行AI・Task AI に適用。既定 = 設定（⚙）の値。
+                このノードの実行AI・Task AI に適用。既定 = 設定（⚙）の実行AIの値を
+                実値で見せる（2026-08-07 本人指摘「既定が何なのか書いて」）。
                 params[].value と同じ実行時チューニングなのでロック中も変更できる */}
             {node.executor === "ai" && (
               <>
@@ -1123,10 +1127,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   >
                     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="default">既定（設定に従う）</SelectItem>
-                      <SelectItem value="opus">Opus</SelectItem>
-                      <SelectItem value="sonnet">Sonnet</SelectItem>
-                      <SelectItem value="haiku">Haiku</SelectItem>
+                      <SelectItem value="default">
+                        {aiDefaults ? `${modelLabel(aiDefaults.engineModel)}（既定）` : "既定（設定に従う）"}
+                      </SelectItem>
+                      <SelectItem value="opus">Opus 5</SelectItem>
+                      <SelectItem value="sonnet">Sonnet 5</SelectItem>
+                      <SelectItem value="haiku">Haiku 4.5</SelectItem>
                       {/* 設定・MCP 等で直接入った値もそのまま見えて解除できるようにする */}
                       {node.aiModel && !["opus", "sonnet", "haiku"].includes(node.aiModel) && (
                         <SelectItem value={node.aiModel}>{node.aiModel}</SelectItem>
@@ -1144,7 +1150,9 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   >
                     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="default">既定（設定に従う）</SelectItem>
+                      <SelectItem value="default">
+                        {aiDefaults ? `${effortLabel(aiDefaults.engineEffort)}（既定）` : "既定（設定に従う）"}
+                      </SelectItem>
                       <SelectItem value="low">低</SelectItem>
                       <SelectItem value="medium">中</SelectItem>
                       <SelectItem value="high">高</SelectItem>

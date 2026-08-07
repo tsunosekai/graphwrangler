@@ -65,7 +65,8 @@ function CliModelSelect({ value, onChange }: { value: string; onChange: (v: stri
 
 // エフォート（思考の深さ。claude CLI の --effort）の選択肢（2026-08-07 モデル/エフォート切替）
 const EFFORT_OPTIONS = [
-  { value: "default", label: "既定（CLIに任せる）" },
+  // 「既定」とだけ書かず中身を書く（2026-08-07 本人指摘）。null = --effort を渡さない
+  { value: "default", label: "CLIに任せる（指定しない）" },
   { value: "low", label: "低" },
   { value: "medium", label: "中" },
   { value: "high", label: "高" },
