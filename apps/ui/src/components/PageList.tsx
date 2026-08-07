@@ -723,14 +723,15 @@ export function PageList({
 
   return (
     <div
-      // overflow-x-hidden: リサイズハンドル（right:-3px）等のはみ出しが微小な横スクロールを
-      // 生む不具合の抑止（2026-07-31 本人報告）
       // data-mobile-panel: モバイル（<768px）では全画面オーバーレイになる（index.css）
+      // スクロールはルートでなく内側ラッパが持つ（2026-08-07 本人要望「リサイズの当たり判定を
+      // 両サイドに」——ルートに overflow があるとハンドルの外側半分が切られる）
       data-mobile-panel="left"
-      className="relative flex flex-shrink-0 flex-col gap-px overflow-y-auto overflow-x-hidden border-r border-border bg-muted p-1.5"
+      className="relative flex flex-shrink-0 flex-col border-r border-border bg-muted"
       style={{ width }}
     >
       <div className="resize-handle resize-handle-right" onPointerDown={(e) => startResize(e, 1)} />
+      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overflow-x-hidden p-1.5">
       {/* プロジェクト節: トリガー無しのページ。「＋」はここに1個だけ（ルーティーン化はトリガーを
           置けば自動でルーティーン節へ移る、という体験に任せる。本人指定）。
           見出しは0件でも常に出す — 消すと「＋」の導線が無くなるコールドスタート問題があるため
@@ -868,6 +869,7 @@ export function PageList({
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

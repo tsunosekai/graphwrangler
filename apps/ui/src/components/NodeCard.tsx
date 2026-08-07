@@ -461,14 +461,14 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           {node.schedule ? (
             <Hint
               id="schedule"
-              text="スクリプト・トリガーの自動開始条件（書式: every 15m / daily 09:00 / weekly mon 09:00）"
+              text="スクリプト・トリガーの自動開始条件（書式: every 15m / daily 09:00 / weekly mon 09:00 / cron 5フィールド）"
             >
               <span className="text-muted-foreground">{node.schedule}</span>
             </Hint>
           ) : (
             <Hint
               id="schedule"
-              text="設定するまで手動▶でしか開始しない。パネルの起動方式欄に every 15m / daily 09:00 / weekly mon 09:00 の書式で書く"
+              text="設定するまで手動▶でしか開始しない。パネルの起動方式欄に every 15m / daily 09:00 / weekly mon 09:00 か cron 5フィールドで書く"
             >
               <span className="text-destructive">起動条件が未設定</span>
             </Hint>

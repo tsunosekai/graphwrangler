@@ -393,7 +393,8 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       // （このドロワーは role="dialog" を持たない素の常設パネルのため、入力欄以外にも及ぶよう明示する）
       data-shortcuts-block
       data-mobile-panel="right"
-      className="relative flex flex-shrink-0 flex-col overflow-hidden border-l bg-background"
+      // overflow-hidden はルートに付けない（リサイズハンドルの外側半分が切られる。2026-08-07）
+      className="relative flex flex-shrink-0 flex-col border-l bg-background"
       style={{ width }}
     >
       <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />
@@ -415,7 +416,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
           disabled={busy || startingNewChat}
           onClick={() => void startNewChat()}
         >
-          <SquarePen className="size-4" />
+          <SquarePen className="size-5" />
         </Button>
         <Button type="button" variant="ghost" size="icon" onClick={onClose}>
           <Icon name="x" size={15} />

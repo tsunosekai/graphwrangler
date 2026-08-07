@@ -3,17 +3,18 @@
 // GraphWrangler AI（ChatDrawer）と Task AI（Thread）の両方がこれを使う——**入力欄の見た目・
 // 挙動の変更は必ずここで行い、利用側に分岐を増やさない**。
 // 見た目は Claude Code のコンポーザ風（2026-08-07 本人指定）: 角丸ボックス + 応答中の
-// 停止（■）+ 下段に ＋（添付）・音声入力・モデル/エフォート切替・送信。
+// 停止（■）+ 下段に ＋（添付）・モデル/思考の深さ切替・送信。
+// 音声入力は 2026-08-07 に撤去（http 運用では Web Speech API が動かず、押せるのに
+// 使えない状態だったため。ちゃんとやるならサーバ側 STT が要る＝別件）。
 // 権限バッジ・使用量表示は付けない（本人指定）。
 //
 // 添付: /api/chat/attachments（gitignore 済み・サーバが7日で自動削除）へ上げ、送信時に
 // 「[添付ファイル: <パス>]」行として本文へ足す。AI 側は各システムプロンプトの指示で
 // この行を Read して読む（chat.ts / thread_ai.ts）。
-import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Loader2, Mic, Plus, Square } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowUp, Loader2, Plus, Square } from "lucide-react";
 import { effortLabel, modelLabel, useAiDefaults } from "../lib/aiDefaults";
 import { pushToast } from "../lib/toast";
-import { cn } from "../lib/utils";
 import { Icon } from "./Icon";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
@@ -117,55 +118,6 @@ export function ChatComposer({
     }
   };
 
-  // 音声入力（対応ブラウザでだけボタンを出す）。Web Speech API は lib.dom に無い実装なので
-  // 最小限の型で扱う
-  const SpeechRecognitionImpl =
-    typeof window !== "undefined"
-      ? ((window as unknown as Record<string, unknown>).SpeechRecognition ??
-        (window as unknown as Record<string, unknown>).webkitSpeechRecognition)
-      : undefined;
-  const [listening, setListening] = useState(false);
-  const recognitionRef = useRef<{ stop: () => void } | null>(null);
-  useEffect(() => {
-    return () => recognitionRef.current?.stop();
-  }, []);
-  const toggleMic = () => {
-    if (listening) {
-      recognitionRef.current?.stop();
-      return;
-    }
-    if (!SpeechRecognitionImpl) return;
-    const rec = new (SpeechRecognitionImpl as new () => {
-      lang: string;
-      interimResults: boolean;
-      continuous: boolean;
-      onresult: ((e: unknown) => void) | null;
-      onend: (() => void) | null;
-      onerror: (() => void) | null;
-      start: () => void;
-      stop: () => void;
-    })();
-    rec.lang = "ja-JP";
-    rec.interimResults = false;
-    rec.continuous = true;
-    rec.onresult = (e) => {
-      const ev = e as { resultIndex: number; results: { isFinal: boolean; 0: { transcript: string } }[] };
-      let text = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        if (ev.results[i].isFinal) text += ev.results[i][0].transcript;
-      }
-      if (text) onChange(value ? `${value}${text}` : text);
-    };
-    rec.onend = () => {
-      setListening(false);
-      recognitionRef.current = null;
-    };
-    rec.onerror = rec.onend;
-    recognitionRef.current = rec;
-    setListening(true);
-    rec.start();
-  };
-
   /** 入力と添付から実際に送る本文を組み立てる（空なら null） */
   const composeText = (): string | null => {
     const text = value.trim();
@@ -196,7 +148,7 @@ export function ChatComposer({
 
   return (
     <div className="flex-shrink-0">
-      {/* 送信予約: 応答中に送った分は応答後にまとめて自動送信（旧称「送信予約」。表現は平易に） */}
+      {/* 送信予約: 応答中に送った分は応答後にまとめて自動送信 */}
       {queued && (
         <div className="mb-2 flex items-start gap-2 rounded-md border border-ai/40 bg-ai/[0.06] px-3 py-1.5 text-xs text-muted-foreground">
           <span className="flex-shrink-0 pt-0.5 text-ai">応答後に送信</span>
@@ -264,11 +216,11 @@ export function ChatComposer({
           {busy && onStop && (
             <button
               type="button"
-              className="absolute right-2 top-2 inline-flex size-6 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:text-foreground"
+              className="absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:text-foreground"
               title="応答を停止（途中までの内容は残る）"
               onClick={onStop}
             >
-              <Square className="size-3" />
+              <Square className="size-3.5" />
             </button>
           )}
         </div>
@@ -285,26 +237,13 @@ export function ChatComposer({
           />
           <button
             type="button"
-            className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
             title="ファイルを添付（リポジトリには入らず、7日で自動削除）"
             disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
           >
-            {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-4" />}
+            {uploading ? <Loader2 className="size-4.5 animate-spin" /> : <Plus className="size-5" />}
           </button>
-          {!!SpeechRecognitionImpl && (
-            <button
-              type="button"
-              className={cn(
-                "inline-flex size-6 items-center justify-center rounded-md transition-colors",
-                listening ? "text-destructive" : "text-muted-foreground hover:text-foreground",
-              )}
-              title={listening ? "音声入力を止める" : "音声入力"}
-              onClick={toggleMic}
-            >
-              <Mic className="size-3.5" />
-            </button>
-          )}
           <span className="flex-1" />
           {busy && onStopAndSend && (
             <button
@@ -359,16 +298,16 @@ export function ChatComposer({
             </Select>
           )}
           {busy ? (
-            <Loader2 className="ml-1 size-3.5 animate-spin text-ai" />
+            <Loader2 className="ml-1 size-4.5 animate-spin text-ai" />
           ) : (
             <button
               type="button"
-              className="ml-1 inline-flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
+              className="ml-1 inline-flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
               title="送信（Enter）"
               disabled={!hasContent || disabled}
               onClick={send}
             >
-              <ArrowUp className="size-3.5" />
+              <ArrowUp className="size-4.5" />
             </button>
           )}
         </div>

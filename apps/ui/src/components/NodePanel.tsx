@@ -746,7 +746,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
       // @container/panel: タブ行の段階縮小はビューポートでなく**パネルの実幅**で判定する
       // （パネルはドラッグでリサイズされるため md: では追従できず、狭くすると
       // タブと右肩ボタンの文字が重なっていた。2026-08-05 本人報告）
-      className="@container/panel relative flex flex-shrink-0 flex-col gap-3 overflow-hidden border-l bg-background p-4"
+      // overflow-hidden はルートに付けない（リサイズハンドルの外側半分が切られる。2026-08-07）
+      className="@container/panel relative flex flex-shrink-0 flex-col gap-3 border-l bg-background p-4"
       style={{ width }}
     >
       <div className="resize-handle resize-handle-left" onPointerDown={(e) => startResize(e, -1)} />

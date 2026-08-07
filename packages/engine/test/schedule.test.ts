@@ -153,3 +153,50 @@ describe("shouldCreateScheduledRun: 重複防止", () => {
     expect(shouldCreateScheduledRun(weekly, null, now, true)).toBe(false);
   });
 });
+
+describe("cron 書式（2026-08-07 追加）", () => {
+  it("* * * * * は毎分マッチし、同じ分の二重生成はしない", () => {
+    const schedule = parseSchedule("* * * * *")!;
+    expect(schedule.type).toBe("cron");
+    const now = new Date(2026, 0, 1, 9, 30, 20);
+    expect(shouldCreateScheduledRun(schedule, null, now, false)).toBe(true);
+    // この分の開始以降に生成済みなら見送り
+    const sameMinute = { created: new Date(2026, 0, 1, 9, 30, 5).toISOString() };
+    expect(shouldCreateScheduledRun(schedule, sameMinute, now, false)).toBe(false);
+    // 前の分の生成なら新しく作る
+    const prevMinute = { created: new Date(2026, 0, 1, 9, 29, 50).toISOString() };
+    expect(shouldCreateScheduledRun(schedule, prevMinute, now, false)).toBe(true);
+  });
+
+  it("*/15 9-23 * * * は 9-23時の15分刻みだけマッチ", () => {
+    const schedule = parseSchedule("*/15 9-23 * * *")!;
+    expect(schedule.type).toBe("cron");
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 0, 1, 9, 15), false)).toBe(true);
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 0, 1, 9, 16), false)).toBe(false);
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 0, 1, 8, 15), false)).toBe(false);
+  });
+
+  it("0 17 * * 1 は月曜17:00だけマッチ", () => {
+    const schedule = parseSchedule("0 17 * * 1")!;
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 0, 5, 17, 0), false)).toBe(true); // 月曜
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 0, 6, 17, 0), false)).toBe(false); // 火曜
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 0, 5, 16, 59), false)).toBe(false);
+  });
+
+  it("0 9 1 * * は毎月1日9:00だけマッチ（dom 指定）", () => {
+    const schedule = parseSchedule("0 9 1 * *")!;
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 1, 1, 9, 0), false)).toBe(true);
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 1, 2, 9, 0), false)).toBe(false);
+  });
+
+  it("hasRunningRun=true なら cron でも見送り", () => {
+    const schedule = parseSchedule("* * * * *")!;
+    expect(shouldCreateScheduledRun(schedule, null, new Date(2026, 0, 1, 9, 30), true)).toBe(false);
+  });
+
+  it("フィールド数や値が不正なら null（従来どおり警告ログ側へ）", () => {
+    expect(parseSchedule("* * * *")).toBe(null);
+    expect(parseSchedule("61 * * * *")).toBe(null);
+    expect(parseSchedule("こんにちは")).toBe(null);
+  });
+});
