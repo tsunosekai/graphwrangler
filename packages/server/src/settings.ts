@@ -82,6 +82,10 @@ export const NotifySettingsSchema = z.object({
   discordEnabled: z.boolean().default(false),
   /** 書き込み専用。undefined=維持 / null=削除 / string=設定（apiKey と同じ扱い） */
   discordWebhookUrl: z.string().nullable().default(null),
+  /** Task AI がスレッドへ返信し終えたときも通知するか（2026-08-07「通知が来ない」対応——
+   *  判断リクエストとラン待ちだけでは、相談中心の使い方だと通知の機会がほぼ無い）。
+   *  discordEnabled が親スイッチ（こちらだけONでも discordEnabled OFF なら鳴らない） */
+  discordAiReplies: z.boolean().default(true),
 });
 
 export const SettingsSchema = z.object({
@@ -212,6 +216,7 @@ export class SettingsStore {
       notify: {
         discordEnabled: this.cache.notify.discordEnabled,
         hasDiscordWebhook: this.cache.notify.discordWebhookUrl !== null,
+        discordAiReplies: this.cache.notify.discordAiReplies,
       },
       setupDone: this.cache.setupDone,
     };

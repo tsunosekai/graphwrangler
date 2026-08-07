@@ -85,3 +85,44 @@ export function notifyTurn(
     console.error(`[discord] 通知に失敗: ${String(err)}`);
   });
 }
+
+/**
+ * 「Task AI が返信し終えた」通知（2026-08-07「Discord 通知が来ない」対応）。
+ * 「あなたの番」（判断リクエスト・ラン待ち）だけだと、相談中心の使い方では通知の機会が
+ * ほぼ無い——AI に相談を投げて離席したら、返信が来たことを知る手段が要る。
+ * メンションは担当者の discordId があるときだけ（@here は使わない。返信のたびに全員を
+ * 鳴らすのは過剰で、「あなたの番」との重みの差を保つ）。
+ */
+export function buildAiReplyMessage(
+  assignee: string | null | undefined,
+  users: NotifyUser[],
+  title: string,
+  snippet: string,
+): DiscordMessage {
+  const tail = snippet ? `\n> ${snippet}` : "";
+  const u = assignee ? users.find((x) => x.email.toLowerCase() === assignee.toLowerCase()) : undefined;
+  if (u?.discordId) {
+    return {
+      content: `<@${u.discordId}> Task AI が返信: ${title}${tail}`,
+      allowed_mentions: { users: [u.discordId] },
+    };
+  }
+  return {
+    content: `Task AI が返信: ${title}${tail}`,
+    allowed_mentions: { parse: [] },
+  };
+}
+
+/** Task AI 返信通知の投げっぱなし版。discordEnabled が親スイッチ、
+ *  discordAiReplies がこの通知の個別スイッチ */
+export function notifyAiReply(
+  cfg: { discordEnabled: boolean; discordWebhookUrl: string | null; discordAiReplies: boolean },
+  users: NotifyUser[],
+  notice: { assignee: string | null | undefined; title: string; snippet: string },
+): void {
+  if (!cfg.discordEnabled || !cfg.discordAiReplies || !cfg.discordWebhookUrl) return;
+  const message = buildAiReplyMessage(notice.assignee, users, notice.title, notice.snippet);
+  void sendDiscordWebhook(cfg.discordWebhookUrl, message).catch((err) => {
+    console.error(`[discord] Task AI 返信通知に失敗: ${String(err)}`);
+  });
+}

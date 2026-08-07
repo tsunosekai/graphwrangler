@@ -103,6 +103,11 @@ export class SelfUpdate {
   private root: string;
   private getConfig: () => UpdateConfig;
   private log: (msg: string) => void;
+  /** 「今、更新の再起動で殺してはいけない作業」があるかを返す（あるなら理由の文字列）。
+   *  自動適用（tick）だけが見る——手動の POST /api/update/run は人間の意思なので見ない。
+   *  再起動は進行中のチャット SSE・CLI 子プロセスを木ごと殺すため、会話の途中で当てると
+   *  「ネットワークエラー」「応答が消えた」に見える（2026-08-07 調査で判明） */
+  private isBusy?: () => string | null;
   private timer: NodeJS.Timeout | null = null;
   private checking = false;
   private applying = false;
@@ -115,10 +120,16 @@ export class SelfUpdate {
   private lastResult: string | null = null;
   private restartPending = false;
 
-  constructor(opts: { root: string; getConfig: () => UpdateConfig; log?: (msg: string) => void }) {
+  constructor(opts: {
+    root: string;
+    getConfig: () => UpdateConfig;
+    log?: (msg: string) => void;
+    isBusy?: () => string | null;
+  }) {
     this.root = opts.root;
     this.getConfig = opts.getConfig;
     this.log = opts.log ?? ((msg) => console.log(`[update] ${msg}`));
+    this.isBusy = opts.isBusy;
   }
 
   private unavailableReason(): string | null {
@@ -151,7 +162,13 @@ export class SelfUpdate {
       if (config.autoCheck && !this.unavailableReason()) {
         await this.check();
         if (config.autoApply && this.behind > 0 && !this.restartPending) {
-          await this.apply();
+          const busy = this.isBusy?.() ?? null;
+          if (busy) {
+            this.lastResult = `更新が ${this.behind} コミットありますが、${busy}のため自動適用を見送りました（次回の確認で再試行）`;
+            this.log(this.lastResult);
+          } else {
+            await this.apply();
+          }
         }
       }
       const min = Math.min(Math.max(this.getConfig().intervalMin, 5), 24 * 60);

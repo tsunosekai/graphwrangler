@@ -209,6 +209,12 @@ export function isThreadAiRunning(nodeId: string): boolean {
   return runningThreadAi.has(nodeId);
 }
 
+/** 応答中の Task AI の数。自動アップデートの busy 判定用（chat_cli.ts の
+ *  activeChatCliCount と同じ理由。2026-08-07） */
+export function threadAiActiveCount(): number {
+  return runningThreadAi.size;
+}
+
 /** 追い打ちを受けて再応答待ちか（UI の表示用） */
 export function isThreadAiFollowUpQueued(nodeId: string): boolean {
   return pendingFollowUp.has(nodeId);
@@ -246,6 +252,7 @@ async function respondInThread(
   settings: SettingsStore,
   node: Node,
   signal: AbortSignal,
+  onReply?: (node: Node, replyText: string) => void,
 ): Promise<void> {
   const messages = threads.list(node.id);
   const last = messages[messages.length - 1];
@@ -331,6 +338,8 @@ async function respondInThread(
     author: { kind: "agent", name: `task-ai:${modelLabel}` },
     via: "chat",
   });
+  // Discord 等への「返信が来た」通知（2026-08-07。設定・宛先解決は呼び出し側=index.ts が持つ）
+  onReply?.(node, replyText);
 }
 
 /**
@@ -353,8 +362,10 @@ export function maybeTriggerThreadAi(params: {
   nodeId: string;
   kind: string;
   actor: Actor;
+  /** 返信を書き終えたときに呼ばれる（Discord 通知等。2026-08-07）。失敗は無視してよい */
+  onReply?: (node: Node, replyText: string) => void;
 }): void {
-  const { graph, threads, settings, nodeId, kind, actor } = params;
+  const { graph, threads, settings, nodeId, kind, actor, onReply } = params;
   if (!graph.has(nodeId)) return;
   const node = graph.get(nodeId);
   if (!shouldTriggerThreadAi({ kind, actor, pendingRequest: node.pendingRequest })) return;
@@ -365,7 +376,7 @@ export function maybeTriggerThreadAi(params: {
 
   const controller = new AbortController();
   runningThreadAi.set(nodeId, controller);
-  respondInThread(graph, threads, settings, node, controller.signal)
+  respondInThread(graph, threads, settings, node, controller.signal, onReply)
     .catch((err) => {
       if (controller.signal.aborted) return;
       console.error(`[thread-ai] node ${nodeId}: 予期しないエラー: ${String(err)}`);

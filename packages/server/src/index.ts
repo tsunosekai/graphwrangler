@@ -23,7 +23,7 @@ import {
 } from "@graphwrangler/core";
 import { z } from "zod";
 import { chatKeyMissing, completeText, handleChat } from "./chat.js";
-import { handleChatCli } from "./chat_cli.js";
+import { activeChatCliCount, handleChatCli } from "./chat_cli.js";
 import {
   SettingsStore,
   AiSettingsSchema,
@@ -33,7 +33,7 @@ import {
   NotifySettingsSchema,
   UpdateSettingsSchema,
 } from "./settings.js";
-import { notifyTurn, sendDiscordWebhook } from "./discord.js";
+import { notifyAiReply, notifyTurn, sendDiscordWebhook } from "./discord.js";
 import { GitSync } from "./gitsync.js";
 import { SelfUpdate } from "./selfupdate.js";
 import { resolveWorkspacePath } from "./files.js";
@@ -42,6 +42,7 @@ import {
   isThreadAiFollowUpQueued,
   isThreadAiRunning,
   maybeTriggerThreadAi,
+  threadAiActiveCount,
 } from "./thread_ai.js";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import {
@@ -164,7 +165,17 @@ if (workspaceArg) {
 // ---- 本体の自動アップデート（selfupdate.ts。2026-08-05 本人要望「zinsei と stremix で
 //      別インスタンスなので自動アップデートが欲しい」）。対象はワークスペース（データ）ではなく
 //      **このアプリのクローン**なので、モードに関わらず常に立ち上げる ----
-const selfUpdate = new SelfUpdate({ root: repoRoot, getConfig: () => settings.get().update });
+const selfUpdate = new SelfUpdate({
+  root: repoRoot,
+  getConfig: () => settings.get().update,
+  // 会話の途中で自動アップデートの再起動が入ると、SSE と CLI 子プロセスが殺されて
+  // 「ネットワークエラー」「応答が消えた」に見える（2026-08-07 調査）。応答中は見送る
+  isBusy: () => {
+    if (activeChatCliCount() > 0) return "チャットの応答が進行中";
+    if (threadAiActiveCount() > 0) return "Task AI の応答が進行中";
+    return null;
+  },
+});
 void selfUpdate.init().then(() => selfUpdate.start());
 
 // ---- 内蔵ログイン（auth.ts。2026-08-03 本人指示「ちゃんとシステム化してほしい、ログインを」）----
@@ -850,7 +861,22 @@ app.post("/api/nodes/:id/messages", async (c) => {
   const message = threads.post(id, { ...input, author: m.actor, via: m.via });
   // スレッド相談AI（機能1）: 人間の say かつ open な判断リクエストが無いノードにのみ、
   // 応答を待たず非同期でAI応答ジョブを起動する（thread_ai.ts 参照。レスポンスはブロックしない）
-  maybeTriggerThreadAi({ graph, threads, settings, nodeId: id, kind: input.kind, actor: m.actor });
+  maybeTriggerThreadAi({
+    graph,
+    threads,
+    settings,
+    nodeId: id,
+    kind: input.kind,
+    actor: m.actor,
+    // Task AI の返信完了を Discord へ（2026-08-07「通知が来ない」対応。discord.ts 参照）
+    onReply: (node, replyText) => {
+      notifyAiReply(settings.get().notify, loadUsers(usersFile), {
+        assignee: node.assignee,
+        title: node.title || "（無題）",
+        snippet: replyText.slice(0, 150),
+      });
+    },
+  });
   return c.json(message);
 });
 

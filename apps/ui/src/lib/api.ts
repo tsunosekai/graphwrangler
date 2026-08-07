@@ -123,6 +123,8 @@ export interface SettingsView {
   notify: {
     discordEnabled: boolean;
     hasDiscordWebhook: boolean;
+    /** Task AI の返信完了も通知するか（2026-08-07） */
+    discordAiReplies: boolean;
   };
   setupDone: boolean;
 }
@@ -169,7 +171,7 @@ export interface SettingsPatch {
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
   /** discordWebhookUrl は apiKey と同じ書き込み専用3値（undefined=維持 / null=削除 / string=設定） */
-  notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null };
+  notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null; discordAiReplies?: boolean };
   setupDone?: boolean;
 }
 

@@ -69,6 +69,14 @@ function sseChunk(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
+/** 進行中の CLI チャット応答の数。自動アップデート（selfupdate.ts）が「会話の途中で
+ *  再起動して応答を殺す」のを避けるための busy 判定に使う（2026-08-07
+ *  「チャットのネットワークエラー頻発」調査——エラーの一因が更新再起動だった） */
+let activeCliChats = 0;
+export function activeChatCliCount(): number {
+  return activeCliChats;
+}
+
 /** Windows では .cmd シムの都合で spawn に shell:true が要る（下記 runCli 参照）が、
  *  shell:true 経由の呼び出しは内部で cmd.exe を介す。cmd.exe は行指向のコマンド解析をするため、
  *  引数の値に生の改行文字が入っていると そこでコマンド行が切れてしまい、以降の引数
@@ -377,7 +385,12 @@ function runCli(
     };
     // stream_event（トークン単位の部分メッセージ）のブロック追跡状態。この呼び出し=1往復で使い切り
     const streamState = createStreamJsonState();
+    activeCliChats += 1;
+    let finished = false; // error と close の両方が来ても1回だけ畳む（カウンタの二重減算防止）
     const finish = () => {
+      if (finished) return;
+      finished = true;
+      activeCliChats = Math.max(0, activeCliChats - 1);
       try {
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch {

@@ -132,6 +132,8 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   // Discord Webhook 通知（2026-08-07。こちらはサーバ設定＝タブを閉じていても届く）。
   // URL は APIキーと同じ書き込み専用: 有無だけ受け取り、値は「変更」を押したときだけ送る
   const [discordEnabled, setDiscordEnabled] = useState(settings.notify?.discordEnabled ?? false);
+  // Task AI の返信完了も通知するか（2026-08-07「通知が来ない」対応。既定ON）
+  const [discordAiReplies, setDiscordAiReplies] = useState(settings.notify?.discordAiReplies ?? true);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [editingWebhook, setEditingWebhook] = useState(!(settings.notify?.hasDiscordWebhook ?? false));
   const [testingNotify, setTestingNotify] = useState(false);
@@ -201,7 +203,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           autoApply: updAutoApply,
           intervalMin: Math.min(1440, Math.max(5, parseInt(updIntervalMin, 10) || 60)),
         },
-        notify: { discordEnabled },
+        notify: { discordEnabled, discordAiReplies },
         setupDone: true,
       };
       if (editingKey) patch.chat = { ...patch.chat, apiKey: apiKey.trim() || null };
@@ -558,6 +560,16 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           <label className="flex items-center gap-2 text-sm text-foreground">
             <Switch checked={discordEnabled} onCheckedChange={setDiscordEnabled} />
             <span>あなたの番が来たら Discord に通知（メンション付き）</span>
+          </label>
+          {/* Task AI の返信完了通知（2026-08-07）。相談中心の使い方だと「あなたの番」系の
+              イベントがほぼ発生せず通知が一度も来ない——返信完了を既定ONで拾う */}
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch
+              checked={discordAiReplies}
+              onCheckedChange={setDiscordAiReplies}
+              disabled={!discordEnabled}
+            />
+            <span>Task AI がスレッドに返信し終えたときも通知</span>
           </label>
           <label className={field}>
             <span>Discord Webhook URL</span>
