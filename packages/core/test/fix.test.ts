@@ -125,7 +125,7 @@ describe("GraphStore: fixed ノードの patch 拒否", () => {
     } catch (e) {
       expect(e).toBeInstanceOf(GraphError);
       expect((e as GraphError).status).toBe(409);
-      expect((e as GraphError).message).toMatch(/Fix済みのノードのやり方は変更できません/);
+      expect((e as GraphError).message).toMatch(/ロック済みのノードのやり方は変更できません/);
     }
   });
 
@@ -201,7 +201,7 @@ describe("GraphStore: fixed ノードの removeNode 拒否", () => {
       g.removeNode(a.id);
     } catch (e) {
       expect((e as GraphError).status).toBe(409);
-      expect((e as GraphError).message).toMatch(/Fix済みのノードは削除できません/);
+      expect((e as GraphError).message).toMatch(/ロック済みのノードは削除できません/);
     }
     // 解除すれば削除できる
     g.patchNode(a.id, { fixed: false });

@@ -3,7 +3,7 @@
 // ビュー的に分ける（本人指定 2026-07-31）。ルーティーン化はトリガーを置く/外すだけの1操作で、
 // 節をまたぐのはその副作用として自然に起きる（design.md 3.8: 「プロジェクト/ルーティーンは
 // トリガーの有無の別名」）。
-// タイトル下のちょぼは zinsei desk と同じ「ball（いま誰の席か）」内訳（本人指定）:
+// タイトル下のドットは zinsei desk と同じ「ball（いま誰の席か）」内訳（本人指定）:
 // done/dropped/skipped は暗く沈め、それ以外は担当(executor)の色で誰の手番かを見せる。
 // ルーティーン行は最新ランのワークアイテム内訳（テンプレート自身は status を持たないため、
 // 担当色はテンプレートノードの executor を allNodes から引く）。
@@ -51,13 +51,13 @@ interface Props {
   allNodes: Node[];
   pageId: string | null;
   /** ノードid → 最終メッセージ時刻。ページ行の未読数バッジに使う（本人指定 2026-07-31:
-   *  「未読は数字でプロジェクトに、あなたの番はちょぼに」） */
+   *  「未読は数字でプロジェクトに、あなたの番はドットに」） */
   threadMeta: Record<string, string>;
   /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
   reads: Record<string, string>;
   /** ページ id → 最新ラン（App 側でポーリング済み） */
   latestRuns: Record<string, Run | null>;
-  /** ページ id → 実行中ラン数（並走中の世界線の数。0は非表示） */
+  /** ページ id → 実行中ラン数（並走中の並行ランの数。0は非表示） */
   runningCounts: Record<string, number>;
   /** モバイル（一覧ビューが画面を専有）では畳み状態を無視して常に展開表示する
    *  （2026-08-02 モバイル4ビュー化。畳む/開くはデスクトップのレール専用の概念） */
@@ -78,7 +78,7 @@ const STATUS_JA: Record<Status, string> = {
   skipped: "スキップ",
 };
 
-/** ちょぼの「席」= ball の所在。done/dropped/skipped は決着済みなので担当色でなく沈めた色にする。
+/** ドットの「席」= ball の所在。done/dropped/skipped は決着済みなので担当色でなく沈めた色にする。
  *  waiting（あなたの番）はカード右肩の橙点と同じ --attention 色で出す（人間の黄に畳むと
  *  普通の人間タスクと見分けが付かない。2026-07-31 本人指摘） */
 type Seat = "attention" | "human" | "ai" | "script" | "done";
@@ -581,12 +581,12 @@ export function PageList({
               )}
             </span>
           )}
-          {/* 実行中のラン数（並走中の世界線）。1本でも「回っている」ことが分かるように出す */}
+          {/* 実行中のラン数（並走中の並行ラン）。1本でも「回っている」ことが分かるように出す */}
           {routine && (runningCounts[f.id] ?? 0) > 0 && (
             <Hint
               id="running-runs"
               always={`実行中のラン ${runningCounts[f.id]} 本`}
-              text="並走中のラン（世界線）の数。グラフ上部のセレクタで投影するランを切り替えられる"
+              text="並行して動いているランの数。グラフ上部のセレクタで表示するランを切り替えられる"
             >
               <span className="flex-shrink-0 rounded border border-ai/40 px-1 text-[10px] leading-4 text-ai">
                 ▶ {runningCounts[f.id]}
@@ -756,7 +756,7 @@ export function PageList({
             <Select value={personFilterValue} onValueChange={setPersonFilter}>
               <Hint
                 id="person-filter"
-                text="実効関係者（担当者・関係者・作成者の集計）でページを絞り込む。帰属なし=誰も付いていないページだけ"
+                text="実効関係者（担当者・関係者・作成者の集計）でページを絞り込む。関係者なし=誰も付いていないページだけ"
               >
                 <SelectTrigger
                   size="sm"
@@ -779,7 +779,7 @@ export function PageList({
                   ))}
                 {/* 帰属なし = 実効関係者が空のページだけ。人フィルタは厳格絞り込みなので、
                     帰属未記入の既存データはここで見つけて付けて回る（2026-08-04 追修） */}
-                <SelectItem value="none">帰属なし</SelectItem>
+                <SelectItem value="none">関係者なし</SelectItem>
               </SelectContent>
             </Select>
           )}

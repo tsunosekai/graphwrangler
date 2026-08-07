@@ -99,10 +99,10 @@ type ImplTypeOption = "none" | "doc" | "script";
 /** 試走状態の4値（試走ゲート。docs/design.md 3.5.1）。hash は server の sha256Hex と
  *  同じ値を Web Crypto で計算して突き合わせる */
 type ImplStatusUi = "ok" | "stale" | "unverified" | "not-script";
-const TRIAL_CONFIRM_MESSAGE = "スクリプトの試走が成功していません。このまま続けますか？";
+const TRIAL_CONFIRM_MESSAGE = "スクリプトのテスト実行が成功していません。このまま続けますか？";
 // 進捗ラベルのヒント（プロジェクトの進捗とラン投影の進捗、2箇所で同じ id="status" を使う）
 const STATUS_HINT =
-  "未計画=やり方が決まっていない（エンジンは実行しない）。プラン済みにすると待ちになり、前のノードが終わると着手できる。スキップ=分岐で選ばれなかった枝";
+  "未計画=やり方が決まっていない（エンジンは実行しない）。計画済みにすると待ちになり、前のノードが終わると着手できる。スキップ=分岐で選ばれなかった枝";
 // 進捗はドロップダウンでなくボタン遷移（2026-07-31 本人指定）。
 // 人間の語彙: 未計画 →[プラン済みにする]→ 待ち →[着手]→ 進行中 →[完了]。
 // 待ち/進行中は人間ノードでは「やってるかどうかの目印」、AI/スクリプトでは機械が動かす。
@@ -216,7 +216,7 @@ function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: s
   );
 }
 
-/** タブの未読ちょぼ。色はノードカード/レールの未読バッジと同じ bg-ai（青）で、
+/** タブの未読ドット。色はノードカード/レールの未読バッジと同じ bg-ai（青）で、
  *  「あなたの番」の橙(--attention)とは別物であることを色で示す */
 function UnreadDot() {
   return (
@@ -299,7 +299,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
   // 送る値は**クライアントの現在時刻ではなく、スレッド最終メッセージの ts**（サーバが
   // 発行した時刻）にする: 未読判定は threadMeta（＝この ts）との大小比較なので、
   // 端末の時計がサーバより遅れていると「開いたのにバッジが消えない」が起き続ける
-  // （2026-08-05 本人報告「青ちょぼが消えない」の再発防止）
+  // （2026-08-05 本人報告「青ドットが消えない」の再発防止）
   const lastThreadTs = thread?.messages?.length
     ? thread.messages[thread.messages.length - 1].ts
     : null;
@@ -317,8 +317,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
   }, [thread?.aiBusy, refreshThread]);
 
   // 「見たら即消える」（2026-08-05 本人指示。それまでは1秒待ちだった）: 表示中のタブは、
-  // スレッドが出た時点で未読扱いを解く（タブのちょぼ・カード/レールのバッジ（onViewed 経由）
-  // が対象）。見ていないタブのちょぼは、そのタブを開いた時点で消える。
+  // スレッドが出た時点で未読扱いを解く（タブのドット・カード/レールのバッジ（onViewed 経由）
+  // が対象）。見ていないタブのドットは、そのタブを開いた時点で消える。
   // 「ここから未読」の区切り線だけは開いている間ずっと残す——どこから読めばいいかの目印で、
   // 消えてしまうと開いた意味が無い（次に開いたときは既読が進んでいるので自然に消える）
   const [seenTabs, setSeenTabs] = useState<Set<string>>(() => new Set());
@@ -425,7 +425,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
       onMutated();
       refreshThread();
       pushToast(
-        result.success ? "試走成功" : `試走失敗（exit ${result.exitCode ?? "?"}）`,
+        result.success ? "テスト成功" : `テスト失敗（exit ${result.exitCode ?? "?"}）`,
         result.success ? "info" : "error",
       );
     } catch {
@@ -707,18 +707,18 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
   // 「（詰まった会話節は）いらねぇっつってんだよ、その分上広げろよ」）。切替は一番下の
   // 「会話を広げる」トグル。デスクトップは従来どおり両方出す
   const showTalk = !isMobile || !metaOpen;
-  // タブごとの未読ちょぼ（2026-08-02 本人要望「ノード詳細のどこが未読なのか分からないので
-  // ちょぼをつけてほしい」）。未読の実体はスレッドのメッセージなので、それを切り分けている
+  // タブごとの未読ドット（2026-08-02 本人要望「ノード詳細のどこが未読なのか分からないので
+  // ドットをつけてほしい」）。未読の実体はスレッドのメッセージなので、それを切り分けている
   // 3タブのどれに入るかを示す＝どのタブを見ればいいかが分かる。判定は Thread の
   // 「ここから未読」区切りと同じ unreadSince（パネルを開いた時点の前回既読時刻）基準なので、
   // 開いている間はタブを見に行っても消えない（区切り線と足並みを揃える）
   // 既読記録が無い（この端末では初見）ときは全部未読扱い。カード/レールのバッジと同じ規約に
-  // 揃える（揃えないと「バッジは付いているのに開いてもちょぼが無い」になる。2026-08-02 本人報告）
-  // 「見た（表示した）」タブのちょぼは即座に消す（2026-08-05 本人指示）。
+  // 揃える（揃えないと「バッジは付いているのに開いてもドットが無い」になる。2026-08-02 本人報告）
+  // 「見た（表示した）」タブのドットは即座に消す（2026-08-05 本人指示）。
   // 履歴タブの対象は**過去セッション（最後の「新しい会話」区切りより前）だけ**にする:
-  // 履歴は会話の上位集合なので、同じ新着メッセージで会話と履歴の両方にちょぼが点き、
+  // 履歴は会話の上位集合なので、同じ新着メッセージで会話と履歴の両方にドットが点き、
   // 会話を読んでも履歴側だけが残って消せなかった（2026-08-05 本人報告
-  // 「履歴のところに出てる青ちょぼが全部見ても消えない」）
+  // 「履歴のところに出てる青ドットが全部見ても消えない」）
   const hasUnreadIn = (t: "talk" | "history" | "log") => {
     if (seenTabs.has(t)) return false;
     const source =
@@ -785,7 +785,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
         <span className="flex-1" />
         <Hint
           id="fixed"
-          always={node.fixed ? "Fix済み（ロック中）" : "未Fix（改善中）"}
+          always={node.fixed ? "ロック済み" : "未ロック（改善中）"}
           text={HINT_TEXT.fixed}
         >
           <Button
@@ -934,7 +934,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               disabled にする。進捗（status）・params の値・試走・Fixトグル自体は生かしたまま */}
           {node.fixed && (
             <p className="text-xs text-muted-foreground">
-              🔒 Fix済み（やり方はロック中。編集するには解除）
+              🔒 ロック済み（やり方は変更不可。編集するには解除）
             </p>
           )}
 
@@ -944,7 +944,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               内部スクロールに切り替える */}
           <Textarea
             className="max-h-48 overflow-y-auto"
-            placeholder="detail / 補足"
+            placeholder="概要"
             value={detailDraft}
             disabled={node.fixed}
             onFocus={() => setDetailFocused(true)}
@@ -957,7 +957,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               script=cron的な発火条件、ai=発火要否を判定させる間隔 */}
           {node.kind === "trigger" &&
             (node.executor === "human" ? (
-              <p className="text-xs text-muted-foreground">手動発火のみ（カードの ▶ から発火）</p>
+              <p className="text-xs text-muted-foreground">手動開始のみ（カードの ▶ から開始）</p>
             ) : (
               <Input
                 placeholder={
@@ -1082,7 +1082,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
                 {/* 「?」アイコンは廃止し、ラベル自体のマウスオーバーに統一（2026-08-05 本人指定） */}
                 <Hint id="approval" text={HINT_TEXT.approval}>
-                  <span>{node.kind === "trigger" ? "発火前承認" : "実行前承認"}</span>
+                  <span>{node.kind === "trigger" ? "開始前承認" : "実行前承認"}</span>
                 </Hint>
                 <Switch
                   checked={node.approval}
@@ -1141,7 +1141,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   </Select>
                 </label>
                 <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-                  <span className="self-start">エフォート</span>
+                  <span className="self-start">思考の深さ</span>
                   <Select
                     value={node.aiEffort ?? "default"}
                     onValueChange={(v) =>
@@ -1156,7 +1156,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       <SelectItem value="low">低</SelectItem>
                       <SelectItem value="medium">中</SelectItem>
                       <SelectItem value="high">高</SelectItem>
-                      <SelectItem value="xhigh">特高</SelectItem>
+                      <SelectItem value="xhigh">超高</SelectItem>
                       <SelectItem value="max">最大</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1176,7 +1176,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
                   <Button type="button" variant="outline" size="sm"
                     onClick={() => patch({ lifecycle: "committed" })}>
-                    プラン済みにする
+                    計画済みにする
                   </Button>
                 </Hint>
               </div>
@@ -1188,11 +1188,11 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 自動発火だけが止まる */}
             {node.kind === "trigger" && node.lifecycle === "committed" && (
               <div className="col-span-2 flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">プラン済み</span>
+                <span className="text-muted-foreground">計画済み</span>
                 <span className="flex-1" />
                 <Hint
                   id="status-unplan"
-                  text="プランを取り消して未計画に戻す（自動発火が止まる。手動の▶はそのまま使える）"
+                  text="計画を取り消して未計画に戻す（自動開始が止まる。手動の▶はそのまま使える）"
                 >
                   <Button
                     type="button"
@@ -1232,7 +1232,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                         patch({ status: "pending", lifecycle: "committed" });
                       }}
                     >
-                      プラン済みにする
+                      計画済みにする
                     </Button>
                   </Hint>
                 </div>
@@ -1247,11 +1247,11 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               node.status !== "unplanned" &&
               !activeRunItem && (
                 <div className="col-span-2 flex items-center gap-2 text-sm">
-                  <span className="text-muted-foreground">プラン済み</span>
+                  <span className="text-muted-foreground">計画済み</span>
                   <span className="flex-1" />
                   <Hint
                     id="status-unplan"
-                    text="プランを取り消して未計画（下書き）に戻す（エンジンの実行対象から外す）"
+                    text="計画を取り消して未計画（下書き）に戻す（エンジンの実行対象から外す）"
                   >
                     <Button
                       type="button"
@@ -1367,7 +1367,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 </div>
               ) : (
                 <p className="col-span-2 text-xs text-muted-foreground">
-                  ルーティーンのテンプレートです。進捗は実行（ラン）ごとに付きます——台帳ビューで確認できます
+                  ルーティーンのテンプレートです。進捗は実行（ラン）ごとに付きます——実行一覧で確認できます
                 </p>
               ))}
             {node.kind !== "trigger" &&
@@ -1405,7 +1405,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                             if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
                             patch({ status: "pending", lifecycle: "committed" });
                           }}>
-                          プラン済みにする
+                          計画済みにする
                         </Button>
                       </Hint>
                     )}
@@ -1415,7 +1415,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                         エンジンは unplanned を拾わないため安全で、「プラン済みにする」が
                         再表示されて行き止まりにならない */}
                     {vs === "pending" && (
-                      <Hint id="status-unplan" text="プランを取り消して未計画に戻す（エンジンの実行対象から外す）">
+                      <Hint id="status-unplan" text="計画を取り消して未計画に戻す（エンジンの実行対象から外す）">
                         <Button
                           type="button"
                           variant="ghost"
@@ -1520,7 +1520,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                         key={m}
                         id="members-auto"
                         always="自動集計の関係者"
-                        text="配下ノードの担当者・関係者・作成者から自動で集まった分。ここでは外せない（外すには配下ノード側の帰属を変える）"
+                        text="配下ノードの担当者・関係者・作成者から自動で集まった分。ここでは外せない（外すには配下ノード側の担当者・関係者を変える）"
                       >
                         <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-text-lo">
                           {displayNameOf(m, users)}
@@ -1608,7 +1608,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 <span className="flex items-center gap-1.5">
                   <Input
                     className="flex-1"
-                    placeholder="ワークスペース相対パス（例: docs/how-to.md）。text と両方あれば text 優先"
+                    placeholder="フォルダからの相対パス（例: docs/how-to.md）。本文も書いてあれば本文を優先"
                     value={implPathDraft}
                     disabled={node.fixed}
                     onFocus={() => setImplPathFocused(true)}
@@ -1636,7 +1636,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     内部スクロールにする（detail 欄と同じ理由。2026-08-02） */}
                 <Textarea
                   className="max-h-72 overflow-y-auto"
-                  placeholder="本文（path と両方あれば省略可。どちらか片方があればよい）"
+                  placeholder="本文（パスと両方あれば省略可。どちらか片方があればよい）"
                   value={implTextDraft}
                   disabled={node.fixed}
                   onFocus={() => setImplTextFocused(true)}
@@ -1728,7 +1728,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   )}
                   {implStatus === "ok" && node.implTrial && (
                     <span className="text-xs text-ok">
-                      ✓ 試走成功（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
+                      ✓ テスト成功（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
                     </span>
                   )}
                   {implStatus === "stale" && (
@@ -1738,7 +1738,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   )}
                   {implStatus === "unverified" && node.implTrial && !node.implTrial.success && (
                     <span className="text-xs text-destructive">
-                      ✗ 試走失敗（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
+                      ✗ テスト失敗（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
                     </span>
                   )}
                   {implStatus === "unverified" && !node.implTrial && (
@@ -1847,7 +1847,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 {hasUnreadIn("history") && <UnreadDot />}
               </TabsTrigger>
             </Hint>
-            <Hint id="tab-log" text="エンジンの実行・試走・状態変化・成果物の記録（会話とは別ストリーム）">
+            <Hint id="tab-log" text="エンジンの実行・テスト実行・状態変化・成果物の記録（会話とは別ストリーム）">
               <TabsTrigger value="log">
                 <ScrollText className="size-3.5" />
                 <span className="@max-[24rem]/panel:hidden">実行記録</span>
@@ -1972,7 +1972,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
       <Thread
         nodeId={node.id}
         messages={filtered}
-        // 「ここから未読」区切りは開いている間ずっと残す（ちょぼは即消えるが、
+        // 「ここから未読」区切りは開いている間ずっと残す（ドットは即消えるが、
         //  どこから読めばいいかの目印は読み終わるまで要る。2026-08-05）
         unreadSince={unreadSince}
         aiBusy={thread?.aiBusy ?? false}

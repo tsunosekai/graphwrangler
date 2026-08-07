@@ -202,9 +202,9 @@ export function runPlainClaude(
 /** 実行中のノード id → その応答を止めるための AbortController（2026-08-05「AIの会話を
  *  止められるように」）。以前は id の Set だけで、止める手段が無かった */
 const runningThreadAi = new Map<string, AbortController>();
-/** 応答中に人間がもう一度書いた（＝追い打ち）ノード。今の応答が終わったら、増えた発言も
+/** 応答中に人間がもう一度書いた（＝送信予約）ノード。今の応答が終わったら、増えた発言も
  *  含めた最新のスレッドでもう一度応答する。以前はここで黙って捨てていたので、
- *  応答中に書いた分は永遠に返事が来なかった（2026-08-05 本人要望「追い打ちで話しかける機能」） */
+ *  応答中に書いた分は永遠に返事が来なかった（2026-08-05 本人要望「送信予約で話しかける機能」） */
 const pendingFollowUp = new Set<string>();
 
 /** UI の「考え中」表示用（GET /api/nodes/:id/thread が aiBusy として返す。
@@ -219,13 +219,13 @@ export function threadAiActiveCount(): number {
   return runningThreadAi.size;
 }
 
-/** 追い打ちを受けて再応答待ちか（UI の表示用） */
+/** 送信予約を受けて再応答待ちか（UI の表示用） */
 export function isThreadAiFollowUpQueued(nodeId: string): boolean {
   return pendingFollowUp.has(nodeId);
 }
 
 /** Task AI の応答を止める（POST /api/nodes/:id/thread-ai/cancel）。
- *  予約されていた追い打ちの再応答も取り消す——「止めて」と言われたら全部止まるのが素直。
+ *  予約されていた送信予約の再応答も取り消す——「止めて」と言われたら全部止まるのが素直。
  *  戻り値 false = そもそも動いていなかった */
 export function cancelThreadAi(nodeId: string): boolean {
   const hadFollowUp = pendingFollowUp.delete(nodeId);
@@ -359,10 +359,10 @@ async function respondInThread(
  * POST /api/nodes/:id/messages のハンドラから、レスポンスを返した後（await しない）に
  * 呼ぶ。トリガー条件を満たさなければ何もしない。
  *
- * 同じノードで応答ジョブが走っている最中の投稿（＝追い打ち）は、捨てずに**予約**して
- * 今の応答が終わってから1回だけ再応答する（2026-08-05 本人要望「追い打ちで話しかける機能」。
+ * 同じノードで応答ジョブが走っている最中の投稿（＝送信予約）は、捨てずに**予約**して
+ * 今の応答が終わってから1回だけ再応答する（2026-08-05 本人要望「送信予約で話しかける機能」。
  * それまでは黙って捨てていたので、応答中に書いた分には永遠に返事が来なかった）。
- * 何度追い打ちしても予約は1つ——プロンプトはそのときのスレッド全体から組み立て直すので、
+ * 何度送信予約しても予約は1つ——プロンプトはそのときのスレッド全体から組み立て直すので、
  * 溜まった発言はまとめて1回の応答で拾われる。
  *
  * 失敗（CLI起動失敗・タイムアウト・APIエラー）はスレッドに status として残す。
@@ -385,7 +385,7 @@ export function maybeTriggerThreadAi(params: {
   const node = graph.get(nodeId);
   if (!shouldTriggerThreadAi({ kind, actor, pendingRequest: node.pendingRequest })) return;
   if (runningThreadAi.has(nodeId)) {
-    pendingFollowUp.add(nodeId); // 追い打ち: 今の応答が終わったら最新のスレッドで応答し直す
+    pendingFollowUp.add(nodeId); // 送信予約: 今の応答が終わったら最新のスレッドで応答し直す
     return;
   }
 
@@ -399,7 +399,7 @@ export function maybeTriggerThreadAi(params: {
     .finally(() => {
       runningThreadAi.delete(nodeId);
       // 停止させられたときは予約も取り消し済み（cancelThreadAi）。ここに残っていれば
-      // 追い打ちがあったということなので、増えた発言込みでもう一度
+      // 送信予約があったということなので、増えた発言込みでもう一度
       if (!pendingFollowUp.delete(nodeId)) return;
       maybeTriggerThreadAi({ ...params, actor: { kind: "human" }, kind: "say" });
     });

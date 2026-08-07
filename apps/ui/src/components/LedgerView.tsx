@@ -177,10 +177,10 @@ export function LedgerView({ page, members, onMutated }: Props) {
 
   const startRun = useCallback(async () => {
     if (!triggerNode) return;
-    // 並列ラン（パラレルワールド）の区別用に名前を付けられる。キャンセルで発火中止
+    // 並列ラン（並行ラン）の区別用に名前を付けられる。キャンセルで発火中止
     const title = await promptDialog("ランの名前は？（作品名など）", {
       placeholder: "空欄なら日時",
-      confirmLabel: "発火",
+      confirmLabel: "開始",
     });
     if (title === null) return;
     setStarting(true);
@@ -202,7 +202,7 @@ export function LedgerView({ page, members, onMutated }: Props) {
     onMutated();
   }, [selectedRunId, refreshRuns, onMutated]);
 
-  // ラン名の後編集（並列ラン=世界線の区別用ラベル）
+  // ラン名の後編集（並列ラン=ランの区別用ラベル）
   const renameSelected = useCallback(async () => {
     if (!selectedRun) return;
     const title = await promptDialog("ランの名前", {
@@ -251,7 +251,7 @@ export function LedgerView({ page, members, onMutated }: Props) {
           )}
           <Hint
             id="fire"
-            always={triggerNode ? `トリガー「${triggerNode.title || "（無題）"}」を発火` : undefined}
+            always={triggerNode ? `トリガー「${triggerNode.title || "（無題）"}」を開始` : undefined}
             text={HINT_TEXT.fire}
           >
             <Button

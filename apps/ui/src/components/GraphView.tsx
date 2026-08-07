@@ -1055,12 +1055,12 @@ function GraphViewInner({
                 id="ledger-tab"
                 text="ラン×ノードの進捗表。セルのクリックで完了/待ちを切り替え、下段で各ランのトレースを再生できる"
               >
-                <TabsTrigger value="ledger">台帳</TabsTrigger>
+                <TabsTrigger value="ledger">実行一覧</TabsTrigger>
               </Hint>
             </TabsList>
           </Tabs>
         )}
-        {/* ランの投影切替（世界線セレクタ）: 実行中だけでなく**過去のラン**も選んで
+        {/* ランの投影切替（ラン切替セレクタ）: 実行中だけでなく**過去のラン**も選んで
             グラフに投影できる（2026-08-07 本人要望「過去のランが選択（表示）できない」）。
             既定は最新の実行中ラン。「投影なし」でテンプレート表示に戻る */}
         {!showLedger && pageRuns.length > 0 && (
@@ -1070,14 +1070,14 @@ function GraphViewInner({
           >
             <Hint
               id="run-projection"
-              text="どのランの進捗をグラフに投影するか選ぶ（▶=実行中 ✓=完了 ✕=中止。過去のランも見返せる。カードの操作は選んだランに記録される）"
+              text="どのランの進捗をグラフに表示するか選ぶ（▶=実行中 ✓=完了 ✕=中止。過去のランも見返せる。カードの操作は選んだランに記録される）"
             >
               <SelectTrigger className="h-9 max-w-56">
                 <SelectValue placeholder="ランを表示…" />
               </SelectTrigger>
             </Hint>
             <SelectContent>
-              <SelectItem value="none">投影なし（テンプレート）</SelectItem>
+              <SelectItem value="none">ラン表示なし（テンプレートを表示）</SelectItem>
               {pageRuns.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
                   {r.status === "running" ? "▶" : r.status === "done" ? "✓" : "✕"} {r.title}
@@ -1086,7 +1086,7 @@ function GraphViewInner({
             </SelectContent>
           </Select>
         )}
-        {/* 投影中ランの名前を後から編集（並列ラン=世界線の区別用ラベル） */}
+        {/* 投影中ランの名前を後から編集（並列ラン=ランの区別用ラベル） */}
         {!showLedger && activeRun && (
           <Hint id="run-rename" always="ラン名を変更">
           <Button
@@ -1129,12 +1129,12 @@ function GraphViewInner({
             {hardening.m > 0 && (
               <Hint
                 id="fix-ratio"
-                always="Fix済みノード / 全ノード"
+                always="ロック済みノード / 全ノード"
                 text="このページのノードのうち、やり方が確定（Fix=ロック）した数。100%でこのページの固め切りが完了"
                 side="bottom"
               >
                 <Badge variant="secondary">
-                  Fix {hardening.n}/{hardening.m}
+                  ロック {hardening.n}/{hardening.m}
                 </Badge>
               </Hint>
             )}

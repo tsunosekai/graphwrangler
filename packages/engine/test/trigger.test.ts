@@ -148,7 +148,7 @@ function gateRequest(id: string, ts: string, answered: string | null = null): Me
     author: { kind: "agent", name: "engine" },
     via: "engine",
     kind: "decision_request",
-    body: `発火していいですか？ ${FIRE_GATE_MARKER}`,
+    body: `開始していいですか？ ${FIRE_GATE_MARKER}`,
     payload: null,
     ...(answered
       ? { requestStatus: "answered" as const, answeredBy: answered }

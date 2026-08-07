@@ -15,17 +15,17 @@ export const EFFORT_LABELS: Record<string, string> = {
   low: "低",
   medium: "中",
   high: "高",
-  xhigh: "特高",
+  xhigh: "超高",
   max: "最大",
 };
 
 export function modelLabel(v: string | null | undefined): string {
-  return v ? (MODEL_LABELS[v] ?? v) : "CLI任せ";
+  return v ? (MODEL_LABELS[v] ?? v) : "指定なし";
 }
 
-/** null（--effort を渡さない）は「CLI任せ」と表示する */
+/** null（--effort を渡さない=CLI 側の既定で動く）は「指定なし」と表示する */
 export function effortLabel(v: string | null | undefined): string {
-  return v ? (EFFORT_LABELS[v] ?? v) : "CLI任せ";
+  return v ? (EFFORT_LABELS[v] ?? v) : "指定なし";
 }
 
 export interface AiDefaults {

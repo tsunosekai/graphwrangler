@@ -66,11 +66,11 @@ function CliModelSelect({ value, onChange }: { value: string; onChange: (v: stri
 // エフォート（思考の深さ。claude CLI の --effort）の選択肢（2026-08-07 モデル/エフォート切替）
 const EFFORT_OPTIONS = [
   // 「既定」とだけ書かず中身を書く（2026-08-07 本人指摘）。null = --effort を渡さない
-  { value: "default", label: "CLIに任せる（指定しない）" },
+  { value: "default", label: "指定なし（CLIの既定で動く）" },
   { value: "low", label: "低" },
   { value: "medium", label: "中" },
   { value: "high", label: "高" },
-  { value: "xhigh", label: "特高" },
+  { value: "xhigh", label: "超高" },
   { value: "max", label: "最大" },
 ];
 
@@ -410,7 +410,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                 <CliModelSelect value={chatCliModel} onChange={setChatCliModel} />
               </label>
               <label className={field}>
-                <span>エフォート（思考の深さ）</span>
+                <span>思考の深さ</span>
                 <EffortSelect value={chatCliEffort} onChange={setChatCliEffort} />
               </label>
               <label className={field}>
@@ -454,7 +454,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                 <CliModelSelect value={engineModel} onChange={setEngineModel} />
               </label>
               <label className={field}>
-                <span>エフォート（思考の深さ）</span>
+                <span>思考の深さ</span>
                 <EffortSelect value={engineEffort} onChange={setEngineEffort} />
               </label>
               <label className={field}>

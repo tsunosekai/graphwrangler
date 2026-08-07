@@ -149,9 +149,9 @@ const FIXED_PROTECTED_SIMPLE_FIELDS = [
   "schedule",
 ] as const satisfies readonly (keyof NodePatch)[];
 
-const FIXED_PATCH_MESSAGE = "Fix済みのノードのやり方は変更できません（先にロックを解除してください）";
-const FIXED_REMOVE_MESSAGE = "Fix済みのノードは削除できません（先にロックを解除してください）";
-const FIXED_UNDO_MESSAGE = "Fix済みのノードに関わる操作は元に戻せません（先にロックを解除してください）";
+const FIXED_PATCH_MESSAGE = "ロック済みのノードのやり方は変更できません（先にロックを解除してください）";
+const FIXED_REMOVE_MESSAGE = "ロック済みのノードは削除できません（先にロックを解除してください）";
+const FIXED_UNDO_MESSAGE = "ロック済みのノードに関わる操作は元に戻せません（先にロックを解除してください）";
 
 /** impl の実質比較: script の params は value（実行時に人間が入力する値）を除いて比較する。
  *  command・type・params の宣言（name/label/example）が同じで value だけ違う場合は

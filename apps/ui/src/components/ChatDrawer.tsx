@@ -338,7 +338,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     setTab("talk");
   };
 
-  // 追い打ち（2026-08-05 本人要望「追い打ちで話しかける機能」）: 応答中でも書いて送れる。
+  // 送信予約（2026-08-05 本人要望「送信予約で話しかける機能」）: 応答中でも書いて送れる。
   // 送った分は**予約**として溜め、応答が終わり次第まとめて1通で送る（途中で割り込むと
   // 今の応答が無駄になるため）。すぐ割り込みたいときは「止めて送る」（Ctrl/⌘+Enter）
   const [queued, setQueued] = useState<string | null>(null);
@@ -357,7 +357,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     );
   };
 
-  // 応答が終わったら、溜まっていた追い打ちを送る
+  // 応答が終わったら、溜まっていた送信予約を送る
   useEffect(() => {
     if (busy) return;
     const text = queuedRef.current;

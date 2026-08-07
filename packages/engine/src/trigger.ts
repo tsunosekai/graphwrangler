@@ -92,11 +92,11 @@ export const FIRE_GATE_MARKER = "[発火前承認]";
 export function buildFireApprovalRequest(node: Pick<Node, "title" | "detail">): DecisionRequest {
   const detail = node.detail ? `\n補足: ${node.detail}` : "";
   return {
-    context: `トリガー「${node.title}」の発火条件を満たしました。${detail}`,
-    question: `発火していいですか？ ${FIRE_GATE_MARKER}`,
+    context: `トリガー「${node.title}」の開始条件を満たしました。${detail}`,
+    question: `開始していいですか？ ${FIRE_GATE_MARKER}`,
     options: [
-      { id: "go", label: "発火して", then: "ランを1本開始する" },
-      { id: "skip", label: "今回は見送る", then: "この回は発火しない（次の周期でまた確認する）" },
+      { id: "go", label: "開始して", then: "ランを1本開始する" },
+      { id: "skip", label: "今回は見送る", then: "この回は開始しない（次の周期でまた確認する）" },
     ],
     impact: "irreversible",
     undo: null,

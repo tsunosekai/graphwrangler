@@ -255,7 +255,7 @@ describe("GraphStore: trigger ノード", () => {
     expect(moved.folder).toBe(shelf.id);
     expect(moved.order).toBe(3);
     // 一方で「やり方」側（title 等）は従来どおり拒否される
-    expect(() => g.patchNode(page.id, { title: "別名" })).toThrow(/Fix済み/);
+    expect(() => g.patchNode(page.id, { title: "別名" })).toThrow(/ロック済み/);
   });
 
   it("order の既定は null（未指定＝作成順で後ろに落ちる）", () => {

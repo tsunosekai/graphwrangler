@@ -196,7 +196,7 @@ export function ChatComposer({
 
   return (
     <div className="flex-shrink-0">
-      {/* 送信予約: 応答中に送った分は応答後にまとめて自動送信（旧称「追い打ち」。表現は平易に） */}
+      {/* 送信予約: 応答中に送った分は応答後にまとめて自動送信（旧称「送信予約」。表現は平易に） */}
       {queued && (
         <div className="mb-2 flex items-start gap-2 rounded-md border border-ai/40 bg-ai/[0.06] px-3 py-1.5 text-xs text-muted-foreground">
           <span className="flex-shrink-0 pt-0.5 text-ai">応答後に送信</span>
@@ -344,12 +344,12 @@ export function ChatComposer({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="default">
-                  エフォート: {defaults ? `${effortLabel(defaults.chatEffort)}（既定）` : "既定"}
+                  思考の深さ: {defaults ? `${effortLabel(defaults.chatEffort)}（既定）` : "既定"}
                 </SelectItem>
                 <SelectItem value="low">低</SelectItem>
                 <SelectItem value="medium">中</SelectItem>
                 <SelectItem value="high">高</SelectItem>
-                <SelectItem value="xhigh">特高</SelectItem>
+                <SelectItem value="xhigh">超高</SelectItem>
                 <SelectItem value="max">最大</SelectItem>
               </SelectContent>
             </Select>

@@ -104,12 +104,12 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
   const commitAll = async () => {
     if (commitTargets.some((n) => n.executor === "script" && n.kind !== "trigger")) {
       const ok = await confirmDialog(
-        "スクリプト担当のノードを含みます。試走が済んでいない可能性がありますが続けますか？",
+        "スクリプト担当のノードを含みます。テスト実行が済んでいない可能性がありますが続けますか？",
         { confirmLabel: "続ける" },
       );
       if (!ok) return;
     }
-    void apply("プラン済みにする", commitTargets, (n) =>
+    void apply("計画済みにする", commitTargets, (n) =>
       // トリガーは進捗を持たない（lifecycle だけ確定する）
       n.kind === "trigger" ? { lifecycle: "committed" } : { status: "pending", lifecycle: "committed" },
     );
@@ -268,11 +268,11 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
 
       <div className="flex flex-col gap-1.5">
         <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
-          <span className={cn(sectionLabel, "self-start")}>プラン</span>
+          <span className={cn(sectionLabel, "self-start")}>計画</span>
         </Hint>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" disabled={busy || commitTargets.length === 0} onClick={commitAll}>
-            プラン済みにする（{commitTargets.length}）
+            計画済みにする（{commitTargets.length}）
           </Button>
           <Button
             type="button"

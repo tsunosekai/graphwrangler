@@ -213,7 +213,7 @@ export class RunStore {
     return updated;
   }
 
-  /** ランの名前を変更する（並列ラン=世界線の区別用ラベル。後からの編集を許す） */
+  /** ランの名前を変更する（並列ラン=ランの区別用ラベル。後からの編集を許す） */
   rename(runId: string, title: string): Run {
     const run = this.get(runId);
     const updated: Run = { ...run, title };

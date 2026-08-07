@@ -124,8 +124,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
 
   // トリガー手動発火（human executor はこれが唯一の発火経路。script/aiは手動上書きとして使える。
   // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）。
-  // 同じルーティーンは並列で回せる（パラレルワールド）。ランに名前（作品名など）を
-  // 付けてどの世界線か区別する。プロンプトのキャンセルで発火自体を中止できる
+  // 同じルーティーンは並列で回せる（並行ラン）。ランに名前（作品名など）を
+  // 付けてどのランか区別する。プロンプトのキャンセルで発火自体を中止できる
   // （▶連打の幽霊ラン防止も兼ねる）
   const fire = async () => {
     if (firing) return;
@@ -133,13 +133,13 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       runItem
         ? "進行中のランに加えて、並行で新しいランを開始します。\nランの名前は？（作品名など）"
         : "ランの名前は？（作品名など）",
-      { placeholder: "空欄なら日時", confirmLabel: "発火" },
+      { placeholder: "空欄なら日時", confirmLabel: "開始" },
     );
     if (title === null) return; // キャンセル = 発火しない
     setFiring(true);
     try {
       const run = await api.fireTrigger(node.id, { title: title.trim() || undefined });
-      pushToast(`発火しました: ${run.title}`, "info");
+      pushToast(`開始しました: ${run.title}`, "info");
     } catch {
       // api() 側でトースト表示済み
     } finally {
@@ -185,9 +185,9 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   const canCommit = node.status === "unplanned" || node.lifecycle === "draft";
   const phaseAction =
     node.kind === "trigger" && node.lifecycle === "draft"
-      ? { label: "プラン済みにする", patch: { lifecycle: "committed" } as const }
+      ? { label: "計画済みにする", patch: { lifecycle: "committed" } as const }
       : node.kind !== "trigger" && canCommit
-        ? { label: "プラン済みにする", patch: { status: "pending", lifecycle: "committed" } as const }
+        ? { label: "計画済みにする", patch: { status: "pending", lifecycle: "committed" } as const }
         : !isTemplate && data.isFrontier && node.kind === "task" && node.status === "pending"
           ? { label: "完了", patch: { status: "done" } as const }
           : null;
@@ -253,7 +253,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       {/* 右側のバッジ列: 発火(▶) + Fix（ロック）トグル */}
       <span className="absolute -right-[30px] inset-y-0 flex flex-col items-center justify-center gap-1">
         {node.kind === "trigger" && (
-          <Hint id="fire" always="手動発火" text={HINT_TEXT.fire}>
+          <Hint id="fire" always="手動で開始" text={HINT_TEXT.fire}>
             <button
               type="button"
               className="nodrag inline-flex size-[22px] items-center justify-center rounded-full border border-border bg-background text-text-lo transition-opacity hover:opacity-90 disabled:opacity-40"
@@ -269,7 +269,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         )}
         <Hint
           id="fixed"
-          always={node.fixed ? "Fix済み（クリックで解除）" : "未Fix・改善中（クリックで Fix）"}
+          always={node.fixed ? "ロック済み（クリックで解除）" : "未ロック・改善中（クリックでロック）"}
           text={HINT_TEXT.fixed}
         >
           <button
@@ -400,7 +400,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         {node.approval && (
           <Hint
             id="approval"
-            always={node.kind === "trigger" ? "発火前承認" : "実行前承認"}
+            always={node.kind === "trigger" ? "開始前承認" : "実行前承認"}
             text={HINT_TEXT.approval}
           >
             <span className="flex-shrink-0 text-destructive">
@@ -422,7 +422,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             <Hint
               id="commit-plan"
               // 「完了」ボタンのときは text なし=ヒント自体を出さない（自明）
-              text={phaseAction.label === "プラン済みにする" ? HINT_TEXT.commitPlan : undefined}
+              text={phaseAction.label === "計画済みにする" ? HINT_TEXT.commitPlan : undefined}
             >
               <button
                 type="button"
@@ -461,16 +461,16 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           {node.schedule ? (
             <Hint
               id="schedule"
-              text="スクリプト・トリガーの自動発火条件（書式: every 15m / daily 09:00 / weekly mon 09:00）"
+              text="スクリプト・トリガーの自動開始条件（書式: every 15m / daily 09:00 / weekly mon 09:00）"
             >
               <span className="text-muted-foreground">{node.schedule}</span>
             </Hint>
           ) : (
             <Hint
               id="schedule"
-              text="設定するまで手動▶でしか発火しない。パネルの起動方式欄に every 15m / daily 09:00 / weekly mon 09:00 の書式で書く"
+              text="設定するまで手動▶でしか開始しない。パネルの起動方式欄に every 15m / daily 09:00 / weekly mon 09:00 の書式で書く"
             >
-              <span className="text-destructive">schedule 未設定</span>
+              <span className="text-destructive">起動条件が未設定</span>
             </Hint>
           )}
         </div>
@@ -478,7 +478,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       {node.kind === "trigger" && node.executor === "ai" && (
         <Hint
           id="schedule"
-          text="AIに発火要否を判定させる間隔（every のみ解釈、無指定は1時間）。発火の条件自体は detail や手順書に書く"
+          text="AIに開始要否を判定させる間隔（every のみ解釈、無指定は1時間）。開始の条件自体は概要や手順書に書く"
         >
           <div className="mt-1.5 text-xs text-muted-foreground">
             チェック間隔: {node.schedule || "every 1h"}

@@ -9,7 +9,7 @@ const COLOR: Record<Status, string> = {
   unplanned: "var(--text-lo)",
   pending: "var(--text-lo)",
   running: "var(--ai)",
-  waiting: "var(--attention)", // あなたの番（カード右肩の点・レールのちょぼと同じ橙）
+  waiting: "var(--attention)", // あなたの番（カード右肩の点・レールのドットと同じ橙）
   done: "var(--ok)",
   dropped: "var(--text-lo)",
   skipped: "var(--text-lo)",

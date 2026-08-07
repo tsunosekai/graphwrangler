@@ -233,7 +233,7 @@ function AppInner() {
       ) as Record<string, Run | null>,
     [pageRunInfo],
   );
-  // 実行中ラン数（並走中の世界線の数）。左レールのバッジ表示に使う
+  // 実行中ラン数（並走中の並行ランの数）。左レールのバッジ表示に使う
   const runningCounts = useMemo(
     () =>
       Object.fromEntries(
@@ -243,9 +243,9 @@ function AppInner() {
   );
 
   // ---- 実行中ラン一覧（docs/design.md 3.8: トリガー起点のルーティーン。グラフ投影用）。
-  //      「最新ラン」（上の latestRuns。状態不問。PageList のちょぼ用）とは別物。
-  //      同じルーティーンは並列で回せる（パラレルワールド: 同じテンプレートグラフ・別のラン状態）
-  //      ため、現在ページの status==="running" を全部持ち、どの世界線をグラフに投影するかを
+  //      「最新ラン」（上の latestRuns。状態不問。PageList のドット用）とは別物。
+  //      同じルーティーンは並列で回せる（並行ラン: 同じテンプレートグラフ・別のラン状態）
+  //      ため、現在ページの status==="running" を全部持ち、どの並行ランをグラフに投影するかを
   //      projectedRunId で選ぶ（切替UIは GraphView のツールバー。既定は最新の1本） ----
   const isCurrentPageRoutine = pageNode ? isRoutinePage(pageNode, nodes) : false;
   // 実行中だけでなく**全ラン**を持つ（2026-08-07 本人要望「過去のランが選択（表示）できない」。

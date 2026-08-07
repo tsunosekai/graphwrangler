@@ -902,7 +902,7 @@ app.get("/api/nodes/:id/thread", (c) => {
   const id = c.req.param("id");
   graph.get(id);
   // aiBusy: Task AI が応答生成中か（UI の「考え中」表示。GraphWrangler AI と挙動を揃える）
-  // aiQueued: 応答中の追い打ちを受けて、終わり次第もう一度応答する予約があるか（2026-08-05）
+  // aiQueued: 応答中の送信予約を受けて、終わり次第もう一度応答する予約があるか（2026-08-05）
   return c.json({
     messages: threads.list(id),
     aiBusy: isThreadAiRunning(id),
@@ -1061,8 +1061,8 @@ app.post("/api/nodes/:id/decide/revert", async (c) => {
 
 const FireSchema = z.object({
   via: z.string().min(1).optional(),
-  /** ランの名前（作品名など）。同じルーティーンを並列で回すとき（パラレルワールド）に
-   *  どの世界線か区別するためのラベル。省略時は「MM/DD HH:mm のラン」 */
+  /** ランの名前（作品名など）。同じルーティーンを並列で回すとき（並行ラン）に
+   *  どのランか区別するためのラベル。省略時は「MM/DD HH:mm のラン」 */
   title: z.string().min(1).optional(),
 });
 
@@ -1200,7 +1200,7 @@ app.post("/api/runs/:id/items/:nodeId/decide", async (c) => {
 
 const RenameRunSchema = z.object({ title: z.string().min(1) });
 
-/** ラン名の変更（並列ラン=世界線の区別用ラベル） */
+/** ラン名の変更（並列ラン=ランの区別用ラベル） */
 app.post("/api/runs/:id/rename", async (c) => {
   const { title } = RenameRunSchema.parse(await c.req.json());
   return c.json(runs.rename(c.req.param("id"), title));
