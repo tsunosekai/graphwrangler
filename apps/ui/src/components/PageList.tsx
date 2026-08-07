@@ -3,11 +3,13 @@
 // ビュー的に分ける（本人指定 2026-07-31）。ルーティーン化はトリガーを置く/外すだけの1操作で、
 // 節をまたぐのはその副作用として自然に起きる（design.md 3.8: 「プロジェクト/ルーティーンは
 // トリガーの有無の別名」）。
-// タイトル下のドットは zinsei desk と同じ「ball（いま誰の席か）」内訳（本人指定）:
-// done/dropped/skipped は暗く沈め、それ以外は担当(executor)の色で誰の手番かを見せる。
-// ルーティーン行は最新ランのワークアイテム内訳（テンプレート自身は status を持たないため、
-// 担当色はテンプレートノードの executor を allNodes から引く）。
-// 最新ランの取得は App 側でまとめてポーリングする（受信箱のラン待ち統合と共有し、
+// タイトル下のドット（ちょぼ）はページ内ノードの内訳（ノード1つ=点1つ）。色ルールは
+// 2026-08-08 本人指定で明確化: 色は常に担当(executor)の色、唯一の例外が「あなたの番」= 橙。
+// 終わったノード（完了・中止・スキップ）は色を変えず**薄く**する。プロジェクトも
+// ルーティーンも同じ規則（ルーティーン行はテンプレート構成を出し、進捗はラン子行が持つ）。
+// ラン子行（2026-08-08）: ページ行の下にそのページのランをぶら下げる。畳み時は最新1本 +
+// 「+n」、開くと全部（10行を超えたら子リスト内スクロール）。クリックでそのランをグラフに投影。
+// ラン一覧の取得は App 側でまとめてポーリングする（TopBar のラン待ち統合と共有し、
 // ページ数ぶんの N+1 取得を1箇所に集約するため。旧: このコンポーネント内で自前ポーリングしていた）。
 //
 // 整理（2026-08-05 本人要望「フォルダ機能と手動並べ替え」）:
@@ -55,14 +57,14 @@ interface Props {
   threadMeta: Record<string, string>;
   /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
   reads: Record<string, string>;
-  /** ページ id → 最新ラン（App 側でポーリング済み） */
-  latestRuns: Record<string, Run | null>;
-  /** ページ id → 実行中ラン数（並走中の並行ランの数。0は非表示） */
-  runningCounts: Record<string, number>;
+  /** ページ id → ラン一覧（新しい順。App 側でポーリング済み）。ラン子行とその進捗ドットに使う */
+  pageRuns: Record<string, Run[]>;
   /** モバイル（一覧ビューが画面を専有）では畳み状態を無視して常に展開表示する
    *  （2026-08-02 モバイル4ビュー化。畳む/開くはデスクトップのレール専用の概念） */
   forceExpanded?: boolean;
   onSelectPage: (id: string) => void;
+  /** ラン子行のクリック → そのページへ切り替えて該当ランをグラフに投影する（2026-08-08） */
+  onSelectRun: (pageId: string, runId: string) => void;
   /** フォルダ操作・並べ替えを打った直後の再取得（ポーリング待ちの3秒を出さない） */
   onMutated: () => void;
 }
@@ -78,24 +80,30 @@ const STATUS_JA: Record<Status, string> = {
   skipped: "スキップ",
 };
 
-/** ドットの「席」= ball の所在。done/dropped/skipped は決着済みなので担当色でなく沈めた色にする。
- *  waiting（あなたの番）はカード右肩の橙点と同じ --attention 色で出す（人間の黄に畳むと
- *  普通の人間タスクと見分けが付かない。2026-07-31 本人指摘） */
+/** ドットの「席」（並び順の判定用）。決着済みは末尾へ沈める */
 type Seat = "attention" | "human" | "ai" | "script" | "done";
 function seatOf(status: Status, executor: Node["executor"]): Seat {
   if (status === "done" || status === "dropped" || status === "skipped") return "done";
   if (status === "waiting") return "attention";
   return executor;
 }
+/** 点の色は常に担当(executor)の色。唯一の例外が「あなたの番」= 橙（--attention。
+ *  カード右肩の橙点と同じ）。終わったノードは色を塗り替えず、薄く（isSettled → opacity）する
+ *  （2026-08-08 本人指定の色ルール明確化。旧: done/dropped 専用の沈み色に塗り替えていて、
+ *  何の担当だったかが点から消えていた） */
 function seatColor(status: Status, executor: Node["executor"]): string {
-  if (status === "done") return "var(--done)";
-  if (status === "dropped" || status === "skipped") return "var(--dropped)";
   if (status === "waiting") return "var(--attention)";
   return executor === "human" ? "var(--human)" : executor === "ai" ? "var(--ai)" : "var(--script)";
 }
+const isSettled = (st: Status) => st === "done" || st === "dropped" || st === "skipped";
 // 目に入るべき順: あなたの番 → 人間の席 → AI → スクリプト → 完了系
 const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
+/** ラン子行: 開いたとき一度に見せる行数。超えたら子リスト内スクロール（2026-08-08 本人指定「10件以上はスクロール」） */
+const RUN_ROWS_VISIBLE = 10;
+/** ドットの共通ヒント文。色ルールの正文はここ */
+const DOTS_HINT =
+  "ノード1つ=点1つ。色は担当の色（黄緑=人間 青=AI 灰=スクリプト）で、橙=あなたの番だけ例外。薄い点=完了・中止・スキップ";
 
 // ---- ドラッグ（フォルダ分け + 手動並べ替え。2026-08-05） ----
 /** 節。フォルダはプロジェクト節の中だけの概念で、ルーティーンは節内の並べ替えのみ */
@@ -117,9 +125,11 @@ interface DropTarget {
 const ROOT_ROW: Record<Section, string> = { project: "__root__", routine: "__routine__" };
 
 const CLOSED_KEY = "gw.railFolderClosed";
-function loadClosedFolders(): Set<string> {
+/** ラン子行を開いているページ（既定は畳み=最新1本だけ）。UI状態なので localStorage */
+const RUNS_OPEN_KEY = "gw.railRunsOpen";
+function loadIdSet(key: string): Set<string> {
   try {
-    const raw = JSON.parse(localStorage.getItem(CLOSED_KEY) ?? "[]");
+    const raw = JSON.parse(localStorage.getItem(key) ?? "[]");
     return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
   } catch {
     return new Set();
@@ -133,10 +143,10 @@ export function PageList({
   pageId,
   threadMeta,
   reads,
-  latestRuns,
-  runningCounts,
+  pageRuns,
   forceExpanded,
   onSelectPage,
+  onSelectRun,
   onMutated,
 }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
@@ -251,7 +261,7 @@ export function PageList({
     sortRail(folders.filter((f) => sectionOf(f) === section && folderOf(f) === folderId)).map((f) => f.id);
 
   // 折り畳み状態（localStorage。UI状態なので正データには混ぜない）
-  const [closedFolders, setClosedFolders] = useState<Set<string>>(loadClosedFolders);
+  const [closedFolders, setClosedFolders] = useState<Set<string>>(() => loadIdSet(CLOSED_KEY));
   const toggleFolder = (id: string) =>
     setClosedFolders((prev) => {
       const next = new Set(prev);
@@ -264,11 +274,27 @@ export function PageList({
       }
       return next;
     });
+  // ラン子行の開閉（開いているページの id 集合。既定は畳み=最新1本だけ）
+  const [openRunPages, setOpenRunPages] = useState<Set<string>>(() => loadIdSet(RUNS_OPEN_KEY));
+  const toggleRuns = (id: string) =>
+    setOpenRunPages((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(RUNS_OPEN_KEY, JSON.stringify([...next]));
+      } catch {
+        // 無視
+      }
+      return next;
+    });
 
   // ---- ドラッグ（掴んで並べ替え・フォルダへ入れる） ----
   const dragRef = useRef<DragState | null>(null);
   const dropRef = useRef<DropTarget | null>(null);
   const draggedAtRef = useRef(0);
+  /** 行ドラッグの「押しただけ」状態（まだ掴んでいない）。少し動いたら掴みに昇格する */
+  const pressRef = useRef<{ st: DragState; x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [drop, setDrop] = useState<DropTarget | null>(null);
 
@@ -451,10 +477,42 @@ export function PageList({
     );
   };
 
-  /** 掴む取っ手（⠿）。マウスもタッチも同じ pointer events で扱う */
+  /** 行そのものを掴んでドラッグするためのハンドラ（2026-08-08 本人要望「持ち手アイコンを
+   *  消して普通にドラッグ」）。クリック=選択と共存させるため、押しただけでは掴まず
+   *  5px 動いたら掴みに昇格する。マウス限定——タッチはスクロールと取り合いになる
+   *  （touch-action を行全体に切ると一覧が撫でられなくなる）ため、粗いポインタ環境では
+   *  従来の取っ手（⠿）を残してそちらで掴む */
+  const rowDragHandlers = (st: DragState) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
+      e.preventDefault(); // ドラッグ中に行のテキストが選択されるのを防ぐ（click はこれでも発火する）
+      pressRef.current = { st, x: e.clientX, y: e.clientY };
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const press = pressRef.current;
+      if (press && !dragRef.current) {
+        if (Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) < 5) return;
+        try {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        } catch {
+          // 無視（掴み自体は続行）
+        }
+        dragRef.current = press.st;
+        setDrag(press.st);
+        return;
+      }
+      moveDrag(e);
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      pressRef.current = null;
+      endDrag(e);
+    },
+  });
+
+  /** 掴む取っ手（⠿）。タッチ（粗いポインタ）専用の入口として残す——マウスは行ごと掴める */
   const gripFor = (st: DragState) => (
     <span
-      className="flex size-3.5 flex-shrink-0 cursor-grab touch-none items-center justify-center text-text-lo/60 hover:text-muted-foreground"
+      className="hidden size-3.5 flex-shrink-0 cursor-grab touch-none items-center justify-center text-text-lo/60 hover:text-muted-foreground [@media(pointer:coarse)]:flex"
       onPointerDown={(e) => beginDrag(e, st)}
       onPointerMove={moveDrag}
       onPointerUp={endDrag}
@@ -464,64 +522,172 @@ export function PageList({
     </span>
   );
 
+  /** ドット1粒。dim = 終わったノード（色は担当色のまま薄くする） */
+  interface Dot {
+    key: string;
+    title: string;
+    color: string;
+    dim: boolean;
+  }
+  const dotEl = (d: Dot) => (
+    <Hint key={d.key} id="seat-dots" always={d.title} text={DOTS_HINT}>
+      <i
+        className={cn("size-[5px] flex-shrink-0 rounded-full", d.dim && "opacity-35")}
+        style={{ background: d.color }}
+      />
+    </Hint>
+  );
+
+  // 質問が開いている（pendingRequest あり）ノードは status が何であれ「あなたの番」扱い
+  // （NodeCard の visualStatus と同じ保険）。ただし assignee が他人なら waiting（橙）に
+  // 昇格させず、素の status のまま担当の席色で描く（チーム化 2026-08-04: 他人の番は橙にしない。
+  // waiting はノードの保存値には無い導出値なので、昇格しなければ橙にはならない）
+  const effStatus = (n: Node): Status =>
+    n.pendingRequest && turnIsMine(n.assignee, me.email) ? "waiting" : n.status;
+
+  /** ラン1本ぶんの進捗ドット。ワークアイテムはテンプレート自身の status を持たないため、
+   *  担当色はテンプレートノード（allNodes 内の同id）の executor を引く。テンプレートが
+   *  見当たらない（削除済み等）場合は script 扱いにフォールバックする */
+  const runDotsOf = (run: Run): Dot[] =>
+    Object.entries(run.items)
+      .map(([nodeId, item]) => {
+        const tmpl = allNodes.find((n) => n.id === nodeId);
+        const executor = tmpl?.executor ?? ("script" as const);
+        // 他人の番（テンプレートの assignee が他人）の waiting は橙にしない（effStatus と同じ原則）
+        const st: Status =
+          item.status === "waiting" && !turnIsMine(tmpl?.assignee ?? null, me.email)
+            ? "pending"
+            : item.status;
+        return {
+          key: nodeId,
+          st,
+          executor,
+          title: `${tmpl?.title || "（無題）"} — ${EXEC_JA[executor]}の席 / ${STATUS_JA[item.status]}`,
+        };
+      })
+      .sort(
+        (a, b) => SEAT_ORDER.indexOf(seatOf(a.st, a.executor)) - SEAT_ORDER.indexOf(seatOf(b.st, b.executor)),
+      )
+      .map(({ key, st, executor, title }) => ({
+        key,
+        title,
+        color: seatColor(st, executor),
+        dim: isSettled(st),
+      }));
+
+  /** ラン子行1本。状態マーク + タイトル + そのランの進捗ドット。trailing は畳み時の「+n」 */
+  const renderRunRow = (f: Node, r: Run, trailing?: React.ReactNode) => {
+    const dots = runDotsOf(r);
+    const shown = dots.slice(0, MAX_DOTS);
+    const rest = dots.length - shown.length;
+    return (
+      <div
+        key={r.id}
+        role="button"
+        tabIndex={0}
+        className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-xs text-text-lo hover:bg-accent/60 hover:text-muted-foreground"
+        onClick={() => onSelectRun(f.id, r.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelectRun(f.id, r.id);
+          }
+        }}
+      >
+        <span
+          className={cn("flex-shrink-0", r.status === "running" ? "text-ai" : "opacity-70")}
+          title={r.status === "running" ? "実行中" : r.status === "done" ? "完了" : "中止"}
+        >
+          {r.status === "running" ? "▶" : r.status === "done" ? "✓" : "✕"}
+        </span>
+        <span className="min-w-0 flex-1 truncate" title={r.title}>
+          {r.title}
+        </span>
+        <span className="flex max-w-[45%] flex-shrink-0 flex-wrap items-center justify-end gap-[3px]">
+          {shown.map(dotEl)}
+          {rest > 0 && <span className="font-mono text-[10px] text-text-lo">+{rest}</span>}
+        </span>
+        {trailing}
+      </div>
+    );
+  };
+
+  /** ページ行の下のラン子行ブロック。畳み時は最新1本 + ドット列の隣に「+n」（隠れている本数）、
+   *  開くと全部（RUN_ROWS_VISIBLE 行を超えたら子リスト内スクロール。本人指定 2026-08-08） */
+  const runsBlock = (f: Node) => {
+    const runsAll = pageRuns[f.id] ?? [];
+    if (runsAll.length === 0) return null;
+    const open = openRunPages.has(f.id);
+    if (!open) {
+      const more = runsAll.length - 1;
+      return (
+        <div className="flex flex-col gap-px pl-4">
+          {renderRunRow(
+            f,
+            runsAll[0],
+            more > 0 ? (
+              <Hint id="runs-more" always={`他 ${more} 本のランを表示`}>
+                <button
+                  type="button"
+                  className="flex-shrink-0 rounded px-1 font-mono text-[10px] text-text-lo hover:bg-accent hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleRuns(f.id);
+                  }}
+                >
+                  +{more}
+                </button>
+              </Hint>
+            ) : undefined,
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-px pl-4">
+        <div
+          className={cn(
+            "flex flex-col gap-px",
+            // 10行ぶんで打ち止め（1行 ≈ 24px + gap）。それ以上は子リスト内スクロール
+            runsAll.length > RUN_ROWS_VISIBLE && "max-h-[250px] overflow-y-auto",
+          )}
+        >
+          {runsAll.map((r) => renderRunRow(f, r))}
+        </div>
+        <button
+          type="button"
+          className="self-start rounded-sm px-1.5 text-[10px] text-text-lo hover:bg-accent/40 hover:text-muted-foreground"
+          onClick={() => toggleRuns(f.id)}
+        >
+          ▴ たたむ
+        </button>
+      </div>
+    );
+  };
+
   const renderRow = (f: Node, archived: boolean, indented = false) => {
     const routine = isRoutinePage(f, allNodes);
-    const latestRun = latestRuns?.[f.id] ?? null;
     // ページ内（ゴール自身 + メンバー）の未読ノード数。数字バッジで行の右端に出す
     const unreadCount = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)].filter(
       isUnread,
     ).length;
 
-    // 質問が開いている（pendingRequest あり）ノードは status が何であれ「あなたの番」扱い
-    // （NodeCard の visualStatus と同じ保険）。ただし assignee が他人なら waiting（橙）に
-    // 昇格させず、素の status のまま担当の席色で描く（チーム化 2026-08-04: 他人の番は橙にしない）
-    const effStatus = (n: Node): Status =>
-      n.pendingRequest && turnIsMine(n.assignee, me.email) ? "waiting" : n.status;
-    const memberDots = !routine
-      ? allNodes
-          .filter((n) => n.group === f.id)
-          .slice()
-          .sort((a, b) => SEAT_ORDER.indexOf(seatOf(effStatus(a), a.executor)) - SEAT_ORDER.indexOf(seatOf(effStatus(b), b.executor)))
-          .map((m) => ({
-            key: m.id,
-            title: `${m.title || "（無題）"} — ${EXEC_JA[m.executor]}の席 / ${STATUS_JA[effStatus(m)]}`,
-            color: seatColor(effStatus(m), m.executor),
-          }))
-      : [];
-
-    // ランのワークアイテムはテンプレート自身の status を持たないため、担当色はテンプレートノード
-    // （allNodes 内の同id）の executor を引く。テンプレートが見当たらない（削除済み等）場合は
-    // script 扱いにフォールバックする
-    const runDots =
-      routine && latestRun
-        ? Object.entries(latestRun.items)
-            .map(([nodeId, item]) => {
-              const tmpl = allNodes.find((n) => n.id === nodeId);
-              const executor = tmpl?.executor ?? ("script" as const);
-              // 他人の番（テンプレートの assignee が他人）の waiting は橙にせず、
-              // pending 相当=担当の席色に落とす（チーム化 2026-08-04。effStatus と同じ原則）
-              const st: Status =
-                item.status === "waiting" && !turnIsMine(tmpl?.assignee ?? null, me.email)
-                  ? "pending"
-                  : item.status;
-              return {
-                key: nodeId,
-                st,
-                executor,
-                title: `${EXEC_JA[executor]}の席 / ${STATUS_JA[item.status]}`,
-              };
-            })
-            .sort(
-              (a, b) => SEAT_ORDER.indexOf(seatOf(a.st, a.executor)) - SEAT_ORDER.indexOf(seatOf(b.st, b.executor)),
-            )
-            .map(({ key, st, executor, title }) => ({
-              key,
-              title,
-              color: seatColor(st, executor),
-            }))
-        : [];
-
-    const dots = routine ? runDots : memberDots;
+    // ページ行のドットはテンプレート（メンバーノード）構成。ルーティーンも同じ規則で、
+    // ランの進捗は下のラン子行が持つ（2026-08-08 本人確認済みの分担）
+    const dots: Dot[] = allNodes
+      .filter((n) => n.group === f.id)
+      .slice()
+      .sort(
+        (a, b) =>
+          SEAT_ORDER.indexOf(seatOf(effStatus(a), a.executor)) -
+          SEAT_ORDER.indexOf(seatOf(effStatus(b), b.executor)),
+      )
+      .map((m) => ({
+        key: m.id,
+        title: `${m.title || "（無題）"} — ${EXEC_JA[m.executor]}の席 / ${STATUS_JA[effStatus(m)]}`,
+        color: seatColor(effStatus(m), m.executor),
+        dim: isSettled(effStatus(m)),
+      }));
     const shown = dots.slice(0, MAX_DOTS);
     const rest = dots.length - shown.length;
 
@@ -530,10 +696,13 @@ export function PageList({
     const effMembers = teamEnabled ? effectiveMembers(f, allNodes) : [];
 
     return (
-      // 行自体は button でなく div[role=button]（行の中に本物の <button> を置いても
-      // 入れ子にならないように。2026-08-04）。Enter/Space の選択も維持する
+      // 行 + ラン子行をひとつの縦組みで返す（子行は行の外＝兄弟。行の hover やドラッグの
+      // 当たり判定に巻き込まないため）。インデントは外側のラッパが持つ
+      <div key={f.id} className={cn("flex flex-col gap-px", indented && "ml-3 w-[calc(100%-0.75rem)]")}>
+      {/* 行自体は button でなく div[role=button]（行の中に本物の <button> を置いても
+          入れ子にならないように。2026-08-04）。Enter/Space の選択も維持する。
+          行全体が掴める（rowDragHandlers。2026-08-08 取っ手アイコン廃止） */}
       <div
-        key={f.id}
         role="button"
         tabIndex={0}
         data-rail-row={f.id}
@@ -541,7 +710,6 @@ export function PageList({
         data-rail-section={routine ? "routine" : "project"}
         className={cn(
           "flex w-full cursor-pointer flex-col items-stretch gap-0.5 rounded-sm px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/60",
-          indented && "ml-3 w-[calc(100%-0.75rem)]",
           pageId === f.id && "bg-accent text-foreground",
           archived && "opacity-70",
           drag?.id === f.id && "opacity-40",
@@ -557,6 +725,9 @@ export function PageList({
             onSelectPage(f.id);
           }
         }}
+        {...(!archived
+          ? rowDragHandlers({ id: f.id, kind: "page", section: routine ? "routine" : "project" })
+          : {})}
       >
         <span className="flex min-w-0 items-center gap-1.5">
           {!archived && gripFor({ id: f.id, kind: "page", section: routine ? "routine" : "project" })}
@@ -593,18 +764,8 @@ export function PageList({
               )}
             </span>
           )}
-          {/* 実行中のラン数（並走中の並行ラン）。1本でも「回っている」ことが分かるように出す */}
-          {routine && (runningCounts[f.id] ?? 0) > 0 && (
-            <Hint
-              id="running-runs"
-              always={`実行中のラン ${runningCounts[f.id]} 本`}
-              text="並行して動いているランの数。グラフ上部のセレクタで表示するランを切り替えられる"
-            >
-              <span className="flex-shrink-0 rounded border border-ai/40 px-1 text-[10px] leading-4 text-ai">
-                ▶ {runningCounts[f.id]}
-              </span>
-            </Hint>
-          )}
+          {/* 実行中ラン数の「▶ n」バッジは廃止（2026-08-08 本人指示）。ランはこの行の下の
+              ラン子行として出し、隠れている本数はドット列の隣の「+n」が示す */}
           {unreadCount > 0 && (
             <Hint
               id="unread"
@@ -623,22 +784,12 @@ export function PageList({
         </span>
         {dots.length > 0 && (
           <span className="flex flex-wrap items-center gap-[3px] pl-5">
-            {shown.map((d) => (
-              <Hint
-                key={d.key}
-                id="seat-dots"
-                always={d.title}
-                text="ページ内ノードの手番の内訳（ノード1つ=点1つ）。色はいま動くべき席=担当の色で、橙=あなたの番、沈んだ色=完了・中止・スキップ"
-              >
-                <i
-                  className="size-[5px] flex-shrink-0 rounded-full"
-                  style={{ background: d.color }}
-                />
-              </Hint>
-            ))}
+            {shown.map(dotEl)}
             {rest > 0 && <span className="font-mono text-xs text-text-lo">+{rest}</span>}
           </span>
         )}
+      </div>
+      {runsBlock(f)}
       </div>
     );
   };
@@ -670,6 +821,7 @@ export function PageList({
               toggleFolder(f.id);
             }
           }}
+          {...rowDragHandlers({ id: f.id, kind: "folder", section })}
         >
           {gripFor({ id: f.id, kind: "folder", section })}
           {open ? (
@@ -799,7 +951,7 @@ export function PageList({
           )}
         </span>
         <span className="flex flex-shrink-0 items-center">
-          <Hint id="folder-add" always="フォルダを追加" text="プロジェクトをまとめる棚。掴んで（⠿）出し入れする">
+          <Hint id="folder-add" always="フォルダを追加" text="プロジェクトをまとめる棚。行をドラッグして出し入れする">
             <Button
               type="button"
               variant="ghost"
@@ -860,7 +1012,7 @@ export function PageList({
             <Hint id="page-routine" text={HINT_TEXT.pageRoutine}>
               <span>ルーティーン</span>
             </Hint>
-            <Hint id="folder-add" always="フォルダを追加" text="ルーティーンをまとめる棚。掴んで（⠿）出し入れする">
+            <Hint id="folder-add" always="フォルダを追加" text="ルーティーンをまとめる棚。行をドラッグして出し入れする">
               <Button
                 type="button"
                 variant="ghost"

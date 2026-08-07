@@ -225,47 +225,32 @@ function AppInner() {
     setSelectedId(null);
   }, [selectedNode, pageId]);
 
-  // ---- ルーティーンページの最新ラン（PageList の左レールドット + TopBar のラン待ち統合の両方が使う。
+  // ---- 各ページのラン一覧（PageList の左レール: ドット・ラン子行 + TopBar のラン待ち統合が使う。
   //      ページ数ぶんの N+1 取得を1箇所に集約する）。
-  //      「ルーティーンであること」は isRoutinePage が判定する（docs/design.md 3.8。
-  //      trigger ノードをメンバーに持つこと） ----
-  const routinePageIds = useMemo(
-    () => folders.filter((f) => isRoutinePage(f, nodes)).map((f) => f.id),
-    [folders, nodes],
-  );
-  const { data: pageRunInfo } = usePolling(async (): Promise<
-    Record<string, { latest: Run | null; running: number }>
-  > => {
-    if (routinePageIds.length === 0) return {};
+  //      ルーティーンだけでなく全ページを引く——トリガーを外してプロジェクトへ戻ったページにも
+  //      過去ランは残り、レールのラン子行に出すため（2026-08-08 ちょぼ改善） ----
+  const allPageIds = useMemo(() => folders.map((f) => f.id), [folders]);
+  const { data: railRunsData } = usePolling(async (): Promise<Record<string, Run[]>> => {
+    if (allPageIds.length === 0) return {};
     const entries = await Promise.all(
-      routinePageIds.map(async (id) => {
+      allPageIds.map(async (id) => {
         try {
-          const { runs } = await api.listRuns(id);
-          return [
-            id,
-            { latest: runs[0] ?? null, running: runs.filter((r) => r.status === "running").length },
-          ] as const;
+          const { runs } = await api.listRuns(id); // 新しい順（LedgerView と同じ前提）
+          return [id, runs] as const;
         } catch {
-          return [id, { latest: null, running: 0 }] as const;
+          return [id, [] as Run[]] as const;
         }
       }),
     );
     return Object.fromEntries(entries);
   }, 5000);
+  const railRuns = useMemo(() => railRunsData ?? {}, [railRunsData]);
   const latestRuns = useMemo(
     () =>
       Object.fromEntries(
-        Object.entries(pageRunInfo ?? {}).map(([id, info]) => [id, info.latest]),
+        Object.entries(railRuns).map(([id, list]) => [id, list[0] ?? null]),
       ) as Record<string, Run | null>,
-    [pageRunInfo],
-  );
-  // 実行中ラン数（並走中の並行ランの数）。左レールのバッジ表示に使う
-  const runningCounts = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(pageRunInfo ?? {}).map(([id, info]) => [id, info.running]),
-      ) as Record<string, number>,
-    [pageRunInfo],
+    [railRuns],
   );
 
   // ---- 実行中ラン一覧（docs/design.md 3.8: トリガー起点のルーティーン。グラフ投影用）。
@@ -580,8 +565,7 @@ function AppInner() {
             pageId={pageId}
             threadMeta={threadMeta}
             reads={reads}
-            latestRuns={latestRuns}
-            runningCounts={runningCounts}
+            pageRuns={railRuns}
             forceExpanded={isMobile}
             onSelectPage={(id) => {
               setPageId(id);
@@ -590,6 +574,16 @@ function AppInner() {
               // 移る（詳細ビューには飛ばない）が、ノードタブがプロジェクト詳細を指すので
               // 1タップでアクセスできる。デスクトップはグラフの横に詳細パネルが出る従来挙動
               setSelectedId(id);
+              setMobileView("graph");
+            }}
+            onSelectRun={(pid, runId) => {
+              // レールのラン子行 → そのページへ切り替えつつ該当ランをグラフに投影する
+              // （URL ルート適用と同じ流儀。ページも切り替わる場合はリセット effect が
+              // routeRunRef から run 指定を引き継ぐ）
+              routeRunRef.current = runId;
+              setProjectedRunId(runId);
+              setPageId(pid);
+              setSelectedId(pid);
               setMobileView("graph");
             }}
           />
