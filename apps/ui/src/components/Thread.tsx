@@ -144,7 +144,7 @@ export function Thread({
         }}
       >
         {flow.length === 0 && openRequests.length === 0 && (
-          <div className="py-2 text-sm text-muted-foreground">タスクを計画・実行しましょう</div>
+          <div className="py-2 text-sm text-text-lo">タスクを計画・実行しましょう</div>
         )}
         {flow.map((m, idx) => {
           // 未読区切り（この位置から上が既読・下が未読）。メッセージ本体の前に挟む
@@ -196,10 +196,11 @@ export function Thread({
                 m.author.kind === "system" && "text-sm opacity-70",
               )}
             >
-              <div className="mb-1 flex gap-2 text-xs text-muted-foreground">
+              {/* メタ行は読み飛ばしてよい情報なので薄く（2026-08-07 文字削減）。
+                  via（ui/chat/engine/mcp）は内部用語なので常時表示をやめ、時刻の title に畳む */}
+              <div className="mb-1 flex gap-2 text-xs text-text-lo">
                 <span>{authorLabel(m.author, users)}</span>
-                <span>{m.via}</span>
-                <span>{new Date(m.ts).toLocaleString("ja-JP")}</span>
+                <span title={`経路: ${m.via}`}>{new Date(m.ts).toLocaleString("ja-JP")}</span>
               </div>
               {/* AI（agent）の本文はマークダウンで描画（2026-08-01 本人要望「Task AI でも
                   markdown が正しくレンダリングされるように」。スタイルは GraphWrangler AI と共通の
@@ -266,12 +267,8 @@ export function Thread({
           onStop={() => {
             void api.stopThreadAi(nodeId).then(() => onMutated());
           }}
-          placeholderIdle={
-            openRequests.length > 0
-              ? "聞き返す・相談する…（Enter で送信 / Shift+Enter で改行）"
-              : "返信…（Enter で送信 / Shift+Enter で改行）"
-          }
-          placeholderBusy="続けて入力…（応答が終わってから届きます）"
+          placeholderIdle={openRequests.length > 0 ? "聞き返す・相談する…" : "返信…"}
+          placeholderBusy="続けて入力…（応答後に届きます）"
           model={aiModel ?? null}
           onModelChange={onAiModelChange}
           effort={aiEffort ?? null}

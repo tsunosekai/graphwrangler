@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { History, MessageSquare } from "lucide-react";
+import { History, MessageSquare, SquarePen } from "lucide-react";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { pushToast } from "../lib/toast";
 import { Button } from "./ui/button";
@@ -405,15 +405,17 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
         {pageTitle && (
           <span className="min-w-0 flex-1 truncate text-right text-sm text-muted-foreground">{pageTitle}</span>
         )}
+        {/* 「新しい会話」はアイコン化（2026-08-07 文字削減。説明は title） */}
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="icon"
           className="flex-shrink-0 text-muted-foreground"
+          title="新しい会話（今の会話は履歴へ移す）"
           disabled={busy || startingNewChat}
           onClick={() => void startNewChat()}
         >
-          新しい会話
+          <SquarePen className="size-4" />
         </Button>
         <Button type="button" variant="ghost" size="icon" onClick={onClose}>
           <Icon name="x" size={15} />
@@ -446,7 +448,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
             }}
           >
             {messages.length === 0 && !error && (
-              <div className="py-2 text-sm text-muted-foreground">グラフの整理を話しかけてみてください</div>
+              <div className="py-2 text-sm text-text-lo">グラフの整理を話しかけてみてください</div>
             )}
             {messages.map((m) => (
               <ChatMessageView key={m.id} message={m} />
@@ -471,8 +473,8 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
               onStopAndSend={stopAndSend}
               queued={queued}
               onCancelQueued={() => setQueued(null)}
-              placeholderIdle="メッセージを入力…（Enter で送信 / Shift+Enter で改行）"
-              placeholderBusy="続けて入力…（Enter で応答後に送信 / ⌘・Ctrl+Enter で今すぐ）"
+              placeholderIdle="メッセージを入力…"
+              placeholderBusy="続けて入力…（応答後に送信）"
               model={chatModel}
               onModelChange={setChatModel}
               effort={chatEffort}

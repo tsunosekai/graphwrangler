@@ -241,6 +241,8 @@ export function ChatComposer({
             rows={2}
             onChange={(e) => onChange(e.target.value)}
             placeholder={busy ? placeholderBusy : placeholderIdle}
+            // キー操作の説明はプレースホルダから title へ（2026-08-07 文字削減）
+            title="Enter: 送信 / Shift+Enter: 改行"
             onKeyDown={(e) => {
               if (e.key !== "Enter" || e.nativeEvent.isComposing || e.shiftKey) return;
               e.preventDefault();
@@ -315,17 +317,19 @@ export function ChatComposer({
               止めて送る
             </button>
           )}
+          {/* トリガーは値だけの短い表示（Claude Code 同様。2026-08-07 文字削減）。
+              「モデル」「思考の深さ」の説明は title と選択肢側に置く */}
           {onModelChange && (
             <Select
               value={model ?? "default"}
               onValueChange={(v) => onModelChange(v === "default" ? null : v)}
             >
               <SelectTrigger size="sm" className={COMPACT_TRIGGER} title="この会話で使うモデル（既定は⚙の設定）">
-                <SelectValue />
+                <SelectValue>{modelLabel(model ?? defaults?.chatModel ?? null)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="default">
-                  モデル: {defaults ? `${modelLabel(defaults.chatModel)}（既定）` : "既定"}
+                  既定{defaults ? `（${modelLabel(defaults.chatModel)}）` : ""}
                 </SelectItem>
                 <SelectItem value="fable">Fable 5</SelectItem>
                 <SelectItem value="opus">Opus 5</SelectItem>
@@ -340,11 +344,11 @@ export function ChatComposer({
               onValueChange={(v) => onEffortChange(v === "default" ? null : v)}
             >
               <SelectTrigger size="sm" className={COMPACT_TRIGGER} title="思考の深さ（既定は⚙の設定）">
-                <SelectValue />
+                <SelectValue>{effortLabel(effort ?? defaults?.chatEffort ?? null)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="default">
-                  思考の深さ: {defaults ? `${effortLabel(defaults.chatEffort)}（既定）` : "既定"}
+                  既定{defaults ? `（${effortLabel(defaults.chatEffort)}）` : ""}
                 </SelectItem>
                 <SelectItem value="low">低</SelectItem>
                 <SelectItem value="medium">中</SelectItem>

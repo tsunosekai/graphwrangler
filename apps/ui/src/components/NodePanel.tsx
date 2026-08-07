@@ -892,7 +892,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               </Button>
             ))}
             {!decisionGateOk && (
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-text-lo">
                 {node.status === "dropped"
                   ? "中止されています。進捗の「戻す」で復帰できます"
                   : node.lifecycle !== "committed"
@@ -909,9 +909,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
           kind=trigger は対象外——トリガーの executor=script は「schedule で発火する」の意味で
           あって command 実行ではない（docs/design.md 3.8）ため、impl 不要 */}
       {node.executor === "script" && node.kind !== "trigger" && node.impl?.type !== "script" && (
-        <div className="flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div
+          className="flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          title="担当がスクリプトなのに実装がスクリプトでない＝実行すると失敗する。実装欄でコマンドを設定するか担当を変える"
+        >
           <Icon name="alert" size={13} />
-          実装が未接続（実行すると失敗します）
+          実装が未接続
         </div>
       )}
 
@@ -934,7 +937,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               disabled にする。進捗（status）・params の値・試走・Fixトグル自体は生かしたまま */}
           {node.fixed && (
             <p className="text-xs text-muted-foreground">
-              🔒 ロック済み（やり方は変更不可。編集するには解除）
+              🔒 ロック中（編集するには解除）
             </p>
           )}
 
@@ -1326,7 +1329,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   {/* 分岐(decision)のアイテムは「分岐を選ぶ」で決着する（choice を経ずに done に
                       できてしまう二重経路を作らない）。着手/完了は担当=人間の task のみ */}
                   {node.executor === "human" && node.kind === "task" && activeRunItem.status === "pending" && !runFrontier && (
-                    <span className="text-xs text-muted-foreground">前のノードが終わると着手できます</span>
+                    <span className="text-xs text-text-lo">前のノードが終わると着手できます</span>
                   )}
                   {node.executor === "human" && node.kind === "task" && activeRunItem.status === "pending" && runFrontier && (
                     <Button
@@ -1366,9 +1369,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   )}
                 </div>
               ) : (
-                <p className="col-span-2 text-xs text-muted-foreground">
-                  ルーティーンのテンプレートです。進捗は実行（ラン）ごとに付きます——実行一覧で確認できます
-                </p>
+                <p className="col-span-2 text-xs text-text-lo">テンプレート（進捗はランごと。実行一覧で見る）</p>
               ))}
             {node.kind !== "trigger" &&
               !(node.group != null && allNodes.some((n) => n.kind === "trigger" && n.group === node.group)) &&
@@ -1427,7 +1428,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       </Hint>
                     )}
                     {exec && vs === "pending" && node.lifecycle === "committed" && !frontier && (
-                      <span className="text-xs text-muted-foreground">前のノードが終わると着手できます</span>
+                      <span className="text-xs text-text-lo">前のノードが終わると着手できます</span>
                     )}
                     {exec && vs === "pending" && frontier && (
                       <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
