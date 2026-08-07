@@ -31,7 +31,14 @@ export function Hint({ id, text, always, side = "top", children }: Props) {
   if (!active && always == null) return children;
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      {/* 子へ asChild で直接合成しない: Tooltip 自身の data-state（closed 等）が、
+          子が Radix 部品（TabsTrigger/SelectTrigger 等）のときにその data-state="active" を
+          上書きし、選択中スタイルが消えていた（2026-08-07 本人報告「履歴・実行記録タブに
+          白い枠が出ない」）。display:contents の span はボックスを作らずレイアウトに
+          影響しないまま、ホバーは子からのバブリングで拾える */}
+      <TooltipTrigger asChild>
+        <span className="contents">{children}</span>
+      </TooltipTrigger>
       {/* text-wrap: ベースの text-balance を打ち消す。balance だと行が均等長に折り返されて
           文の右側に余白が生まれ、OKボタンとの間が不自然に空いて見える（2026-08-05 本人報告） */}
       <TooltipContent side={side} className="max-w-72 text-left text-wrap">
