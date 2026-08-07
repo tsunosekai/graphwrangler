@@ -79,6 +79,7 @@ data/
 │                            {nodeId:ts} は shared として読み替える）
 ├── users.json           … ログインユーザー台帳（email + scrypt ハッシュ + displayName。
 │                            scripts/gw-user.mjs で管理、git 管理外。1人でも居ればログイン必須）
+├── branding/favicon.png … インスタンスのファビコン（手置き。無ければ UI 同梱の既定。3.13）
 ├── threads/<node>.jsonl … ノードスレッド（追記専用）
 ├── chats/global.json    … GraphWrangler AI の会話履歴（1本のグローバル会話。archive で過去分を退避。2026-08-02 にページ単位を廃止、旧 chats/<page>.json は遺構）
 └── runs/<run>.json      … ラン（実行インスタンス。5.5）
@@ -374,13 +375,14 @@ impl.command はワークスペースルートからの相対パスで書く。�
 <repo>/
 ├── workflow.gw.json        ← 正データ（グラフ定義）。人がレビュー/コミットする対象
 ├── .graphwrangler/         ← サイドカー（サーバが自動生成）
-│   ├── .gitignore          ← 自動生成（ops.jsonl / runs/ / settings.json / reads.json を除外）
+│   ├── .gitignore          ← 自動生成（ops.jsonl / runs/ / settings.json / reads.json / branding/ を除外）
 │   ├── threads/*.jsonl     ← 会話・判断の経緯。コミットする
 │   ├── chats/global.json   ← GraphWrangler AI の会話履歴（グローバル1本）。同じ理由でコミットする
 │   ├── runs/*.json         ← ラン履歴。gitignore
 │   ├── ops.jsonl           ← セッション内 undo 用の作業記録。gitignore
 │   ├── reads.json          ← 既読時刻（個人の閲覧状態。活動の記録ではない）。gitignore
-│   └── settings.json       ← AI設定（APIキー含む）。gitignore
+│   ├── settings.json       ← AI設定（APIキー含む）。gitignore
+│   └── branding/           ← インスタンスのファビコン（3.13）。gitignore
 └── docs/ ...               ← 既存ドキュメント。ノードから impl.path で参照
 ```
 
@@ -497,6 +499,31 @@ impl.command はワークスペースルートからの相対パスで書く。�
 - 設定は `settings.update`: 確認（見るだけ・副作用なし）は既定ON、取り込み
   （再起動を伴う）は既定OFF。API は `GET /api/update` / `POST /api/update/check` /
   `POST /api/update/run`。UI はヘッダーの「更新あり」チップと設定の「アップデート」節
+
+### 3.13 インスタンスのブランディング
+
+同じコードベースで会社（`graph-wrangler.ark-digital.co.jp`）と個人（zinsei）の2インスタンスが
+動いている。会社側だけ別のタイトルとファビコンを出したいが、コードへ焼くと個人側まで変わる。
+よって**インスタンス設定**にした（2026-08-08 本人要望。実装 `packages/server/src/branding.ts`）。
+
+- **既定値 = 現在の見た目**（`"GraphWrangler"` + UI 同梱の favicon.png）。設定は
+  `settings.branding` で zod の default が効くので、`branding` を持たない既存の
+  settings.json でも何も変わらない＝zinsei は触らなくてよい
+- 画像は settings.json に入れず `<dataDir>/branding/favicon.{png,svg}` に置く。設定側は
+  `faviconVersion`（0=手置きなし、1以上=手置きあり）だけ持ち、これが `/favicon.png?v=N` の
+  キャッシュバスターを兼ねる。置き場を dataDir にしたのは、3.12 の自己更新でコードが
+  入れ替わってもロゴが消えないため
+- **index.html は素通しでなくサーバで置換して返す**（`<title>` と `<link rel="icon">`）。
+  JS が動く前＝タブに出る最初の1文字目から会社名になる。サイト名は人が打つ任意文字列なので
+  必ずエスケープする。置換結果は「index.html の mtime × サイト名 × 版」でキャッシュし、
+  UI を再ビルドすれば再起動なしで新しい index.html に追随する
+- API は `GET /api/branding`（`{siteTitle, faviconVersion}` の2値だけ。**認証不要**——
+  ログイン画面にもサイト名が要るため）、サイト名の変更は `POST /api/settings` の
+  `branding.siteTitle`、画像は `POST /api/branding/favicon` と
+  `POST /api/branding/favicon/reset`（どちらも他の設定と同じ認可レベル）
+- アップロードは PNG / SVG のみ・512KB まで。**Content-Type もファイル名も信じず**
+  中身（PNG のマジックバイト + IHDR / XML のルート要素）で判定する。SVG は同一オリジンの
+  スクリプト実行面になりうるので、配信時に閉じた CSP と `nosniff` を付ける
 
 ## 4. HITL（人間にボールが回る）設計
 

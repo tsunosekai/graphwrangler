@@ -115,8 +115,10 @@ pnpm --filter @graphwrangler/engine start
 ```
 
 データの保存先は既定で `./data`（環境変数 `GRAPHWRANGLER_DATA` で変更、ポートは
-`GRAPHWRANGLER_PORT`）。まず触ってみるならデモデータを。このREADMEの
-スクリーンショットと同じ状態になる。
+`GRAPHWRANGLER_PORT`）。サイト名とファビコンは⚙の「外観（インスタンス全体）」で
+インスタンスごとに変えられる（既定は `GraphWrangler` + 同梱アイコン。画像は
+データディレクトリに置かれるので、自動アップデートを跨いでも残る）。
+まず触ってみるならデモデータを。このREADMEのスクリーンショットと同じ状態になる。
 
 ```bash
 node scripts/seed-demo.mjs
