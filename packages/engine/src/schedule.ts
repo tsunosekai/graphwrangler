@@ -174,8 +174,13 @@ function lastWeeklyOccurrence(weekday: Weekday, hour: number, minute: number, no
 /**
  * スケジュールに基づき、今このタイミングで新しいランを生成すべきか判定する（純粋関数）。
  *
- * - hasRunningRun=true（その手順に status=running のランが既にある）なら常に false
- *   （積み残し防止。前回分がまだ流れている間は積み増さない。README参照）
+ * **実行中のランがあっても判定に影響しない**（2026-08-08 本人指摘「前の Run が終わらないと
+ * 次の Run が発火できない不具合」）。旧実装は status=running のランが1本でもあると
+ * スケジュール発火を止めていたが、並列ラン（同じルーティーンを複数のランで回す）は
+ * 設計上の前提であり、しかも人間の回答待ち（waiting）のランは長時間 running のままなので、
+ * 「定刻に動くはずのルーティーンが黙って動かない」状態が常態化していた。
+ * 同じ周期で二重に作らない保証は latestRun ベースの判定（下記）が担う。
+ *
  * - "every": 最新ランが無ければ true。あれば now - latestRun.created >= ms で true
  *   （N の単位は m/h/d のいずれでも同じ判定。d は 24*60*60*1000ms に換算済み）
  * - "daily": 今日の目標時刻(hour:minute)を過ぎていない間は false。過ぎていれば、
@@ -190,10 +195,7 @@ export function shouldCreateScheduledRun(
   schedule: ParsedSchedule,
   latestRun: { created: string } | null,
   now: Date,
-  hasRunningRun: boolean,
 ): boolean {
-  if (hasRunningRun) return false;
-
   if (schedule.type === "every") {
     if (!latestRun) return true;
     const last = new Date(latestRun.created);

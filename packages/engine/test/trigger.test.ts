@@ -62,27 +62,27 @@ describe("isFireableTrigger", () => {
 // 1. script発火判定の流用（schedule.ts の parseSchedule/shouldCreateScheduledRunをそのまま使う）
 describe("shouldFireScriptTrigger: script発火判定の流用", () => {
   it("schedule文字列が無ければnull（発火判定できない）", () => {
-    expect(shouldFireScriptTrigger(null, null, new Date(), false)).toBeNull();
+    expect(shouldFireScriptTrigger(null, null, new Date())).toBeNull();
   });
 
   it("未対応の書式はnull", () => {
-    expect(shouldFireScriptTrigger("every 15", null, new Date(), false)).toBeNull();
+    expect(shouldFireScriptTrigger("every 15", null, new Date())).toBeNull();
   });
 
   it("'every 15m'で最新ランが無ければtrue（schedule.tsのshouldCreateScheduledRunと同じ判定）", () => {
     const now = new Date("2026-01-01T00:20:00Z");
-    expect(shouldFireScriptTrigger("every 15m", null, now, false)).toBe(true);
+    expect(shouldFireScriptTrigger("every 15m", null, now)).toBe(true);
   });
 
   it("経過時間がN未満ならfalse", () => {
     const latestRun = { created: "2026-01-01T00:10:00Z" };
     const now = new Date("2026-01-01T00:20:00Z"); // 10分経過 < 15分
-    expect(shouldFireScriptTrigger("every 15m", latestRun, now, false)).toBe(false);
+    expect(shouldFireScriptTrigger("every 15m", latestRun, now)).toBe(false);
   });
 
-  it("実行中ランがあれば常にfalse（重複防止）", () => {
+  it("実行中ランがあっても定刻ぶんは発火する（2026-08-08 修正。旧仕様では常にfalseだった）", () => {
     const now = new Date("2026-01-01T00:20:00Z");
-    expect(shouldFireScriptTrigger("every 15m", null, now, true)).toBe(false);
+    expect(shouldFireScriptTrigger("every 15m", null, now)).toBe(true);
   });
 });
 
@@ -102,18 +102,18 @@ describe("resolveAiCheckIntervalMs / shouldEvaluateAiTrigger: aiチェック間�
   });
 
   it("lastCheckedAt=nullなら常にtrue（再起動後の即時チェックは許容）", () => {
-    expect(shouldEvaluateAiTrigger(60_000, null, Date.now(), false)).toBe(true);
+    expect(shouldEvaluateAiTrigger(60_000, null, Date.now())).toBe(true);
   });
 
   it("間隔未経過ならfalse、経過していればtrue", () => {
     const interval = 60_000;
     const last = 1_000_000;
-    expect(shouldEvaluateAiTrigger(interval, last, last + 30_000, false)).toBe(false);
-    expect(shouldEvaluateAiTrigger(interval, last, last + 60_000, false)).toBe(true);
+    expect(shouldEvaluateAiTrigger(interval, last, last + 30_000)).toBe(false);
+    expect(shouldEvaluateAiTrigger(interval, last, last + 60_000)).toBe(true);
   });
 
-  it("実行中ランがあれば間隔条件を満たしていてもfalse（重複防止）", () => {
-    expect(shouldEvaluateAiTrigger(1000, null, Date.now(), true)).toBe(false);
+  it("実行中ランの有無は判定に影響しない（2026-08-08 修正。旧仕様ではfalseだった）", () => {
+    expect(shouldEvaluateAiTrigger(1000, null, Date.now())).toBe(true);
   });
 });
 

@@ -1113,7 +1113,6 @@ const aiTriggerLastCheckedAt = new Map<string, number>();
 /** script トリガーを1件処理する（判定は schedule.ts）。approval=true（発火前承認）なら
  *  発火の代わりに発火前承認カードを開き、go 回答の1回だけ発火する（trigger.ts 参照） */
 async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
-  const hasRunningRun = runsForPage.some((r) => r.status === "running");
   const latestRun = runsForPage[0] ?? null; // list は created 降順
   if (trigger.pendingRequest) return; // 発火前承認カード等の回答待ち
 
@@ -1129,12 +1128,7 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
   }
 
   // skip 回答はその回の発火とみなす（fireBaseline）。承認なしのトリガーでは gate=none で従来どおり
-  const should = shouldFireScriptTrigger(
-    trigger.schedule,
-    fireBaseline(latestRun, gate),
-    new Date(),
-    hasRunningRun,
-  );
+  const should = shouldFireScriptTrigger(trigger.schedule, fireBaseline(latestRun, gate), new Date());
   if (should === null) {
     if (trigger.schedule) {
       log(`未対応のschedule書式のため無視: trigger=${trigger.id} schedule="${trigger.schedule}"`);
@@ -1168,7 +1162,6 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
  *  skip はエンジンログのみ（スレッドは汚さない。docs/design.md「skipはエンジンログのみ」）。
  *  approval=true（発火前承認）なら AI の fire 判定後に発火前承認カードを開き、go 回答の1回だけ発火する */
 async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
-  const hasRunningRun = runsForPage.some((r) => r.status === "running");
   if (trigger.pendingRequest) return; // 発火前承認カード等の回答待ち
 
   if (trigger.approval) {
@@ -1181,7 +1174,8 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
       return;
     }
     if (hasUnconsumedGo(gate, runsForPage[0] ?? null)) {
-      if (hasRunningRun) return; // 前のランが流れている間は待つ（go は未消費のまま）
+      // 承認済みの go はその場で消費する（2026-08-08: 以前は実行中ランがあると待たせていたが、
+      // 人間が「開始して」と答えたのに動かないのは事故に見える）
       try {
         await fireTriggerNode(trigger.id, { via: "ai" }, ENGINE_ACTOR);
         log(`承認によりAIトリガー発火: trigger=${trigger.id} title=${trigger.title}`);
@@ -1196,7 +1190,7 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   const intervalMs = resolveAiCheckIntervalMs(trigger.schedule);
   const lastCheckedAt = aiTriggerLastCheckedAt.get(trigger.id) ?? null;
   const now = Date.now();
-  if (!shouldEvaluateAiTrigger(intervalMs, lastCheckedAt, now, hasRunningRun)) return;
+  if (!shouldEvaluateAiTrigger(intervalMs, lastCheckedAt, now)) return;
   aiTriggerLastCheckedAt.set(trigger.id, now);
 
   const prompt = buildTriggerPrompt(trigger, new Date(now));

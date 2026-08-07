@@ -30,12 +30,11 @@ export function shouldFireScriptTrigger(
   scheduleText: string | null,
   latestRun: { created: string } | null,
   now: Date,
-  hasRunningRun: boolean,
 ): boolean | null {
   if (!scheduleText) return null;
   const schedule = parseSchedule(scheduleText);
   if (!schedule) return null;
-  return shouldCreateScheduledRun(schedule, latestRun, now, hasRunningRun);
+  return shouldCreateScheduledRun(schedule, latestRun, now);
 }
 
 /**
@@ -51,17 +50,16 @@ export function resolveAiCheckIntervalMs(scheduleText: string | null): number {
 }
 
 /**
- * ai トリガーを今回評価すべきか。実行中のランが既にあればチェック自体をしない
- * （script トリガーの hasRunningRun による重複防止と同じ発想）。
+ * ai トリガーを今回評価すべきか。判定はチェック間隔だけで決まる
+ * （2026-08-08: script トリガーと同じく「実行中ランがあれば評価しない」を撤廃した。
+ * 前のランが人間の回答待ちで止まっている間、AI トリガーが永久に沈黙していたため）。
  * lastCheckedAt はエンジンのメモリ管理（プロセス再起動で即再チェックされるのは許容する）。
  */
 export function shouldEvaluateAiTrigger(
   intervalMs: number,
   lastCheckedAt: number | null,
   now: number,
-  hasRunningRun: boolean,
 ): boolean {
-  if (hasRunningRun) return false;
   if (lastCheckedAt === null) return true;
   return now - lastCheckedAt >= intervalMs;
 }
