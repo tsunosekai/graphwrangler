@@ -104,8 +104,8 @@ function GoalCapture({ onCapture }: { onCapture: (title: string) => Promise<void
     <Input
       ref={ref}
       value={text}
-      placeholder="思いついたゴールを書く → Enter で新しいプロジェクト"
-      aria-label="ゴールを登録して新しいプロジェクトを作る"
+      placeholder="やりたいことを書く → Enter で新しいプロジェクト"
+      aria-label="やりたいことを登録して新しいプロジェクトを作る"
       className="h-8 w-full max-w-md bg-muted/40 text-sm"
       onChange={(e) => setText(e.target.value)}
       onKeyDown={(e) => {

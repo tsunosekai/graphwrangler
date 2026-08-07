@@ -798,8 +798,8 @@ export function PageList({
           </Hint>
           <Hint
             id="add-goal"
-            always="ゴールを追加"
-            text="ヘッダーの入力欄へ移動する。ゴールを書いて Enter で新しいプロジェクトができる"
+            always="プロジェクトを追加"
+            text="ヘッダーの入力欄へ移動する。やりたいことを書いて Enter で新しいプロジェクトができる"
           >
             <Button
               type="button"

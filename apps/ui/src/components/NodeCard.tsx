@@ -22,7 +22,7 @@ const KIND_CHIP: Record<Node["kind"], string> = {
   task: "実行",
   decision: "判断",
   trigger: "トリガー",
-  goal: "ゴール",
+  goal: "プロジェクト",
   folder: "フォルダ",
 };
 const STATUS_LABEL: Record<Node["status"], string> = {

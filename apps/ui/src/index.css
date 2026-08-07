@@ -176,22 +176,24 @@ body {
   font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
-/* ---- パネル幅のリサイズハンドル（desk と同じ控えめな6px。hover時のみ線が浮く） ---- */
+/* ---- パネル幅のリサイズハンドル（hover時のみ線が浮く）。当たり判定は 12px
+   （2026-08-07 本人要望「少し大きく」。旧6pxは狙いにくかった。見た目の線は従来どおり
+   境界上の1px） ---- */
 .resize-handle {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 6px;
+  width: 12px;
   cursor: col-resize;
   z-index: 20;
 }
 
 .resize-handle-right {
-  right: -3px;
+  right: -6px;
 }
 
 .resize-handle-left {
-  left: -3px;
+  left: -6px;
 }
 
 .resize-handle:hover::after,
@@ -200,7 +202,7 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 2.5px;
+  left: 5.5px;
   width: 1px;
   background: var(--border-strong);
 }

@@ -82,7 +82,7 @@ const KIND_JA: Record<Node["kind"], string> = {
   task: "実行",
   decision: "判断",
   trigger: "トリガー",
-  goal: "ゴール（ページ）",
+  goal: "プロジェクト/ルーティーン（ページ）",
   // 左レールの整理棚（2026-08-05）。パネルからは開かないが型のため網羅
   folder: "フォルダ",
 };
