@@ -90,10 +90,21 @@ const SETTINGS_REFRESH_MS = 10 * 60 * 1000; // 10分
 const DEFAULT_ENGINE_CONFIG: ClaudeExecutorConfig = {
   cliPath: "claude",
   model: process.env.GW_ENGINE_CLAUDE_MODEL ?? "opus",
+  effort: null,
   extraArgs: [],
   extraTools: [],
   addDirs: [],
 };
+
+/** ノード側の aiModel/aiEffort（2026-08-07 切替機能）を設定の既定へ重ねた実行時設定。
+ *  null（未指定）のフィールドだけ engineConfig に従う */
+function configFor(node: Pick<Node, "aiModel" | "aiEffort">): ClaudeExecutorConfig {
+  return {
+    ...engineConfig,
+    model: node.aiModel ?? engineConfig.model,
+    effort: node.aiEffort ?? engineConfig.effort,
+  };
+}
 
 let engineConfig: ClaudeExecutorConfig = DEFAULT_ENGINE_CONFIG;
 // engine.mode（"cli"=claude -p 等のヘッドレスCLI起動 / "api"=サーバの /api/ai/complete を呼ぶ）。
@@ -114,6 +125,7 @@ async function refreshEngineConfig(force = false): Promise<void> {
     engineConfig = {
       cliPath: settings.engine.cliPath || DEFAULT_ENGINE_CONFIG.cliPath,
       model: modelFromEnv ?? settings.engine.model ?? DEFAULT_ENGINE_CONFIG.model,
+      effort: settings.engine.effort ?? null,
       extraArgs: Array.isArray(settings.engine.extraArgs) ? settings.engine.extraArgs : [],
       extraTools: Array.isArray(settings.engine.cliExtraTools) ? settings.engine.cliExtraTools : [],
       addDirs: Array.isArray(settings.ai?.addDirs) ? settings.ai.addDirs : [],
@@ -304,7 +316,7 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
         result = await runApi(built.prompt);
       } else {
         executorName = "executor:claude";
-        result = await runClaude(built.prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
+        result = await runClaude(built.prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
       }
     }
   }
@@ -487,7 +499,7 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       const node = action.node;
       const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
       const prompt = buildDecisionPrompt(node);
-      const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
+      const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
       if (!result.success) {
         const reason = result.error || "不明なエラー";
         await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
@@ -557,7 +569,7 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
         result = await runApi(built.prompt);
       } else {
         executorName = "executor:claude";
-        result = await runClaude(built.prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
+        result = await runClaude(built.prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
       }
     }
   }
@@ -986,7 +998,7 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
   // executor=ai
   const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
   const prompt = buildDecisionPrompt(node);
-  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
+  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
   if (!result.success) {
     const reason = result.error || "不明なエラー";
     await postMessage(
@@ -1189,7 +1201,7 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
 
   const prompt = buildTriggerPrompt(trigger, new Date(now));
   const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
-  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, engineConfig, { cwd: workspaceRoot ?? undefined });
+  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, configFor(trigger), { cwd: workspaceRoot ?? undefined });
 
   if (!result.success) {
     log(`AIトリガー判定に失敗（次周に持ち越し）: trigger=${trigger.id} title=${trigger.title} reason=${result.error}`);

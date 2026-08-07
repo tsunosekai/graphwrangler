@@ -66,6 +66,8 @@ export function sanitizeAddDirs(dirs: string[]): string[] {
 export interface ClaudeExecutorConfig {
   cliPath: string;
   model: string;
+  /** --effort（思考の深さ）。null = CLI 既定。ノード側の aiEffort が優先（2026-08-07） */
+  effort: string | null;
   extraArgs: string[];
   /** ALLOWED_TOOLS に追加で許可するツール（設定 engine.cliExtraTools。例: "mcp__foo__*"） */
   extraTools: string[];
@@ -189,6 +191,7 @@ export function runClaude(
       "-p",
       "--model",
       config.model,
+      ...(config.effort ? ["--effort", config.effort] : []),
       ...sanitizeExtraArgs(config.extraArgs),
       "--allowedTools",
       ...ALLOWED_TOOLS,

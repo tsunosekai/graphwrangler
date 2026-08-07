@@ -54,6 +54,8 @@ export interface EngineSettings {
   mode: "cli" | "api";
   cliPath: string;
   model: string;
+  /** --effort（思考の深さ）。旧サーバは返さないので optional 扱い（2026-08-07） */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
   extraArgs: string[];
   /** ALLOWED_TOOLS（executors/claude.ts のフルセット）に追加で許可するツール */
   cliExtraTools: string[];

@@ -158,6 +158,12 @@ server.registerTool(
         "AI executor の自律度。high=人間に判断を仰がず進む（失敗も自動リトライ）/ " +
           "normal=必要なときだけ QUESTION 形式で質問 / low=迷ったら質問に倒す。既定 normal",
       ),
+      aiModel: z.string().nullable().optional().describe(
+        "このノードのAI（実行AI・Task AI）が使うモデルの上書き（例: opus/sonnet/haiku）。null=設定の既定",
+      ),
+      aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().optional().describe(
+        "同エフォート（思考の深さ）。null=設定の既定",
+      ),
       lifecycle: LifecycleSchema.optional().describe("draft=審議中/committed=実行対象。既定 draft"),
       status: StatusSchema.optional().describe("既定 pending。unplanned=やり方未定"),
       parents: z.array(z.string()).optional().describe("先行ノードid配列。空=ルート"),
@@ -183,7 +189,7 @@ server.registerTool(
   {
     description:
       "既存ノードを部分更新する。patch には変えたいフィールドだけを渡す（title/detail/impl/parents/group/kind/" +
-      "executor/approval/autonomy/lifecycle/status/fixed/pendingRequest/assignee/members の部分集合。" +
+      "executor/approval/autonomy/aiModel/aiEffort/lifecycle/status/fixed/pendingRequest/assignee/members の部分集合。" +
       "assignee=担当者メール（null=未割当）、members=ページの関係者メール配列。createdBy は不変の記録なので patch 不可）。更新後のノードを返す。",
     inputSchema: {
       nodeId: z.string().describe("更新対象のノードid"),

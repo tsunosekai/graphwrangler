@@ -3,13 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { History, MessageSquare } from "lucide-react";
+import { ArrowUp, History, Loader2, MessageSquare, Mic, Plus, Square } from "lucide-react";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { pushToast } from "../lib/toast";
-import { Hint } from "./Hint";
+import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
-import { Textarea } from "./ui/textarea";
 import { ChatMessageView, toolActivityLabel } from "./ChatMessage";
 import { Icon } from "./Icon";
 
@@ -119,6 +118,95 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   const [width, startResize] = useResizableWidth("chatW", 360, 300, 640);
   const [input, setInput] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  // 添付（2026-08-07 本人要望）: アップロード先は gitignore 済みの attachments/
+  // （リポジトリには入らない・サーバが7日で自動削除）。送信時に
+  // 「[添付ファイル: <パス>]」行として本文に足し、AI が Read で読む
+  const [attachments, setAttachments] = useState<{ name: string; path: string; size: number }[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadFiles = async (files: FileList | File[]) => {
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const form = new FormData();
+        form.append("file", file);
+        try {
+          const res = await fetch("/api/chat/attachments", { method: "POST", body: form });
+          if (!res.ok) {
+            const data = (await res.json().catch(() => null)) as { error?: string } | null;
+            pushToast(data?.error ?? `添付に失敗しました: ${file.name}`, "error");
+            continue;
+          }
+          const data = (await res.json()) as { name: string; path: string; size: number };
+          setAttachments((prev) => [...prev, data]);
+        } catch {
+          pushToast(`添付に失敗しました: ${file.name}`, "error");
+        }
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // モデル/エフォートの切り替え（2026-08-07 本人要望）。この端末の選択として記憶し、
+  // 送信のたびに body で渡す（null = ⚙の既定に従う）
+  const [chatModel, setChatModel] = useState<string | null>(() => localStorage.getItem("gw.chatModel"));
+  const [chatEffort, setChatEffort] = useState<string | null>(() => localStorage.getItem("gw.chatEffort"));
+  useEffect(() => {
+    if (chatModel) localStorage.setItem("gw.chatModel", chatModel);
+    else localStorage.removeItem("gw.chatModel");
+  }, [chatModel]);
+  useEffect(() => {
+    if (chatEffort) localStorage.setItem("gw.chatEffort", chatEffort);
+    else localStorage.removeItem("gw.chatEffort");
+  }, [chatEffort]);
+
+  // 音声入力（Claude Code のマイクに相当。2026-08-07）。対応ブラウザでだけボタンを出す
+  const SpeechRecognitionImpl =
+    typeof window !== "undefined"
+      ? ((window as unknown as Record<string, unknown>).SpeechRecognition ??
+        (window as unknown as Record<string, unknown>).webkitSpeechRecognition)
+      : undefined;
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<{ stop: () => void } | null>(null);
+  const toggleMic = () => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    if (!SpeechRecognitionImpl) return;
+    // Web Speech API は lib.dom の型に無いブラウザ実装なので any 相当で扱う
+    const rec = new (SpeechRecognitionImpl as new () => {
+      lang: string;
+      interimResults: boolean;
+      continuous: boolean;
+      onresult: ((e: unknown) => void) | null;
+      onend: (() => void) | null;
+      onerror: (() => void) | null;
+      start: () => void;
+      stop: () => void;
+    })();
+    rec.lang = "ja-JP";
+    rec.interimResults = false;
+    rec.continuous = true;
+    rec.onresult = (e) => {
+      const ev = e as { resultIndex: number; results: { isFinal: boolean; 0: { transcript: string } }[] };
+      let text = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) text += ev.results[i][0].transcript;
+      }
+      if (text) setInput((prev) => (prev ? `${prev}${text}` : text));
+    };
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    rec.onerror = rec.onend;
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.start();
+  };
 
   // 会話/履歴タブ（2026-07-31 本人要望「切り替えるUIが無い」）。永続化不要のローカル状態
   const [tab, setTab] = useState<"talk" | "history">("talk");
@@ -337,7 +425,11 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   const submit = (text: string) => {
     dirtyRef.current = true; // この画面で会話が進んだ＝以後の保存を解禁
     stickToBottomRef.current = true; // 自分の送信では最下部へ戻す
-    void sendMessage({ text }, { body: { pageId, selectedNodeId } });
+    void sendMessage(
+      { text },
+      // model/effort はこの会話での上書き（null = ⚙の既定。2026-08-07）
+      { body: { pageId, selectedNodeId, model: chatModel, effort: chatEffort } },
+    );
   };
 
   // 応答が終わったら、溜まっていた追い打ちを送る
@@ -351,25 +443,35 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy]);
 
-  const send = () => {
+  /** 入力と添付から実際に送る本文を組み立てる（空なら null） */
+  const composeText = (): string | null => {
     const text = input.trim();
-    if (!text) return;
+    const attachLines = attachments.map((a) => `[添付ファイル: ${a.path}]`);
+    if (!text && attachLines.length === 0) return null;
+    return [text, ...attachLines].filter(Boolean).join("\n");
+  };
+
+  const send = () => {
+    const full = composeText();
+    if (!full) return;
     setInput("");
+    setAttachments([]);
     if (busy) {
-      // 複数回の追い打ちは1通にまとめる（会話の往復を増やさない）
-      setQueued((prev) => (prev ? `${prev}\n${text}` : text));
+      // 応答中に送った分は予約に足し、応答が終わり次第まとめて1通で送る
+      setQueued((prev) => (prev ? `${prev}\n${full}` : full));
       return;
     }
-    submit(text);
+    submit(full);
   };
 
   /** 今の応答を打ち切って、書いた内容をすぐ送る（Ctrl/⌘+Enter） */
   const stopAndSend = () => {
-    const text = input.trim();
+    const full = composeText();
     stop();
-    if (!text) return;
+    if (!full) return;
     setInput("");
-    const merged = queuedRef.current ? `${queuedRef.current}\n${text}` : text;
+    setAttachments([]);
+    const merged = queuedRef.current ? `${queuedRef.current}\n${full}` : full;
     setQueued(null);
     // stop() の反映（status が ready に落ちる）を待ってから送る
     setTimeout(() => submit(merged), 50);
@@ -465,74 +567,171 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
               </div>
             )}
           </div>
-          {/* 追い打ちの予約（2026-08-05）: 応答が終わったら自動で送る。取り消しは ✕、
-              すぐ送りたいときは下の「止めて送る」 */}
+          {/* 送信予約: 応答中に送った分は、応答が終わり次第まとめて1通で自動送信する
+              （旧称「追い打ち」。2026-08-07 表現を平易にした。機能は同じ） */}
           {queued && (
             <div className="mx-4 mb-2 flex flex-shrink-0 items-start gap-2 rounded-md border border-ai/40 bg-ai/[0.06] px-3 py-1.5 text-xs text-muted-foreground">
-              <span className="flex-shrink-0 pt-0.5 text-ai">追い打ち</span>
+              <span className="flex-shrink-0 pt-0.5 text-ai">応答後に送信</span>
               <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{queued}</span>
-              <Hint id="chat-queued-cancel" always="追い打ちを取り消す">
-                <button
-                  type="button"
-                  className="flex-shrink-0 pt-0.5 text-text-lo hover:text-foreground"
-                  onClick={() => setQueued(null)}
-                >
-                  <Icon name="x" size={12} />
-                </button>
-              </Hint>
+              <button
+                type="button"
+                className="flex-shrink-0 pt-0.5 text-text-lo hover:text-foreground"
+                title="送信をやめる"
+                onClick={() => setQueued(null)}
+              >
+                <Icon name="x" size={12} />
+              </button>
             </div>
           )}
-          {/* 入力欄は NodePanel（Task AI）の返信欄と同じ見た目に揃える（境界線なし・テキストボタン。
-              2026-08-01 本人指摘「線が要らない・2つのチャットを合わせて」） */}
-          <div className="flex flex-shrink-0 items-end gap-2 px-4 pb-4">
-            <Textarea
-              className="flex-1 resize-y"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={
-                busy
-                  ? "追い打ちで話しかける…（Enter で予約 / ⌘・Ctrl+Enter で止めてすぐ送る）"
-                  : "メッセージを入力…（Enter で送信 / Shift+Enter で改行）"
-              }
-              rows={2}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter" || e.nativeEvent.isComposing || e.shiftKey) return;
-                e.preventDefault();
-                if (busy && (e.metaKey || e.ctrlKey)) {
-                  stopAndSend();
-                  return;
-                }
-                send();
-              }}
-            />
-            {busy ? (
-              <span className="flex flex-shrink-0 flex-col gap-1">
-                <Hint id="chat-stop" text="応答の生成を打ち切る（途中までの内容は残る。AI 本体もサーバ側で止まる）">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => stop()}>
-                    停止
-                  </Button>
-                </Hint>
-                <Hint
-                  id="chat-stop-send"
-                  text="今の応答を打ち切って、書いた内容をすぐ送る（⌘・Ctrl+Enter）"
-                >
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-muted-foreground"
-                    disabled={!input.trim() && !queued}
-                    onClick={stopAndSend}
+          {/* 入力欄（2026-08-07 本人要望「Claude Code のコンポーザと同じに」）:
+              角丸ボックスに素の textarea。応答中は右上に停止（■）、下段は
+              ＋（添付）・マイク・モデル/エフォート切替・送信。
+              権限バッジと使用量表示は付けない（本人指定） */}
+          <div className="mx-4 mb-4 flex-shrink-0 rounded-xl border border-border bg-card transition-colors focus-within:border-border-strong">
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+                {attachments.map((a, i) => (
+                  <span
+                    key={`${a.path}-${i}`}
+                    className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
                   >
-                    止めて送る
-                  </Button>
-                </Hint>
-              </span>
-            ) : (
-              <Button type="button" variant="secondary" disabled={!input.trim()} onClick={send}>
-                送信
-              </Button>
+                    <span className="max-w-48 truncate">{a.name}</span>
+                    <button
+                      type="button"
+                      className="text-text-lo hover:text-foreground"
+                      title="添付を外す"
+                      onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
             )}
+            <div className="relative">
+              <textarea
+                className="max-h-48 w-full resize-none bg-transparent px-3 py-2.5 pr-9 text-sm outline-none placeholder:text-text-lo"
+                value={input}
+                rows={2}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={
+                  busy
+                    ? "続けて入力…（Enter で応答後に送信 / ⌘・Ctrl+Enter で今すぐ）"
+                    : "メッセージを入力…（Enter で送信 / Shift+Enter で改行）"
+                }
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || e.nativeEvent.isComposing || e.shiftKey) return;
+                  e.preventDefault();
+                  if (busy && (e.metaKey || e.ctrlKey)) {
+                    stopAndSend();
+                    return;
+                  }
+                  send();
+                }}
+                onPaste={(e) => {
+                  // 画像などのファイル貼り付けは添付として受ける
+                  const files = e.clipboardData?.files;
+                  if (files && files.length > 0) {
+                    e.preventDefault();
+                    void uploadFiles(files);
+                  }
+                }}
+              />
+              {busy && (
+                <button
+                  type="button"
+                  className="absolute right-2 top-2 inline-flex size-6 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:text-foreground"
+                  title="応答を停止（途中までの内容は残る）"
+                  onClick={() => stop()}
+                >
+                  <Square className="size-3" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5 px-2 pb-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) void uploadFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                title="ファイルを添付（リポジトリには入らず、7日で自動削除）"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-4" />}
+              </button>
+              {!!SpeechRecognitionImpl && (
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex size-6 items-center justify-center rounded-md transition-colors",
+                    listening ? "text-destructive" : "text-muted-foreground hover:text-foreground",
+                  )}
+                  title={listening ? "音声入力を止める" : "音声入力"}
+                  onClick={toggleMic}
+                >
+                  <Mic className="size-3.5" />
+                </button>
+              )}
+              <span className="flex-1" />
+              {busy && (
+                <button
+                  type="button"
+                  className="mr-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                  disabled={!input.trim() && !queued && attachments.length === 0}
+                  title="今の応答を打ち切って、書いた内容をすぐ送る（⌘・Ctrl+Enter）"
+                  onClick={stopAndSend}
+                >
+                  止めて送る
+                </button>
+              )}
+              <select
+                className="cursor-pointer rounded bg-transparent px-1 py-0.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground"
+                value={chatModel ?? "default"}
+                title="この会話で使うモデル（既定は⚙の設定）"
+                onChange={(e) => setChatModel(e.target.value === "default" ? null : e.target.value)}
+              >
+                <option value="default">モデル: 既定</option>
+                <option value="fable">Fable 5</option>
+                <option value="opus">Opus 5</option>
+                <option value="sonnet">Sonnet 5</option>
+                <option value="haiku">Haiku 4.5</option>
+              </select>
+              <select
+                className="cursor-pointer rounded bg-transparent px-1 py-0.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground"
+                value={chatEffort ?? "default"}
+                title="思考の深さ（既定は⚙の設定）"
+                onChange={(e) => setChatEffort(e.target.value === "default" ? null : e.target.value)}
+              >
+                <option value="default">エフォート: 既定</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+                <option value="xhigh">特高</option>
+                <option value="max">最大</option>
+              </select>
+              {busy ? (
+                <Loader2 className="ml-1 size-3.5 animate-spin text-ai" />
+              ) : (
+                <button
+                  type="button"
+                  className="ml-1 inline-flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
+                  title="送信（Enter）"
+                  disabled={!input.trim() && attachments.length === 0}
+                  onClick={send}
+                >
+                  <ArrowUp className="size-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         </>
       ) : (

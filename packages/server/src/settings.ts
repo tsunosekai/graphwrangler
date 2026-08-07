@@ -24,6 +24,9 @@ export const ChatSettingsSchema = z.object({
   cliPath: z.string().default("claude"),
   /** mode="cli" のときの --model */
   cliModel: z.string().default("opus"),
+  /** mode="cli" のときの --effort（思考の深さ）。null = CLI 既定に任せる（2026-08-07 本人要望
+   *  「モデルとエフォートを切り替えられるように」）。ノード側の aiEffort が優先 */
+  cliEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().default(null),
   /** mode="cli" の GraphWrangler AI / Task AI に**追加で**許可するツール（--allowedTools へ追記）。
    *  2026-08-03 の権限拡張で既定が Bash 含むフルセット（chat_cli.ts DEFAULT_CLI_TOOLS）に
    *  なったため、この設定は MCP ツール等（例: "mcp__foo__*"）をさらに足す用途 */
@@ -36,6 +39,8 @@ export const EngineSettingsSchema = z.object({
   /** AI executor の CLI。claude 以外（codex 等）も同じ形で差し替えられる。mode="cli" のときのみ使う */
   cliPath: z.string().default("claude"),
   model: z.string().default("opus"),
+  /** mode="cli" のときの --effort。null = CLI 既定。ノード側の aiEffort が優先（2026-08-07） */
+  effort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().default(null),
   extraArgs: z.array(z.string()).default([]),
   /** mode="cli" の実行AIに**追加で**許可するツール（--allowedTools へ追記。既定のフルセットは
    *  engine/executors/claude.ts の ALLOWED_TOOLS。例: "mcp__foo__*"。2026-08-03 権限拡張で追加） */
@@ -82,10 +87,8 @@ export const NotifySettingsSchema = z.object({
   discordEnabled: z.boolean().default(false),
   /** 書き込み専用。undefined=維持 / null=削除 / string=設定（apiKey と同じ扱い） */
   discordWebhookUrl: z.string().nullable().default(null),
-  /** Task AI がスレッドへ返信し終えたときも通知するか（2026-08-07「通知が来ない」対応——
-   *  判断リクエストとラン待ちだけでは、相談中心の使い方だと通知の機会がほぼ無い）。
-   *  discordEnabled が親スイッチ（こちらだけONでも discordEnabled OFF なら鳴らない） */
-  discordAiReplies: z.boolean().default(true),
+  // Task AI 返信通知の個別スイッチはユーザーごとの設定（user_settings.ts の
+  // discordAiReplies）へ移動した（2026-08-07「設定はユーザーごとと全体で分けて」）
 });
 
 export const SettingsSchema = z.object({
@@ -190,12 +193,14 @@ export class SettingsStore {
         keySource: source,
         cliPath: this.cache.chat.cliPath,
         cliModel: this.cache.chat.cliModel,
+        cliEffort: this.cache.chat.cliEffort,
         cliExtraTools: this.cache.chat.cliExtraTools,
       },
       engine: {
         mode: this.cache.engine.mode,
         cliPath: this.cache.engine.cliPath,
         model: this.cache.engine.model,
+        effort: this.cache.engine.effort,
         extraArgs: this.cache.engine.extraArgs,
         cliExtraTools: this.cache.engine.cliExtraTools,
         apiModel: this.cache.engine.apiModel,
@@ -216,7 +221,6 @@ export class SettingsStore {
       notify: {
         discordEnabled: this.cache.notify.discordEnabled,
         hasDiscordWebhook: this.cache.notify.discordWebhookUrl !== null,
-        discordAiReplies: this.cache.notify.discordAiReplies,
       },
       setupDone: this.cache.setupDone,
     };

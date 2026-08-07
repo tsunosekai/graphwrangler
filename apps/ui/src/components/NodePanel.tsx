@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronUp,
   Copy,
+  ExternalLink,
   History,
   Loader2,
   Lock,
@@ -226,6 +227,27 @@ function UnreadDot() {
 
 // key={node.id} で App から渡されるため、node が切り替わるたびにこのコンポーネントは
 // まっさらな状態で再マウントされる（未読ドラフト・タブ・スレッドポーリングが混線しない）。
+// ワークスペースの GitHub リンク基底（手順書パス右のアイコンリンク。2026-08-07 本人要望）。
+// remote は運用中に変わらないのでモジュールで1回だけ取得して共有する
+let githubBaseCache: string | null | undefined; // undefined = 未取得
+function useGithubBlobBase(): string | null {
+  const [base, setBase] = useState<string | null>(githubBaseCache ?? null);
+  useEffect(() => {
+    if (githubBaseCache !== undefined) return;
+    githubBaseCache = null; // 取得中の多重リクエストを防ぐ（失敗時もリンク無しに倒す）
+    void api
+      .getWorkspaceInfo()
+      .then((info) => {
+        githubBaseCache = info.githubBlobBase ?? null;
+        setBase(githubBaseCache);
+      })
+      .catch(() => {
+        // 旧サーバ（githubBlobBase 無し）や取得失敗はリンク無しでよい
+      });
+  }, []);
+  return base;
+}
+
 export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutated, onClose, onSelect }: Props) {
   // 会話=今の会話 / 履歴=過去の会話（GraphWrangler AI の「履歴」と同じ意味） / 実行記録=status・artifact
   // （2026-08-02 本人要望「会話の履歴と実行の履歴を分けてほしい」で2タブ→3タブ化。
@@ -304,6 +326,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
     setSeenTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
     onViewed?.(node.id, lastThreadTs);
   }, [thread !== null, tab, node.id, onViewed, lastThreadTs]);
+
+  const githubBase = useGithubBlobBase();
 
   const [titleDraft, setTitleDraft] = useState(node.title);
   const [titleFocused, setTitleFocused] = useState(false);
@@ -1086,6 +1110,51 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 </Select>
               </label>
             )}
+            {/* AI のモデル・エフォート（2026-08-07 本人要望「切り替えられるように」）。
+                このノードの実行AI・Task AI に適用。既定 = 設定（⚙）の値。
+                params[].value と同じ実行時チューニングなのでロック中も変更できる */}
+            {node.executor === "ai" && (
+              <>
+                <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+                  <span className="self-start">AIモデル</span>
+                  <Select
+                    value={node.aiModel ?? "default"}
+                    onValueChange={(v) => patch({ aiModel: v === "default" ? null : v })}
+                  >
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">既定（設定に従う）</SelectItem>
+                      <SelectItem value="opus">Opus</SelectItem>
+                      <SelectItem value="sonnet">Sonnet</SelectItem>
+                      <SelectItem value="haiku">Haiku</SelectItem>
+                      {/* 設定・MCP 等で直接入った値もそのまま見えて解除できるようにする */}
+                      {node.aiModel && !["opus", "sonnet", "haiku"].includes(node.aiModel) && (
+                        <SelectItem value={node.aiModel}>{node.aiModel}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+                  <span className="self-start">エフォート</span>
+                  <Select
+                    value={node.aiEffort ?? "default"}
+                    onValueChange={(v) =>
+                      patch({ aiEffort: v === "default" ? null : (v as Node["aiEffort"]) })
+                    }
+                  >
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">既定（設定に従う）</SelectItem>
+                      <SelectItem value="low">低</SelectItem>
+                      <SelectItem value="medium">中</SelectItem>
+                      <SelectItem value="high">高</SelectItem>
+                      <SelectItem value="xhigh">特高</SelectItem>
+                      <SelectItem value="max">最大</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              </>
+            )}
             {/* トリガーに進捗はない（docs/design.md 3.8。発火はあってもステータス遷移という概念が無い）。
                 質問が開いている（pendingRequest あり）間は status が何であれ「あなたの番」を優先して
                 描き、進捗ボタンも出さない（NodeCard の visualStatus / PageList の effStatus と同じ保険。
@@ -1528,17 +1597,33 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
 
             {node.impl?.type === "doc" && (
               <>
-                <Input
-                  placeholder="ワークスペース相対パス（例: docs/how-to.md）。text と両方あれば text 優先"
-                  value={implPathDraft}
-                  disabled={node.fixed}
-                  onFocus={() => setImplPathFocused(true)}
-                  onChange={(e) => setImplPathDraft(e.target.value)}
-                  onBlur={saveImplPath}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                  }}
-                />
+                <span className="flex items-center gap-1.5">
+                  <Input
+                    className="flex-1"
+                    placeholder="ワークスペース相対パス（例: docs/how-to.md）。text と両方あれば text 優先"
+                    value={implPathDraft}
+                    disabled={node.fixed}
+                    onFocus={() => setImplPathFocused(true)}
+                    onChange={(e) => setImplPathDraft(e.target.value)}
+                    onBlur={saveImplPath}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    }}
+                  />
+                  {/* GitHub リンク（2026-08-07 本人要望「手順書のパスの右側にアイコンリンク」）。
+                      ワークスペースの remote が GitHub のときだけ出る */}
+                  {githubBase && node.impl.path && (
+                    <a
+                      href={`${githubBase}/${node.impl.path.split("/").map(encodeURIComponent).join("/")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-shrink-0 text-text-lo transition-colors hover:text-foreground"
+                      title="GitHub でこの手順書を開く"
+                    >
+                      <ExternalLink className="size-4" />
+                    </a>
+                  )}
+                </span>
                 {/* 手順書の本文は長くなりがち。field-sizing-content の伸び放題を止めて
                     内部スクロールにする（detail 欄と同じ理由。2026-08-02） */}
                 <Textarea

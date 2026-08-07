@@ -172,6 +172,7 @@ export function systemPrompt(
       ? ["全プロジェクト一覧（横断ビュー。中身は必要なら get_state / state_get で取得）:", ...overviewLines]
       : []),
     "ノードの impl.path やユーザーが言及したドキュメントは、読んでいいか確認を求めず、先に読んでから（Read / read_file ツール）内容を踏まえて答えること。",
+    "メッセージ中の「[添付ファイル: <パス>]」はユーザーが添付したファイル。確認を求めず Read で読んで内容を踏まえること（画像も Read で見られる）。",
     "スクリプト化を頼まれたら: 言語は **Node.js（.mjs）か Python（.py）を優先**する（ps1/bat 等のOS依存スクリプトは避ける。クロスプラットフォームで動くこと）。**スクリプトノードに手順書（doc の .md）は作らない・残さない——スクリプト本体が唯一の実装**（2026-08-07 本人方針「スクリプトノードはスクリプトだけでいい」）。やり方の知識（前提・注意点・エッジケース・実行例）はスクリプト冒頭のヘッダコメントに書く。既存の手順書をスクリプト化するときは、その知識をヘッダコメントへ移してから impl を script に切り替える（doc へ戻したり併記したりしない）。置き場所は、関連する既存フォルダがあればそこ（旧手順書と同じフォルダ・同じ番号接頭辞。例: 00_作品概要決定/01_フォルダ作成.mjs）、無ければ scripts/ 配下。**引数が要る場合は impl.params に {name, example} を宣言し、command には {name} プレースホルダを使う（値は人間がパネルで入力する。宣言だけ書けばよく value は書かない）**。**スクリプトは必ず --dry-run を実装すること（何も変えず、やる予定の操作を列挙するだけで出力して終わる）——試走ボタンは常に --dry-run 付きで実行される**。書いたら（Write/Edit）ノードの impl を {type:\"script\", command:\"node 00_作品概要決定/01_フォルダ作成.mjs {target}\" のようにワークスペースルートからの相対パス、params:[{name:\"target\", example:\"...\"}]} で接続し、最後に「パネルの試走ボタンで動作確認してください」と案内すること（実行は自分ではしない）。",
     "detail（概要）は**人間向けの平易な2〜3行**に留めること。コマンドのフラグ・環境変数・パス・エッジケースの羅列など技術詳細は detail に書かず、手順書（.md）やスクリプトのコメントに置くか、スレッドへの発言として残す。detail に書くのは「何をするか」「人が気を付けること」だけ。",
     "勝手に大量のノードを作らず、分解は3〜8個の人間粒度で行うこと。",
@@ -217,6 +218,8 @@ function buildTools(
         executor: ExecutorSchema.optional(),
         approval: z.boolean().optional(),
         autonomy: AutonomySchema.optional(),
+        aiModel: z.string().nullable().optional(),
+        aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().optional(),
         lifecycle: LifecycleSchema.optional(),
         status: StatusSchema.optional(),
         assignee: z.string().nullable().optional(),
@@ -238,6 +241,8 @@ function buildTools(
         executor: ExecutorSchema.optional(),
         approval: z.boolean().optional(),
         autonomy: AutonomySchema.optional(),
+        aiModel: z.string().nullable().optional(),
+        aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().optional(),
         lifecycle: LifecycleSchema.optional(),
         status: StatusSchema.optional(),
         assignee: z.string().nullable().optional(),
@@ -284,6 +289,10 @@ export interface ChatRequestBody {
   pageId?: string | null;
   /** UI で選択中のノード（「これ」の解決用） */
   selectedNodeId?: string | null;
+  /** この会話でのモデル上書き（ChatDrawer のセレクタ。null/省略 = 設定の既定。2026-08-07） */
+  model?: string | null;
+  /** 同エフォート上書き（CLI モードの --effort。API モードでは無視） */
+  effort?: string | null;
 }
 
 /** POST /api/chat のハンドラ本体。呼び出し側（index.ts）が chatKeyMissing() を先に見て 400 を返す */

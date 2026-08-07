@@ -329,6 +329,21 @@ function AppInner() {
         // トースト表示済み。設定は開かないままにする
       });
   }, []);
+  // ⚙ で開くときは必ずサーバから最新を取り直す（2026-08-07「Discord 通知の設定がよく
+  // 元に戻る」対策）。settings は起動時に一度読むだけなので、タブを開きっぱなしのまま
+  // 別の端末で設定を変えると、古い値で初期化された設定画面の「保存」が全項目を
+  // 書き戻して巻き戻していた。開く直前に取り直せばこの経路は消える
+  const openSettings = useCallback(() => {
+    api
+      .getSettings()
+      .then((s) => {
+        setSettings(s);
+        setSettingsOpen(true);
+      })
+      .catch(() => {
+        // 取得失敗（トースト表示済み）。古い値で開くと巻き戻りの原因になるので開かない
+      });
+  }, []);
 
   const handleMutated = useCallback(() => {
     refresh();
@@ -438,7 +453,7 @@ function AppInner() {
             ? setMobileView((v) => (v === "chat" ? "graph" : "chat"))
             : setChatOpen((v) => !v)
         }
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={openSettings}
         onUndo={handleUndo}
         onCaptureGoal={handleCaptureGoal}
       />

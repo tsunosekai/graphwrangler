@@ -28,6 +28,8 @@ function node(partial: Partial<Node> = {}): Node {
     executor: partial.executor ?? "ai",
     approval: partial.approval ?? false,
     autonomy: partial.autonomy ?? "normal",
+    aiModel: partial.aiModel ?? null,
+    aiEffort: partial.aiEffort ?? null,
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending",
     fixed: partial.fixed ?? false,

@@ -133,6 +133,8 @@ export function collectDescendantsAmong(nodes: Node[], id: string): Set<string> 
 // 操作なので常に変更できる（許可リストではなく、保護リストに載っていないもの全て、という形で表す）。
 // folder/order（左レールの整理棚と並び順。2026-08-05）も保護しない — どこにどの順で
 // 並べて見せるかは「やり方」ではないので、Fix 済みのページも片付けられる。
+// aiModel/aiEffort（2026-08-07）も保護しない — どのモデル・エフォートで走らせるかは
+// params[].value と同じ実行時チューニングであり、「やり方」ではない。
 
 const FIXED_PROTECTED_SIMPLE_FIELDS = [
   "title",

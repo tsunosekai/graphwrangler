@@ -33,6 +33,21 @@ const MAX_HISTORY_MESSAGES = 20; // 「最大10往復」= user+assistant で20�
  *  実行前承認（approval）・試走（--dry-run）・人間との会話で担保する。
  *  --dangerously-skip-permissions を使わない方針は不変（許可は常にこのリストで明示）。
  *  engine/src/executors/claude.ts の ALLOWED_TOOLS と同じ内容（変えたら両方直す） */
+/** --effort に渡せる値（claude CLI の思考の深さ。2026-08-07 モデル/エフォート切替） */
+export const CLI_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+/** リクエスト由来のモデル名のサニタイズ（"-" 始まり等のフラグ混入・空白を拒否）。
+ *  不正・空なら null（= 設定の既定を使う） */
+export function sanitizeModelOverride(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(v) ? v : null;
+}
+
+/** リクエスト由来のエフォートのサニタイズ。既知の値以外は null（= 設定の既定） */
+export function sanitizeEffortOverride(v: unknown): string | null {
+  return typeof v === "string" && (CLI_EFFORT_LEVELS as readonly string[]).includes(v) ? v : null;
+}
+
 export const DEFAULT_CLI_TOOLS = [
   "Read",
   "Grep",
@@ -373,6 +388,8 @@ function runCli(
   extraTools: string[] = [],
   addDirs: string[] = [],
   signal?: AbortSignal,
+  /** --effort（思考の深さ）。null = 指定しない（CLI 既定。2026-08-07） */
+  effort: string | null = null,
 ): Promise<void> {
   return new Promise((resolve) => {
     // 切断済み controller への enqueue はサーバを落とすので必ず握りつぶす（emitStreamJsonLine と同じ理由）
@@ -419,6 +436,8 @@ function runCli(
       "-p",
       "--model",
       cliModel,
+      // エフォート（思考の深さ）。null なら CLI の既定に任せる（2026-08-07 切替機能）
+      ...(effort ? ["--effort", effort] : []),
       "--mcp-config",
       q(mcpConfigFile),
       "--allowedTools",
@@ -530,10 +549,17 @@ export function handleChatCli(
   serverPort: number,
   /** リクエストの中断シグナル（UI の「停止」＝ fetch の abort）。claude を木ごと落とすのに使う */
   signal?: AbortSignal,
+  /** 添付ファイル置き場（2026-08-07）。--add-dir に足して Read で読めるようにする */
+  attachmentsDir?: string,
 ): Response {
   const pageId = body.pageId ?? null;
-  const { cliPath, cliModel, cliExtraTools } = settings.get().chat;
-  const { addDirs } = settings.get().ai;
+  const { cliPath, cliModel, cliEffort, cliExtraTools } = settings.get().chat;
+  const { addDirs: settingsAddDirs } = settings.get().ai;
+  const addDirs = attachmentsDir ? [...settingsAddDirs, attachmentsDir] : settingsAddDirs;
+  // この会話でのモデル/エフォート上書き（ChatDrawer のセレクタ → body。2026-08-07）。
+  // 不正値はサニタイズで落ちて設定の既定に戻る
+  const model = sanitizeModelOverride(body.model) ?? cliModel;
+  const effort = sanitizeEffortOverride(body.effort) ?? cliEffort;
   const system = [
     systemPrompt(graph, threads, pageId, body.selectedNodeId ?? null),
     "グラフの操作（ノード作成・更新・削除・スレッド投稿等）は graphwrangler の MCP ツールで行うこと。",
@@ -565,7 +591,7 @@ export function handleChatCli(
       }
       runCli(
         cliPath,
-        cliModel,
+        model,
         prompt,
         system,
         graph.workspaceInfo().root ?? os.tmpdir(),
@@ -575,6 +601,7 @@ export function handleChatCli(
         cliExtraTools,
         addDirs,
         stopper.signal,
+        effort,
       ).catch((err) => {
         try {
           controller.enqueue(

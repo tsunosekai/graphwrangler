@@ -115,6 +115,8 @@ export function runPlainClaude(
   /** 中断シグナル（UI の「停止」。2026-08-05）。落ちたら claude を木ごと殺して
    *  cancelled:true で返す */
   signal?: AbortSignal,
+  /** --effort（思考の深さ）。null = CLI 既定（2026-08-07 モデル/エフォート切替） */
+  effort: string | null = null,
 ): Promise<PlainCliResult> {
   return new Promise((resolve) => {
     // chat_cli.ts と同じフルセットを許可（2026-08-03 権限拡張。それまでは読み取り専用だった）。
@@ -124,6 +126,7 @@ export function runPlainClaude(
       "-p",
       "--model",
       cliModel,
+      ...(effort ? ["--effort", effort] : []),
       "--allowedTools",
       ...DEFAULT_CLI_TOOLS,
       ...extraTools.filter((t) => !t.startsWith("-")),
@@ -294,15 +297,19 @@ async function respondInThread(
   let modelLabel: string;
 
   if (chat.mode === "cli") {
-    modelLabel = chat.cliModel;
+    // ノード側の aiModel/aiEffort が設定の既定より優先（2026-08-07 モデル/エフォート切替）
+    const model = node.aiModel ?? chat.cliModel;
+    const effort = node.aiEffort ?? chat.cliEffort;
+    modelLabel = model;
     const result = await runPlainClaude(
       chat.cliPath,
-      chat.cliModel,
+      model,
       prompt,
       graph.workspaceInfo().root ?? os.tmpdir(),
       chat.cliExtraTools,
       settings.get().ai.addDirs,
       signal,
+      effort,
     );
     if (result.cancelled) return; // 人間が止めた（失敗ではないのでスレッドには書かない）
     if (!result.success) {

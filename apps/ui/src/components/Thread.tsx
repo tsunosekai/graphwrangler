@@ -224,7 +224,7 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
         {aiBusy && (
           <div className="flex items-center gap-1.5 self-start px-1 py-1 text-sm text-text-lo">
             <span className="animate-pulse">✳</span>
-            <span>{aiQueued ? "考え中（追い打ちは応答後に届きます）" : "考え中"}</span>
+            <span>{aiQueued ? "考え中（続きの返信は応答後に届きます）" : "考え中"}</span>
             <span className="inline-flex items-center gap-0.5">
               <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "0ms" }} />
               <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "150ms" }} />
@@ -254,7 +254,7 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
               // 応答中でも書ける（追い打ち）。届くのは今の応答が終わってから（サーバ側で
               // 予約され、増えた発言込みでもう一度応答する。2026-08-05）
               aiBusy
-                ? "追い打ちで話しかける…（応答が終わってから届きます）"
+                ? "続けて入力…（応答が終わってから届きます）"
                 : openRequests.length > 0
                   ? "聞き返す・相談する…（Enter で送信 / Shift+Enter で改行）"
                   : "返信…（Enter で送信 / Shift+Enter で改行）"

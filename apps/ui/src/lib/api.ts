@@ -87,6 +87,8 @@ export interface SettingsView {
     keySource: "settings" | "env" | "none";
     cliPath: string;
     cliModel: string;
+    /** CLI モードの --effort（思考の深さ）。null = CLI 既定（2026-08-07） */
+    cliEffort: "low" | "medium" | "high" | "xhigh" | "max" | null;
     /** GraphWrangler AI / Task AI（CLIモード）の --allowedTools に追記するツール。
      *  既定でフルセット（Bash 等）が許可済みのため、MCP ツール等を足す用途 */
     cliExtraTools: string[];
@@ -96,6 +98,8 @@ export interface SettingsView {
     mode: "cli" | "api";
     cliPath: string;
     model: string;
+    /** --effort（思考の深さ）。null = CLI 既定（2026-08-07） */
+    effort: "low" | "medium" | "high" | "xhigh" | "max" | null;
     extraArgs: string[];
     /** 実行AI（CLIモード）の --allowedTools に追記するツール（既定フルセットに足す形） */
     cliExtraTools: string[];
@@ -119,14 +123,22 @@ export interface SettingsView {
     autoApply: boolean;
     intervalMin: number;
   };
-  /** 「あなたの番」の Discord Webhook 通知（2026-08-07）。URL は書き込み専用で有無だけ返る */
+  /** 「あなたの番」の Discord Webhook 通知（2026-08-07）。URL は書き込み専用で有無だけ返る。
+   *  個別の受け取り設定はユーザーごとの UserSettings 側（設定はユーザー/全体で分離） */
   notify: {
     discordEnabled: boolean;
     hasDiscordWebhook: boolean;
-    /** Task AI の返信完了も通知するか（2026-08-07） */
-    discordAiReplies: boolean;
   };
   setupDone: boolean;
+}
+
+/** GET/PUT /api/me/settings（ユーザーごとの設定。2026-08-07「設定はユーザーごとと全体で分けて」）。
+ *  未ログイン運用では "default" 1枠に畳まれる。書き込みは即時反映（保存ボタン不要） */
+export interface UserSettings {
+  /** 自分の番（判断リクエスト・ラン待ち）の Discord メンション通知を受け取るか */
+  discordTurnNotify: boolean;
+  /** Task AI がスレッドへ返信し終えたときの Discord 通知を受け取るか */
+  discordAiReplies: boolean;
 }
 
 /** GET /api/update（packages/server/src/selfupdate.ts の UpdateStatus と同形） */
@@ -157,12 +169,14 @@ export interface SettingsPatch {
     apiKey?: string | null;
     cliPath?: string;
     cliModel?: string;
+    cliEffort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
     cliExtraTools?: string[];
   };
   engine?: {
     mode?: "cli" | "api";
     cliPath?: string;
     model?: string;
+    effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
     extraArgs?: string[];
     cliExtraTools?: string[];
     apiModel?: string | null;
@@ -171,7 +185,7 @@ export interface SettingsPatch {
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
   /** discordWebhookUrl は apiKey と同じ書き込み専用3値（undefined=維持 / null=削除 / string=設定） */
-  notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null; discordAiReplies?: boolean };
+  notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null };
   setupDone?: boolean;
 }
 
@@ -425,6 +439,18 @@ export const api = {
 
   updateSettings: (patch: SettingsPatch) =>
     request<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
+
+  // ---- ユーザーごとの設定（2026-08-07「設定はユーザーごとと全体で分けて」） ----
+
+  getMySettings: () => request<UserSettings>("/me/settings"),
+
+  updateMySettings: (patch: Partial<UserSettings>) =>
+    request<UserSettings>("/me/settings", { method: "PUT", body: JSON.stringify(patch) }),
+
+  // ---- ワークスペース情報（手順書パスの GitHub リンク等） ----
+
+  getWorkspaceInfo: () =>
+    request<{ mode: string; root: string | null; githubBlobBase: string | null }>("/workspace"),
 
   // ---- 本体の自動アップデート（packages/server/src/selfupdate.ts。2026-08-05） ----
   // 更新の有無はヘッダーの表示にも使うので、取得失敗はトーストせず null へ degrade する

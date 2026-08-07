@@ -5,7 +5,13 @@
 // 入力欄を出し分ける（docs/design.md: LLM選択は「APIキーの差し替え」でなく
 // 「エージェントごと差し替え」。2026-07-29 本人フィードバック「どっちを使う設定か分からない」対応）。
 import { useEffect, useState } from "react";
-import { api, type SettingsPatch, type SettingsView, type UpdateStatus } from "../lib/api";
+import {
+  api,
+  type SettingsPatch,
+  type SettingsView,
+  type UpdateStatus,
+  type UserSettings,
+} from "../lib/api";
 import { hintsEnabled, resetHints, setHintsEnabled, useHintsVersion } from "../lib/hints";
 import { pushToast } from "../lib/toast";
 import { useTheme, type ThemeMode } from "../lib/theme";
@@ -57,6 +63,34 @@ function CliModelSelect({ value, onChange }: { value: string; onChange: (v: stri
   );
 }
 
+// エフォート（思考の深さ。claude CLI の --effort）の選択肢（2026-08-07 モデル/エフォート切替）
+const EFFORT_OPTIONS = [
+  { value: "default", label: "既定（CLIに任せる）" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "xhigh", label: "特高" },
+  { value: "max", label: "最大" },
+];
+
+type EffortValue = "low" | "medium" | "high" | "xhigh" | "max" | null;
+
+function EffortSelect({ value, onChange }: { value: EffortValue; onChange: (v: EffortValue) => void }) {
+  return (
+    <Select
+      value={value ?? "default"}
+      onValueChange={(v) => onChange(v === "default" ? null : (v as EffortValue))}
+    >
+      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        {EFFORT_OPTIONS.map((o) => (
+          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 const CHAT_MODE_DESC: Record<ChatMode, string> = {
   api: "APIキーで直接呼び出します。",
   cli: "claude -p 等のログイン済みCLIを使います。APIキー不要。",
@@ -76,11 +110,13 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [editingKey, setEditingKey] = useState(!settings.chat.hasApiKey);
   const [chatCliPath, setChatCliPath] = useState(settings.chat.cliPath);
   const [chatCliModel, setChatCliModel] = useState(settings.chat.cliModel);
+  const [chatCliEffort, setChatCliEffort] = useState<EffortValue>(settings.chat.cliEffort ?? null);
   const [chatCliExtraTools, setChatCliExtraTools] = useState(settings.chat.cliExtraTools.join(" "));
 
   const [engineMode, setEngineMode] = useState<EngineMode>(settings.engine.mode);
   const [cliPath, setCliPath] = useState(settings.engine.cliPath);
   const [engineModel, setEngineModel] = useState(settings.engine.model);
+  const [engineEffort, setEngineEffort] = useState<EffortValue>(settings.engine.effort ?? null);
   const [extraArgs, setExtraArgs] = useState(settings.engine.extraArgs.join(" "));
   const [engineCliExtraTools, setEngineCliExtraTools] = useState(
     settings.engine.cliExtraTools.join(" "),
@@ -132,9 +168,32 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   // Discord Webhook 通知（2026-08-07。こちらはサーバ設定＝タブを閉じていても届く）。
   // URL は APIキーと同じ書き込み専用: 有無だけ受け取り、値は「変更」を押したときだけ送る
   const [discordEnabled, setDiscordEnabled] = useState(settings.notify?.discordEnabled ?? false);
-  // Task AI の返信完了も通知するか（2026-08-07「通知が来ない」対応。既定ON）
-  const [discordAiReplies, setDiscordAiReplies] = useState(settings.notify?.discordAiReplies ?? true);
   const [webhookUrl, setWebhookUrl] = useState("");
+
+  // ユーザーごとの設定（2026-08-07「設定はユーザーごとと全体で分けて」）。
+  // 読み込みはマウント時、書き込みはトグルの瞬間に即時反映（「保存」を経由しない＝
+  // 古い設定画面の保存で巻き戻らない）
+  const [mySettings, setMySettings] = useState<UserSettings | null>(null);
+  useEffect(() => {
+    void api
+      .getMySettings()
+      .then(setMySettings)
+      .catch(() => {
+        // 旧サーバには /api/me/settings が無い。ユーザー設定欄は「読み込めません」表示のまま
+      });
+  }, []);
+  const patchMySettings = (patch: Partial<UserSettings>) => {
+    if (mySettings) setMySettings({ ...mySettings, ...patch }); // 楽観更新
+    void api
+      .updateMySettings(patch)
+      .then(setMySettings)
+      .catch(() => {
+        // api() 側でトースト表示済み。次回読み込みでサーバ値に戻る
+      });
+  };
+
+  // 設定タブ（2026-08-07）: user = 自分だけに効く設定（即時保存）/ global = インスタンス全体
+  const [tab, setTab] = useState<"user" | "global">(forced ? "global" : "global");
   const [editingWebhook, setEditingWebhook] = useState(!(settings.notify?.hasDiscordWebhook ?? false));
   const [testingNotify, setTestingNotify] = useState(false);
   const testNotify = async () => {
@@ -181,12 +240,14 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           model: model.trim() || null,
           cliPath: chatCliPath.trim() || "claude",
           cliModel: chatCliModel.trim() || "opus",
+          cliEffort: chatCliEffort,
           cliExtraTools: chatCliExtraTools.trim() ? chatCliExtraTools.trim().split(/\s+/) : [],
         },
         engine: {
           mode: engineMode,
           cliPath: cliPath.trim() || "claude",
           model: engineModel.trim() || "opus",
+          effort: engineEffort,
           extraArgs: extraArgs.trim() ? extraArgs.trim().split(/\s+/) : [],
           cliExtraTools: engineCliExtraTools.trim() ? engineCliExtraTools.trim().split(/\s+/) : [],
           apiModel: engineApiModel.trim() || null,
@@ -203,7 +264,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           autoApply: updAutoApply,
           intervalMin: Math.min(1440, Math.max(5, parseInt(updIntervalMin, 10) || 60)),
         },
-        notify: { discordEnabled, discordAiReplies },
+        notify: { discordEnabled },
         setupDone: true,
       };
       if (editingKey) patch.chat = { ...patch.chat, apiKey: apiKey.trim() || null };
@@ -252,6 +313,29 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <div className="mx-auto flex w-full max-w-xl flex-col gap-3.5">
 
+        {/* ユーザー / 全体のタブ（2026-08-07「設定はユーザーごとと全体で分けて」）。
+            ユーザータブは自分だけに効く設定（即時保存）、全体タブはインスタンス全体の設定
+            （下の「保存」で反映） */}
+        {!forced && (
+          <div className="flex gap-1 rounded-md border border-border p-1 text-sm">
+            <button
+              type="button"
+              className={`flex-1 rounded-sm px-3 py-1 transition-colors ${tab === "global" ? "bg-muted font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setTab("global")}
+            >
+              全体
+            </button>
+            <button
+              type="button"
+              className={`flex-1 rounded-sm px-3 py-1 transition-colors ${tab === "user" ? "bg-muted font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setTab("user")}
+            >
+              ユーザー
+            </button>
+          </div>
+        )}
+
+        {(forced || tab === "global") && (<>
         <section className={section}>
           <h3 className={heading}>チャットAI（GraphWrangler AI）</h3>
           <label className={field}>
@@ -323,6 +407,10 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
                 <CliModelSelect value={chatCliModel} onChange={setChatCliModel} />
               </label>
               <label className={field}>
+                <span>エフォート（思考の深さ）</span>
+                <EffortSelect value={chatCliEffort} onChange={setChatCliEffort} />
+              </label>
+              <label className={field}>
                 <span>追加許可ツール</span>
                 <Input
                   value={chatCliExtraTools}
@@ -361,6 +449,10 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
               <label className={field}>
                 <span>モデル</span>
                 <CliModelSelect value={engineModel} onChange={setEngineModel} />
+              </label>
+              <label className={field}>
+                <span>エフォート（思考の深さ）</span>
+                <EffortSelect value={engineEffort} onChange={setEngineEffort} />
               </label>
               <label className={field}>
                 <span>追加引数</span>
@@ -504,6 +596,59 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           )}
         </section>
 
+        {/* 通知（インスタンス全体）: webhook は全員共通のチャンネル設定なのでこちら側。
+            受け取るかどうかの個人設定はユーザータブ（2026-08-07 分離） */}
+        <section className={section}>
+          <h3 className={heading}>通知（Discord・全体）</h3>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch checked={discordEnabled} onCheckedChange={setDiscordEnabled} />
+            <span>Discord 通知を有効にする（インスタンス全体の親スイッチ）</span>
+          </label>
+          <label className={field}>
+            <span>Discord Webhook URL</span>
+            {editingWebhook ? (
+              <Input
+                type="password"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                placeholder="https://discord.com/api/webhooks/..."
+              />
+            ) : (
+              <span className="flex items-center gap-2 text-sm text-foreground">
+                設定済み（●●●）
+                <Button type="button" variant="outline" size="sm" onClick={() => setEditingWebhook(true)}>
+                  変更
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={removeWebhook}>
+                  削除
+                </Button>
+                <Button type="button" variant="outline" size="sm" disabled={testingNotify} onClick={() => void testNotify()}>
+                  テスト送信
+                </Button>
+              </span>
+            )}
+          </label>
+          <p className={desc}>
+            通知先チャンネルの設定 → 連携サービス → ウェブフックで URL を発行して貼り付け、下の「保存」で反映されます。
+            担当者が付いたノードはその人をメンション（ユーザー管理で Discord ID を登録）、担当者なしは
+            @here で全員に届きます。受け取るかどうかの個人設定はユーザータブにあります
+          </p>
+        </section>
+
+        <section className={section}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => window.open("/api/export")}
+          >
+            データをエクスポート
+          </Button>
+        </section>
+        </>)}
+
+        {!forced && tab === "user" && (<>
         <section className={section}>
           <h3 className={heading}>表示</h3>
           {/* テーマはヘッダーのアイコンから設定内へ移動（2026-08-02 本人指示
@@ -547,72 +692,41 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           </Button>
         </section>
 
+        {/* 通知（あなた宛）: 自分だけに効く受け取り設定（2026-08-07 分離）。
+            Discord の2つはサーバのユーザー別設定で、切り替えの瞬間に保存される */}
         <section className={section}>
-          <h3 className={heading}>通知</h3>
+          <h3 className={heading}>通知（あなた宛）</h3>
           <label className="flex items-center gap-2 text-sm text-foreground">
             <Switch checked={notifyEnabled} onCheckedChange={toggleNotify} />
             <span>あなたの番が来たらデスクトップ通知</span>
           </label>
           <p className={desc}>デスクトップ通知はこのブラウザのタブが開いている間だけ届きます</p>
-
-          {/* Discord Webhook（2026-08-07 本人要望）。サーバから送るのでタブを閉じていても届く。
-              担当者ありは <@discordId> メンション（ユーザー管理で ID を登録）、担当者なしは @here */}
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <Switch checked={discordEnabled} onCheckedChange={setDiscordEnabled} />
-            <span>あなたの番が来たら Discord に通知（メンション付き）</span>
-          </label>
-          {/* Task AI の返信完了通知（2026-08-07）。相談中心の使い方だと「あなたの番」系の
-              イベントがほぼ発生せず通知が一度も来ない——返信完了を既定ONで拾う */}
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <Switch
-              checked={discordAiReplies}
-              onCheckedChange={setDiscordAiReplies}
-              disabled={!discordEnabled}
-            />
-            <span>Task AI がスレッドに返信し終えたときも通知</span>
-          </label>
-          <label className={field}>
-            <span>Discord Webhook URL</span>
-            {editingWebhook ? (
-              <Input
-                type="password"
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
-                placeholder="https://discord.com/api/webhooks/..."
-              />
-            ) : (
-              <span className="flex items-center gap-2 text-sm text-foreground">
-                設定済み（●●●）
-                <Button type="button" variant="outline" size="sm" onClick={() => setEditingWebhook(true)}>
-                  変更
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={removeWebhook}>
-                  削除
-                </Button>
-                <Button type="button" variant="outline" size="sm" disabled={testingNotify} onClick={() => void testNotify()}>
-                  テスト送信
-                </Button>
-              </span>
-            )}
-          </label>
-          <p className={desc}>
-            通知先チャンネルの設定 → 連携サービス → ウェブフックで URL を発行して貼り付け、下の「保存」で反映されます。
-            担当者が付いたノードはその人をメンション（ユーザー管理で Discord ID を登録）、担当者なしは
-            @here で全員に届きます
-          </p>
+          {mySettings ? (
+            <>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <Switch
+                  checked={mySettings.discordTurnNotify}
+                  onCheckedChange={(v) => patchMySettings({ discordTurnNotify: v })}
+                />
+                <span>自分の番が来たら Discord に通知（メンション付き）</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <Switch
+                  checked={mySettings.discordAiReplies}
+                  onCheckedChange={(v) => patchMySettings({ discordAiReplies: v })}
+                />
+                <span>Task AI がスレッドに返信し終えたときも通知</span>
+              </label>
+              <p className={desc}>
+                切り替えは即時保存されます。届くには全体タブで Discord 通知（親スイッチ）と
+                Webhook URL が設定されている必要があります
+              </p>
+            </>
+          ) : (
+            <p className={desc}>Discord の個人設定を読み込み中…</p>
+          )}
         </section>
-
-        <section className={section}>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="self-start"
-            onClick={() => window.open("/api/export")}
-          >
-            データをエクスポート
-          </Button>
-        </section>
+        </>)}
 
         <div className="flex justify-end gap-2 pt-1.5">
           {forced && (
@@ -620,9 +734,12 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
               あとで設定
             </Button>
           )}
-          <Button type="button" className="text-primary-foreground" onClick={save} disabled={saving}>
-            保存
-          </Button>
+          {/* ユーザータブは即時保存なので「保存」は全体タブのときだけ出す */}
+          {(forced || tab === "global") && (
+            <Button type="button" className="text-primary-foreground" onClick={save} disabled={saving}>
+              保存
+            </Button>
+          )}
         </div>
         </div>
       </div>

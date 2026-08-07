@@ -26,6 +26,8 @@ function node(partial: Partial<Node> = {}): Node {
     executor: partial.executor ?? "script",
     approval: partial.approval ?? false,
     autonomy: partial.autonomy ?? "normal",
+    aiModel: partial.aiModel ?? null,
+    aiEffort: partial.aiEffort ?? null,
     lifecycle: partial.lifecycle ?? "committed",
     status: partial.status ?? "pending", // テンプレート自身のstatusはランには関係しない
     fixed: partial.fixed ?? false,

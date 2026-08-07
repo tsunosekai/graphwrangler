@@ -143,6 +143,12 @@ export const NodeSchema = z.object({
   approval: z.boolean().default(false),
   /** AI executor の自律度。既存データ互換のため default "normal"（旧データには無いフィールド） */
   autonomy: AutonomySchema.default("normal"),
+  /** このノードのAI（実行AI・Task AI）が使うモデルの上書き（例: "opus" "sonnet" "haiku"）。
+   *  null = 設定（engine.model / chat.cliModel）の既定に従う（2026-08-07 本人要望
+   *  「AI実行ノードとAI会話のモデルとエフォートを切り替えられるように」）。既存データ互換で default null */
+  aiModel: z.string().nullable().default(null),
+  /** 同エフォート（思考の深さ。claude CLI の --effort）。null = 設定の既定に従う */
+  aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().default(null),
   lifecycle: LifecycleSchema,
   status: StatusSchema,
   /** Fix フラグ（= Houdini のロック）。true = やり方が確定し、AIは impl を書き換えない。
@@ -194,6 +200,8 @@ export const NodeInputSchema = z.object({
   executor: ExecutorSchema.default("human"),
   approval: z.boolean().default(false),
   autonomy: AutonomySchema.default("normal"),
+  aiModel: z.string().nullable().default(null),
+  aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().default(null),
   lifecycle: LifecycleSchema.default("draft"),
   status: StatusSchema.default("pending"),
   fixed: z.boolean().default(false),

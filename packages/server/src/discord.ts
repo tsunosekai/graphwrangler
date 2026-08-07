@@ -113,14 +113,14 @@ export function buildAiReplyMessage(
   };
 }
 
-/** Task AI 返信通知の投げっぱなし版。discordEnabled が親スイッチ、
- *  discordAiReplies がこの通知の個別スイッチ */
+/** Task AI 返信通知の投げっぱなし版。discordEnabled（全体設定）が親スイッチ。
+ *  受け取るかどうかの個人設定（user_settings.ts の discordAiReplies）は呼び出し側が見る */
 export function notifyAiReply(
-  cfg: { discordEnabled: boolean; discordWebhookUrl: string | null; discordAiReplies: boolean },
+  cfg: { discordEnabled: boolean; discordWebhookUrl: string | null },
   users: NotifyUser[],
   notice: { assignee: string | null | undefined; title: string; snippet: string },
 ): void {
-  if (!cfg.discordEnabled || !cfg.discordAiReplies || !cfg.discordWebhookUrl) return;
+  if (!cfg.discordEnabled || !cfg.discordWebhookUrl) return;
   const message = buildAiReplyMessage(notice.assignee, users, notice.title, notice.snippet);
   void sendDiscordWebhook(cfg.discordWebhookUrl, message).catch((err) => {
     console.error(`[discord] Task AI 返信通知に失敗: ${String(err)}`);

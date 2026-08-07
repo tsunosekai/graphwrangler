@@ -86,6 +86,10 @@ export interface Node {
   approval: boolean;
   /** AI executor の自律度。AI以外の担当では使われない（値は常に持つ。既定 normal） */
   autonomy: Autonomy;
+  /** このノードのAI（実行AI・Task AI）のモデル上書き（例: opus/sonnet/haiku）。null=設定の既定 */
+  aiModel: string | null;
+  /** 同エフォート（思考の深さ）。null=設定の既定（2026-08-07） */
+  aiEffort: "low" | "medium" | "high" | "xhigh" | "max" | null;
   lifecycle: Lifecycle;
   status: NodeStatus;
   /** Fix（=ロック）。やり方が確定したか。AIは fixed ノードの impl を書き換えない */

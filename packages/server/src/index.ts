@@ -2,6 +2,7 @@
 // UI も MCP もエンジンも、全員がこの API（＝操作ログ）を通る。
 import path from "node:path";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -34,6 +35,7 @@ import {
   UpdateSettingsSchema,
 } from "./settings.js";
 import { notifyAiReply, notifyTurn, sendDiscordWebhook } from "./discord.js";
+import { UserPrefsSchema, UserSettingsStore } from "./user_settings.js";
 import { GitSync } from "./gitsync.js";
 import { SelfUpdate } from "./selfupdate.js";
 import { resolveWorkspacePath } from "./files.js";
@@ -89,7 +91,8 @@ function resolveCanonicalFile(rawPath: string): string {
 
 // users.json（パスワードハッシュ）と auth-secret（セッション署名鍵）は絶対にコミットさせない
 // （authDir = sidecar なので、この2行が無いとワークスペースモードで git に乗ってしまう）
-const GITIGNORE_CONTENT = "ops.jsonl\nruns/\nsettings.json\nreads.json\nusers.json\nauth-secret\n";
+const GITIGNORE_CONTENT =
+  "ops.jsonl\nruns/\nsettings.json\nuser-settings.json\nreads.json\nusers.json\nauth-secret\nattachments/\n";
 
 const workspaceArg = process.env.GRAPHWRANGLER_WORKSPACE ?? parseWorkspaceArg(process.argv.slice(2));
 
@@ -185,6 +188,40 @@ void selfUpdate.init().then(() => selfUpdate.start());
 // ユーザーが居なければ何も変わらない（zinsei の Tailscale 内・個人運用はログイン無しのまま）
 const usersFile = path.join(authDir, "users.json");
 const sessionSecret = ensureSecret(path.join(authDir, "auth-secret"));
+
+// ---- ユーザーごとの設定（user_settings.ts。2026-08-07「設定はユーザーごとと全体で分けて」）----
+// authDir と同じ場所（sidecar または dataDir）に user-settings.json として持つ
+const userSettings = new UserSettingsStore(authDir);
+
+// ---- チャットの添付ファイル（2026-08-07 本人要望「ファイル添付機能」）----
+// 置き場は sidecar/attachments（gitignore 済み＝**リポジトリには決して入らない**）。
+// AI はメッセージ中の「[添付ファイル: <絶対パス>]」を Read で読む。データは使い捨ての
+// 受け渡し場所なので、7日より古いものは自動削除する（重いデータを溜め込まない）
+const attachmentsDir = path.join(authDir, "attachments");
+const ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
+const ATTACHMENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+function pruneAttachments(): void {
+  let removed = 0;
+  try {
+    for (const name of fs.readdirSync(attachmentsDir)) {
+      const p = path.join(attachmentsDir, name);
+      try {
+        const st = fs.statSync(p);
+        if (st.isFile() && Date.now() - st.mtimeMs > ATTACHMENT_TTL_MS) {
+          fs.unlinkSync(p);
+          removed++;
+        }
+      } catch {
+        // 個別失敗は無視（次回また試す）
+      }
+    }
+  } catch {
+    return; // ディレクトリ未作成など
+  }
+  if (removed > 0) console.log(`[attachments] 期限切れの添付を削除: ${removed}件`);
+}
+pruneAttachments();
+setInterval(pruneAttachments, 24 * 60 * 60 * 1000).unref?.();
 
 // ---- GraphWrangler AI 会話履歴の保存/取得（UIMessage[] スナップショット。UI は 2026-08-02 から
 // キー "global" の1本だけを使う。エンドポイントはキー汎用のまま=旧ページ単位ファイルも読める） ----
@@ -662,9 +699,44 @@ app.get("/api/export", (c) => {
 
 // ---- ワークスペース=1ファイル化: 動作モード + ワークスペース内ファイルの参照 ----
 
-/** 現在の動作モード（workspace/datadir）を返す。GraphStore#workspaceInfo をそのまま公開する */
+/** ワークスペースの git remote が GitHub なら、手順書パスへのリンク基底
+ *  `https://github.com/<org>/<repo>/blob/<branch>` を返す（違えば null）。
+ *  NodePanel の impl.path 右のリンクアイコンが使う（2026-08-07 本人要望）。
+ *  起動時に1回だけ解決してキャッシュ（remote/branch は運用中ほぼ変わらない） */
+let githubBlobBase: string | null | undefined; // undefined = 未解決
+function resolveGithubBlobBase(): string | null {
+  if (githubBlobBase !== undefined) return githubBlobBase;
+  githubBlobBase = null;
+  const root = graph.workspaceInfo().root;
+  if (root) {
+    try {
+      const remote = execFileSync("git", ["-C", root, "remote", "get-url", "origin"], {
+        encoding: "utf8",
+        timeout: 5000,
+      }).trim();
+      // git@github.com:org/repo.git / https://github.com/org/repo(.git) の両形を受ける
+      const m =
+        remote.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/) ??
+        remote.match(/^https:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/);
+      if (m) {
+        const branch =
+          execFileSync("git", ["-C", root, "rev-parse", "--abbrev-ref", "HEAD"], {
+            encoding: "utf8",
+            timeout: 5000,
+          }).trim() || "main";
+        githubBlobBase = `https://github.com/${m[1]}/blob/${encodeURIComponent(branch)}`;
+      }
+    } catch {
+      // git が無い・remote 未設定などは「リンクなし」でよい
+    }
+  }
+  return githubBlobBase;
+}
+
+/** 現在の動作モード（workspace/datadir）を返す。GraphStore#workspaceInfo に
+ *  githubBlobBase（GitHub リンクの基底 URL。無ければ null）を添える */
 app.get("/api/workspace", (c) => {
-  return c.json(graph.workspaceInfo());
+  return c.json({ ...graph.workspaceInfo(), githubBlobBase: resolveGithubBlobBase() });
 });
 
 /** ワークスペース内のファイルを utf8 テキストとして読む。root（正データファイルの
@@ -868,8 +940,10 @@ app.post("/api/nodes/:id/messages", async (c) => {
     nodeId: id,
     kind: input.kind,
     actor: m.actor,
-    // Task AI の返信完了を Discord へ（2026-08-07「通知が来ない」対応。discord.ts 参照）
+    // Task AI の返信完了を Discord へ（2026-08-07「通知が来ない」対応。discord.ts 参照）。
+    // 受け取るかどうかは個人設定（担当者、未割当なら default 枠）で決める
     onReply: (node, replyText) => {
+      if (!userSettings.get(node.assignee ?? null).discordAiReplies) return;
       notifyAiReply(settings.get().notify, loadUsers(usersFile), {
         assignee: node.assignee,
         title: node.title || "（無題）",
@@ -902,12 +976,15 @@ app.post("/api/nodes/:id/request", async (c) => {
     { actor: { kind: "system" }, via: m.via },
   );
   // Discord 通知（あなたの番の発生源①: ボールが人間へ渡った瞬間。discord.ts 参照）。
-  // 投げっぱなし＝リクエスト処理をブロックしない
-  notifyTurn(settings.get().notify, loadUsers(usersFile), {
-    assignee: node.assignee,
-    title: node.title,
-    extra: `> ${request.question.slice(0, 200)}`,
-  });
+  // 投げっぱなし＝リクエスト処理をブロックしない。担当者が居るときはその人の
+  // 個人設定（discordTurnNotify）を尊重する（2026-08-07 ユーザー別設定）
+  if (!node.assignee || userSettings.get(node.assignee).discordTurnNotify) {
+    notifyTurn(settings.get().notify, loadUsers(usersFile), {
+      assignee: node.assignee,
+      title: node.title,
+      extra: `> ${request.question.slice(0, 200)}`,
+    });
+  }
   return c.json(message);
 });
 
@@ -1069,8 +1146,13 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
     });
   }
   // Discord 通知（あなたの番の発生源②: ワークアイテムが waiting へ遷移した瞬間。
-  // エンジンが人間タスクの順番到達で waiting を付ける経路もここを通る）
-  if (fromStatus !== "waiting" && toStatus === "waiting") {
+  // エンジンが人間タスクの順番到達で waiting を付ける経路もここを通る）。
+  // 担当者ありならその人の個人設定を尊重（2026-08-07 ユーザー別設定）
+  if (
+    fromStatus !== "waiting" &&
+    toStatus === "waiting" &&
+    (!node.assignee || userSettings.get(node.assignee).discordTurnNotify)
+  ) {
     notifyTurn(settings.get().notify, loadUsers(usersFile), {
       assignee: node.assignee,
       title: `${node.title}（ラン: ${run.title}）`,
@@ -1181,6 +1263,37 @@ app.post("/api/settings", async (c) => {
   const body = SettingsPatchSchema.parse(await c.req.json());
   settings.update(body);
   return c.json(settings.publicView());
+});
+
+// ---- チャットの添付ファイル（2026-08-07）----
+// multipart/form-data の file を attachments/（gitignore 済み）へ保存し、AI が Read で
+// 読める絶対パスを返す。7日で自動削除される（上の pruneAttachments）
+app.post("/api/chat/attachments", async (c) => {
+  const body = await c.req.parseBody();
+  const file = body.file;
+  if (!(file instanceof File)) {
+    throw new GraphError("file がありません（multipart/form-data で file を送ってください）", 400);
+  }
+  if (file.size > ATTACHMENT_MAX_BYTES) {
+    throw new GraphError("添付は 50MB までです", 413);
+  }
+  fs.mkdirSync(attachmentsDir, { recursive: true });
+  // 元のファイル名は表示用に保ちつつ、衝突・パス文字を避けた保存名にする
+  const safeName = file.name.replace(/[\\/:*?"<>|]/g, "_").slice(-80) || "file";
+  const stored = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}-${safeName}`;
+  const abs = path.join(attachmentsDir, stored);
+  fs.writeFileSync(abs, Buffer.from(await file.arrayBuffer()));
+  return c.json({ path: abs, name: file.name, size: file.size });
+});
+
+// ---- ユーザーごとの設定（2026-08-07「設定はユーザーごとと全体で分けて」）----
+// ログイン中ならそのメール、未ログイン（zinsei の一人運用）は "default" 1枠。
+// 書き込みは即時反映（全体設定の「保存」を経由しない＝古い画面の保存で巻き戻らない）
+app.get("/api/me/settings", (c) => c.json(userSettings.get(currentUserEmail())));
+
+app.put("/api/me/settings", async (c) => {
+  const patch = UserPrefsSchema.partial().parse(await c.req.json());
+  return c.json(userSettings.update(currentUserEmail(), patch));
 });
 
 /** Discord 通知のテスト送信（設定画面の「テスト送信」）。保存済みの Webhook URL で
@@ -1297,7 +1410,8 @@ app.post("/api/chat", async (c) => {
   // API なら生成要求ごと止める（2026-08-05。以前は裏で走り続けてグラフを書き換えていた）
   const signal = c.req.raw.signal;
   if (settings.get().chat.mode === "cli") {
-    return handleChatCli(graph, threads, settings, body, port, signal);
+    // attachmentsDir を --add-dir に足す: datadir モードでは添付置き場が cwd の外になるため
+    return handleChatCli(graph, threads, settings, body, port, signal, attachmentsDir);
   }
   const missing = chatKeyMissing(settings);
   if (missing) return c.json({ error: missing }, 400);
