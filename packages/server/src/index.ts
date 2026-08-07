@@ -940,6 +940,8 @@ app.post("/api/nodes/:id/messages", async (c) => {
     nodeId: id,
     kind: input.kind,
     actor: m.actor,
+    attachmentsDir, // [添付ファイル: <パス>] を Task AI が Read で読めるように
+
     // Task AI の返信完了を Discord へ（2026-08-07「通知が来ない」対応。discord.ts 参照）。
     // 受け取るかどうかは個人設定（担当者、未割当なら default 枠）で決める
     onReply: (node, replyText) => {

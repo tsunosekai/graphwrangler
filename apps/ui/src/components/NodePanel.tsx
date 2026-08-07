@@ -1970,6 +1970,12 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
         aiBusy={thread?.aiBusy ?? false}
         aiQueued={thread?.aiQueued ?? false}
         showReplyBox={tab === "talk"}
+        // 入力欄のモデル/エフォート切替（共通コンポーネント化 2026-08-07）。
+        // 変更はこのノードの aiModel/aiEffort として保存され、Task AI・実行AI 両方に効く
+        aiModel={node.aiModel}
+        aiEffort={node.aiEffort}
+        onAiModelChange={(v) => patch({ aiModel: v })}
+        onAiEffortChange={(v) => patch({ aiEffort: v as Node["aiEffort"] })}
         onMutated={() => {
           onMutated();
           refreshThread();

@@ -62,6 +62,7 @@ export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): stri
       "**必ずユーザーが話しかけてきた言語で書くこと**（日本語で話しかけられたら日本語）。",
     "話題は以下のタスクノードそのもの。作業ディレクトリのソースコードやリポジトリの話はしない。",
     "実装(impl)の path やドキュメントに言及するときは、読んでいいか確認を求めず Read で先に読んでから答えること。",
+    "メッセージ中の「[添付ファイル: <パス>]」はユーザーが添付したファイル。確認を求めず Read で読んで内容を踏まえること。",
     "",
     `ノード: ${node.title || "（無題）"}`,
   ];
@@ -256,6 +257,7 @@ async function respondInThread(
   node: Node,
   signal: AbortSignal,
   onReply?: (node: Node, replyText: string) => void,
+  attachmentsDir?: string,
 ): Promise<void> {
   const messages = threads.list(node.id);
   const last = messages[messages.length - 1];
@@ -301,13 +303,17 @@ async function respondInThread(
     const model = node.aiModel ?? chat.cliModel;
     const effort = node.aiEffort ?? chat.cliEffort;
     modelLabel = model;
+    // attachmentsDir を --add-dir に足す: datadir モードでは添付置き場が cwd の外（chat_cli と同じ）
+    const addDirs = attachmentsDir
+      ? [...settings.get().ai.addDirs, attachmentsDir]
+      : settings.get().ai.addDirs;
     const result = await runPlainClaude(
       chat.cliPath,
       model,
       prompt,
       graph.workspaceInfo().root ?? os.tmpdir(),
       chat.cliExtraTools,
-      settings.get().ai.addDirs,
+      addDirs,
       signal,
       effort,
     );
@@ -371,8 +377,10 @@ export function maybeTriggerThreadAi(params: {
   actor: Actor;
   /** 返信を書き終えたときに呼ばれる（Discord 通知等。2026-08-07）。失敗は無視してよい */
   onReply?: (node: Node, replyText: string) => void;
+  /** 添付ファイル置き場（--add-dir に足して Read で読めるようにする。2026-08-07） */
+  attachmentsDir?: string;
 }): void {
-  const { graph, threads, settings, nodeId, kind, actor, onReply } = params;
+  const { graph, threads, settings, nodeId, kind, actor, onReply, attachmentsDir } = params;
   if (!graph.has(nodeId)) return;
   const node = graph.get(nodeId);
   if (!shouldTriggerThreadAi({ kind, actor, pendingRequest: node.pendingRequest })) return;
@@ -383,7 +391,7 @@ export function maybeTriggerThreadAi(params: {
 
   const controller = new AbortController();
   runningThreadAi.set(nodeId, controller);
-  respondInThread(graph, threads, settings, node, controller.signal, onReply)
+  respondInThread(graph, threads, settings, node, controller.signal, onReply, attachmentsDir)
     .catch((err) => {
       if (controller.signal.aborted) return;
       console.error(`[thread-ai] node ${nodeId}: 予期しないエラー: ${String(err)}`);

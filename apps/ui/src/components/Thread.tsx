@@ -6,10 +6,10 @@ import { api } from "../lib/api";
 import { Linkify, mdComponents } from "../lib/linkify";
 import { displayNameOf, useTeam, type TeamUser } from "../lib/team";
 import { cn } from "../lib/utils";
-import type { MaterializedMessage } from "../types";
+import type { MaterializedMessage, Node } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Textarea } from "./ui/textarea";
+import { ChatComposer, ThinkingIndicator } from "./ChatComposer";
 import { DecisionCard } from "./DecisionCard";
 
 interface Props {
@@ -21,9 +21,15 @@ interface Props {
   unreadSince?: string | null;
   /** Task AI が応答生成中か（「考え中」表示。GraphWrangler AI＝ChatDrawer と同じ見た目にする） */
   aiBusy?: boolean;
-  /** 応答中に書いた追い打ちを受けて、終わり次第もう一度応答する予約があるか（2026-08-05） */
+  /** 応答中に書いた分を受けて、終わり次第もう一度応答する予約があるか（2026-08-05） */
   aiQueued?: boolean;
   showReplyBox: boolean;
+  /** このノードの AI モデル/エフォート（入力欄のセレクタ。変更はノードへ保存される。
+   *  2026-08-07 モデル/エフォート切替 + 入力欄共通化） */
+  aiModel?: string | null;
+  aiEffort?: Node["aiEffort"];
+  onAiModelChange?: (v: string | null) => void;
+  onAiEffortChange?: (v: string | null) => void;
   onMutated: () => void;
 }
 
@@ -60,7 +66,19 @@ function extractSources(payload: unknown): string[] | null {
  * 固定表示する（本人指定 2026-07-31）。ただし質問が開いている間の自由文が
  * 「聞き返し」（ラリー）になる挙動はここが持つ。
  */
-export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showReplyBox, onMutated }: Props) {
+export function Thread({
+  nodeId,
+  messages,
+  unreadSince,
+  aiBusy,
+  aiQueued,
+  showReplyBox,
+  aiModel,
+  aiEffort,
+  onAiModelChange,
+  onAiEffortChange,
+  onMutated,
+}: Props) {
   // 発言者の表示名解決と「自分/他人の human 発言」の描き分け（チーム化 2026-08-04）
   const { me, users } = useTeam();
   const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
@@ -97,9 +115,8 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, aiBusy]);
 
-  const sendReply = async () => {
-    const body = reply.trim();
-    if (!body) return;
+  /** ChatComposer から組み立て済み本文（添付行込み）を受けて投稿する */
+  const sendReply = async (body: string) => {
     stickToBottomRef.current = true; // 自分の送信では最下部へ戻す
     setSending(true);
     try {
@@ -109,7 +126,6 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
       } else {
         await api.postMessage(nodeId, body);
       }
-      setReply("");
       onMutated();
     } finally {
       setSending(false);
@@ -222,14 +238,7 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
             右に停止ボタン（2026-08-05 本人要望「AIの会話を止められる機能」）と、追い打ちの
             予約表示（応答中に書いた分は捨てず、終わり次第まとめて返事が来る） */}
         {aiBusy && (
-          <div className="flex items-center gap-1.5 self-start px-1 py-1 text-sm text-text-lo">
-            <span className="animate-pulse">✳</span>
-            <span>{aiQueued ? "考え中（続きの返信は応答後に届きます）" : "考え中"}</span>
-            <span className="inline-flex items-center gap-0.5">
-              <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "0ms" }} />
-              <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "150ms" }} />
-              <span className="size-1 animate-bounce rounded-full bg-text-lo" style={{ animationDelay: "300ms" }} />
-            </span>
+          <ThinkingIndicator label={aiQueued ? "考え中（続きの返信は応答後に届きます）" : "考え中"}>
             <Button
               type="button"
               variant="ghost"
@@ -241,35 +250,33 @@ export function Thread({ nodeId, messages, unreadSince, aiBusy, aiQueued, showRe
             >
               <Square className="size-3" /> 停止
             </Button>
-          </div>
+          </ThinkingIndicator>
         )}
       </div>
+      {/* 入力欄は ChatComposer（GraphWrangler AI=ChatDrawer と共通。2026-08-07 本人要望
+          「UI を分けずに同じコンポーネントに」）。応答中の送信はサーバ側が予約して
+          応答後にもう一度返す（2026-08-05）ため、そのまま投稿してよい */}
       {showReplyBox && (
-        <div className="flex flex-shrink-0 items-end gap-2">
-          <Textarea
-            className="flex-1 resize-y"
-            value={reply}
-            onChange={(e) => setReply(e.target.value)}
-            placeholder={
-              // 応答中でも書ける（追い打ち）。届くのは今の応答が終わってから（サーバ側で
-              // 予約され、増えた発言込みでもう一度応答する。2026-08-05）
-              aiBusy
-                ? "続けて入力…（応答が終わってから届きます）"
-                : openRequests.length > 0
-                  ? "聞き返す・相談する…（Enter で送信 / Shift+Enter で改行）"
-                  : "返信…（Enter で送信 / Shift+Enter で改行）"
-            }
-            rows={2}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" || e.nativeEvent.isComposing || e.shiftKey) return;
-              e.preventDefault();
-              sendReply();
-            }}
-          />
-          <Button type="button" variant="secondary" disabled={sending || !reply.trim()} onClick={sendReply}>
-            送信
-          </Button>
-        </div>
+        <ChatComposer
+          value={reply}
+          onChange={setReply}
+          busy={!!aiBusy}
+          disabled={sending}
+          onSend={(full) => void sendReply(full)}
+          onStop={() => {
+            void api.stopThreadAi(nodeId).then(() => onMutated());
+          }}
+          placeholderIdle={
+            openRequests.length > 0
+              ? "聞き返す・相談する…（Enter で送信 / Shift+Enter で改行）"
+              : "返信…（Enter で送信 / Shift+Enter で改行）"
+          }
+          placeholderBusy="続けて入力…（応答が終わってから届きます）"
+          model={aiModel ?? null}
+          onModelChange={onAiModelChange}
+          effort={aiEffort ?? null}
+          onEffortChange={onAiEffortChange}
+        />
       )}
     </div>
   );

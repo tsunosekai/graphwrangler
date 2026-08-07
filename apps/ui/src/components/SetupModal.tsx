@@ -192,8 +192,10 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
       });
   };
 
-  // 設定タブ（2026-08-07）: user = 自分だけに効く設定（即時保存）/ global = インスタンス全体
-  const [tab, setTab] = useState<"user" | "global">(forced ? "global" : "global");
+  // 設定タブ（2026-08-07）: user = 自分だけに効く設定（即時保存）/ global = インスタンス全体。
+  // 既定はユーザータブ（本人指定「ユーザー設定が最初に開くように」）。初回セットアップ
+  // （forced）は全体設定の入力が目的なのでタブ関係なく全体側が出る
+  const [tab, setTab] = useState<"user" | "global">("user");
   const [editingWebhook, setEditingWebhook] = useState(!(settings.notify?.hasDiscordWebhook ?? false));
   const [testingNotify, setTestingNotify] = useState(false);
   const testNotify = async () => {
@@ -320,17 +322,17 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           <div className="flex gap-1 rounded-md border border-border p-1 text-sm">
             <button
               type="button"
-              className={`flex-1 rounded-sm px-3 py-1 transition-colors ${tab === "global" ? "bg-muted font-semibold" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setTab("global")}
-            >
-              全体
-            </button>
-            <button
-              type="button"
               className={`flex-1 rounded-sm px-3 py-1 transition-colors ${tab === "user" ? "bg-muted font-semibold" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => setTab("user")}
             >
               ユーザー
+            </button>
+            <button
+              type="button"
+              className={`flex-1 rounded-sm px-3 py-1 transition-colors ${tab === "global" ? "bg-muted font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setTab("global")}
+            >
+              全体
             </button>
           </div>
         )}
