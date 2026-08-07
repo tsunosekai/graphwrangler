@@ -130,6 +130,9 @@ export const NodeSchema = z.object({
    *  関与しない（2026-08-05 追加）。ページ（kind=goal）とフォルダ自身が持ちうる
    *  （フォルダの入れ子も型としては可能。UIは現状1階層で使う）。既存データ互換で default null */
   folder: z.string().nullable().default(null),
+  /** kind=folder のみ意味を持つ「どの節の棚か」（左レール）。null = プロジェクト節
+   *  （既存フォルダの互換）。2026-08-08 本人要望「ルーティーンにもフォルダを作れるように」 */
+  folderSection: z.enum(["project", "routine"]).nullable().default(null),
   /** 左レールでの手動並び順（昇順。同じ入れ物の中でだけ意味を持つ）。null = 未指定で、
    *  指定済みより後ろに落ちて created 昇順で並ぶ。整数を詰め直す運用（UI が並べ替えのたびに
    *  変わったノードだけ patch する）。既存データ互換で default null */
@@ -195,6 +198,7 @@ export const NodeInputSchema = z.object({
   parents: z.array(z.string()).default([]),
   group: z.string().nullable().default(null),
   folder: z.string().nullable().default(null),
+  folderSection: z.enum(["project", "routine"]).nullable().default(null),
   order: z.number().nullable().default(null),
   kind: NodeKindSchema.default("task"),
   executor: ExecutorSchema.default("human"),

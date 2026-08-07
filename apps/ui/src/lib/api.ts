@@ -55,6 +55,8 @@ export interface NodeCreateInput {
   group?: string | null;
   /** 左レールの整理棚（kind=folder ノードの id）。ページの見せ方の軸で実行には無関係 */
   folder?: string | null;
+  /** kind=folder のみ: どの節の棚か（2026-08-08） */
+  folderSection?: Node["folderSection"];
   /** 左レールでの手動並び順（昇順。null=未指定＝後ろ） */
   order?: number | null;
   kind?: Node["kind"];

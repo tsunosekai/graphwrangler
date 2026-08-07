@@ -221,6 +221,9 @@ export function PageList({
   // ---- 並び・フォルダ分け ----
   const nodeById = useMemo(() => new Map(allNodes.map((n) => [n.id, n])), [allNodes]);
   const folderList = useMemo(() => sortRail(folderNodes), [folderNodes]);
+  /** 棚がどちらの節のものか。null = プロジェクト節（既存フォルダの互換。2026-08-08） */
+  const shelfSection = (f: Node): Section => (f.folderSection === "routine" ? "routine" : "project");
+  const shelvesIn = (section: Section) => folderList.filter((f) => shelfSection(f) === section);
   const folderIds = useMemo(() => new Set(folderNodes.map((f) => f.id)), [folderNodes]);
   /** ページの所属フォルダ（消えたフォルダを指していたら直下扱いにする） */
   const folderOf = (f: Node): string | null =>
@@ -236,16 +239,16 @@ export function PageList({
   const routineFolders = sortRail(
     activeFolders.filter((f) => sectionOf(f) === "routine" && byPerson(f)),
   );
-  /** 表示用: 直下のプロジェクト / フォルダ id → その中のプロジェクト */
+  /** 表示用: 節の直下にあるページ / 棚 id → その中のページ（2026-08-08 ルーティーンにも対応） */
   const rootProjects = projectFolders.filter((f) => folderOf(f) === null);
-  const inFolder = (folderId: string) => projectFolders.filter((f) => folderOf(f) === folderId);
+  const rootRoutines = routineFolders.filter((f) => folderOf(f) === null);
+  const inFolder = (folderId: string) =>
+    [...projectFolders, ...routineFolders].filter((f) => folderOf(f) === folderId);
 
   /** 並べ替えの計算対象は**絞り込み前の全ページ**にする（フィルタで隠れている行の
    *  相対順序を壊さないため）。アーカイブ済みも同じ入れ物として一緒に数える */
   const pageIdsIn = (section: Section, folderId: string | null): string[] =>
-    sortRail(
-      folders.filter((f) => sectionOf(f) === section && (section === "project" ? folderOf(f) === folderId : true)),
-    ).map((f) => f.id);
+    sortRail(folders.filter((f) => sectionOf(f) === section && folderOf(f) === folderId)).map((f) => f.id);
 
   // 折り畳み状態（localStorage。UI状態なので正データには混ぜない）
   const [closedFolders, setClosedFolders] = useState<Set<string>>(loadClosedFolders);
@@ -288,9 +291,13 @@ export function PageList({
     const rect = el.getBoundingClientRect();
     const pos: "before" | "after" = y < rect.top + rect.height / 2 ? "before" : "after";
     if (st.kind === "folder") {
-      return kind === "folder" ? { id, kind, section, pos } : null;
+      // 棚同士の並べ替えは同じ節の中だけ（2026-08-08。節をまたぐ移動はさせない）
+      return kind === "folder" && section === st.section ? { id, kind, section, pos } : null;
     }
-    if (kind === "folder") return { id, kind, section, pos: "into" };
+    if (kind === "folder") {
+      // 棚へ入れられるのは同じ節のページだけ（プロジェクトをルーティーン棚へ入れない）
+      return section === st.section ? { id, kind, section, pos: "into" } : null;
+    }
     if (section !== st.section) return null; // プロジェクトとルーティーンは行き来させない
     return { id, kind, section, pos };
   };
@@ -360,9 +367,9 @@ export function PageList({
 
   const applyDrop = async (st: DragState, target: DropTarget) => {
     if (st.kind === "folder") {
-      // フォルダ同士の並べ替え（resolveDrop がフォルダ行 + before|after だけを通す）
+      // 棚同士の並べ替え（resolveDrop が同じ節の棚行 + before|after だけを通す）
       const ordered = moveWithin(
-        folderList.map((f) => f.id),
+        shelvesIn(st.section).map((f) => f.id),
         st.id,
         target.id,
         target.pos === "before" ? "before" : "after",
@@ -370,29 +377,34 @@ export function PageList({
       await applyOrder(ordered);
       return;
     }
-    // ページ: 行き先の入れ物（フォルダ / 節の直下）を決める
-    const section: Section = target.kind === "folder" ? "project" : target.section;
+    // ページ: 行き先の入れ物（棚 / 節の直下）を決める。節は落とし先の節（＝掴んだページと同じ）
+    const section: Section = target.section;
     const targetNode = target.kind === "page" ? (nodeById.get(target.id) ?? null) : null;
     const folderId =
-      target.kind === "folder"
-        ? target.id
-        : section === "project" && targetNode
-          ? folderOf(targetNode)
-          : null;
+      target.kind === "folder" ? target.id : targetNode ? folderOf(targetNode) : null;
     const siblings = pageIdsIn(section, folderId).filter((id) => id !== st.id);
     const ordered =
       target.kind === "page"
         ? moveWithin([...siblings, st.id], st.id, target.id, target.pos === "before" ? "before" : "after")
         : [...siblings, st.id];
-    await applyOrder(ordered, section === "project" ? folderId : null);
+    await applyOrder(ordered, folderId);
   };
 
   // ---- フォルダの作成・リネーム・削除 ----
-  const addFolder = async () => {
-    const name = await promptDialog("新しいフォルダの名前", { placeholder: "例: 受託", confirmLabel: "作成" });
+  const addFolder = async (section: Section) => {
+    const name = await promptDialog(
+      section === "routine" ? "新しいルーティーンのフォルダ名" : "新しいフォルダの名前",
+      { placeholder: section === "routine" ? "例: 定期レポート" : "例: 受託", confirmLabel: "作成" },
+    );
     if (name === null || !name.trim()) return;
     try {
-      await api.addNode({ title: name.trim(), kind: "folder", order: folderList.length });
+      await api.addNode({
+        title: name.trim(),
+        kind: "folder",
+        // null = プロジェクト節（既存データと同じ意味）。ルーティーン棚だけ明示する
+        folderSection: section === "routine" ? "routine" : null,
+        order: shelvesIn(section).length,
+      });
       onMutated();
     } catch {
       // api 側でトースト済み
@@ -412,7 +424,7 @@ export function PageList({
     const count = inFolder(f.id).length;
     const ok = await confirmDialog(
       count > 0
-        ? `フォルダ「${f.title || "（無題）"}」を削除しますか？\n中の ${count} 件のプロジェクトは消えず、直下へ出ます。`
+        ? `フォルダ「${f.title || "（無題）"}」を削除しますか？\n中の ${count} 件は消えず、直下へ出ます。`
         : `フォルダ「${f.title || "（無題）"}」を削除しますか？`,
       { danger: true, confirmLabel: "削除" },
     );
@@ -634,6 +646,7 @@ export function PageList({
   const renderFolder = (f: Node) => {
     const children = inFolder(f.id);
     const open = !closedFolders.has(f.id);
+    const section = shelfSection(f);
     return (
       <div key={f.id} className="flex flex-col gap-px">
         <div
@@ -641,7 +654,7 @@ export function PageList({
           tabIndex={0}
           data-rail-row={f.id}
           data-rail-kind="folder"
-          data-rail-section="project"
+          data-rail-section={section}
           className={cn(
             "flex w-full cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 text-left text-muted-foreground hover:bg-accent/60",
             drag?.id === f.id && "opacity-40",
@@ -658,7 +671,7 @@ export function PageList({
             }
           }}
         >
-          {gripFor({ id: f.id, kind: "folder", section: "project" })}
+          {gripFor({ id: f.id, kind: "folder", section })}
           {open ? (
             <ChevronDown className="size-3.5 flex-shrink-0" />
           ) : (
@@ -683,7 +696,7 @@ export function PageList({
               <Pencil className="size-3" />
             </Button>
           </Hint>
-          <Hint id="folder-remove" always="フォルダを削除" text="中のプロジェクトは消えず、直下へ出る">
+          <Hint id="folder-remove" always="フォルダを削除" text="中のページは消えず、直下へ出る">
             <Button
               type="button"
               variant="ghost"
@@ -792,7 +805,7 @@ export function PageList({
               variant="ghost"
               size="icon"
               className="size-6 text-muted-foreground"
-              onClick={() => void addFolder()}
+              onClick={() => void addFolder("project")}
             >
               <FolderPlus className="size-3.5" />
             </Button>
@@ -827,26 +840,42 @@ export function PageList({
       </div>
       {/* フォルダ（上）→ 直下のプロジェクト（下）の順。人フィルタ中は中身が全部隠れた
           フォルダを畳んで出さない（絞り込みの意味が薄れるため） */}
-      {folderList
+      {shelvesIn("project")
         .filter((f) => personFilterValue === "all" || inFolder(f.id).length > 0)
         .map((f) => renderFolder(f))}
       {rootProjects.map((f) => renderRow(f, false))}
-      {routineFolders.length > 0 && (
+      {/* ルーティーン節。プロジェクト節と同じくフォルダ（棚）を持てる（2026-08-08 本人要望）。
+          棚が1つでもあれば、ルーティーンが0件でも節ごと出す（＋の導線を残すため） */}
+      {(routineFolders.length > 0 || shelvesIn("routine").length > 0) && (
         <>
           <div
             data-rail-row={ROOT_ROW.routine}
             data-rail-kind="root"
             data-rail-section="routine"
             className={cn(
-              "flex items-center justify-between rounded-sm px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo",
+              "flex items-center justify-between gap-1 rounded-sm px-2 pb-2 pt-1 text-xs font-semibold tracking-wide text-text-lo",
               dropClass(ROOT_ROW.routine),
             )}
           >
             <Hint id="page-routine" text={HINT_TEXT.pageRoutine}>
               <span>ルーティーン</span>
             </Hint>
+            <Hint id="folder-add" always="フォルダを追加" text="ルーティーンをまとめる棚。掴んで（⠿）出し入れする">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
+                onClick={() => void addFolder("routine")}
+              >
+                <FolderPlus className="size-3.5" />
+              </Button>
+            </Hint>
           </div>
-          {routineFolders.map((f) => renderRow(f, false))}
+          {shelvesIn("routine")
+            .filter((f) => personFilterValue === "all" || inFolder(f.id).length > 0)
+            .map((f) => renderFolder(f))}
+          {rootRoutines.map((f) => renderRow(f, false))}
         </>
       )}
       {archivedFolders.length > 0 && (

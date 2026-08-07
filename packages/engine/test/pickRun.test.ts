@@ -14,6 +14,7 @@ function node(partial: Partial<Node> = {}): Node {
     group: partial.group ?? "proc-1",
     // 左レールの整理棚と並び順（2026-08-05）。エンジンは見ないが型のため埋める
     folder: partial.folder ?? null,
+    folderSection: partial.folderSection ?? null,
     order: partial.order ?? null,
     kind: partial.kind ?? "task",
     executor: partial.executor ?? "script",

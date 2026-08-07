@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { Square } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
@@ -8,7 +7,6 @@ import { displayNameOf, useTeam, type TeamUser } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { MaterializedMessage, Node } from "../types";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 import { ChatComposer, ThinkingIndicator } from "./ChatComposer";
 import { DecisionCard } from "./DecisionCard";
 
@@ -238,20 +236,9 @@ export function Thread({
         {/* Task AI の「考え中」。GraphWrangler AI（ChatDrawer）と同じ見た目・同じアニメーション。
             右に停止ボタン（2026-08-05 本人要望「AIの会話を止められる機能」）と、送信予約の
             予約表示（応答中に書いた分は捨てず、終わり次第まとめて返事が来る） */}
+        {/* 停止は入力欄の■に集約したので、ここにはボタンを置かない（2026-08-08 本人指定） */}
         {aiBusy && (
-          <ThinkingIndicator label={aiQueued ? "考え中（続きの返信は応答後に届きます）" : "考え中"}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                void api.stopThreadAi(nodeId).then(() => onMutated());
-              }}
-            >
-              <Square className="size-3" /> 停止
-            </Button>
-          </ThinkingIndicator>
+          <ThinkingIndicator label={aiQueued ? "考え中（続きの返信は応答後に届きます）" : "考え中"} />
         )}
       </div>
       {/* 入力欄は ChatComposer（GraphWrangler AI=ChatDrawer と共通。2026-08-07 本人要望

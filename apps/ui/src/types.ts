@@ -77,6 +77,8 @@ export interface Node {
   /** 左レールの整理用フォルダ（kind=folder ノードの id）。null = 直下。
    *  包含(group)・依存(parents)とは独立した「見せ方だけ」の軸（2026-08-05） */
   folder: string | null;
+  /** kind=folder のみ: どの節の棚か（左レール）。null = プロジェクト節（2026-08-08） */
+  folderSection: "project" | "routine" | null;
   /** 左レールでの手動並び順（昇順。同じ入れ物の中でだけ意味を持つ）。null = 未指定＝後ろ */
   order: number | null;
   kind: NodeKind;
