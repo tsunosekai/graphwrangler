@@ -2,6 +2,7 @@
 // 成功すると httpOnly Cookie が張られ、以後の操作は本人のメールが帰属として記録される
 import { useState } from "react";
 import { api } from "../lib/api";
+import { useBranding } from "../lib/branding";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
@@ -10,6 +11,9 @@ interface Props {
 }
 
 export function LoginScreen({ onLoggedIn }: Props) {
+  // 見出しはインスタンスのサイト名（2026-08-08）。GET /api/branding は認証不要なので、
+  // ログイン前のこの画面でも会社名が出る
+  const { siteTitle } = useBranding();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +41,7 @@ export function LoginScreen({ onLoggedIn }: Props) {
         onSubmit={submit}
         className="flex w-80 flex-col gap-3 rounded-lg border border-border bg-card p-6"
       >
-        <h1 className="text-lg font-semibold">GraphWrangler</h1>
+        <h1 className="text-lg font-semibold">{siteTitle}</h1>
         <p className="text-sm text-muted-foreground">ログインしてください</p>
         <Input
           type="email"

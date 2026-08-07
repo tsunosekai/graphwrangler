@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUpCircle, Keyboard, KeyRound, LogOut, Search, Settings, Undo2, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
+import { useBranding } from "../lib/branding";
 import { subscribeFocusGoalCapture } from "../lib/capture";
 import { openPalette, openShortcuts } from "../lib/palette";
 import { colorOf, displayNameOf, useTeam } from "../lib/team";
@@ -183,6 +184,8 @@ function UserChip() {
 }
 
 export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptureGoal }: Props) {
+  // ヘッダー左のサイト名（インスタンス設定。2026-08-08。既定は "GraphWrangler"）
+  const { siteTitle } = useBranding();
   // エンジン稼働インジケータ（5秒毎ポーリング）。平常時は何も出さず、
   // 「AIが動いていない」ときだけ警告として表示する（2026-07-31 本人指示。
   // ノード数バッジも同時に廃止: 常時出る情報バッジは圧になるだけ）
@@ -200,8 +203,8 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
     // 残り空間の中央=画面中央からずれていた）
     <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b bg-background px-4">
       <div className="flex flex-1 items-center gap-3">
-        {/* モバイルではロゴを隠して捕獲欄の幅を確保する */}
-        <div className="font-semibold max-md:hidden">GraphWrangler</div>
+        {/* モバイルではロゴを隠して捕獲欄の幅を確保する。名前はインスタンス設定（2026-08-08） */}
+        <div className="font-semibold max-md:hidden">{siteTitle}</div>
         {/* 元に戻すはタイトルの右（2026-08-01 本人指定。グラフ操作の直後に目が行く位置）。
             モバイルでは非表示（2026-08-02 本人指示「前のページに戻るボタンだと思って押してしまう」） */}
         <span className="max-md:hidden">

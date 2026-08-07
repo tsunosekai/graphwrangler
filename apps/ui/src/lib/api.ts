@@ -129,6 +129,12 @@ export interface SettingsView {
     discordEnabled: boolean;
     hasDiscordWebhook: boolean;
   };
+  /** インスタンスのブランディング（2026-08-08）。会社/個人の2インスタンスで見た目を分ける。
+   *  faviconVersion はサーバ管理（アップロードで +1／既定に戻すと 0）で、patch からは書けない */
+  branding: {
+    siteTitle: string;
+    faviconVersion: number;
+  };
   setupDone: boolean;
 }
 
@@ -186,6 +192,8 @@ export interface SettingsPatch {
   update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
   /** discordWebhookUrl は apiKey と同じ書き込み専用3値（undefined=維持 / null=削除 / string=設定） */
   notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null };
+  /** ファビコンは画像なので別口（uploadFavicon / resetFavicon）。ここはサイト名だけ */
+  branding?: { siteTitle?: string };
   setupDone?: boolean;
 }
 
@@ -439,6 +447,37 @@ export const api = {
 
   updateSettings: (patch: SettingsPatch) =>
     request<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
+
+  // ---- ブランディング（2026-08-08。サイト名は上の updateSettings、画像だけここ） ----
+
+  /** ファビコンの差し替え。PNG / SVG のみ・512KB まで（判定はサーバが中身で行う）。
+   *  成功すると faviconVersion が上がるので、呼び出し側は refreshBranding() で反映する */
+  uploadFavicon: async (file: File): Promise<{ faviconVersion: number }> => {
+    const form = new FormData();
+    form.append("file", file);
+    let res: Response;
+    try {
+      res = await fetch("/api/branding/favicon", { method: "POST", body: form });
+    } catch {
+      const msg = "サーバに接続できません";
+      pushToast(msg, "error");
+      throw new ApiError(msg);
+    }
+    const data = (await res.json().catch(() => null)) as {
+      faviconVersion?: number;
+      error?: string;
+    } | null;
+    if (!res.ok) {
+      const msg = data?.error ?? `HTTP ${res.status}`;
+      pushToast(msg, "error");
+      throw new ApiError(msg);
+    }
+    return { faviconVersion: data?.faviconVersion ?? 0 };
+  },
+
+  /** 手置きのファビコンを消して同梱の既定へ戻す */
+  resetFavicon: () =>
+    request<{ faviconVersion: number }>("/branding/favicon/reset", { method: "POST", body: "{}" }),
 
   // ---- ユーザーごとの設定（2026-08-07「設定はユーザーごとと全体で分けて」） ----
 

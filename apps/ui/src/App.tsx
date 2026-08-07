@@ -12,6 +12,7 @@ import { TopBar, type RunWaitItem } from "./components/TopBar";
 import { MobileNav, type MobileView } from "./components/MobileNav";
 import { LoginScreen } from "./components/LoginScreen";
 import { api, postReads, type Me, type SettingsView, type TeamUser } from "./lib/api";
+import { refreshBranding, useBranding } from "./lib/branding";
 import { TeamContext, isMyTurn, turnIsMine, useTeam, type Team } from "./lib/team";
 import { cn } from "./lib/utils";
 import { usePolling } from "./hooks/usePolling";
@@ -71,6 +72,11 @@ export default function App() {
     void refreshMe();
   }, [refreshMe]);
 
+  // インスタンスのサイト名・ファビコン（2026-08-08）。取得は認証不要なのでログイン画面より前でよい
+  useEffect(() => {
+    void refreshBranding();
+  }, []);
+
   if (me === null) return null; // 判定中（一瞬）
   if (me.authRequired && !me.email) return <LoginScreen onLoggedIn={() => void refreshMe()} />;
   return (
@@ -103,6 +109,8 @@ function TeamProvider({ me, children }: { me: Me; children: ReactNode }) {
 function AppInner() {
   // 「あなたの番」の per-user 判定（チーム化 2026-08-04）に使う自分のメール
   const { me } = useTeam();
+  // デスクトップ通知の見出しはインスタンスのサイト名（2026-08-08 ブランディング）
+  const { siteTitle } = useBranding();
   const { data, refresh } = usePolling(() => api.getState(), 3000);
   const [selectedId, setSelectedId] = useState<string | null>(() => loadUiState("gw.selectedId"));
   const [pageIdRaw, setPageId] = useState<string | null>(() => loadUiState("gw.pageId"));
@@ -316,11 +324,11 @@ function AppInner() {
         Notification.permission === "granted"
       ) {
         const latest = added[added.length - 1];
-        new Notification("GraphWrangler", { body: `あなたの番: ${latest.title}` });
+        new Notification(siteTitle, { body: `あなたの番: ${latest.title}` });
       }
     }
     inboxItemsRef.current = combined;
-  }, [nodes, runWaitItems, me.email]);
+  }, [nodes, runWaitItems, me.email, siteTitle]);
 
   // ---- AI設定（初回セットアップ + いつでも開ける⚙） ----
   const [settings, setSettings] = useState<SettingsView | null>(null);
