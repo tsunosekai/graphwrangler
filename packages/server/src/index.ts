@@ -5,7 +5,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -28,12 +28,23 @@ import { activeChatCliCount, handleChatCli } from "./chat_cli.js";
 import {
   SettingsStore,
   AiSettingsSchema,
+  BrandingSettingsSchema,
   ChatSettingsSchema,
   EngineSettingsSchema,
   GitSettingsSchema,
   NotifySettingsSchema,
   UpdateSettingsSchema,
 } from "./settings.js";
+import {
+  FAVICON_MAX_BYTES,
+  IndexHtmlRenderer,
+  brandingDir,
+  clearFavicon,
+  detectFaviconType,
+  faviconContentType,
+  readFavicon,
+  writeFavicon,
+} from "./branding.js";
 import { notifyAiReply, notifyTurn, sendDiscordWebhook } from "./discord.js";
 import { UserPrefsSchema, UserSettingsStore } from "./user_settings.js";
 import { GitSync } from "./gitsync.js";
@@ -91,8 +102,10 @@ function resolveCanonicalFile(rawPath: string): string {
 
 // users.json（パスワードハッシュ）と auth-secret（セッション署名鍵）は絶対にコミットさせない
 // （authDir = sidecar なので、この2行が無いとワークスペースモードで git に乗ってしまう）
+// branding/ もインスタンス固有（settings.json と同じ扱い）。会社/個人で別のロゴを出すための
+// 手置き画像なので、リポジトリに乗せるとワークスペースを共有した相手の見た目まで変わる
 const GITIGNORE_CONTENT =
-  "ops.jsonl\nruns/\nsettings.json\nuser-settings.json\nreads.json\nusers.json\nauth-secret\nattachments/\n";
+  "ops.jsonl\nruns/\nsettings.json\nuser-settings.json\nreads.json\nusers.json\nauth-secret\nattachments/\nbranding/\n";
 
 const workspaceArg = process.env.GRAPHWRANGLER_WORKSPACE ?? parseWorkspaceArg(process.argv.slice(2));
 
@@ -119,6 +132,10 @@ let authDir: string;
  *  gitignore 側（settings.json と同じ扱い＝毎時コミットを汚さない） */
 let readsFile: string;
 
+/** インスタンスのブランディング画像の置き場（sidecar/branding または dataDir/branding。
+ *  どちらも git 管理外）。selfupdate でコードが入れ替わっても残る場所に置く＝更新でロゴが消えない */
+let brandingPath: string;
+
 if (workspaceArg) {
   const canonicalFile = resolveCanonicalFile(workspaceArg);
   const workspaceRoot = path.dirname(canonicalFile);
@@ -144,6 +161,7 @@ if (workspaceArg) {
   chatsDir = path.join(sidecarDir, "chats");
   readsFile = path.join(sidecarDir, "reads.json");
   authDir = sidecarDir;
+  brandingPath = brandingDir(sidecarDir);
   serverModeLabel = `workspace: ${canonicalFile}`;
   // 自動プッシュ（gitsync.ts）。対象は GW が書くファイルだけ: 正データファイル + sidecar
   // （sidecar 内の runs/ops 等は .gitignore が除外する）。有効/無効は settings.git（既定OFF）
@@ -162,6 +180,7 @@ if (workspaceArg) {
   chatsDir = path.join(dataDir, "chats");
   readsFile = path.join(dataDir, "reads.json");
   authDir = dataDir;
+  brandingPath = brandingDir(dataDir);
   serverModeLabel = `data: ${dataDir}`;
 }
 
@@ -298,11 +317,15 @@ app.use("/api/*", async (c, next) => {
   }
 
   // ログインゲート: ユーザー登録があり、かつ外部経由（プロキシ越し）なら未ログインを弾く。
-  // /api/login と /api/me だけはログイン前でも通す（ログイン画面が使うため）
+  // /api/login と /api/me だけはログイン前でも通す（ログイン画面が使うため）。
+  // GET /api/branding も同じ理由で通す——ログイン画面にもサイト名を出すため。返すのは
+  // サイト名とファビコンの版だけで、他の情報は一切載せない（branding.ts / GET ハンドラ参照）
   const authRequired = loadUsers(usersFile).length > 0;
   const external = !!c.req.header("x-forwarded-for");
   const p = c.req.path;
-  if (authRequired && external && !email && p !== "/api/login" && p !== "/api/me") {
+  const publicPath =
+    p === "/api/login" || p === "/api/me" || (p === "/api/branding" && c.req.method === "GET");
+  if (authRequired && external && !email && !publicPath) {
     return c.json({ error: "ログインが必要です" }, 401);
   }
 
@@ -1256,6 +1279,9 @@ const SettingsPatchSchema = z.object({
   git: GitSettingsSchema.partial().optional(),
   update: UpdateSettingsSchema.partial().optional(),
   notify: NotifySettingsSchema.partial().optional(),
+  // ブランディングは siteTitle だけ受ける。faviconVersion はサーバが管理する値なので、
+  // 外から書けないようにここでスキーマごと落とす（zod は未知キーを捨てる）
+  branding: BrandingSettingsSchema.pick({ siteTitle: true }).partial().optional(),
   setupDone: z.boolean().optional(),
 });
 
@@ -1265,6 +1291,48 @@ app.post("/api/settings", async (c) => {
   const body = SettingsPatchSchema.parse(await c.req.json());
   settings.update(body);
   return c.json(settings.publicView());
+});
+
+// ---- インスタンスのブランディング（branding.ts。2026-08-08 本人要望「会社インスタンスだけ
+//      ARK のタイトルとファビコンにしたい。コードに焼くと zinsei まで変わる」）----
+//
+// GET は**認証不要**（上のログインゲートで通している）: ログイン画面にもサイト名が要るため。
+// そのぶん返すのは siteTitle と faviconVersion の2値だけに限る。
+// 変更側（サイト名は POST /api/settings、ファビコンは以下の2本）は他の設定と同じ認可レベル。
+
+app.get("/api/branding", (c) => {
+  const b = settings.get().branding;
+  return c.json({ siteTitle: b.siteTitle, faviconVersion: b.faviconVersion });
+});
+
+/** ファビコンの差し替え。**Content-Type もファイル名も信じず中身で判定する**（detectFaviconType）。
+ *  成功すると faviconVersion が +1 され、UI とブラウザのキャッシュがそこで切り替わる */
+app.post("/api/branding/favicon", async (c) => {
+  const body = await c.req.parseBody();
+  const file = body.file;
+  if (!(file instanceof File)) {
+    throw new GraphError("file がありません（multipart/form-data で file を送ってください）", 400);
+  }
+  if (file.size > FAVICON_MAX_BYTES) {
+    throw new GraphError("ファビコンは 512KB までです", 413);
+  }
+  const buf = Buffer.from(await file.arrayBuffer());
+  const type = detectFaviconType(buf);
+  if (!type) {
+    throw new GraphError("PNG または SVG の画像を指定してください", 400);
+  }
+  writeFavicon(brandingPath, buf, type);
+  const next = settings.update({
+    branding: { faviconVersion: settings.get().branding.faviconVersion + 1 },
+  });
+  return c.json({ faviconVersion: next.branding.faviconVersion });
+});
+
+/** 手置きを消して UI ビルド同梱の既定へ戻す（faviconVersion=0） */
+app.post("/api/branding/favicon/reset", (c) => {
+  clearFavicon(brandingPath);
+  const next = settings.update({ branding: { faviconVersion: 0 } });
+  return c.json({ faviconVersion: next.branding.faviconVersion });
 });
 
 // ---- チャットの添付ファイル（2026-08-07）----
@@ -1440,6 +1508,43 @@ app.post("/api/ai/complete", async (c) => {
 // ---- UI 配信（ビルド済みがあれば） ----
 
 const uiDist = path.join(repoRoot, "apps", "ui", "dist");
+
+// ファビコン（2026-08-08）。手置き（<dataDir>/branding/）があればそれ、無ければ UI 同梱の既定。
+// **serveStatic より前**に置く: dist/favicon.png が素通しで先に返ると手置きが効かない。
+// キャッシュ規律も /assets/ や index.html とは別で、URL の ?v=<faviconVersion> が
+// 変わるまでは1日キャッシュしてよい（差し替えたら版が上がるので即座に切り替わる）
+app.get("/favicon.png", (c) => {
+  const custom = readFavicon(brandingPath);
+  const found =
+    custom ??
+    (() => {
+      // 既定は UI のビルド成果物。開発時（未ビルド）は public/ から拾う
+      for (const p of [
+        path.join(uiDist, "favicon.png"),
+        path.join(repoRoot, "apps", "ui", "public", "favicon.png"),
+      ]) {
+        try {
+          return { body: fs.readFileSync(p), type: "png" as const };
+        } catch {
+          // 次の候補へ
+        }
+      }
+      return null;
+    })();
+  if (!found) return c.notFound();
+  const headers: Record<string, string> = {
+    "Content-Type": faviconContentType(found.type),
+    "Cache-Control": "public, max-age=86400",
+    "X-Content-Type-Options": "nosniff",
+  };
+  // SVG は同一オリジンで開けるスクリプト実行面になりうる（アップロードできるのは
+  // 設定を触れる人だけだが、画像に実行権を与える理由が無い）。閉じたCSPを付ける
+  if (found.type === "svg") {
+    headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+  }
+  return new Response(new Uint8Array(found.body), { headers });
+});
+
 if (fs.existsSync(uiDist)) {
   const root = path.relative(process.cwd(), uiDist).split(path.sep).join("/");
   // キャッシュ規律（2026-08-02）: index.html はデプロイで差し替わるため no-cache
@@ -1453,8 +1558,19 @@ if (fs.existsSync(uiDist)) {
       c.header("Cache-Control", "no-cache");
     }
   });
+  // index.html は素通しではなくサーバで置換して返す（2026-08-08 ブランディング）。
+  // <title> と <link rel="icon"> をインスタンスの値に差し替えるので、JS が動く前＝
+  // タブに出る最初の1文字目から会社名になる。置換は IndexHtmlRenderer が
+  // 「index.html の mtime × サイト名 × 版」でキャッシュする
+  const indexHtml = new IndexHtmlRenderer(path.join(uiDist, "index.html"));
+  const serveIndex = (c: Context) => {
+    const b = settings.get().branding;
+    return c.html(indexHtml.render(b.siteTitle, b.faviconVersion));
+  };
+  app.get("/", serveIndex);
+  app.get("/index.html", serveIndex);
   app.use("/*", serveStatic({ root }));
-  app.get("*", serveStatic({ root, path: "index.html" }));
+  app.get("*", serveIndex); // SPA フォールバック（/graph/... 等の直接アクセス）
 }
 
 // バインド先。既定は従来どおり全インターフェイス（Tailscale 内アクセス等の互換）だが、

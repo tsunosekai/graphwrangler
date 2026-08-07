@@ -91,6 +91,19 @@ export const NotifySettingsSchema = z.object({
   // discordAiReplies）へ移動した（2026-08-07「設定はユーザーごとと全体で分けて」）
 });
 
+/** インスタンス単位のブランディング（実装は branding.ts。2026-08-08 本人要望——
+ *  会社インスタンス（graph-wrangler.ark-digital.co.jp）だけ ARK のタイトルとアイコンを出したいが、
+ *  コードへ焼くと個人インスタンス（zinsei）まで変わるため設定にする）。
+ *  **既定値は現在の見た目**なので、branding を持たない既存の settings.json でも何も変わらない */
+export const BrandingSettingsSchema = z.object({
+  /** ブラウザのタブ・ヘッダー・ログイン画面に出るサイト名 */
+  siteTitle: z.string().min(1).max(60).default("GraphWrangler"),
+  /** 0 = 手置きなし＝UI ビルド同梱の favicon.png を配る。1以上 = <dataDir>/branding/ に
+   *  手置きあり。アップロードごとに +1 され、/favicon.png?v=N のキャッシュバスターになる。
+   *  サーバが管理する値で、設定APIの patch からは書けない（branding.ts のアップロード経由のみ） */
+  faviconVersion: z.number().int().min(0).default(0),
+});
+
 export const SettingsSchema = z.object({
   chat: ChatSettingsSchema.default({}),
   engine: EngineSettingsSchema.default({}),
@@ -98,6 +111,7 @@ export const SettingsSchema = z.object({
   git: GitSettingsSchema.default({}),
   update: UpdateSettingsSchema.default({}),
   notify: NotifySettingsSchema.default({}),
+  branding: BrandingSettingsSchema.default({}),
   /** 初回セットアップ画面を完了したか（スキップ含む） */
   setupDone: z.boolean().default(false),
 });
@@ -137,6 +151,9 @@ export class SettingsStore {
     git?: Partial<z.input<typeof GitSettingsSchema>>;
     update?: Partial<z.input<typeof UpdateSettingsSchema>>;
     notify?: Partial<z.input<typeof NotifySettingsSchema>>;
+    /** faviconVersion はサーバ内部（ファビコンのアップロード・既定へ戻す）からのみ渡す。
+     *  外から来る patch は index.ts のスキーマが siteTitle だけに絞る */
+    branding?: Partial<z.input<typeof BrandingSettingsSchema>>;
     setupDone?: boolean;
   }): Settings {
     const next: Settings = SettingsSchema.parse({
@@ -159,6 +176,7 @@ export class SettingsStore {
             ? (patch.notify.discordWebhookUrl ?? null)
             : this.cache.notify.discordWebhookUrl,
       },
+      branding: { ...this.cache.branding, ...patch.branding },
       setupDone: patch.setupDone ?? this.cache.setupDone,
     });
     const tmp = `${this.file}.tmp`;
@@ -221,6 +239,10 @@ export class SettingsStore {
       notify: {
         discordEnabled: this.cache.notify.discordEnabled,
         hasDiscordWebhook: this.cache.notify.discordWebhookUrl !== null,
+      },
+      branding: {
+        siteTitle: this.cache.branding.siteTitle,
+        faviconVersion: this.cache.branding.faviconVersion,
       },
       setupDone: this.cache.setupDone,
     };
