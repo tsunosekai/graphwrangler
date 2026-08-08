@@ -22,6 +22,8 @@ interface Props {
   /** このルーティーンページの全メンバー（テンプレートノード。draft含む） */
   members: Node[];
   onMutated: () => void;
+  /** 発火でランが生まれたときに呼ばれる（そのランのページへ移る。2026-08-08） */
+  onRunStarted?: (runId: string) => void;
 }
 
 // ラン自体の status は Status に無い値("cancelled")を持つので StatusCircle 用に変換する
@@ -91,7 +93,7 @@ function renderCell(item: RunItem | undefined, col: Node) {
   );
 }
 
-export function LedgerView({ page, members, onMutated }: Props) {
+export function LedgerView({ page, members, onMutated, onRunStarted }: Props) {
   const columns = useMemo(() => topoOrder(members), [members]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -191,10 +193,11 @@ export function LedgerView({ page, members, onMutated }: Props) {
       setSelectedRunId(run.id);
       onMutated();
       pushToast("ランを開始しました", "info");
+      onRunStarted?.(run.id); // 生まれたランのページへ移る
     } finally {
       setStarting(false);
     }
-  }, [triggerNode, refreshRuns, onMutated]);
+  }, [triggerNode, refreshRuns, onMutated, onRunStarted]);
 
   const cancelSelected = useCallback(async () => {
     if (!selectedRunId) return;

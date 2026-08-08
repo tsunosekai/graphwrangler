@@ -488,6 +488,8 @@ function GraphViewInner({
             runningRunCount: pageRuns.filter((r) => r.status === "running").length,
             unread,
             onSelect: (id: string) => onSelect(id),
+            // 発火したら生まれたランのページへ移る（2026-08-08 本人指定）
+            onRunStarted: (runId: string) => onProjectRun?.(runId),
             // ランのページではタイトル編集させない（記録なので。2026-08-08）
             onDoubleClick: (id: string) => {
               if (!runView) setEditingId(id);
@@ -510,6 +512,7 @@ function GraphViewInner({
     activeRun,
     pageRuns,
     runView,
+    onProjectRun,
     onSelect,
     commitTitle,
     fitView,
@@ -1045,7 +1048,8 @@ function GraphViewInner({
     return { n: fixed.length, m: nodes.length };
   }, [nodes]);
 
-  const showLedger = isRoutine && viewMode === "ledger";
+  // ランのページでは台帳（ページ横断の表）は出さない——見ているのはその1本の記録だから
+  const showLedger = isRoutine && viewMode === "ledger" && !runView;
 
   return (
     // isolate: ツールバー（absolute + z-10）のスタッキングをこのペイン内に閉じ込め、
@@ -1198,7 +1202,12 @@ function GraphViewInner({
         // bg-background: body の格子（無限キャンバスの地）を隠す。表を読む画面に方眼は要らない
         // （2026-08-08 本人指示）
         <div className="flex h-full flex-col bg-background pt-[52px]">
-          <LedgerView page={pageNode} members={nodes} onMutated={onMutated} />
+          <LedgerView
+            page={pageNode}
+            members={nodes}
+            onMutated={onMutated}
+            onRunStarted={(runId) => onProjectRun?.(runId)}
+          />
         </div>
       ) : (
         <ReactFlow

@@ -230,7 +230,7 @@ function AppInner() {
   //      GET /pages/:id/runs ＝ ページ数ぶんの往復と、その回数ぶんの全ラン走査）。
   //      ルーティーンだけでなく全ページぶん来る——トリガーを外してプロジェクトへ戻った
   //      ページにも過去ランは残り、レールのラン子行に出すため ----
-  const { data: railRunsData } = usePolling(async (): Promise<Record<string, Run[]>> => {
+  const { data: railRunsData, refresh: refreshRailRuns } = usePolling(async (): Promise<Record<string, Run[]>> => {
     try {
       return (await api.listAllRuns()).runs;
     } catch {
@@ -632,7 +632,16 @@ function AppInner() {
             reads={reads}
             activeRun={activeRun}
             pageRuns={pageRuns}
-            onProjectRun={setProjectedRunId}
+            onProjectRun={(runId) => {
+              // ランを開く（発火直後もここを通る）。生まれたばかりのランは一覧にまだ
+              // 載っていないので、次のポーリングを待たずに取り直す（2026-08-08）
+              setProjectedRunId(runId);
+              if (runId) {
+                setSelectedId(null); // ランのページはまずグラフ全体を見せる
+                refreshRailRuns();
+                refreshActiveRun();
+              }
+            }}
             onSelect={selectNode}
             onNodeTap={() => {
               if (isMobile) setMobileView("node"); // 実タップは同じノードでも詳細へ

@@ -69,6 +69,9 @@ export interface NodeCardData {
   /** 既読ts（サーバ持ちの reads[<id>]）より新しいメッセージがあるか */
   unread?: boolean;
   onSelect: (id: string) => void;
+  /** 手動発火でランが生まれたときに呼ばれる（2026-08-08 本人指定「発火したらそのランの
+   *  ページへ移る」）。移動そのものは App が行う */
+  onRunStarted?: (runId: string) => void;
   onDoubleClick: (id: string) => void;
   onCommitTitle: (id: string, title: string) => void;
   onCancelEdit: () => void;
@@ -150,6 +153,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
     try {
       const run = await api.fireTrigger(node.id, { title: title.trim() || undefined });
       pushToast(`開始しました: ${run.title}`, "info");
+      data.onRunStarted?.(run.id); // 生まれたランのページへ移る
     } catch {
       // api() 側でトースト表示済み
     } finally {
