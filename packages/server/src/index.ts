@@ -707,6 +707,10 @@ app.get("/api/state", (c) => {
   const threadMeta: Record<string, string> = {};
   for (const n of graph.state().nodes) {
     for (const m of threads.list(n.id)) {
+      // 実行履歴（kind=status: 状態遷移・発火・実行成否）は未読にしない
+      // （2026-08-08 本人指定。機械が書く記録で、人が読むべき新情報ではない。
+      //  会話・質問・成果物＝say / decision_request / decision_answer / artifact だけ数える）
+      if (m.kind === "status") continue;
       const rid = runIdOf(m);
       threadMeta[rid ? `${n.id}@${rid}` : n.id] = m.ts; // 時系列順なので最後の代入が最新
     }

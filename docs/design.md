@@ -741,6 +741,10 @@ undo/redo の対象から外す。
 UIタブはフィルタとして実装する。ファイルは追記専用で、decision_request の
 open/answered は後続の decision_answer から導出する（過去行を書き換えない）。
 
+**未読は会話だけ**（2026-08-08 本人指定）。実行履歴（kind=status: 状態遷移・発火・実行成否）は
+機械が書く記録なのでバッジを出さない。数えるのは say / decision_request / decision_answer /
+artifact。
+
 **未読もランごと**（2026-08-08 本人指摘「テンプレートのノードにも通知が出るが、こちらに
 新情報は無い」）。`GET /api/state` の threadMeta と既読(reads)のキーを会話の単位にする:
 `"<ノードid>"` = テンプレート側、`"<ノードid>@<ランid>"` = そのラン。ランで起きたことで
