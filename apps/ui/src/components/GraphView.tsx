@@ -21,6 +21,7 @@ import { isRoutinePage } from "../lib/routine";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { Node, Run } from "../types";
 import { Badge } from "./ui/badge";
+import { RunStatusIcon } from "./RunStatusIcon";
 import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
@@ -1073,7 +1074,7 @@ function GraphViewInner({
           >
             <Hint
               id="run-projection"
-              text="どのランの進捗をグラフに表示するか選ぶ（▶=実行中 ✓=完了 ✕=中止。過去のランも見返せる。ノードの操作は選んだランに記録される）"
+              text="どのランの進捗をグラフに表示するか選ぶ（絵は 実行中/完了/中止。過去のランも見返せる。ノードの操作は選んだランに記録される）"
             >
               <SelectTrigger className="h-9 max-w-56">
                 <SelectValue placeholder="ランを表示…" />
@@ -1083,7 +1084,12 @@ function GraphViewInner({
               <SelectItem value="none">ラン表示なし（テンプレートを表示）</SelectItem>
               {pageRuns.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
-                  {r.status === "running" ? "▶" : r.status === "done" ? "✓" : "✕"} {r.title}
+                  {/* 状態の絵は左レールのラン行と共有（RunStatusIcon。2026-08-08 本人指摘
+                      「上部セレクタのアイコンも▶になってるからそろえて」） */}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <RunStatusIcon status={r.status} />
+                    <span className="min-w-0 truncate">{r.title}</span>
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>

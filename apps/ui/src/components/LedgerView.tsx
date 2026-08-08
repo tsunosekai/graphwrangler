@@ -3,6 +3,7 @@
 // テキスト・グラフ・表は同一データへの3つの投影という位置づけなので、変更はすべて
 // サーバAPI（/api/runs/...）へ委ね、このコンポーネントは表示とトグルだけを持つ。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Play } from "lucide-react";
 import { api } from "../lib/api";
 import { promptDialog } from "../lib/dialogs";
 import { usePolling } from "../hooks/usePolling";
@@ -264,7 +265,9 @@ export function LedgerView({ page, members, onMutated }: Props) {
               title={triggerNode ? undefined : "トリガーがありません"}
               onClick={startRun}
             >
-              ▶ 発火
+              {/* 絵はノードの発火ボタン・ラン状態と同じ Play で揃える（2026-08-08） */}
+              <Play className="size-3" />
+              発火
             </Button>
           </Hint>
         </div>

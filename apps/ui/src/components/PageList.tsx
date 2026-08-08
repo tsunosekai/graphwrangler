@@ -20,7 +20,6 @@
 // - ドラッグはマウスもタッチも pointer events 1本で扱う（モバイルでも並べ替えられる）
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Check,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -29,9 +28,7 @@ import {
   PanelLeft,
   PanelLeftClose,
   Pencil,
-  Play,
   Trash2,
-  X,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { focusGoalCapture } from "../lib/capture";
@@ -47,6 +44,7 @@ import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Hint } from "./Hint";
 import { Icon } from "./Icon";
+import { RunStatusIcon } from "./RunStatusIcon";
 import { StatusCircle } from "./StatusCircle";
 
 interface Props {
@@ -586,10 +584,6 @@ export function PageList({
     const dots = runDotsOf(r);
     const shown = dots.slice(0, MAX_DOTS);
     const rest = dots.length - shown.length;
-    // 状態マークはノードの発火ボタンと同じ絵（▶ の文字ではなく lucide の Play。
-    // 2026-08-08 本人指定「発火のアイコンと同じやつに」）。青は使わず3つとも同じ濃さで、
-    // 違いは絵で見せる
-    const StatusIcon = r.status === "running" ? Play : r.status === "done" ? Check : X;
     return (
       <div
         key={r.id}
@@ -608,12 +602,8 @@ export function PageList({
           }
         }}
       >
-        <span
-          className="flex-shrink-0 opacity-70"
-          title={r.status === "running" ? "実行中" : r.status === "done" ? "完了" : "中止"}
-        >
-          <StatusIcon className="size-3" />
-        </span>
+        {/* 状態の絵はグラフ上部のラン選択セレクタと共有（RunStatusIcon） */}
+        <RunStatusIcon status={r.status} />
         <span className="min-w-0 flex-1 truncate" title={r.title}>
           {r.title}
         </span>
@@ -651,7 +641,6 @@ export function PageList({
             ) : (
               <ChevronRight className="size-3" />
             )}
-            <Folder className="size-3" />
             {/* 畳んでいる間は総本数を添える（フォルダ行が閉じているときと同じ流儀） */}
             {!open && runsAll.length > 1 && (
               <span className="pl-0.5 text-[10px] leading-none">{runsAll.length}</span>
