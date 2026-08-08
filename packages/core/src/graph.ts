@@ -683,13 +683,41 @@ export class GraphStore {
     return GraphStore.replayRecords(records);
   }
 
-  private static replayRecords(records: OpRecord[]): Map<string, Node> {
+  /**
+   * 操作ログを畳んで状態を作る。
+   *
+   * **記録が欠けていても止まらない**のが要点: ログに存在しないノードへの patch/remove は
+   * 読み飛ばす（apply は not found で throw する）。GraphWrangler を通らずに正データファイルへ
+   * 入ったノード（移行データ・外部編集）は add の記録が無く、その後の patch だけがログに載る
+   * ——ここで throw すると、そういう実データを持つインスタンスが起動できなくなる
+   * （2026-08-08。zinsei が実際にこの形）。
+   *
+   * until を渡すとその時刻までで畳む。baseline には「add が system 印（reconcileLog の
+   * 辻褄合わせ）で足されたノード」の id が入る＝当時の中身は記録が無いという印。
+   */
+  private static foldRecords(
+    records: OpRecord[],
+    until?: string,
+  ): { nodes: Map<string, Node>; baseline: Set<string> } {
     const store = Object.create(GraphStore.prototype) as GraphStore;
-    (store as unknown as { nodes: Map<string, Node> }).nodes = new Map();
+    const nodes = new Map<string, Node>();
+    (store as unknown as { nodes: Map<string, Node> }).nodes = nodes;
+    const baseline = new Set<string>();
     for (const raw of records) {
-      store.apply(OpRecordSchema.parse(raw));
+      const r = OpRecordSchema.parse(raw);
+      if (until !== undefined && r.ts > until) break;
+      if (r.op !== "node.add" && !nodes.has(r.payload.nodeId)) continue;
+      store.apply(r);
+      if (r.op === "node.add") {
+        if (r.system) baseline.add(r.payload.node.id);
+        else baseline.delete(r.payload.node.id);
+      }
     }
-    return (store as unknown as { nodes: Map<string, Node> }).nodes;
+    return { nodes, baseline: new Set([...baseline].filter((id) => nodes.has(id))) };
+  }
+
+  private static replayRecords(records: OpRecord[]): Map<string, Node> {
+    return GraphStore.foldRecords(records).nodes;
   }
 
   /**
@@ -708,21 +736,8 @@ export class GraphStore {
     const records = readJsonl<OpRecord>(this.opsPath)
       .map((r) => OpRecordSchema.parse(r))
       .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
-    const store = Object.create(GraphStore.prototype) as GraphStore;
-    (store as unknown as { nodes: Map<string, Node> }).nodes = new Map();
-    const baseline = new Set<string>();
-    for (const r of records) {
-      if (r.ts > ts) break;
-      // ログに無いノードへの patch/remove は「消えた記録」なので黙って読み飛ばす
-      // （apply は not found で throw する）
-      if (r.op !== "node.add" && !(store as unknown as { nodes: Map<string, Node> }).nodes.has(r.payload.nodeId)) {
-        continue;
-      }
-      store.apply(r);
-      if (r.op === "node.add" && r.system) baseline.add(r.payload.node.id);
-    }
-    const nodes = [...(store as unknown as { nodes: Map<string, Node> }).nodes.values()];
-    return { nodes, baseline: new Set([...baseline].filter((id) => nodes.some((n) => n.id === id))) };
+    const folded = GraphStore.foldRecords(records, ts);
+    return { nodes: [...folded.nodes.values()], baseline: folded.baseline };
   }
 
   /**
@@ -736,9 +751,9 @@ export class GraphStore {
    * これにより過去時刻の再構築でも「その頃から在った」形になる。
    */
   reconcileLog(meta: OpMeta = {}): { added: number; patched: number; removed: number } {
-    const replayed = GraphStore.replayRecords(readJsonl<OpRecord>(this.opsPath));
+    const existing = readJsonl<OpRecord>(this.opsPath).map((r) => OpRecordSchema.parse(r));
     const result = { added: 0, patched: 0, removed: 0 };
-    const records: OpRecord[] = [];
+    const pending: OpRecord[] = [];
     const stamp = (ts: string, op: Omit<OpRecord, "id" | "ts" | "actor" | "via" | "system">): OpRecord =>
       OpRecordSchema.parse({
         id: nextId("op", []) + "-" + Math.random().toString(36).slice(2, 8),
@@ -748,28 +763,43 @@ export class GraphStore {
         system: true,
         ...op,
       });
+    // 評価は nodesAt と同じ **ts 昇順の畳み込み**で行う（ファイル順ではない）。追記する行は
+    // 過去の時刻を名乗ることがあるので、ファイル順で見ていると「追記後に何が復元されるか」を
+    // 見誤る
+    const projected = (): Map<string, Node> =>
+      GraphStore.foldRecords(
+        [...existing, ...pending].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0)),
+      ).nodes;
+
+    // 1巡目: 居ないノードを足し、余分なノードを消す
+    let folded = projected();
     for (const [id, node] of this.nodes) {
-      const before = replayed.get(id);
-      if (!before) {
-        records.push(stamp(node.created, { op: "node.add", payload: { node } }));
-        result.added += 1;
-        continue;
-      }
+      if (folded.has(id)) continue;
+      pending.push(stamp(node.created, { op: "node.add", payload: { node } }));
+      result.added += 1;
+    }
+    for (const id of folded.keys()) {
+      if (this.nodes.has(id)) continue;
+      pending.push(stamp(nowIso(), { op: "node.remove", payload: { nodeId: id } }));
+      result.removed += 1;
+    }
+    // 2巡目: **1巡目を織り込んだ復元結果**と中身を突き合わせる。過去時刻の add を足したことで、
+    // それまで宙に浮いていた古い patch が生き返って別の中身になることがあるため、ここで
+    // いまの時刻の patch を当てて実態に寄せる（いまの時刻＝ts 順で最後に効く）
+    folded = projected();
+    for (const [id, node] of this.nodes) {
+      const before = folded.get(id);
+      if (!before) continue;
       // patch できるフィールドだけの差分を作る（id/created/createdBy は NodePatchSchema が落とす）。
       // それを当てても変わらない＝直せる差が無いなら追記しない——毎起動で同じ行を積み続けて
       // ログが太る（そして直らない）のを避ける
       const patch = NodePatchSchema.parse(node);
       if (stableStringify({ ...before, ...patch }) !== stableStringify(before)) {
-        records.push(stamp(nowIso(), { op: "node.patch", payload: { nodeId: id, patch } }));
+        pending.push(stamp(nowIso(), { op: "node.patch", payload: { nodeId: id, patch } }));
         result.patched += 1;
       }
     }
-    for (const id of replayed.keys()) {
-      if (this.nodes.has(id)) continue;
-      records.push(stamp(nowIso(), { op: "node.remove", payload: { nodeId: id } }));
-      result.removed += 1;
-    }
-    for (const r of records) appendJsonl(this.opsPath, r);
+    for (const r of pending) appendJsonl(this.opsPath, r);
     return result;
   }
 

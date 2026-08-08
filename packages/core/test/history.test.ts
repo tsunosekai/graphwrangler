@@ -172,6 +172,31 @@ describe("操作ログの辻褄合わせ（reconcileLog）", () => {
     expect(JSON.parse(fs.readFileSync(file, "utf8")).nodes).toHaveLength(1);
   });
 
+  it("ログに無いノードへの patch が混ざっていても落ちない（移行データを持つ実インスタンス）", () => {
+    const { file, sidecar } = externalWorkspace([
+      fixedNode("n-20260101-0001", "外から入れたノード", "2026-01-01T00:00:00.000Z"),
+    ]);
+    // add の記録が無いまま patch だけがログに載っている状態を作る（zinsei が実際にこの形）
+    fs.writeFileSync(
+      path.join(sidecar, "ops.jsonl"),
+      JSON.stringify({
+        id: "op-x",
+        ts: "2026-02-01T00:00:00.000Z",
+        actor: { kind: "human" },
+        via: "ui",
+        op: "node.patch",
+        payload: { nodeId: "n-20260101-0001", patch: { title: "記録だけある変更" } },
+      }) + "\n",
+      "utf8",
+    );
+    const g = GraphStore.workspace(file, sidecar);
+    expect(() => g.reconcileLog()).not.toThrow();
+    // 宙に浮いていた古い patch が add を足したことで生き返っても、最後は実態（正データ）へ寄る
+    expect(g.nodesAt("2030-01-01T00:00:00.000Z").nodes[0].title).toBe("外から入れたノード");
+    // そして2回目は何も足さない（収束している）
+    expect(g.reconcileLog()).toEqual({ added: 0, patched: 0, removed: 0 });
+  });
+
   it("2回目以降は何も追記しない（毎起動でログが太らない）", () => {
     const { file, sidecar } = externalWorkspace([
       fixedNode("n-20260101-0001", "外から入れたノード", "2026-01-01T00:00:00.000Z"),
