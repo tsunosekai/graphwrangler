@@ -55,6 +55,10 @@ export interface NodeCardData {
    *  「アクティブなランがある間だけ、その進捗をカードに投影する」。runId はボタンの
    *  更新先（api.patchRunItem）の特定に使う——テンプレートの patchNode は使わない */
   runItem?: { runId: string; status: RunItemStatus; note: string | null } | null;
+  /** kind=trigger のカードだけが受ける「いま実行中のランの本数」。発火時の確認文で
+   *  「並行で増える」ことを伝えるのに使う（2026-08-08。ラン表示中は▶を無効にしたので、
+   *  投影中のワークアイテムからは並走を知れなくなった） */
+  runningRunCount?: number;
   /** runItem 版のフロンティア判定（親の「ランのアイテム」が全部 done|skipped か）。
    *  isFrontier のラン投影版。段階式アクションボタン（着手/完了）の表示条件 */
   isRunFrontier?: boolean;
@@ -130,9 +134,10 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // （▶連打の幽霊ラン防止も兼ねる）
   const fire = async () => {
     if (firing) return;
+    const running = data.runningRunCount ?? 0;
     const title = await promptDialog(
-      runItem
-        ? "進行中のランに加えて、並行で新しいランを開始します。\nランの名前は？（作品名など）"
+      running > 0
+        ? `実行中のラン ${running} 本に加えて、並行で新しいランを開始します。\nランの名前は？（作品名など）`
         : "ランの名前は？（作品名など）",
       { placeholder: "空欄なら日時", confirmLabel: "開始" },
     );
@@ -254,11 +259,26 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       {/* 右側のバッジ列: 発火(▶) + Fix（ロック）トグル */}
       <span className="absolute -right-[30px] inset-y-0 flex flex-col items-center justify-center gap-1">
         {node.kind === "trigger" && (
-          <Hint id="fire" always="手動で開始" text={HINT_TEXT.fire}>
+          // ラン表示中は押せない（2026-08-08 本人指定「既に押した発火はもう押せないように」）。
+          // そのランは発火済みで、ここから作れるのは常に**別の**ランだから紛らわしい。
+          // 新しく始めるのはテンプレート表示（＝ページを開いた既定）と実行一覧の発火ボタンから
+          // ——並行ランは従来どおり何本でも回せる
+          <Hint
+            id="fire"
+            always={projecting ? "このランは発火済み" : "手動で開始"}
+            text={
+              projecting
+                ? "表示中のランはもう発火しています。新しく始めるにはページを開き直す（テンプレート表示）か、実行一覧の発火から"
+                : HINT_TEXT.fire
+            }
+          >
             <button
               type="button"
               className="nodrag inline-flex size-[22px] items-center justify-center rounded-full border border-border bg-background text-text-lo transition-opacity hover:opacity-90 disabled:opacity-40"
-              disabled={firing}
+              disabled={firing || projecting}
+              // disabled にはポインタイベントが来ない＝Hint のツールチップが出ないので、
+              // 押せない理由だけは native title で見せる
+              title={projecting ? "このランは発火済み" : undefined}
               onClick={(e) => {
                 e.stopPropagation();
                 void fire();

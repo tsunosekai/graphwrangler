@@ -272,8 +272,10 @@ function AppInner() {
     }
   }, 3000);
   const pageRuns = useMemo(() => pageRunsData ?? [], [pageRunsData]);
-  const runningRuns = useMemo(() => pageRuns.filter((r) => r.status === "running"), [pageRuns]);
-  // projectedRunId: null = 自動（最新の実行中ラン）/ "none" = 明示的に投影なし / それ以外 = ラン id
+  // projectedRunId: null = 投影なし＝**テンプレート**（設計図）を見ている / それ以外 = そのラン。
+  // ページを開いた既定はテンプレート（2026-08-08 本人指定。旧: 実行中のランがあれば勝手に
+  // 最新1本を投影していたため、素の設計図を見るのにセレクタ操作が要った）。
+  // ランはレールのラン子行かツールバーのセレクタで明示的に選ぶ
   const [projectedRunId, setProjectedRunId] = useState<string | null>(null);
   // URL ルート（?run=<id>）由来のラン指定の一時置き場（2026-08-08）。ルート適用でページも
   // 一緒に切り替わると、下のリセット effect が次のコミットで null に潰してしまうため、
@@ -292,10 +294,7 @@ function AppInner() {
   useEffect(() => {
     routeRunRef.current = null;
   });
-  const activeRun =
-    projectedRunId === "none"
-      ? null
-      : (pageRuns.find((r) => r.id === projectedRunId) ?? runningRuns[0] ?? null);
+  const activeRun = projectedRunId ? (pageRuns.find((r) => r.id === projectedRunId) ?? null) : null;
 
   // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
   // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）
@@ -437,11 +436,11 @@ function AppInner() {
         // ノードが見つからない・ノード指定なしのときはページだけ適用
         setPageId(r.pageId);
       }
-      if (r.runId) {
-        // ページも一緒に切り替わる場合に備えて ref にも積む（リセット effect が引き継ぐ）
-        routeRunRef.current = r.runId;
-        setProjectedRunId(r.runId);
-      }
+      // ラン指定は URL を正とする（?run= 無し = テンプレート表示）。リンクを踏んだのに
+      // 前に見ていたランが残っていると、URL の見た目と画面が食い違う（2026-08-08）。
+      // ページも一緒に切り替わる場合に備えて ref にも積む（リセット effect が引き継ぐ）
+      routeRunRef.current = r.runId;
+      setProjectedRunId(r.runId);
       if (r.chat) setChatOpen(true);
     },
     [nodes, selectNode],
@@ -481,8 +480,8 @@ function AppInner() {
     const url = buildRoute({
       pageId,
       nodeId: selectedId,
-      // "none"（明示的に投影なし）と null（自動）はどちらも URL に載せない
-      runId: projectedRunId === "none" ? null : projectedRunId,
+      // テンプレート表示（null）は URL に載せない
+      runId: projectedRunId,
       chat: chatOpen,
     });
     if (window.location.hash !== url) {
@@ -598,7 +597,7 @@ function AppInner() {
             reads={reads}
             activeRun={activeRun}
             pageRuns={pageRuns}
-            onProjectRun={(runId) => setProjectedRunId(runId ?? "none")}
+            onProjectRun={setProjectedRunId}
             onSelect={selectNode}
             onNodeTap={() => {
               if (isMobile) setMobileView("node"); // 実タップは同じノードでも詳細へ

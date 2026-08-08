@@ -1209,6 +1209,7 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
         nodeId: node.id,
         nodeTitle: node.title || "（無題）",
         runTitle: run.title,
+        runId: run.id,
       },
     });
   }

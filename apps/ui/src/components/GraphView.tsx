@@ -474,6 +474,9 @@ function GraphViewInner({
                 ? { runId: activeRun.id, status: "done" as const, note: null }
                 : null,
             isRunFrontier: isRunFrontierOf(n),
+            // 発火の確認文で「並行で増える」ことを伝えるため（2026-08-08）。テンプレート表示
+            // からしか発火できなくなったので、投影中のアイテムでは並走を知れない
+            runningRunCount: pageRuns.filter((r) => r.status === "running").length,
             unread,
             onSelect: (id: string) => onSelect(id),
             onDoubleClick: (id: string) => setEditingId(id),
@@ -493,6 +496,7 @@ function GraphViewInner({
     threadMeta,
     reads,
     activeRun,
+    pageRuns,
     onSelect,
     commitTitle,
     fitView,

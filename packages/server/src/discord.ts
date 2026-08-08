@@ -31,6 +31,10 @@ export interface NotifyTarget {
   nodeTitle: string;
   /** ラン経由の通知だけが持つ（発生源②）。「（ラン: X）」として subject に付く */
   runTitle?: string | null;
+  /** 同じくラン経由の通知だけが持つ。リンクに ?run= を載せて「そのランのそのノード」を開かせる
+   *  （2026-08-08。ページを開いた既定がテンプレート表示になったため、これが無いとリンクを
+   *  踏んでもランの進捗＝あなたの番の回答導線に着地しない） */
+  runId?: string | null;
 }
 
 export interface DiscordMessage {
@@ -47,16 +51,22 @@ function subjectLine(t: NotifyTarget): string {
 }
 
 /** 3行目のノードリンク。publicUrl 未設定なら null（行ごと省略）。
- *  末尾スラッシュは除去してから `/#/n/<id>` を連結（UI 側のハッシュルーティングが開く） */
-function nodeLink(publicUrl: string | null | undefined, nodeId: string): string | null {
+ *  末尾スラッシュは除去してから `/#/n/<id>` を連結（UI 側のハッシュルーティングが開く）。
+ *  ラン経由の通知は `?run=<ランid>` まで付けて、そのランの進捗ごと開かせる */
+function nodeLink(
+  publicUrl: string | null | undefined,
+  nodeId: string,
+  runId?: string | null,
+): string | null {
   if (!publicUrl) return null;
-  return `${publicUrl.replace(/\/+$/, "")}/#/n/${nodeId}`;
+  const base = `${publicUrl.replace(/\/+$/, "")}/#/n/${nodeId}`;
+  return runId ? `${base}?run=${runId}` : base;
 }
 
 /** 1〜3行を組む共通処理。link が null なら3行目を出さない */
 function composeContent(firstLine: string, target: NotifyTarget, publicUrl: string | null | undefined): string {
   const lines = [firstLine, subjectLine(target)];
-  const link = nodeLink(publicUrl, target.nodeId);
+  const link = nodeLink(publicUrl, target.nodeId, target.runId);
   if (link) lines.push(link);
   return lines.join("\n");
 }
