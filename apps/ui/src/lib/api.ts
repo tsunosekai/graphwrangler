@@ -365,19 +365,24 @@ export const api = {
 
   /** aiBusy: Task AI が応答生成中か（「考え中」表示用。GraphWrangler AI と挙動を揃える）。
    *  aiQueued: 応答中に書いた送信予約を受けて、終わり次第もう一度応答する予約があるか */
-  getThread: (id: string) =>
+  /** runId を渡すと**そのランの会話・実行記録だけ**を返す（2026-08-08「会話や実行履歴も
+   *  フォーク」）。省略/null はテンプレート（設計図）側の会話だけ */
+  getThread: (id: string, runId?: string | null) =>
     request<{ messages: MaterializedMessage[]; aiBusy?: boolean; aiQueued?: boolean }>(
-      `/nodes/${id}/thread`,
+      runId ? `/nodes/${id}/thread?run=${encodeURIComponent(runId)}` : `/nodes/${id}/thread`,
     ),
 
   /** Task AI の応答を止める（2026-08-05）。予約されていた送信予約の再応答も取り消す */
-  stopThreadAi: (id: string) =>
-    request<{ stopped: boolean }>(`/nodes/${id}/thread-ai/cancel`, { method: "POST", body: "{}" }),
+  stopThreadAi: (id: string, runId?: string | null) =>
+    request<{ stopped: boolean }>(`/nodes/${id}/thread-ai/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ runId: runId ?? null }),
+    }),
 
-  postMessage: (id: string, body: string) =>
+  postMessage: (id: string, body: string, runId?: string | null) =>
     withSelfRead(id, request<Message>(`/nodes/${id}/messages`, {
       method: "POST",
-      body: JSON.stringify({ kind: "say", body }),
+      body: JSON.stringify({ kind: "say", body, runId: runId ?? null }),
     })),
 
   answer: (id: string, requestId: string, option: string | null, note: string | null = null) =>

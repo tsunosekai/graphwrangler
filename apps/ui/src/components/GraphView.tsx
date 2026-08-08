@@ -101,8 +101,14 @@ interface Props {
   /** 現在ページの全ラン一覧（新しい順。実行中も終了済みも）。ツールバーのセレクトで
    *  どのランを投影するか切り替える（過去のランも見返せる。2026-08-07 本人要望） */
   pageRuns?: Run[];
-  /** null = 投影なし（テンプレート表示）を明示的に選んだ */
+  /** null = テンプレート（設計図）を開く / ラン id = そのランのページへ移る */
   onProjectRun?: (runId: string | null) => void;
+  /** ランのページを開いているか（2026-08-08 本人指定「ランは個別ページ」）。
+   *  ここが非 null のとき nodes/pageNode は**そのランのフォーク**（発火時の中身 + ランの進捗）で、
+   *  テンプレートの編集（追加・つなぎ替え・並べ替え・名前変更）はできない */
+  runView?: { id: string; title: string; status: Run["status"] } | null;
+  /** ランのページからテンプレート（設計図）へ戻る */
+  onLeaveRun?: () => void;
   onSelect: (id: string | null) => void;
   /** ユーザーが**キャンバス上でノードを実際にタップ/クリックした**ときだけ呼ばれる。
    *  onSelect は React Flow の selection-change（ポーリング再描画でも再発火する）からも
@@ -123,6 +129,8 @@ function GraphViewInner({
   activeRun,
   pageRuns = [],
   onProjectRun,
+  runView = null,
+  onLeaveRun,
   onSelect,
   onNodeTap,
   onMutated,
@@ -474,12 +482,16 @@ function GraphViewInner({
                 ? { runId: activeRun.id, status: "done" as const, note: null }
                 : null,
             isRunFrontier: isRunFrontierOf(n),
+            inRunPage: !!runView,
             // 発火の確認文で「並行で増える」ことを伝えるため（2026-08-08）。テンプレート表示
             // からしか発火できなくなったので、投影中のアイテムでは並走を知れない
             runningRunCount: pageRuns.filter((r) => r.status === "running").length,
             unread,
             onSelect: (id: string) => onSelect(id),
-            onDoubleClick: (id: string) => setEditingId(id),
+            // ランのページではタイトル編集させない（記録なので。2026-08-08）
+            onDoubleClick: (id: string) => {
+              if (!runView) setEditingId(id);
+            },
             onCommitTitle: commitTitle,
             onCancelEdit: () => setEditingId(null),
           } satisfies NodeCardData,
@@ -497,6 +509,7 @@ function GraphViewInner({
     reads,
     activeRun,
     pageRuns,
+    runView,
     onSelect,
     commitTitle,
     fitView,
@@ -1055,7 +1068,7 @@ function GraphViewInner({
             </Button>
           </Hint>
         )}
-        {isRoutine && (
+        {isRoutine && !runView && (
           <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "graph" | "ledger")}>
             <TabsList>
               <TabsTrigger value="graph">グラフ</TabsTrigger>
@@ -1068,9 +1081,30 @@ function GraphViewInner({
             </TabsList>
           </Tabs>
         )}
-        {/* ランの投影切替（ラン切替セレクタ）: 実行中だけでなく**過去のラン**も選んで
-            グラフに投影できる（2026-08-07 本人要望「過去のランが選択（表示）できない」）。
-            既定は最新の実行中ラン。「投影なし」でテンプレート表示に戻る */}
+        {/* ランのページ（2026-08-08 本人指定）: いま見ているのがどのランかを出し、
+            テンプレート（設計図）へ戻る導線を置く。ラン同士の移動は左レールのラン一覧から */}
+        {runView && (
+          <>
+            <Hint id="run-page" always={`ラン: ${runView.title}`} text="このページはこのランの記録。グラフ・ノードの中身・会話はすべてこのランのもので、テンプレートとは別物">
+              <span className="inline-flex max-w-56 items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-sm text-muted-foreground">
+                <RunStatusIcon status={runView.status} />
+                <span className="min-w-0 truncate">{runView.title}</span>
+              </span>
+            </Hint>
+            <Hint id="leave-run" always="テンプレート（設計図）へ戻る">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={() => onLeaveRun?.()}
+              >
+                テンプレートへ
+              </Button>
+            </Hint>
+          </>
+        )}
+        {/* ランの切り替え（このページのラン一覧）。選ぶとそのランのページへ移る */}
         {!showLedger && pageRuns.length > 0 && (
           <Select
             value={activeRun?.id ?? "none"}
@@ -1078,14 +1112,14 @@ function GraphViewInner({
           >
             <Hint
               id="run-projection"
-              text="どのランの進捗をグラフに表示するか選ぶ（絵は 実行中/完了/中止。過去のランも見返せる。ノードの操作は選んだランに記録される）"
+              text="このページのラン。選ぶとそのランのページへ移る（グラフ・ノードの中身・会話はそのランのもの）"
             >
               <SelectTrigger className="h-9 max-w-56">
-                <SelectValue placeholder="ランを表示…" />
+                <SelectValue placeholder="ランを開く…" />
               </SelectTrigger>
             </Hint>
             <SelectContent>
-              <SelectItem value="none">ラン表示なし（テンプレートを表示）</SelectItem>
+              <SelectItem value="none">テンプレート（設計図）</SelectItem>
               {pageRuns.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
                   {/* 状態の絵は左レールのラン行と共有（RunStatusIcon。2026-08-08 本人指摘
@@ -1126,7 +1160,9 @@ function GraphViewInner({
           </Hint>
         )}
       </div>
-        {!showLedger && (
+        {/* 2段目はテンプレート（設計図）への操作。ランのページは「その回の記録」なので、
+            ノードの追加・整列・ロックは出さない（2026-08-08 本人指定のフォーク） */}
+        {!showLedger && !runView && (
           <div className="flex items-center gap-2 max-md:flex-wrap">
             <Hint id="add-node" text="このページに新しいノードを作る（ノードを選択中ならその後続としてつながる）">
               <Button type="button" variant="outline" onClick={() => createNode(selectedInPage)}>
@@ -1171,8 +1207,10 @@ function GraphViewInner({
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={handleNodesChange}
-          onConnect={handleConnect}
-          onConnectEnd={handleConnectEnd}
+          // ランのページは「その回の記録」なので、つなぎ替え・ノード生成はさせない（2026-08-08）
+          onConnect={runView ? undefined : handleConnect}
+          onConnectEnd={runView ? undefined : handleConnectEnd}
+          nodesConnectable={!runView}
           onNodeClick={(_, n) => {
             lastClickedRef.current = n.id;
             onSelect(n.id);
@@ -1185,7 +1223,7 @@ function GraphViewInner({
             onSelectionIdsChange?.([]);
             setSelectedEdgeId(null);
           }}
-          onDoubleClick={handlePaneDoubleClick}
+          onDoubleClick={runView ? undefined : handlePaneDoubleClick}
           zoomOnDoubleClick={false}
           nodeDragThreshold={4}
           // ノードのラッパーdivにフォーカスを取らせない（2026-08-07 本人報告「タイトル編集中に
@@ -1197,7 +1235,7 @@ function GraphViewInner({
           nodesFocusable={false}
           onPaneContextMenu={(e) => {
             e.preventDefault();
-            createNode(null);
+            if (!runView) createNode(null);
           }}
           proOptions={{ hideAttribution: true }}
           // 複数選択: クリック/Shift+クリック/Ctrl+クリックで追加選択、Shift+ドラッグで矩形選択。

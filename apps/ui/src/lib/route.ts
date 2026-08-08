@@ -3,10 +3,14 @@
 // （location / history の読み書きは App.tsx 側の同期処理が行う）。
 //
 // スキーム:
-//   #/p/<pageId>            … ページ（プロジェクト / ルーティーン）を開く
+//   #/p/<pageId>            … ページ（プロジェクト / ルーティーン = テンプレート）を開く
 //   #/n/<nodeId>            … ノードを開く（属するページへ切替 + 選択でパネルが開く）
 //   #/p/<pageId>/n/<nodeId> … 上の複合。build はこの複合形で出力し、parse は単独形も受ける
-//   ?run=<runId>            … そのランをグラフに投影（App の projectedRunId）
+//   #/r/<runId>             … **ランのページ**を開く（2026-08-08 本人指定「ランは個別ページ」）。
+//                             ランはテンプレートとは別物として表示する（グラフ・ノードの中身・
+//                             会話・実行履歴すべてそのランのもの）
+//   #/r/<runId>/n/<nodeId>  … ランのページの中のノード
+//   ?run=<runId>            … 旧形式。#/r/<runId> と同じ意味として受ける（既存リンク互換）
 //   #/chat または ?chat=1   … AI チャットドロワーを開く（ページ指定と併用可）
 
 export interface RouteState {
@@ -45,10 +49,11 @@ export function parseRoute(hash: string): RouteState | null {
       found = true;
       continue;
     }
-    if ((seg === "p" || seg === "n") && i + 1 < segments.length) {
+    if ((seg === "p" || seg === "n" || seg === "r") && i + 1 < segments.length) {
       const value = safeDecode(segments[i + 1]);
       i++; // 値セグメントを消費
       if (seg === "p") state.pageId = value;
+      else if (seg === "r") state.runId = value;
       else state.nodeId = value;
       found = true;
       continue;
@@ -71,14 +76,16 @@ export function parseRoute(hash: string): RouteState | null {
   return found ? state : null;
 }
 
-/** RouteState から "#/p/x/n/y?run=z&chat=1" 形式の hash を組み立てる。全て空なら "#/"。
- *  各セグメントは encodeURIComponent（id にスラッシュ等が混ざっても壊れないように） */
+/** RouteState から hash を組み立てる。ランを開いているときは **ランのページ**
+ *  （#/r/<runId>[/n/<nodeId>]）を出す——ランはテンプレートとは別のページなので、
+ *  ページidは載せない（ランからページは辿れる）。ランでなければ #/p/x/n/y。
+ *  全て空なら "#/"。各セグメントは encodeURIComponent（id にスラッシュ等が混ざっても壊れない） */
 export function buildRoute(s: RouteState): string {
   const parts: string[] = [];
-  if (s.pageId) parts.push("p", encodeURIComponent(s.pageId));
+  if (s.runId) parts.push("r", encodeURIComponent(s.runId));
+  else if (s.pageId) parts.push("p", encodeURIComponent(s.pageId));
   if (s.nodeId) parts.push("n", encodeURIComponent(s.nodeId));
   const query: string[] = [];
-  if (s.runId) query.push(`run=${encodeURIComponent(s.runId)}`);
   if (s.chat) query.push("chat=1");
   return `#/${parts.join("/")}${query.length > 0 ? `?${query.join("&")}` : ""}`;
 }

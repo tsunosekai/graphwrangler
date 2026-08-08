@@ -207,10 +207,16 @@ const runningThreadAi = new Map<string, AbortController>();
  *  応答中に書いた分は永遠に返事が来なかった（2026-08-05 本人要望「送信予約で話しかける機能」） */
 const pendingFollowUp = new Set<string>();
 
+/** 排他の単位は「ノード × ラン」（2026-08-08「会話もフォーク」）。同じノードでも別のランなら
+ *  会話が別物なので、片方の応答中にもう片方が止まってしまわないようにする */
+function aiKey(nodeId: string, runId: string | null): string {
+  return runId ? `${nodeId} ${runId}` : nodeId;
+}
+
 /** UI の「考え中」表示用（GET /api/nodes/:id/thread が aiBusy として返す。
  *  2026-08-03 本人報告「ノードのAIチャット欄、考え中がでない」——GraphWrangler AI と挙動を揃える） */
-export function isThreadAiRunning(nodeId: string): boolean {
-  return runningThreadAi.has(nodeId);
+export function isThreadAiRunning(nodeId: string, runId: string | null = null): boolean {
+  return runningThreadAi.has(aiKey(nodeId, runId));
 }
 
 /** 応答中の Task AI の数。自動アップデートの busy 判定用（chat_cli.ts の
@@ -220,16 +226,17 @@ export function threadAiActiveCount(): number {
 }
 
 /** 送信予約を受けて再応答待ちか（UI の表示用） */
-export function isThreadAiFollowUpQueued(nodeId: string): boolean {
-  return pendingFollowUp.has(nodeId);
+export function isThreadAiFollowUpQueued(nodeId: string, runId: string | null = null): boolean {
+  return pendingFollowUp.has(aiKey(nodeId, runId));
 }
 
 /** Task AI の応答を止める（POST /api/nodes/:id/thread-ai/cancel）。
  *  予約されていた送信予約の再応答も取り消す——「止めて」と言われたら全部止まるのが素直。
  *  戻り値 false = そもそも動いていなかった */
-export function cancelThreadAi(nodeId: string): boolean {
-  const hadFollowUp = pendingFollowUp.delete(nodeId);
-  const controller = runningThreadAi.get(nodeId);
+export function cancelThreadAi(nodeId: string, runId: string | null = null): boolean {
+  const key = aiKey(nodeId, runId);
+  const hadFollowUp = pendingFollowUp.delete(key);
+  const controller = runningThreadAi.get(key);
   if (!controller) return hadFollowUp;
   controller.abort();
   return true;
@@ -237,13 +244,19 @@ export function cancelThreadAi(nodeId: string): boolean {
 
 /** 応答失敗をスレッドに見える形で残す（GraphWrangler AI がエラーを画面に出すのと同じ扱い。
  *  以前はサーバログだけで、人間には「考え中が出ない・返事も来ない」に見えていた） */
-function postThreadAiFailure(threads: ThreadStore, nodeId: string, reason: string): void {
+function postThreadAiFailure(
+  threads: ThreadStore,
+  nodeId: string,
+  reason: string,
+  runId: string | null,
+): void {
   try {
     threads.post(nodeId, {
       kind: "status",
       body: `Task AI 応答失敗: ${reason.slice(0, 300)}`,
       author: { kind: "system" },
       via: "chat",
+      runId,
     });
   } catch (err) {
     console.error(`[thread-ai] node ${nodeId}: 失敗の記録にも失敗: ${String(err)}`);
@@ -258,8 +271,10 @@ async function respondInThread(
   signal: AbortSignal,
   onReply?: (node: Node, replyText: string) => void,
   attachmentsDir?: string,
+  // どのランの会話に返すか（2026-08-08「会話もフォーク」）。null = テンプレート側
+  runId: string | null = null,
 ): Promise<void> {
-  const messages = threads.list(node.id);
+  const messages = threads.listScoped(node.id, runId);
   const last = messages[messages.length - 1];
   if (!last) return; // 起動条件は post 直後なので理論上は必ずある
 
@@ -320,7 +335,7 @@ async function respondInThread(
     if (result.cancelled) return; // 人間が止めた（失敗ではないのでスレッドには書かない）
     if (!result.success) {
       console.error(`[thread-ai] node ${node.id}: ヘッドレスCLIの起動に失敗しました: ${result.error}`);
-      postThreadAiFailure(threads, node.id, result.error ?? "ヘッドレスCLIの起動に失敗");
+      postThreadAiFailure(threads, node.id, result.error ?? "ヘッドレスCLIの起動に失敗", runId);
       return;
     }
     replyText = result.output.trim();
@@ -328,7 +343,7 @@ async function respondInThread(
     const missing = chatKeyMissing(settings);
     if (missing) {
       console.error(`[thread-ai] node ${node.id}: ${missing}`);
-      postThreadAiFailure(threads, node.id, missing);
+      postThreadAiFailure(threads, node.id, missing, runId);
       return;
     }
     modelLabel = chat.model ?? "default";
@@ -337,7 +352,7 @@ async function respondInThread(
     } catch (err) {
       if (signal.aborted) return; // 人間が止めた
       console.error(`[thread-ai] node ${node.id}: API呼び出しに失敗しました: ${String(err)}`);
-      postThreadAiFailure(threads, node.id, String(err));
+      postThreadAiFailure(threads, node.id, String(err), runId);
       return;
     }
   }
@@ -350,6 +365,7 @@ async function respondInThread(
     body: replyText,
     author: { kind: "agent", name: `task-ai:${modelLabel}` },
     via: "chat",
+    runId,
   });
   // Discord 等への「返信が来た」通知（2026-08-07。設定・宛先解決は呼び出し側=index.ts が持つ）
   onReply?.(node, replyText);
@@ -379,28 +395,32 @@ export function maybeTriggerThreadAi(params: {
   onReply?: (node: Node, replyText: string) => void;
   /** 添付ファイル置き場（--add-dir に足して Read で読めるようにする。2026-08-07） */
   attachmentsDir?: string;
+  /** どのランの会話への投稿か（2026-08-08「会話もフォーク」）。null/未指定 = テンプレート側 */
+  runId?: string | null;
 }): void {
   const { graph, threads, settings, nodeId, kind, actor, onReply, attachmentsDir } = params;
+  const runId = params.runId ?? null;
   if (!graph.has(nodeId)) return;
   const node = graph.get(nodeId);
   if (!shouldTriggerThreadAi({ kind, actor, pendingRequest: node.pendingRequest })) return;
-  if (runningThreadAi.has(nodeId)) {
-    pendingFollowUp.add(nodeId); // 送信予約: 今の応答が終わったら最新のスレッドで応答し直す
+  const key = aiKey(nodeId, runId);
+  if (runningThreadAi.has(key)) {
+    pendingFollowUp.add(key); // 送信予約: 今の応答が終わったら最新のスレッドで応答し直す
     return;
   }
 
   const controller = new AbortController();
-  runningThreadAi.set(nodeId, controller);
-  respondInThread(graph, threads, settings, node, controller.signal, onReply, attachmentsDir)
+  runningThreadAi.set(key, controller);
+  respondInThread(graph, threads, settings, node, controller.signal, onReply, attachmentsDir, runId)
     .catch((err) => {
       if (controller.signal.aborted) return;
       console.error(`[thread-ai] node ${nodeId}: 予期しないエラー: ${String(err)}`);
     })
     .finally(() => {
-      runningThreadAi.delete(nodeId);
+      runningThreadAi.delete(key);
       // 停止させられたときは予約も取り消し済み（cancelThreadAi）。ここに残っていれば
       // 送信予約があったということなので、増えた発言込みでもう一度
-      if (!pendingFollowUp.delete(nodeId)) return;
+      if (!pendingFollowUp.delete(key)) return;
       maybeTriggerThreadAi({ ...params, actor: { kind: "human" }, kind: "say" });
     });
 }

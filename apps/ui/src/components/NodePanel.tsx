@@ -60,6 +60,10 @@ interface Props {
   activeRun: Run | null;
   /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
   reads: Record<string, string>;
+  /** ランのページを見ているか（2026-08-08 本人指定「ランは個別ページ」）。非 null のとき:
+   *  - node はそのランのフォーク（発火時点の中身）＝やり方の編集はできない
+   *  - 会話・実行履歴もそのランのものだけを出し、書き込みもそのランに属する */
+  runView?: { id: string; title: string } | null;
   /** スレッドを表示した時点で呼ばれる（App が既読オーバーレイでカード/レールの未読バッジを
    *  即消すため。2026-08-05 本人指示「何秒かじゃなくて即で」）。lastTs はスレッド最終
    *  メッセージの ts（サーバ発行）で、端末の時計ズレに影響されない既読の基準になる */
@@ -250,7 +254,17 @@ function useGithubBlobBase(): string | null {
   return base;
 }
 
-export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutated, onClose, onSelect }: Props) {
+export function NodePanel({
+  node,
+  allNodes,
+  activeRun,
+  reads,
+  runView = null,
+  onViewed,
+  onMutated,
+  onClose,
+  onSelect,
+}: Props) {
   // 会話=今の会話 / 履歴=過去の会話（GraphWrangler AI の「履歴」と同じ意味） / 実行記録=status・artifact
   // （2026-08-02 本人要望「会話の履歴と実行の履歴を分けてほしい」で2タブ→3タブ化。
   // それまで「新しい会話」で区切った過去の会話は UI のどこからも見えなくなっていた）
@@ -285,7 +299,16 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
       return next;
     });
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
-  const { data: thread, refresh: refreshThread } = usePolling(() => api.getThread(node.id), 10000);
+  // 会話・実行履歴はランごと（2026-08-08「会話や実行履歴もフォーク」）。
+  // ランのページならそのランの分だけ、テンプレートなら設計図側の分だけが返る
+  const { data: thread, refresh: refreshThread } = usePolling(
+    () => api.getThread(node.id, runView?.id ?? null),
+    10000,
+    `${node.id}:${runView?.id ?? ""}`,
+  );
+  /** ランのページでは「やり方」（タイトル・概要・手順・種別など）を編集させない。
+   *  そのランは既に起きたことの記録で、直すべきはテンプレート側だから */
+  const contentLocked = node.fixed || !!runView;
 
   // パネルを開いた時点の「前回の既読時刻」を捕まえておく（下の effect が既読を更新する前に
   // useState 初期化子で読む。key={node.id} 再マウントなのでノードごとに一度だけ評価される）。
@@ -841,7 +864,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
         rows={1}
         className="w-full flex-shrink-0 resize-none overflow-hidden rounded-md border border-transparent bg-transparent px-2 py-1 text-lg font-semibold leading-snug outline-none transition-colors hover:border-input focus-visible:border-input disabled:cursor-not-allowed disabled:opacity-60"
         value={titleDraft}
-        disabled={node.fixed}
+        disabled={contentLocked}
         onFocus={() => setTitleFocused(true)}
         onChange={(e) => setTitleDraft(e.target.value.replace(/\n/g, ""))}
         onBlur={saveTitle}
@@ -937,10 +960,14 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
         >
           {/* Fix実効化の注記（docs/design.md 3.5）: ロック中は「やり方」フィールドの編集UIを
               disabled にする。進捗（status）・params の値・試走・Fixトグル自体は生かしたまま */}
-          {node.fixed && (
+          {runView ? (
             <p className="text-xs text-muted-foreground">
-              🔒 ロック中（編集するには解除）
+              このランの記録（{runView.title}）。やり方を直すときはテンプレート（設計図）側で
             </p>
+          ) : (
+            node.fixed && (
+              <p className="text-xs text-muted-foreground">🔒 ロック中（編集するには解除）</p>
+            )
           )}
 
           {/* max-h + overflow: Textarea は field-sizing-content で中身に合わせて伸び続けるため、
@@ -951,7 +978,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             className="max-h-48 overflow-y-auto"
             placeholder="概要"
             value={detailDraft}
-            disabled={node.fixed}
+            disabled={contentLocked}
             onFocus={() => setDetailFocused(true)}
             onChange={(e) => setDetailDraft(e.target.value)}
             onBlur={saveDetail}
@@ -975,7 +1002,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     : "every 15m / daily 09:00 / weekly mon 09:00"
                 }
                 value={scheduleDraft}
-                disabled={node.fixed}
+                disabled={contentLocked}
                 onFocus={() => setScheduleFocused(true)}
                 onChange={(e) => setScheduleDraft(e.target.value)}
                 onBlur={saveSchedule}
@@ -992,7 +1019,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               </Hint>
               <Select
                 value={node.kind}
-                disabled={node.fixed}
+                disabled={contentLocked}
                 onValueChange={(v) => {
                   const kind = v as Node["kind"];
                   // decision に切り替えた時、branches が未設定なら既定2枝を立てる（docs/design.md 3.9）
@@ -1028,7 +1055,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
               </Hint>
               <Select
                 value={node.executor}
-                disabled={node.fixed}
+                disabled={contentLocked}
                 onValueChange={(v) => handleExecutorChange(v as Node["executor"])}
               >
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -1095,7 +1122,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 </Hint>
                 <Switch
                   checked={node.approval}
-                  disabled={node.fixed}
+                  disabled={contentLocked}
                   onCheckedChange={(v) => patch({ approval: v })}
                 />
               </label>
@@ -1110,7 +1137,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 </Hint>
                 <Select
                   value={node.autonomy}
-                  disabled={node.fixed}
+                  disabled={contentLocked}
                   onValueChange={(v) => patch({ autonomy: v as Node["autonomy"] })}
                 >
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -1178,7 +1205,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 回答は上の判断カードから行う） */}
             {/* トリガーは進捗を持たないが lifecycle は持つ。下書きの間だけ確定導線を出す
                 （2026-07-31 本人報告「トリガーをプラン済みにする方法がUIに無い」） */}
-            {node.kind === "trigger" && node.lifecycle === "draft" && (
+            {!runView && node.kind === "trigger" && node.lifecycle === "draft" && (
               <div className="col-span-2 flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">下書き（未確定）</span>
                 <span className="flex-1" />
@@ -1222,7 +1249,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             {/* ルーティーンのテンプレートでも「プラン済みにする」は出す——これは進捗ではなく
                 計画（lifecycle）の操作で、committed でないテンプレートはエンジンが実行しない
                 （2026-08-01 本人指摘「プラン済みにするボタンがないノードがある」） */}
-            {node.kind !== "trigger" &&
+            {!runView &&
+              node.kind !== "trigger" &&
               node.group != null &&
               allNodes.some((n) => n.kind === "trigger" && n.group === node.group) &&
               (node.lifecycle === "draft" || node.status === "unplanned") && (
@@ -1249,7 +1277,8 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             {/* テンプレートのプラン取り消し（2026-08-07 本人要望「未プランに戻すボタンを追加」。
                 トリガー版 2026-08-06 と同じ流儀で lifecycle を draft へ戻す）。ラン投影中は
                 出さない——実行中のランの進捗操作と混ざるため */}
-            {node.kind !== "trigger" &&
+            {!runView &&
+              node.kind !== "trigger" &&
               node.group != null &&
               allNodes.some((n) => n.kind === "trigger" && n.group === node.group) &&
               node.lifecycle === "committed" &&
@@ -1596,7 +1625,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             </Hint>
             <Select
               value={node.impl === null ? "none" : node.impl.type}
-              disabled={node.fixed}
+              disabled={contentLocked}
               onValueChange={(v) => setImplType(v as ImplTypeOption)}
             >
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -1619,7 +1648,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                     className="flex-1"
                     placeholder="フォルダからの相対パス（例: docs/how-to.md）。本文も書いてあれば本文を優先"
                     value={implPathDraft}
-                    disabled={node.fixed}
+                    disabled={contentLocked}
                     onFocus={() => setImplPathFocused(true)}
                     onChange={(e) => setImplPathDraft(e.target.value)}
                     onBlur={saveImplPath}
@@ -1647,7 +1676,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   className="max-h-72 overflow-y-auto"
                   placeholder="本文（パスと両方あれば省略可。どちらか片方があればよい）"
                   value={implTextDraft}
-                  disabled={node.fixed}
+                  disabled={contentLocked}
                   onFocus={() => setImplTextFocused(true)}
                   onChange={(e) => setImplTextDraft(e.target.value)}
                   onBlur={saveImplText}
@@ -1663,7 +1692,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                       variant="outline"
                       size="sm"
                       className="self-start"
-                      disabled={node.fixed}
+                      disabled={contentLocked}
                       // disabled 理由だけは native title（disabled にはポインタイベントが来ない）
                       title={node.fixed ? "ロック中はファイル化できません（先に解除）" : undefined}
                       onClick={() => void fileifyImplDoc()}
@@ -1680,7 +1709,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 <Input
                   placeholder="実行コマンド（引数が要るなら {name} プレースホルダを使う）"
                   value={implCommandDraft}
-                  disabled={node.fixed}
+                  disabled={contentLocked}
                   onFocus={() => setImplCommandFocused(true)}
                   onChange={(e) => setImplCommandDraft(e.target.value)}
                   onBlur={saveImplCommand}
@@ -1781,7 +1810,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                   key={b.id}
                   branch={b}
                   disableRemove={(node.branches?.length ?? 0) <= 2}
-                  disabled={node.fixed}
+                  disabled={contentLocked}
                   onCommit={(label) =>
                     patch({
                       branches: (node.branches ?? []).map((x) => (x.id === b.id ? { ...x, label } : x)),
@@ -1794,7 +1823,7 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={node.fixed}
+                disabled={contentLocked}
                 title={node.fixed ? "ロック中は編集できません" : undefined}
                 onClick={() =>
                   patch({
@@ -1987,12 +2016,14 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
         aiBusy={thread?.aiBusy ?? false}
         aiQueued={thread?.aiQueued ?? false}
         showReplyBox={tab === "talk"}
+        // 書き込み先もこのランの会話（テンプレート側の相談とは混ざらない。2026-08-08）
+        runId={runView?.id ?? null}
         // 入力欄のモデル/エフォート切替（共通コンポーネント化 2026-08-07）。
         // 変更はこのノードの aiModel/aiEffort として保存され、Task AI・実行AI 両方に効く
         aiModel={node.aiModel}
         aiEffort={node.aiEffort}
-        onAiModelChange={(v) => patch({ aiModel: v })}
-        onAiEffortChange={(v) => patch({ aiEffort: v as Node["aiEffort"] })}
+        onAiModelChange={runView ? undefined : (v) => patch({ aiModel: v })}
+        onAiEffortChange={runView ? undefined : (v) => patch({ aiEffort: v as Node["aiEffort"] })}
         onMutated={() => {
           onMutated();
           refreshThread();

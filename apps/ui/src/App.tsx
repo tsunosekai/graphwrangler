@@ -20,7 +20,7 @@ import { useIsMobile } from "./hooks/useIsMobile";
 import { isRoutinePage } from "./lib/routine";
 import { buildRoute, parseRoute, type RouteState } from "./lib/route";
 import { pushToast } from "./lib/toast";
-import type { Run } from "./types";
+import type { Node, Run } from "./types";
 
 /** localStorage の安全な読み書き（UI状態の永続化。2026-07-31 本人要望
  *  「リロードしても開閉や幅を保持」。幅とテーマ・レール開閉は各コンポーネントで保存済み） */
@@ -270,25 +270,68 @@ function AppInner() {
   // ページを開いた既定はテンプレート（2026-08-08 本人指定。旧: 実行中のランがあれば勝手に
   // 最新1本を投影していたため、素の設計図を見るのにセレクタ操作が要った）。
   // ランはレールのラン子行かツールバーのセレクタで明示的に選ぶ
+  // 開いているラン（null = テンプレートのページを見ている）。ランは**別のページ**なので、
+  // 切り替えは明示操作でだけ起きる: レールのページ行＝テンプレートへ / ラン行＝そのランへ /
+  // URL（#/r/<id>）＝そのランへ。ページidの変化に引きずられて勝手に消さない（2026-08-08）
   const [projectedRunId, setProjectedRunId] = useState<string | null>(null);
-  // URL ルート（?run=<id>）由来のラン指定の一時置き場（2026-08-08）。ルート適用でページも
-  // 一緒に切り替わると、下のリセット effect が次のコミットで null に潰してしまうため、
-  // ref に積んでおいてリセット側に引き継がせる
-  const routeRunRef = useRef<string | null>(null);
-  // ページを切り替えたら投影選択をリセットし、次の3秒ポーリングを待たずに即座に取り直す
-  // （URL ルート由来の切替のときだけ、リセットではなく URL の run 指定を採用する）
+  // ページを切り替えたら次の3秒ポーリングを待たずにラン一覧を取り直す
   useEffect(() => {
-    setProjectedRunId(routeRunRef.current);
-    routeRunRef.current = null;
     refreshActiveRun();
   }, [pageId, isCurrentPageRoutine, refreshActiveRun]);
-  // ルート適用の1コミット後に必ず ref を空にする（ページが実際には切り替わらず、上の
-  // effect が消費しなかった場合の取り残し防止。適用時は setProjectedRunId も直接呼ぶので
-  // ここで消しても表示は失われない）
-  useEffect(() => {
-    routeRunRef.current = null;
-  });
-  const activeRun = projectedRunId ? (pageRuns.find((r) => r.id === projectedRunId) ?? null) : null;
+  // 開いているランは全ページ横断で探す（ラン子行から別ページのランを直接開けるように）
+  const openRun = useMemo<Run | null>(() => {
+    if (!projectedRunId) return null;
+    for (const list of Object.values(railRuns)) {
+      const hit = list.find((r) => r.id === projectedRunId);
+      if (hit) return hit;
+    }
+    return pageRuns.find((r) => r.id === projectedRunId) ?? null;
+  }, [projectedRunId, railRuns, pageRuns]);
+  const activeRun = openRun;
+
+  // ---- ランのページ（2026-08-08 本人指定「ランを押すとその瞬間にグラフもノードのプロパティも
+  //      すべてフォークして、それぞれ別のものとして表示される」）。
+  //      中身は GET /api/runs/:id/graph（発火時スナップショット → 操作ログ復元 → 現在の順で
+  //      当時を割り出す）。ラン内の進捗（items）を status に載せて、テンプレートとは別の
+  //      ノード集合として扱う。ラン中に中身は変わらないので取得は開いたときだけでよい ----
+  const { data: runGraph } = usePolling(
+    async () => (projectedRunId ? await api.getRunGraph(projectedRunId) : null),
+    60000,
+    projectedRunId ?? "",
+  );
+  const runNodes = useMemo<Node[]>(() => {
+    if (!openRun || !runGraph || runGraph.runId !== openRun.id) return [];
+    return runGraph.nodes
+      .filter((n) => n.id !== openRun.procedure) // ページ自身はメンバーではない
+      .map((n) => {
+        const item = openRun.items[n.id];
+        // トリガーはランのワークアイテムを持たない＝ランが在る時点で発火済み（完了）
+        const status: Node["status"] =
+          item?.status === "waiting"
+            ? "running" // waiting は保存値に無い派生状態。カードは pendingRequest 側で橙にする
+            : (item?.status ?? (n.kind === "trigger" ? "done" : (n.status ?? "pending")));
+        return { ...(n as unknown as Node), status };
+      });
+  }, [openRun, runGraph]);
+  /** ランのページのページノード（当時のページ名で見せる）。無ければ現在のページノード */
+  const runPageNode = useMemo<Node | null>(() => {
+    if (!openRun || !runGraph) return null;
+    const forked = runGraph.nodes.find((n) => n.id === openRun.procedure);
+    return (forked as unknown as Node) ?? null;
+  }, [openRun, runGraph]);
+  /** ランのページを見ているか（= ラン専用の表示・編集ロックに切り替える） */
+  const inRunPage = !!openRun && runNodes.length > 0;
+
+  /** ノード詳細パネルに出すノード。ランのページではフォーク側（そのランの中身）を見せる。
+   *  見つからないノード（ラン後に足されたノード等）はテンプレート側で代替する */
+  const panelNode = useMemo<Node | null>(() => {
+    if (!selectedId) return null;
+    if (inRunPage) {
+      const forked = runNodes.find((n) => n.id === selectedId) ?? (runPageNode?.id === selectedId ? runPageNode : null);
+      if (forked) return forked;
+    }
+    return nodes.find((n) => n.id === selectedId) ?? null;
+  }, [selectedId, inRunPage, runNodes, runPageNode, nodes]);
 
   // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
   // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）
@@ -430,10 +473,8 @@ function AppInner() {
         // ノードが見つからない・ノード指定なしのときはページだけ適用
         setPageId(r.pageId);
       }
-      // ラン指定は URL を正とする（?run= 無し = テンプレート表示）。リンクを踏んだのに
-      // 前に見ていたランが残っていると、URL の見た目と画面が食い違う（2026-08-08）。
-      // ページも一緒に切り替わる場合に備えて ref にも積む（リセット effect が引き継ぐ）
-      routeRunRef.current = r.runId;
+      // ラン指定は URL を正とする（ラン指定が無ければテンプレートのページ）。リンクを踏んだのに
+      // 前に見ていたランが残っていると、URL の見た目と画面が食い違う（2026-08-08）
       setProjectedRunId(r.runId);
       if (r.chat) setChatOpen(true);
     },
@@ -562,6 +603,7 @@ function AppInner() {
             selectedRunId={activeRun?.id ?? null}
             forceExpanded={isMobile}
             onSelectPage={(id) => {
+              setProjectedRunId(null); // ページ行 = テンプレート（設計図）を開く
               setPageId(id);
               // 選択はプロジェクト自身にしておく（2026-08-02 本人指示「タップしたらグラフ画面に
               // 移りつつ、詳細はプロジェクト詳細にしておいて」）。モバイルでは画面はグラフへ
@@ -571,21 +613,20 @@ function AppInner() {
               setMobileView("graph");
             }}
             onSelectRun={(pid, runId) => {
-              // レールのラン子行 → そのページへ切り替えつつ該当ランをグラフに投影する
-              // （URL ルート適用と同じ流儀。ページも切り替わる場合はリセット effect が
-              // routeRunRef から run 指定を引き継ぐ）
-              routeRunRef.current = runId;
+              // レールのラン子行 → **そのランのページ**へ移動（テンプレートとは別物として開く）
               setProjectedRunId(runId);
               setPageId(pid);
-              setSelectedId(pid);
+              setSelectedId(null); // ランのページはまずグラフ全体を見せる
               setMobileView("graph");
             }}
           />
         )}
         <div className={cn("contents", mv !== null && mv !== "graph" && "hidden")}>
           <GraphView
-            nodes={pageNodes}
-            pageNode={pageNode}
+            nodes={inRunPage ? runNodes : pageNodes}
+            pageNode={inRunPage ? (runPageNode ?? pageNode) : pageNode}
+            runView={inRunPage && openRun ? { id: openRun.id, title: openRun.title, status: openRun.status } : null}
+            onLeaveRun={() => setProjectedRunId(null)}
             selectedId={selectedId}
             threadMeta={threadMeta}
             reads={reads}
@@ -616,10 +657,11 @@ function AppInner() {
           ) : (
             selectedNode && (
               <NodePanel
-                key={selectedNode.id}
-                node={selectedNode}
-                allNodes={nodes}
+                key={`${openRun?.id ?? "template"}:${(panelNode ?? selectedNode).id}`}
+                node={panelNode ?? selectedNode}
+                allNodes={inRunPage ? runNodes : nodes}
                 activeRun={activeRun}
+                runView={inRunPage && openRun ? { id: openRun.id, title: openRun.title } : null}
                 reads={reads}
                 onViewed={markViewed}
                 onMutated={handleMutated}

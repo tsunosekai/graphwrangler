@@ -22,6 +22,8 @@ interface Props {
   /** 応答中に書いた分を受けて、終わり次第もう一度応答する予約があるか（2026-08-05） */
   aiQueued?: boolean;
   showReplyBox: boolean;
+  /** どのランの会話か（2026-08-08「会話もフォーク」）。null = テンプレート（設計図）側の会話 */
+  runId?: string | null;
   /** このノードの AI モデル/エフォート（入力欄のセレクタ。変更はノードへ保存される。
    *  2026-08-07 モデル/エフォート切替 + 入力欄共通化） */
   aiModel?: string | null;
@@ -71,6 +73,7 @@ export function Thread({
   aiBusy,
   aiQueued,
   showReplyBox,
+  runId = null,
   aiModel,
   aiEffort,
   onAiModelChange,
@@ -122,7 +125,7 @@ export function Thread({
         // 質問が開いているときの自由文は「聞き返し」= option なしの回答
         await api.answer(nodeId, openRequests[openRequests.length - 1].id, null, body);
       } else {
-        await api.postMessage(nodeId, body);
+        await api.postMessage(nodeId, body, runId);
       }
       onMutated();
     } finally {
@@ -252,7 +255,7 @@ export function Thread({
           disabled={sending}
           onSend={(full) => void sendReply(full)}
           onStop={() => {
-            void api.stopThreadAi(nodeId).then(() => onMutated());
+            void api.stopThreadAi(nodeId, runId).then(() => onMutated());
           }}
           placeholderIdle={openRequests.length > 0 ? "聞き返す・相談する…" : "返信…"}
           placeholderBusy="続けて入力…（応答後に届きます）"

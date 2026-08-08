@@ -335,8 +335,24 @@ export const MessageSchema = z.object({
   /** kind 固有データ。decision_request → { request: DecisionRequest } /
    *  decision_answer → DecisionAnswer */
   payload: z.unknown().nullable(),
+  /**
+   * どのランの発言/記録か（2026-08-08 本人指定「会話や実行履歴もフォーク」）。
+   * null = テンプレート（設計図）側の会話。ランのページで書いた発言・そのランの実行記録は
+   * ここにラン id が入り、テンプレートの会話とは混ざらない。
+   *
+   * 既存データ互換: この機能より前のラン記録は payload.runId にだけ入っている。
+   * 読み出し側は runIdOf(message) を使うこと（フィールド → payload の順に見る）。
+   */
+  runId: z.string().nullable().default(null),
 });
 export type Message = z.infer<typeof MessageSchema>;
+
+/** メッセージの所属ラン。旧データ（payload.runId だけ持つ）も拾う */
+export function runIdOf(m: Pick<Message, "runId" | "payload">): string | null {
+  if (m.runId) return m.runId;
+  const payload = m.payload as { runId?: unknown } | null;
+  return payload && typeof payload.runId === "string" ? payload.runId : null;
+}
 
 /** リスト表示用: decision_request の状態を answers から導出した形 */
 export type MaterializedMessage = Message & {

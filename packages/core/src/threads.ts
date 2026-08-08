@@ -12,6 +12,7 @@ import {
   type MaterializedMessage,
   type Message,
   MessageSchema,
+  runIdOf,
 } from "./schema.js";
 import { nextId, nowIso } from "./ids.js";
 import { appendJsonl, readJsonl } from "./storage.js";
@@ -20,6 +21,9 @@ import { GraphError } from "./graph.js";
 export interface PostMeta {
   author?: Actor;
   via?: string;
+  /** どのランの記録か（2026-08-08「会話や実行履歴もフォーク」）。null/未指定 =
+   *  テンプレート（設計図）側の会話 */
+  runId?: string | null;
 }
 
 export interface PostInput extends PostMeta {
@@ -54,6 +58,15 @@ export class ThreadStore {
     });
   }
 
+  /**
+   * ラン単位に切り出したスレッド（2026-08-08「会話や実行履歴もフォーク」）。
+   * runId=null はテンプレート（設計図）側の会話だけ、ラン id ならそのランの会話と実行記録だけ。
+   * 1ノード1ファイルのまま、所属ランで切って見せる（保存の形は変えない）。
+   */
+  listScoped(nodeId: string, runId: string | null): MaterializedMessage[] {
+    return this.list(nodeId).filter((m) => runIdOf(m) === runId);
+  }
+
   /** 会話・実行ログ・成果物の投稿 */
   post(nodeId: string, input: PostInput): Message {
     return this.append(nodeId, {
@@ -62,6 +75,7 @@ export class ThreadStore {
       kind: input.kind ?? "say",
       body: input.body,
       payload: input.payload ?? null,
+      runId: input.runId ?? null,
     });
   }
 
@@ -74,6 +88,7 @@ export class ThreadStore {
       kind: "decision_request",
       body: parsed.question,
       payload: { request: parsed },
+      runId: meta.runId ?? null,
     });
   }
 
@@ -107,6 +122,8 @@ export class ThreadStore {
       kind: "decision_answer",
       body: parsed.note ?? "",
       payload: parsed,
+      // 回答は質問と同じランに属する（質問がテンプレート側ならテンプレート側）
+      runId: meta.runId ?? runIdOf(req),
     });
     return { message, resolved: parsed.option !== null };
   }

@@ -935,30 +935,41 @@ app.post("/api/nodes/:id/impl/to-file", async (c) => {
 
 // ---- スレッド ----
 
+/**
+ * ノードのスレッド。?run=<ランid> でそのランの会話・実行記録だけを返す
+ * （2026-08-08 本人指定「会話や実行履歴もフォーク」）。指定なしはテンプレート（設計図）側の
+ * 会話だけ——ランの記録が混ざると、どのランの話か分からなくなるため。
+ * ?run=all は全部（横断で見たいとき用の逃げ道）
+ */
 app.get("/api/nodes/:id/thread", (c) => {
   const id = c.req.param("id");
   graph.get(id);
+  const run = c.req.query("run") ?? null;
+  const messages = run === "all" ? threads.list(id) : threads.listScoped(id, run);
   // aiBusy: Task AI が応答生成中か（UI の「考え中」表示。GraphWrangler AI と挙動を揃える）
   // aiQueued: 応答中の送信予約を受けて、終わり次第もう一度応答する予約があるか（2026-08-05）
   return c.json({
-    messages: threads.list(id),
-    aiBusy: isThreadAiRunning(id),
-    aiQueued: isThreadAiFollowUpQueued(id),
+    messages,
+    aiBusy: isThreadAiRunning(id, run === "all" ? null : run),
+    aiQueued: isThreadAiFollowUpQueued(id, run === "all" ? null : run),
   });
 });
 
 /** Task AI の応答を止める（2026-08-05 本人要望「AIの会話を止められる機能」）。
  *  走っていなければ stopped:false を返すだけ（呼び手は成否を気にしなくてよい） */
-app.post("/api/nodes/:id/thread-ai/cancel", (c) => {
+app.post("/api/nodes/:id/thread-ai/cancel", async (c) => {
   const id = c.req.param("id");
   graph.get(id);
-  return c.json({ stopped: cancelThreadAi(id) });
+  const body = await c.req.json().catch(() => ({}) as { runId?: string | null });
+  return c.json({ stopped: cancelThreadAi(id, (body as { runId?: string | null }).runId ?? null) });
 });
 
 const PostMessageSchema = z.object({
   kind: z.enum(["say", "status", "artifact"]).default("say"),
   body: z.string().min(1),
   payload: z.unknown().optional(),
+  /** どのランの会話への投稿か（2026-08-08）。null/未指定 = テンプレート側の会話 */
+  runId: z.string().nullable().default(null),
 });
 
 app.post("/api/nodes/:id/messages", async (c) => {
@@ -968,6 +979,7 @@ app.post("/api/nodes/:id/messages", async (c) => {
   const input = PostMessageSchema.parse(body);
   const m = meta(body);
   const message = threads.post(id, { ...input, author: m.actor, via: m.via });
+  // AI応答も同じランの会話として返す（テンプレート側の相談とは混ぜない）
   // スレッド相談AI（機能1）: 人間の say かつ open な判断リクエストが無いノードにのみ、
   // 応答を待たず非同期でAI応答ジョブを起動する（thread_ai.ts 参照。レスポンスはブロックしない）
   maybeTriggerThreadAi({
@@ -977,6 +989,7 @@ app.post("/api/nodes/:id/messages", async (c) => {
     nodeId: id,
     kind: input.kind,
     actor: m.actor,
+    runId: input.runId,
     attachmentsDir, // [添付ファイル: <パス>] を Task AI が Read で読めるように
 
     // Task AI の返信完了を Discord へ（2026-08-07「通知が来ない」対応。discord.ts 参照）。
@@ -1137,6 +1150,7 @@ app.post("/api/nodes/:id/fire", async (c) => {
     kind: "status",
     body: `発火: ${run.title}`,
     payload: { runId: run.id },
+    runId: run.id, // このランのスレッドへ（テンプレートの会話には混ぜない。2026-08-08）
     author: m.actor,
     via: m.via,
   });
@@ -1201,8 +1215,9 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
   const toStatus = run.items[nodeId].status;
   threads.post(nodeId, {
     kind: "status",
-    body: `[ラン ${runId}] ${node.title}: ${fromStatus} → ${toStatus}`,
+    body: `${node.title}: ${fromStatus} → ${toStatus}`,
     payload: { runId },
+    runId,
     author: m.actor,
     via: m.via,
   });
@@ -1211,6 +1226,7 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
       kind: "status",
       body: `ラン完了: ${run.title}`,
       payload: { runId },
+      runId,
       author: { kind: "system" },
       via: m.via,
     });
@@ -1256,8 +1272,9 @@ app.post("/api/runs/:id/items/:nodeId/decide", async (c) => {
   const label = node.branches?.find((b) => b.id === choice)?.label ?? choice;
   threads.post(nodeId, {
     kind: "status",
-    body: `[ラン ${runId}] 分岐: ${label} を選択`,
+    body: `分岐: ${label} を選択`,
     payload: { runId, choice },
+    runId,
     author: m.actor,
     via: m.via,
   });
@@ -1266,6 +1283,7 @@ app.post("/api/runs/:id/items/:nodeId/decide", async (c) => {
       kind: "status",
       body: `ラン完了: ${run.title}`,
       payload: { runId },
+      runId,
       author: { kind: "system" },
       via: m.via,
     });

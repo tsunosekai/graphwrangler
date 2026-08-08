@@ -55,6 +55,10 @@ export interface NodeCardData {
    *  「アクティブなランがある間だけ、その進捗をカードに投影する」。runId はボタンの
    *  更新先（api.patchRunItem）の特定に使う——テンプレートの patchNode は使わない */
   runItem?: { runId: string; status: RunItemStatus; note: string | null } | null;
+  /** ランのページ（そのランの記録）として描かれているか（2026-08-08 本人指定のフォーク）。
+   *  true のときテンプレートを書き換える操作（計画済みにする等）は出さない——直すべきは
+   *  テンプレート側で、ランは起きたことの記録だから */
+  inRunPage?: boolean;
   /** kind=trigger のカードだけが受ける「いま実行中のランの本数」。発火時の確認文で
    *  「並行で増える」ことを伝えるのに使う（2026-08-08。ラン表示中は▶を無効にしたので、
    *  投影中のワークアイテムからは並走を知れなくなった） */
@@ -189,8 +193,9 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // 確定の導線が無いと詰む。2026-08-01 本人指摘）。「完了」は実行フェーズの操作なので
   // 従来どおり非テンプレート・frontier・task のみ
   const canCommit = node.status === "unplanned" || node.lifecycle === "draft";
-  const phaseAction =
-    node.kind === "trigger" && node.lifecycle === "draft"
+  const phaseAction = data.inRunPage
+    ? null // ランのページではテンプレートの計画操作を出さない（2026-08-08）
+    : node.kind === "trigger" && node.lifecycle === "draft"
       ? { label: "計画済みにする", patch: { lifecycle: "committed" } as const }
       : node.kind !== "trigger" && canCommit
         ? { label: "計画済みにする", patch: { status: "pending", lifecycle: "committed" } as const }

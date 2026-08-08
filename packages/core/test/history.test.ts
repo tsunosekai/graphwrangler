@@ -223,3 +223,27 @@ describe("操作ログの辻褄合わせ（reconcileLog）", () => {
     expect(g2.undoLast()).toBeNull();
   });
 });
+
+describe("会話・実行履歴のフォーク（ThreadStore.listScoped）", () => {
+  it("テンプレート側の会話とランごとの会話が混ざらない", async () => {
+    const { ThreadStore } = await import("../src/index.js");
+    const threads = new ThreadStore(dir);
+    threads.post("n-1", { body: "テンプレートの相談" });
+    threads.post("n-1", { body: "ラン A の作業メモ", runId: "r-1" });
+    threads.post("n-1", { body: "ラン B の作業メモ", runId: "r-2" });
+
+    expect(threads.listScoped("n-1", null).map((m) => m.body)).toEqual(["テンプレートの相談"]);
+    expect(threads.listScoped("n-1", "r-1").map((m) => m.body)).toEqual(["ラン A の作業メモ"]);
+    expect(threads.listScoped("n-1", "r-2").map((m) => m.body)).toEqual(["ラン B の作業メモ"]);
+    expect(threads.list("n-1")).toHaveLength(3); // 保存は1ノード1ストリームのまま
+  });
+
+  it("旧データ（payload.runId だけ持つ記録）もそのランの側に出る", async () => {
+    const { ThreadStore } = await import("../src/index.js");
+    const threads = new ThreadStore(dir);
+    // この機能より前の実行記録の形（runId フィールドが無く payload にだけ入っている）
+    threads.post("n-2", { kind: "status", body: "収集: pending → done", payload: { runId: "r-9" } });
+    expect(threads.listScoped("n-2", null)).toEqual([]);
+    expect(threads.listScoped("n-2", "r-9").map((m) => m.body)).toEqual(["収集: pending → done"]);
+  });
+});
