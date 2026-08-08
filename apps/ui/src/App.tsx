@@ -174,8 +174,9 @@ function AppInner() {
   }, [serverReads, readOverrides]);
   // lastTs（スレッド最終メッセージ＝サーバ発行の時刻）があればそれを使う。端末の時計が
   // サーバより遅れていると、クライアント時刻の上書きでは未読が消えないため（2026-08-05）
-  const markViewed = useCallback((nodeId: string, lastTs: string | null) => {
-    setReadOverrides((prev) => ({ ...prev, [nodeId]: lastTs ?? new Date().toISOString() }));
+  // key は会話の単位（"<ノードid>" or "<ノードid>@<ランid>"。lib/unread.ts の threadKey）
+  const markViewed = useCallback((key: string, lastTs: string | null) => {
+    setReadOverrides((prev) => ({ ...prev, [key]: lastTs ?? new Date().toISOString() }));
   }, []);
 
   // 旧 localStorage 既読（gw.read.<id>）を一度だけサーバへ引き継ぐ。これをやらないと

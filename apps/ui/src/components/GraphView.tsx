@@ -18,6 +18,7 @@ import { subscribeOpenShortcuts } from "../lib/palette";
 import { pushToast } from "../lib/toast";
 import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import { isRoutinePage } from "../lib/routine";
+import { isUnreadKey, threadKey } from "../lib/unread";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { Node, Run } from "../types";
 import { Badge } from "./ui/badge";
@@ -453,10 +454,9 @@ function GraphViewInner({
       });
     setRfNodes(
       nodes.map((n) => {
-        // 未読バッジ。既読tsは NodePanel がスレッド表示のたびにサーバへ書き込む
-        const lastMsgTs = threadMeta[n.id];
-        const readTs = reads[n.id] ?? null;
-        const unread = !!lastMsgTs && (!readTs || lastMsgTs > readTs);
+        // 未読バッジ。既読tsは NodePanel がスレッド表示のたびにサーバへ書き込む。
+        // ランのページではそのランの会話の未読だけを見る（テンプレートの会話とは別。2026-08-08）
+        const unread = isUnreadKey(threadKey(n.id, runView?.id), threadMeta, reads);
         const selected =
           pendingMatched.length > 0 ? pendingMatched.includes(n.id) : prevSelected.has(n.id) || n.id === selectedId;
         // アクティブなランのワークアイテム（あれば）。テンプレートのカードへの投影に使う

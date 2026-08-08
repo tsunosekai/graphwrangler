@@ -23,6 +23,7 @@ import { HINT_TEXT } from "../lib/hints";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { isRoutinePage } from "../lib/routine";
+import { threadKey } from "../lib/unread";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { sha256Hex } from "../lib/hash";
@@ -315,7 +316,9 @@ export function NodePanel({
   // 未読バッジが付いていた理由＝この時刻より新しいメッセージ、を「ここから未読」区切りとして
   // スレッドに表示する（2026-08-02 本人要望「なぜ通知が付いているのか分かりづらい。
   // ノードを開いたときに分かるでいい」）
-  const [unreadSince] = useState<string | null>(() => reads[node.id] ?? null);
+  // 既読キーは会話の単位（テンプレート / そのラン）で分かれる（2026-08-08。lib/unread.ts）
+  const readKey = threadKey(node.id, runView?.id);
+  const [unreadSince] = useState<string | null>(() => reads[readKey] ?? null);
 
   // スレッドを表示したら既読tsをサーバへ書く（thread取得のたびに更新=開いたまま新着が
   // 来ても「読んだ」扱いを追随させる）。サーバ側は巻き戻さない（max を採る）ので、
@@ -329,8 +332,8 @@ export function NodePanel({
     : null;
   useEffect(() => {
     if (!lastThreadTs) return;
-    postReads({ [node.id]: lastThreadTs });
-  }, [lastThreadTs, node.id]);
+    postReads({ [readKey]: lastThreadTs });
+  }, [lastThreadTs, readKey]);
 
   // Task AI が応答生成中（考え中）の間だけ2秒間隔でスレッドを取りにいく
   // （通常ポーリングは10秒。返事が着いてから最大10秒「考え中」が残るのを防ぐ）
@@ -349,8 +352,9 @@ export function NodePanel({
   useEffect(() => {
     if (!thread) return;
     setSeenTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
-    onViewed?.(node.id, lastThreadTs);
-  }, [thread !== null, tab, node.id, onViewed, lastThreadTs]);
+    // 既読の上書きも会話の単位で（ランのページで読んでもテンプレート側は未読のまま）
+    onViewed?.(readKey, lastThreadTs);
+  }, [thread !== null, tab, readKey, onViewed, lastThreadTs]);
 
   const githubBase = useGithubBlobBase();
   // 「既定」が実際に何か（⚙の実行AI設定）をセレクタのラベルに出す（2026-08-07 本人指摘）

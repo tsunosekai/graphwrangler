@@ -20,6 +20,7 @@ import {
   ActorSchema,
   RunItemStatusSchema,
   nowIso,
+  runIdOf,
   type Actor,
   type Run,
 } from "@graphwrangler/core";
@@ -700,10 +701,15 @@ app.get("/api/state", (c) => {
   // 突き合わせてクライアントが未読を判定する。どちらもサーバ持ちなので PC とスマホで一致する
   // （2026-08-02 それまで既読は localStorage で端末ごとに割れていた）。
   // スレッドファイルは小さいので毎回読んで良い規模
+  // キーは「ノードid」= テンプレート（設計図）側の会話、「ノードid@ランid」= そのランの会話
+  // （2026-08-08 本人指摘「テンプレートのノードにも通知が出るが、こちらに新情報は無い」）。
+  // ランで起きたことでテンプレートのノードを未読にしない＝通知もフォークする
   const threadMeta: Record<string, string> = {};
   for (const n of graph.state().nodes) {
-    const msgs = threads.list(n.id);
-    if (msgs.length > 0) threadMeta[n.id] = msgs[msgs.length - 1].ts;
+    for (const m of threads.list(n.id)) {
+      const rid = runIdOf(m);
+      threadMeta[rid ? `${n.id}@${rid}` : n.id] = m.ts; // 時系列順なので最後の代入が最新
+    }
   }
   return c.json({ ...graph.state(), threadMeta, reads: loadReads(), now: nowIso() });
 });

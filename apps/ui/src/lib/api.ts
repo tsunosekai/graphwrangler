@@ -11,6 +11,7 @@ import type {
   TraceEvent,
 } from "../types";
 import { pushToast } from "./toast";
+import { threadKey } from "./unread";
 
 export class ApiError extends Error {}
 
@@ -219,14 +220,14 @@ export function postReads(marks: Record<string, string>): void {
  *  「完了を自分で押した奴は青バッジ通知来なくていい」）。5秒のマージンは操作の直後に
  *  サーバ/エンジンが書く記録を吸収するため——Task AI の応答（〜10秒以降）は吸収せず
  *  ちゃんと未読になる */
-function markSelfActionRead(nodeId: string): void {
-  postReads({ [nodeId]: new Date(Date.now() + 5000).toISOString() });
+function markSelfActionRead(key: string): void {
+  postReads({ [key]: new Date(Date.now() + 5000).toISOString() });
 }
 
 /** ノードに対する操作系APIの後処理: 成功したら既読マークを打つ */
-async function withSelfRead<T>(nodeId: string, p: Promise<T>): Promise<T> {
+async function withSelfRead<T>(key: string, p: Promise<T>): Promise<T> {
   const result = await p;
-  markSelfActionRead(nodeId);
+  markSelfActionRead(key);
   return result;
 }
 
@@ -380,7 +381,8 @@ export const api = {
     }),
 
   postMessage: (id: string, body: string, runId?: string | null) =>
-    withSelfRead(id, request<Message>(`/nodes/${id}/messages`, {
+    // 自分の投稿で自分に未読が付かないようにする既読マークも、会話の単位（ラン）で打つ
+    withSelfRead(threadKey(id, runId), request<Message>(`/nodes/${id}/messages`, {
       method: "POST",
       body: JSON.stringify({ kind: "say", body, runId: runId ?? null }),
     })),
@@ -403,7 +405,7 @@ export const api = {
 
   /** ラン層: ワークアイテム(kind=decisionテンプレート)のchoice確定+skip伝搬 */
   decideRunItem: (runId: string, nodeId: string, choice: string) =>
-    withSelfRead(nodeId, request<Run>(`/runs/${runId}/items/${nodeId}/decide`, {
+    withSelfRead(threadKey(nodeId, runId), request<Run>(`/runs/${runId}/items/${nodeId}/decide`, {
       method: "POST",
       body: JSON.stringify({ choice }),
     })),
@@ -412,11 +414,15 @@ export const api = {
 
   /** トリガーを発火し、そのページ(group)でランを1本作る。title はランの名前（作品名など。
    *  並列ランの区別用）。via 省略時はサーバ既定の "manual" */
-  fireTrigger: (nodeId: string, opts: { via?: string; title?: string } = {}) =>
-    withSelfRead(nodeId, request<Run>(`/nodes/${nodeId}/fire`, {
+  fireTrigger: async (nodeId: string, opts: { via?: string; title?: string } = {}) => {
+    const run = await request<Run>(`/nodes/${nodeId}/fire`, {
       method: "POST",
       body: JSON.stringify(opts),
-    })),
+    });
+    // 「発火: <ラン名>」の記録は生まれたランのスレッドに載る。自分の操作なので既読にしておく
+    markSelfActionRead(threadKey(nodeId, run.id));
+    return run;
+  },
 
   // ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----
 
@@ -429,7 +435,8 @@ export const api = {
   getRun: (runId: string) => request<Run>(`/runs/${runId}`),
 
   patchRunItem: (runId: string, nodeId: string, input: { status?: RunItemStatus; note?: string | null }) =>
-    withSelfRead(nodeId, request<Run>(`/runs/${runId}/items/${nodeId}`, { method: "POST", body: JSON.stringify(input) })),
+    // 進捗の記録はそのランのスレッドに載るので、既読もそのランのキーで打つ
+    withSelfRead(threadKey(nodeId, runId), request<Run>(`/runs/${runId}/items/${nodeId}`, { method: "POST", body: JSON.stringify(input) })),
 
   renameRun: (runId: string, title: string) =>
     request<Run>(`/runs/${runId}/rename`, { method: "POST", body: JSON.stringify({ title }) }),

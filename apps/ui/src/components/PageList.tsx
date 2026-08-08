@@ -37,6 +37,7 @@ import { HINT_TEXT } from "../lib/hints";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { moveWithin, railPatches, sortRail } from "../lib/rail";
 import { isRoutinePage } from "../lib/routine";
+import { isUnreadKey, threadKey, unreadCountForNode } from "../lib/unread";
 import { colorOf, displayNameOf, effectiveMembers, initialOf, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { Node, Run, Status } from "../types";
@@ -210,13 +211,10 @@ export function PageList({
       return !v;
     });
 
-  // 未読判定は GraphView（カードの青ドット）と同じ規約: 既読時刻より新しいメッセージがあるか
-  const isUnread = (id: string) => {
-    const last = threadMeta[id];
-    if (!last) return false;
-    const read = reads[id];
-    return !read || last > read;
-  };
+  // 未読判定は GraphView（カードの青ドット）と同じ規約: 既読時刻より新しいメッセージがあるか。
+  // 会話はランごとに分かれるので（2026-08-08）、キーは lib/unread.ts の threadKey を通す
+  const isUnread = (id: string, runId?: string | null) =>
+    isUnreadKey(threadKey(id, runId), threadMeta, reads);
 
   // 作成は「ヘッダーのゴール捕獲欄」に一本化した（2026-08-01 本人指示。docs/design.md 4章 ②）。
   // ここの「＋」は無題ノードを作らず、その入力欄へフォーカスを渡すだけにする——
@@ -581,6 +579,11 @@ export function PageList({
 
   /** ラン子行1本。状態マーク + タイトル + そのランの進捗ドット。trailing は畳み時の「+n」 */
   const renderRunRow = (f: Node, r: Run) => {
+    // このランで未読のノード数。ワークアイテム（トリガーの子孫）だけでなく**ページの全ノード**
+    // を見る——「発火」の記録はトリガーのスレッドに載り、トリガーは items に入らないため
+    const runUnread = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)].filter(
+      (id) => isUnread(id, r.id),
+    ).length;
     const dots = runDotsOf(r);
     const shown = dots.slice(0, MAX_DOTS);
     const rest = dots.length - shown.length;
@@ -611,6 +614,19 @@ export function PageList({
           {shown.map(dotEl)}
           {rest > 0 && <span className="font-mono text-[10px] text-text-lo">+{rest}</span>}
         </span>
+        {/* そのランの未読数（2026-08-08 本人要望「欄にもバッジを出して」）。
+            ページ行のバッジは「このページのどこか」、こちらは「どのランか」を示す */}
+        {runUnread > 0 && (
+          <Hint
+            id="unread"
+            always={`このランで未読のノード ${runUnread} 件`}
+            text={HINT_TEXT.unread}
+          >
+            <span className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white">
+              {runUnread}
+            </span>
+          </Hint>
+        )}
       </div>
     );
   };
@@ -662,10 +678,13 @@ export function PageList({
 
   const renderRow = (f: Node, archived: boolean, indented = false) => {
     const routine = isRoutinePage(f, allNodes);
-    // ページ内（ゴール自身 + メンバー）の未読ノード数。数字バッジで行の右端に出す
-    const unreadCount = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)].filter(
-      isUnread,
-    ).length;
+    // ページ内（ゴール自身 + メンバー）の未読数。数字バッジで行の右端に出す。
+    // **テンプレート側の会話 + そのページの全ランぶん**を数える——ランで起きたことも
+    // 「このページに新しいことがある」なので、ページ行では拾う（どのランかは下のラン行の
+    // バッジが示す。2026-08-08 本人指定「ルーティン自体のバッジはこれで良い / 欄にも出して」）
+    const unreadCount = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)]
+      .map((id) => unreadCountForNode(id, threadMeta, reads))
+      .reduce((a, b) => a + b, 0);
 
     // ページ行のドットはテンプレート（メンバーノード）構成。ルーティーンも同じ規則で、
     // ランの進捗は下のラン子行が持つ（2026-08-08 本人確認済みの分担）
