@@ -943,8 +943,10 @@ app.post("/api/nodes/:id/impl/to-file", async (c) => {
  */
 app.get("/api/nodes/:id/thread", (c) => {
   const id = c.req.param("id");
-  graph.get(id);
   const run = c.req.query("run") ?? null;
+  // ラン指定のときはノードが今のグラフから消えていても読める（ランは過去の記録で、
+  // テンプレートを消したあとも残る。実データで踏んだ: ページごと消えたルーティーンのラン）
+  if (!run) graph.get(id);
   const messages = run === "all" ? threads.list(id) : threads.listScoped(id, run);
   // aiBusy: Task AI が応答生成中か（UI の「考え中」表示。GraphWrangler AI と挙動を揃える）
   // aiQueued: 応答中の送信予約を受けて、終わり次第もう一度応答する予約があるか（2026-08-05）
