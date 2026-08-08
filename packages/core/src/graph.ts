@@ -634,7 +634,8 @@ export class GraphStore {
   }
 
   private commit(
-    op: Omit<OpRecord, "id" | "ts" | "actor" | "via">,
+    // system（ログの辻褄合わせの印）は通常の操作では立てない＝ここでは受けない
+    op: Omit<OpRecord, "id" | "ts" | "actor" | "via" | "system">,
     meta: OpMeta,
     undoes?: string,
   ): void {
@@ -692,12 +693,94 @@ export class GraphStore {
   }
 
   /**
+   * 過去のある時刻のグラフを操作ログから再構築する（2026-08-08 本人要望
+   * 「その時のノードの状態を見れるように」）。書き込みはしない読み取り専用。
+   *
+   * 並べ替えは **ts 昇順**（ファイル順ではない）。辻褄合わせの追記（system 印。reconcileLog）は
+   * ノードの created 時刻を名乗って末尾に足されるため、ファイル順のまま再生すると
+   * 後発の patch を上書きしてしまう。ts で並べれば正しい順に戻る。
+   *
+   * 戻り値の baseline は「作られた記録がログに無く、辻褄合わせで後から足されたノード」の id。
+   * これらは**当時の中身が記録されていない**（足した時点の中身しか無い）ので、
+   * 呼び出し側は「当時の記録なし」と断って見せる必要がある。
+   */
+  nodesAt(ts: string): { nodes: Node[]; baseline: Set<string> } {
+    const records = readJsonl<OpRecord>(this.opsPath)
+      .map((r) => OpRecordSchema.parse(r))
+      .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+    const store = Object.create(GraphStore.prototype) as GraphStore;
+    (store as unknown as { nodes: Map<string, Node> }).nodes = new Map();
+    const baseline = new Set<string>();
+    for (const r of records) {
+      if (r.ts > ts) break;
+      // ログに無いノードへの patch/remove は「消えた記録」なので黙って読み飛ばす
+      // （apply は not found で throw する）
+      if (r.op !== "node.add" && !(store as unknown as { nodes: Map<string, Node> }).nodes.has(r.payload.nodeId)) {
+        continue;
+      }
+      store.apply(r);
+      if (r.op === "node.add" && r.system) baseline.add(r.payload.node.id);
+    }
+    const nodes = [...(store as unknown as { nodes: Map<string, Node> }).nodes.values()];
+    return { nodes, baseline: new Set([...baseline].filter((id) => nodes.some((n) => n.id === id))) };
+  }
+
+  /**
+   * 操作ログを実態に合わせる（2026-08-08）。GraphWrangler を通らない正データファイルの
+   * 書き換え（移行データの流し込み・git pull・他エージェントの直接編集）はログに載らないため、
+   * そのままだと nodesAt の再構築が実態からずれる。起動時にこれを呼び、
+   * 「いまの状態 vs ログ再生の結果」の差分を system 印の行として**追記だけ**する。
+   *
+   * 正データファイルには一切書かない（読み取り側の状態も変えない）。追加ノードの ts は
+   * node.created を名乗らせる——本当にいつ作られたかはログに無く、created が唯一の手がかりで、
+   * これにより過去時刻の再構築でも「その頃から在った」形になる。
+   */
+  reconcileLog(meta: OpMeta = {}): { added: number; patched: number; removed: number } {
+    const replayed = GraphStore.replayRecords(readJsonl<OpRecord>(this.opsPath));
+    const result = { added: 0, patched: 0, removed: 0 };
+    const records: OpRecord[] = [];
+    const stamp = (ts: string, op: Omit<OpRecord, "id" | "ts" | "actor" | "via" | "system">): OpRecord =>
+      OpRecordSchema.parse({
+        id: nextId("op", []) + "-" + Math.random().toString(36).slice(2, 8),
+        ts,
+        actor: ActorSchema.parse(meta.actor ?? { kind: "system" }),
+        via: meta.via ?? "external",
+        system: true,
+        ...op,
+      });
+    for (const [id, node] of this.nodes) {
+      const before = replayed.get(id);
+      if (!before) {
+        records.push(stamp(node.created, { op: "node.add", payload: { node } }));
+        result.added += 1;
+        continue;
+      }
+      // patch できるフィールドだけの差分を作る（id/created/createdBy は NodePatchSchema が落とす）。
+      // それを当てても変わらない＝直せる差が無いなら追記しない——毎起動で同じ行を積み続けて
+      // ログが太る（そして直らない）のを避ける
+      const patch = NodePatchSchema.parse(node);
+      if (stableStringify({ ...before, ...patch }) !== stableStringify(before)) {
+        records.push(stamp(nowIso(), { op: "node.patch", payload: { nodeId: id, patch } }));
+        result.patched += 1;
+      }
+    }
+    for (const id of replayed.keys()) {
+      if (this.nodes.has(id)) continue;
+      records.push(stamp(nowIso(), { op: "node.remove", payload: { nodeId: id } }));
+      result.removed += 1;
+    }
+    for (const r of records) appendJsonl(this.opsPath, r);
+    return result;
+  }
+
+  /**
    * 直近の操作を1つ元に戻す。過去行は書き換えず、**逆操作を追記**する
    * （undoes に対象 op の id を刻む）。補償操作（undoes 付き）は undo の対象から
    * 外すので、連続 undo は時系列を遡る。取り消しの取り消しは redoLast。
    */
   undoLast(meta: OpMeta = {}): OpRecord | null {
-    return this.compensate(meta, (r, isUndone) => !r.undoes && !isUndone(r.id));
+    // system 印（ログの辻褄合わせ。reconcileLog）は人間の操作ではないので取り消し対象から外す
+    return this.compensate(meta, (r, isUndone) => !r.undoes && !r.system && !isUndone(r.id));
   }
 
   /** 直近の undo を1つやり直す（有効な補償操作を打ち消す = redo） */

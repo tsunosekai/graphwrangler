@@ -274,6 +274,11 @@ export const OpRecordSchema = z
     /** この操作が打ち消した操作の id（undo の補償操作にだけ付く）。
      *  undo は過去行を書き換えず、逆操作を追記することで実現する */
     undoes: z.string().optional(),
+    /** 記録の辻褄合わせでシステムが追記した行（2026-08-08）。GraphWrangler を通さない
+     *  正データファイルの書き換え（移行データの流し込み・git pull・他エージェントの直接編集）は
+     *  操作ログに載らないため、起動時に「正データ vs ログ再生」の差分をこの印付きで追記して
+     *  ログを実態に合わせる。人間の操作ではないので undo/redo の対象から外す */
+    system: z.boolean().default(false),
   })
   .and(OpSchema);
 export type OpRecord = z.infer<typeof OpRecordSchema>;
@@ -368,6 +373,38 @@ export type RunItem = z.infer<typeof RunItemSchema>;
 export const RunStatusSchema = z.enum(["running", "done", "cancelled"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
+/**
+ * 発火時点のノードの中身（2026-08-08 本人要望「その時のノードの状態を見れるように」）。
+ *
+ * テンプレートノードはランをまたいで共有されるため、後からタイトルや手順書を書き換えると
+ * 過去のランを見返しても**今の文面**しか出ない。ランの当時を再現できるように、発火時点の
+ * 中身をランへ焼いて残す。id と、後から書き換わりうる表示・実行に関わるフィールドだけを持つ
+ * （created/createdBy のような不変値、order/folder のような見せ方だけの値は入れない）。
+ */
+export const NodeSnapshotSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  detail: z.string().nullable(),
+  impl: NodeImplSchema.nullable(),
+  parents: z.array(z.string()),
+  group: z.string().nullable(),
+  kind: NodeKindSchema,
+  executor: ExecutorSchema,
+  approval: z.boolean(),
+  autonomy: AutonomySchema,
+  aiModel: z.string().nullable(),
+  aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable(),
+  lifecycle: LifecycleSchema,
+  /** 発火時点の**テンプレート**の status（ランの進捗は RunItem.status が持つ） */
+  status: StatusSchema,
+  fixed: z.boolean(),
+  schedule: z.string().nullable(),
+  branches: z.array(NodeBranchSchema).nullable(),
+  parentOptions: z.record(z.string(), z.string()),
+  assignee: z.string().nullable(),
+});
+export type NodeSnapshot = z.infer<typeof NodeSnapshotSchema>;
+
 export const RunSchema = z.object({
   id: z.string(),
   /** ランが属するページ(group)のid。既存ランファイルとの互換のためキー名は procedure のまま */
@@ -379,6 +416,16 @@ export const RunSchema = z.object({
   status: RunStatusSchema,
   /** テンプレートノード id → ワークアイテム */
   items: z.record(z.string(), RunItemSchema),
+  /** 発火時点のページ構成（ページ自身 + メンバー全部。トリガーや items に入らないノードも含む）。
+   *  null = この機能より前のラン。その場合は ops.jsonl の再生で当時を復元する
+   *  （GraphStore.nodesAt。サーバの GET /api/runs/:id/graph が両者を束ねる） */
+  snapshot: z
+    .object({
+      capturedAt: z.string(),
+      nodes: z.array(NodeSnapshotSchema),
+    })
+    .nullable()
+    .default(null),
   created: z.string(),
 });
 export type Run = z.infer<typeof RunSchema>;

@@ -47,6 +47,7 @@ import { Textarea } from "./ui/textarea";
 import { DecisionCard } from "./DecisionCard";
 import { Hint } from "./Hint";
 import { Icon } from "./Icon";
+import { RunTimeNote } from "./RunTimeNote";
 import { StatusCircle } from "./StatusCircle";
 import { Thread } from "./Thread";
 
@@ -956,6 +957,10 @@ export function NodePanel({ node, allNodes, activeRun, reads, onViewed, onMutate
             onBlur={saveDetail}
             rows={3}
           />
+
+          {/* ラン投影中に「そのランの時点では何と書いてあったか」を出す（2026-08-08）。
+              今と同じなら何も出ない。上の欄は常に**今**のテンプレートで、編集もそちらに効く */}
+          <RunTimeNote run={activeRun} node={node} />
 
           {/* トリガーの起動方式（docs/design.md 3.8）。human は手動発火(▶)のみなので欄自体を出さない。
               script=cron的な発火条件、ai=発火要否を判定させる間隔 */}

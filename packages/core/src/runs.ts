@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   type Node,
+  type NodeSnapshot,
   type Run,
   RunSchema,
   type RunItem,
@@ -19,6 +20,34 @@ export interface TriggerRunOpts {
   /** 発火理由の自由文字列（"manual" / "schedule:<原文>" / "ai" 等。既定 "manual"）。
    *  run.trigger は "trigger:<triggerId>:<via>" の形で記録する */
   via?: string;
+  /** ページ自身のノード（kind=goal）。渡すと発火時点のスナップショットに含める
+   *  （ページ名も当時のものを見せられる。allMembers には自分自身は入らないため別引数） */
+  pageNode?: Node | null;
+}
+
+/** ノードから発火時点スナップショット（NodeSnapshotSchema の形）を作る */
+function toNodeSnapshot(n: Node): NodeSnapshot {
+  return {
+    id: n.id,
+    title: n.title,
+    detail: n.detail,
+    impl: n.impl,
+    parents: n.parents,
+    group: n.group,
+    kind: n.kind,
+    executor: n.executor,
+    approval: n.approval,
+    autonomy: n.autonomy,
+    aiModel: n.aiModel,
+    aiEffort: n.aiEffort,
+    lifecycle: n.lifecycle,
+    status: n.status,
+    fixed: n.fixed,
+    schedule: n.schedule,
+    branches: n.branches,
+    parentOptions: n.parentOptions,
+    assignee: n.assignee,
+  };
 }
 
 export interface PatchItemInput {
@@ -83,6 +112,10 @@ export class RunStore {
       };
     }
     const via = opts.via ?? "manual";
+    // 発火時点の中身を焼く（2026-08-08）。items（＝トリガーの子孫）だけでなくページ構成
+    // まるごと（ページ自身・トリガー・items に入らないメンバー）を残す——後から見返すときに
+    // 「そのとき何がぶら下がっていたか」まで再現できないと当時のグラフにならないため
+    const snapshotSource = opts.pageNode ? [opts.pageNode, ...allMembers] : allMembers;
     const run: Run = RunSchema.parse({
       id: nextId("r", this.existingIds()),
       procedure: pageId,
@@ -90,6 +123,7 @@ export class RunStore {
       trigger: `trigger:${triggerId}:${via}`,
       status: "running",
       items,
+      snapshot: { capturedAt: ts, nodes: snapshotSource.map(toNodeSnapshot) },
       created: ts,
     });
     this.write(run);

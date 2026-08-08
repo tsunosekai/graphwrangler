@@ -6,6 +6,7 @@ import type {
   MaterializedMessage,
   Node,
   Run,
+  RunGraphNode,
   RunItemStatus,
   TraceEvent,
 } from "../types";
@@ -428,6 +429,11 @@ export const api = {
     request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
 
   getRunTrace: (runId: string) => request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`),
+
+  /** そのランの時点のノード（2026-08-08）。発火時に焼いたスナップショット、無ければ
+   *  操作ログの再生、それも無ければ現在の中身。どれを使ったかは各ノードの source に入る */
+  getRunGraph: (runId: string) =>
+    request<{ runId: string; at: string; nodes: RunGraphNode[] }>(`/runs/${runId}/graph`),
 
   // ---- 元に戻す / やり直す（操作ログの補償追記） ----
 

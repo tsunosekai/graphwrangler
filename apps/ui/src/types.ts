@@ -196,3 +196,16 @@ export interface Run {
 /** トレース再生（GET /api/runs/:id/trace の1件）。ノードスレッドのメッセージに
  *  そのメッセージが属するノードのタイトルを添えたもの */
 export type TraceEvent = MaterializedMessage & { nodeTitle: string };
+
+/**
+ * ランの時点のノード（GET /api/runs/:id/graph の1件。2026-08-08）。
+ * source = その中身の出どころ:
+ *   snapshot 発火時にランへ焼いたもの（最も確か）
+ *   replay   操作ログを発火時刻まで再生して復元したもの
+ *   current  当時の記録が無く、現在の中身で代用（当時と違う可能性がある）
+ */
+export type RunGraphNode = Partial<Node> & {
+  id: string;
+  title: string;
+  source: "snapshot" | "replay" | "current";
+};

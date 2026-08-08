@@ -184,6 +184,19 @@ if (workspaceArg) {
   serverModeLabel = `data: ${dataDir}`;
 }
 
+// 操作ログ（ops.jsonl）を実態に合わせる（2026-08-08）。GraphWrangler を通らない書き換え
+// （移行データの流し込み・git pull・他エージェントの直接編集）はログに載らないため、
+// 起動のたびに差分を system 印で追記しておく。これをやらないと「ランの時点のノード」を
+// 再構築する GET /api/runs/:id/graph が実態とずれる。正データファイルには書かない
+{
+  const fixed = graph.reconcileLog();
+  if (fixed.added || fixed.patched || fixed.removed) {
+    console.log(
+      `[graph] 操作ログを実態に合わせました: +${fixed.added} 変更${fixed.patched} 削除${fixed.removed}`,
+    );
+  }
+}
+
 // ---- 本体の自動アップデート（selfupdate.ts。2026-08-05 本人要望「zinsei と stremix で
 //      別インスタンスなので自動アップデートが欲しい」）。対象はワークスペース（データ）ではなく
 //      **このアプリのクローン**なので、モードに関わらず常に立ち上げる ----
@@ -1116,6 +1129,8 @@ app.post("/api/nodes/:id/fire", async (c) => {
   const run = runs.createFromTrigger(pageId, trigger.id, members, {
     title: title ?? defaultRunTitle(),
     via: via ?? "manual",
+    // ページ自身も発火時点スナップショットに含める（当時のページ名まで残す。2026-08-08）
+    pageNode: graph.has(pageId) ? graph.get(pageId) : null,
   });
   threads.post(trigger.id, {
     kind: "status",
@@ -1245,6 +1260,54 @@ app.post("/api/runs/:id/rename", async (c) => {
 
 app.post("/api/runs/:id/cancel", (c) => {
   return c.json(runs.cancel(c.req.param("id")));
+});
+
+/**
+ * そのランの時点のノード（2026-08-08 本人要望「その時のノードの状態を見れるように」）。
+ *
+ * テンプレートは共有なので、後から書き換えると過去のランを開いても今の文面しか出ない。
+ * 出どころを3段で解決し、ノードごとにどれを使ったかを source に載せて返す:
+ *   snapshot = 発火時にランへ焼いた中身（この機能以降のランで最も確か）
+ *   replay   = 操作ログを発火時刻まで再生して復元した中身
+ *   current  = どちらも無く、現在の中身で代用（当時と違う可能性がある）
+ * replay のうち「作られた記録がログに無く、辻褄合わせで後から足された」ノードも
+ * 当時の中身は分からないので current と同じ扱い（正直に出す）にする。
+ */
+app.get("/api/runs/:id/graph", (c) => {
+  const runId = c.req.param("id");
+  const run = runs.get(runId);
+  const at = run.snapshot?.capturedAt ?? run.created;
+  const snapshots = new Map((run.snapshot?.nodes ?? []).map((n) => [n.id, n]));
+  const replayed = graph.nodesAt(at);
+  const replayedById = new Map(replayed.nodes.map((n) => [n.id, n]));
+  // 出す対象: 当時のページ構成（スナップショット）∪ 再生結果のうち同じページのもの
+  // ∪ ワークアイテムのノード（テンプレートが消えていても行としては見せる）
+  const ids = new Set<string>([
+    run.procedure,
+    ...snapshots.keys(),
+    ...Object.keys(run.items),
+    ...replayed.nodes.filter((n) => n.group === run.procedure).map((n) => n.id),
+  ]);
+  const nodes: Array<Record<string, unknown> & { id: string; source: string }> = [];
+  for (const id of ids) {
+    const snap = snapshots.get(id);
+    if (snap) {
+      nodes.push({ ...snap, source: "snapshot" });
+      continue;
+    }
+    const old = replayedById.get(id);
+    if (old && !replayed.baseline.has(id)) {
+      nodes.push({ ...old, source: "replay" });
+      continue;
+    }
+    if (graph.has(id)) {
+      nodes.push({ ...graph.get(id), source: "current" });
+    } else if (old) {
+      // 現在は消えているが、当時の記録（辻褄合わせ由来）はある
+      nodes.push({ ...old, source: "current" });
+    }
+  }
+  return c.json({ runId, at, nodes });
 });
 
 /** トレース再生: ページノード+全ワークアイテムのスレッドから payload.runId が一致する
