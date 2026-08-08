@@ -21,6 +21,7 @@ import {
   RunItemStatusSchema,
   nowIso,
   type Actor,
+  type Run,
 } from "@graphwrangler/core";
 import { z } from "zod";
 import { chatKeyMissing, completeText, handleChat } from "./chat.js";
@@ -1144,11 +1145,32 @@ app.post("/api/nodes/:id/fire", async (c) => {
 
 // ---- ラン（実行インスタンス。docs/design.md 3.8） ----
 
+/** 一覧レスポンスから発火時スナップショット（run.snapshot）を落とす。一覧の用途
+ *  （進捗の点・台帳の表）には要らないうえ、ページ構成まるごと入っていて重い——
+ *  左レールは全ページぶんを5秒ごとに引くので、載せると毎回その全部が流れる（2026-08-08）。
+ *  当時の中身が要るときは GET /api/runs/:id/graph が返す */
+function withoutSnapshot(r: Run): Omit<Run, "snapshot"> {
+  const { snapshot: _snapshot, ...rest } = r;
+  return rest;
+}
+
+/** 全ページのラン一覧をまとめて返す（ページ id → ラン配列。各配列は新しい順）。
+ *  左レールのラン子行がこれ1本で済むようにする（旧: ページ数ぶんのリクエスト）。
+ *  ルート順の都合で /api/runs/:id より前に置く（:id に "summary" を食わせない） */
+app.get("/api/runs/summary", (c) => {
+  const byPage = runs.listByPage();
+  return c.json({
+    runs: Object.fromEntries(
+      Object.entries(byPage).map(([pageId, list]) => [pageId, list.map(withoutSnapshot)]),
+    ),
+  });
+});
+
 /** ページ(:id)に属するラン一覧（どのページ種別でも同じ形で返る） */
 app.get("/api/pages/:id/runs", (c) => {
   const id = c.req.param("id");
   graph.get(id);
-  return c.json({ runs: runs.list(id) });
+  return c.json({ runs: runs.list(id).map(withoutSnapshot) });
 });
 
 app.get("/api/runs/:id", (c) => {

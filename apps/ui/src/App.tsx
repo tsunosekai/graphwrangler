@@ -225,24 +225,17 @@ function AppInner() {
     setSelectedId(null);
   }, [selectedNode, pageId]);
 
-  // ---- 各ページのラン一覧（PageList の左レール: ドット・ラン子行 + TopBar のラン待ち統合が使う。
-  //      ページ数ぶんの N+1 取得を1箇所に集約する）。
-  //      ルーティーンだけでなく全ページを引く——トリガーを外してプロジェクトへ戻ったページにも
-  //      過去ランは残り、レールのラン子行に出すため（2026-08-08 ちょぼ改善） ----
-  const allPageIds = useMemo(() => folders.map((f) => f.id), [folders]);
+  // ---- 全ページのラン一覧（PageList の左レール: ドット・ラン子行 + TopBar のラン待ち統合が使う）。
+  //      **1リクエスト**でページ id → ラン配列を受け取る（2026-08-08 最適化。旧: ページごとに
+  //      GET /pages/:id/runs ＝ ページ数ぶんの往復と、その回数ぶんの全ラン走査）。
+  //      ルーティーンだけでなく全ページぶん来る——トリガーを外してプロジェクトへ戻った
+  //      ページにも過去ランは残り、レールのラン子行に出すため ----
   const { data: railRunsData } = usePolling(async (): Promise<Record<string, Run[]>> => {
-    if (allPageIds.length === 0) return {};
-    const entries = await Promise.all(
-      allPageIds.map(async (id) => {
-        try {
-          const { runs } = await api.listRuns(id); // 新しい順（LedgerView と同じ前提）
-          return [id, runs] as const;
-        } catch {
-          return [id, [] as Run[]] as const;
-        }
-      }),
-    );
-    return Object.fromEntries(entries);
+    try {
+      return (await api.listAllRuns()).runs;
+    } catch {
+      return {};
+    }
   }, 5000);
   const railRuns = useMemo(() => railRunsData ?? {}, [railRunsData]);
   const latestRuns = useMemo(
@@ -270,7 +263,8 @@ function AppInner() {
     } catch {
       return [];
     }
-  }, 3000);
+    // ページが変わったら次の周期を待たず即取り直す（下のリセット effect の refresh と同趣旨）
+  }, 3000, `${pageId ?? ""}:${isCurrentPageRoutine}`);
   const pageRuns = useMemo(() => pageRunsData ?? [], [pageRunsData]);
   // projectedRunId: null = 投影なし＝**テンプレート**（設計図）を見ている / それ以外 = そのラン。
   // ページを開いた既定はテンプレート（2026-08-08 本人指定。旧: 実行中のランがあれば勝手に

@@ -277,3 +277,21 @@ describe("RunStore.rename", () => {
     expect(runs.get(run.id).title).toBe("作品A（改）");
   });
 });
+
+describe("RunStore.listByPage", () => {
+  it("全ランをページごとに束ね、各配列は新しい順（左レールの1リクエスト取得用）", () => {
+    const runs = new RunStore(dir);
+    const a = setupTriggerPage();
+    const b = setupTriggerPage();
+    const a1 = runs.createFromTrigger(a.page.id, a.trigger.id, membersOf(a.page.id), { title: "A-1" });
+    const a2 = runs.createFromTrigger(a.page.id, a.trigger.id, membersOf(a.page.id), { title: "A-2" });
+    const b1 = runs.createFromTrigger(b.page.id, b.trigger.id, membersOf(b.page.id), { title: "B-1" });
+
+    const byPage = runs.listByPage();
+    expect(Object.keys(byPage).sort()).toEqual([a.page.id, b.page.id].sort());
+    // ページごとの並びは list() と同じ（created 降順）
+    expect(byPage[a.page.id].map((r) => r.id)).toEqual(runs.list(a.page.id).map((r) => r.id));
+    expect(byPage[a.page.id].map((r) => r.id)).toEqual([a2.id, a1.id]);
+    expect(byPage[b.page.id].map((r) => r.id)).toEqual([b1.id]);
+  });
+});

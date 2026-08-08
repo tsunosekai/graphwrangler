@@ -417,6 +417,10 @@ export const api = {
 
   listRuns: (pageId: string) => request<{ runs: Run[] }>(`/pages/${pageId}/runs`),
 
+  /** 全ページのラン一覧を1リクエストで（ページ id → ラン配列。新しい順）。左レール用。
+   *  発火時スナップショットはサーバ側で落とされている（2026-08-08 最適化） */
+  listAllRuns: () => request<{ runs: Record<string, Run[]> }>("/runs/summary"),
+
   getRun: (runId: string) => request<Run>(`/runs/${runId}`),
 
   patchRunItem: (runId: string, nodeId: string, input: { status?: RunItemStatus; note?: string | null }) =>

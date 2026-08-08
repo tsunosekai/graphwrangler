@@ -2,7 +2,13 @@
 // （新しい配列参照のたびに再描画すると、編集中の入力コンポーネントを不必要に揺らすため）。
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number) {
+/**
+ * @param restartKey 取得条件が変わったことを表す文字列。変わった瞬間に即取得し直す
+ *   （2026-08-08）。fetcher は ref に退避していて依存にならないため、これが無いと
+ *   「条件が揃う前に1回空振りし、次の取得は intervalMs 後」になる——左レールのラン一覧が
+ *   出るまで5秒かかっていたのがこれ（ノード一覧が届く前に空のページ集合で走っていた）
+ */
+export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number, restartKey?: string) {
   const [data, setData] = useState<T | null>(null);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
@@ -32,7 +38,7 @@ export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [refresh, intervalMs]);
+  }, [refresh, intervalMs, restartKey]);
 
   return { data, refresh };
 }

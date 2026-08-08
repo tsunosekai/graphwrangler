@@ -137,6 +137,18 @@ export class RunStore {
       .sort((a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0));
   }
 
+  /** 全ランをページ(procedure)ごとに束ねて返す。各配列は created 降順。
+   *  左レールが全ページぶんのランを1リクエストで取るため（2026-08-08。旧: ページごとに
+   *  list() を呼ぶ＝ページ数ぶんのリクエストと、その回数ぶんの全ラン走査） */
+  listByPage(): Record<string, Run[]> {
+    const byPage: Record<string, Run[]> = {};
+    for (const r of this.all()) (byPage[r.procedure] ??= []).push(r);
+    for (const list of Object.values(byPage)) {
+      list.sort((a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0));
+    }
+    return byPage;
+  }
+
   get(runId: string): Run {
     const raw = readJson<Run>(this.file(runId));
     if (!raw) throw new GraphError(`run not found: ${runId}`, 404);
