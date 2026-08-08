@@ -37,6 +37,9 @@
   --color-human: var(--human);
   --color-script: var(--script);
   --color-ok: var(--ok);
+  /* あなたの番の橙。これまで inline style でだけ使っていたが、Tailwind の色としても
+     使えるようにする（2026-08-08 再読み込み案内バッジ） */
+  --color-attention: var(--attention);
   --color-done: var(--done);
   --color-dropped: var(--dropped);
   --color-edge: var(--edge);

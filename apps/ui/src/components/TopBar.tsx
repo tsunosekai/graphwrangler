@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUpCircle, Keyboard, KeyRound, LogOut, Search, Settings, Undo2, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
@@ -197,6 +197,42 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
   const { data: updateStatus } = usePolling(() => api.getUpdate(), 5 * 60 * 1000);
   const updateAvailable = (updateStatus?.behind ?? 0) > 0 || updateStatus?.restartPending === true;
 
+  // 開きっぱなしのタブが**古い版のまま動く**問題（2026-08-08 本人報告「直したはずの挙動に
+  // ならない」）。自動アップデートはサーバを入れ替えるが、既に読み込まれた JS は
+  // リロードするまで古いまま——見た目は同じなので気づけない。
+  // 最初に見たサーバの版を覚えておき、変わったら「再読み込み」を出す（押すと再取得）。
+  // 版が読めない構成（git 管理外など）では何も出さない
+  const loadedVersionRef = useRef<string | null>(null);
+  const [stale, setStale] = useState(false);
+  /** 見た版を記録し、最初に見た版と違えば「古いまま動いている」と判定する */
+  const noteVersion = useCallback((current: string | null | undefined) => {
+    if (!current) return;
+    if (loadedVersionRef.current === null) {
+      loadedVersionRef.current = current; // このタブが読み込んだときの版
+      return;
+    }
+    if (loadedVersionRef.current !== current) setStale(true);
+  }, []);
+  useEffect(() => {
+    noteVersion(updateStatus?.current);
+  }, [updateStatus?.current, noteVersion]);
+  // タブに戻ってきたときにも確かめる（上のポーリングは5分間隔なので、放置していた
+  // タブで作業を再開した瞬間に気づけるように。2026-08-08）
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      void api.getUpdate().then((u) => noteVersion(u?.current ?? null)).catch(() => {
+        // 取れないときは黙って諦める（案内は補助機能）
+      });
+    };
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [noteVersion]);
+
   return (
     // 3カラム構造: 左右を flex-1 の等分にして、ゴール捕獲欄が**画面の中心**に来るようにする
     // （2026-08-02 本人指摘「ちょっと左にずれてる」——左右のグループ幅が違うため、
@@ -229,7 +265,24 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
             </span>
           </Hint>
         )}
-        {updateAvailable && (
+        {/* 古い版で動いているタブへの再読み込み案内（更新ありのバッジより手前に出す） */}
+        {stale && (
+          <Hint
+            id="stale-tab"
+            always="サーバの版が変わりました"
+            text="この画面は更新前の版のまま動いている。押すと最新版で読み込み直す（保存済みのデータには影響しない）"
+          >
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-full border border-attention/50 px-2 py-0.5 text-xs text-attention transition-colors hover:bg-attention/10"
+              onClick={() => window.location.reload()}
+            >
+              <ArrowUpCircle className="size-3.5" />
+              新しい版があります・再読み込み
+            </button>
+          </Hint>
+        )}
+        {updateAvailable && !stale && (
           <Hint
             id="update-available"
             always={
