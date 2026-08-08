@@ -20,6 +20,7 @@
 // - ドラッグはマウスもタッチも pointer events 1本で扱う（モバイルでも並べ替えられる）
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -28,7 +29,9 @@ import {
   PanelLeft,
   PanelLeftClose,
   Pencil,
+  Play,
   Trash2,
+  X,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { focusGoalCapture } from "../lib/capture";
@@ -59,6 +62,8 @@ interface Props {
   reads: Record<string, string>;
   /** ページ id → ラン一覧（新しい順。App 側でポーリング済み）。ラン子行とその進捗ドットに使う */
   pageRuns: Record<string, Run[]>;
+  /** いまグラフに出しているラン。その子行の地色を濃くする（ページ行の選択と同じ流儀。2026-08-08） */
+  selectedRunId: string | null;
   /** モバイル（一覧ビューが画面を専有）では畳み状態を無視して常に展開表示する
    *  （2026-08-02 モバイル4ビュー化。畳む/開くはデスクトップのレール専用の概念） */
   forceExpanded?: boolean;
@@ -144,6 +149,7 @@ export function PageList({
   threadMeta,
   reads,
   pageRuns,
+  selectedRunId,
   forceExpanded,
   onSelectPage,
   onSelectRun,
@@ -576,16 +582,24 @@ export function PageList({
       }));
 
   /** ラン子行1本。状態マーク + タイトル + そのランの進捗ドット。trailing は畳み時の「+n」 */
-  const renderRunRow = (f: Node, r: Run, trailing?: React.ReactNode) => {
+  const renderRunRow = (f: Node, r: Run) => {
     const dots = runDotsOf(r);
     const shown = dots.slice(0, MAX_DOTS);
     const rest = dots.length - shown.length;
+    // 状態マークはノードの発火ボタンと同じ絵（▶ の文字ではなく lucide の Play。
+    // 2026-08-08 本人指定「発火のアイコンと同じやつに」）。青は使わず3つとも同じ濃さで、
+    // 違いは絵で見せる
+    const StatusIcon = r.status === "running" ? Play : r.status === "done" ? Check : X;
     return (
       <div
         key={r.id}
         role="button"
         tabIndex={0}
-        className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-xs text-text-lo hover:bg-accent/60 hover:text-muted-foreground"
+        className={cn(
+          "flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-xs text-text-lo hover:bg-accent/60 hover:text-muted-foreground",
+          // 表示中のランはページ行と同じ流儀で地色を濃くする（2026-08-08 本人要望）
+          selectedRunId === r.id && "bg-accent text-foreground",
+        )}
         onClick={() => onSelectRun(f.id, r.id)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -595,10 +609,10 @@ export function PageList({
         }}
       >
         <span
-          className={cn("flex-shrink-0", r.status === "running" ? "text-ai" : "opacity-70")}
+          className="flex-shrink-0 opacity-70"
           title={r.status === "running" ? "実行中" : r.status === "done" ? "完了" : "中止"}
         >
-          {r.status === "running" ? "▶" : r.status === "done" ? "✓" : "✕"}
+          <StatusIcon className="size-3" />
         </span>
         <span className="min-w-0 flex-1 truncate" title={r.title}>
           {r.title}
@@ -607,60 +621,52 @@ export function PageList({
           {shown.map(dotEl)}
           {rest > 0 && <span className="font-mono text-[10px] text-text-lo">+{rest}</span>}
         </span>
-        {trailing}
       </div>
     );
   };
 
-  /** ページ行の下のラン子行ブロック。畳み時は最新1本 + ドット列の隣に「+n」（隠れている本数）、
-   *  開くと全部（RUN_ROWS_VISIBLE 行を超えたら子リスト内スクロール。本人指定 2026-08-08） */
+  /** ページ行の下のラン子行ブロック。畳み時は最新1本だけ、開くと全部
+   *  （RUN_ROWS_VISIBLE 行を超えたら子リスト内スクロール。本人指定 2026-08-08）。
+   *  開閉はフォルダ行と同じ絵（chevron + フォルダ。ただし小さめ）で、行の**前**に置く
+   *  （2026-08-08 本人指定。旧: 行末の「+n」ボタンで開いていた） */
   const runsBlock = (f: Node) => {
     const runsAll = pageRuns[f.id] ?? [];
     if (runsAll.length === 0) return null;
     const open = openRunPages.has(f.id);
-    if (!open) {
-      const more = runsAll.length - 1;
-      return (
-        <div className="flex flex-col gap-px pl-4">
-          {renderRunRow(
-            f,
-            runsAll[0],
-            more > 0 ? (
-              <Hint id="runs-more" always={`他 ${more} 本のランを表示`}>
-                <button
-                  type="button"
-                  className="flex-shrink-0 rounded px-1 font-mono text-[10px] text-text-lo hover:bg-accent hover:text-foreground"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleRuns(f.id);
-                  }}
-                >
-                  +{more}
-                </button>
-              </Hint>
-            ) : undefined,
-          )}
-        </div>
-      );
-    }
+    const rows = open ? runsAll : runsAll.slice(0, 1);
     return (
-      <div className="flex flex-col gap-px pl-4">
+      <div className="flex items-start gap-0.5 pl-3">
+        <Hint
+          id="runs-toggle"
+          always={open ? "ランを畳む" : `ラン ${runsAll.length} 本を表示`}
+          text="このページのラン。クリックしたランの進捗がグラフに出る"
+        >
+          <button
+            type="button"
+            className="mt-1 flex flex-shrink-0 items-center rounded-sm text-text-lo hover:text-foreground"
+            onClick={() => toggleRuns(f.id)}
+          >
+            {open ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+            <Folder className="size-3" />
+            {/* 畳んでいる間は総本数を添える（フォルダ行が閉じているときと同じ流儀） */}
+            {!open && runsAll.length > 1 && (
+              <span className="pl-0.5 text-[10px] leading-none">{runsAll.length}</span>
+            )}
+          </button>
+        </Hint>
         <div
           className={cn(
-            "flex flex-col gap-px",
+            "flex min-w-0 flex-1 flex-col gap-px",
             // 10行ぶんで打ち止め（1行 ≈ 24px + gap）。それ以上は子リスト内スクロール
-            runsAll.length > RUN_ROWS_VISIBLE && "max-h-[250px] overflow-y-auto",
+            open && runsAll.length > RUN_ROWS_VISIBLE && "max-h-[250px] overflow-y-auto",
           )}
         >
-          {runsAll.map((r) => renderRunRow(f, r))}
+          {rows.map((r) => renderRunRow(f, r))}
         </div>
-        <button
-          type="button"
-          className="self-start rounded-sm px-1.5 text-[10px] text-text-lo hover:bg-accent/40 hover:text-muted-foreground"
-          onClick={() => toggleRuns(f.id)}
-        >
-          ▴ たたむ
-        </button>
       </div>
     );
   };

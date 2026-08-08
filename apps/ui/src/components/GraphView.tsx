@@ -1149,7 +1149,9 @@ function GraphViewInner({
         // 左上のツールバー（ページ名 + グラフ/台帳タブ）は absolute でキャンバスに重ねる設計。
         // グラフは下が無限キャンバスなので重ねてよいが、台帳は表なのでツールバーの高さぶん
         // 下げて描く（重ねると「N件のラン」がページ名の下に潜る）
-        <div className="flex h-full flex-col pt-[52px]">
+        // bg-background: body の格子（無限キャンバスの地）を隠す。表を読む画面に方眼は要らない
+        // （2026-08-08 本人指示）
+        <div className="flex h-full flex-col bg-background pt-[52px]">
           <LedgerView page={pageNode} members={nodes} onMutated={onMutated} />
         </div>
       ) : (

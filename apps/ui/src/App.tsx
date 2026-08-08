@@ -566,6 +566,7 @@ function AppInner() {
             threadMeta={threadMeta}
             reads={reads}
             pageRuns={railRuns}
+            selectedRunId={activeRun?.id ?? null}
             forceExpanded={isMobile}
             onSelectPage={(id) => {
               setPageId(id);
