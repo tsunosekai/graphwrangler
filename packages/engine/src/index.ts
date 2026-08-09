@@ -74,7 +74,7 @@ import { runScript } from "./executors/script.js";
 import { missingParamsReason, substituteParams } from "./params.js";
 import { buildAiPrompt, runClaude, type ClaudeExecutorConfig } from "./executors/claude.js";
 import { runApi } from "./executors/api.js";
-import type { Actor, Message, Node, Run } from "./types.js";
+import type { Actor, Message, Node, Run, SubStep } from "./types.js";
 
 const INTERVAL_MS = Number(process.env.GW_ENGINE_INTERVAL_MS ?? 5000);
 const VIA = "engine";
@@ -189,6 +189,16 @@ function truncate(text: string, limit: number): string {
   return t.length <= limit ? t : t.slice(0, limit) + "…";
 }
 
+/** 実行結果の subSteps（実行の内訳）を postMessage 用 payload にする。空/無ければ
+ *  base をそのまま返す（status メッセージに subSteps が無いケースを既存互換で保つ） */
+function withSubSteps(
+  base: Record<string, unknown> | undefined,
+  result: { subSteps?: SubStep[] },
+): Record<string, unknown> | undefined {
+  if (!result.subSteps || result.subSteps.length === 0) return base;
+  return { ...base, subSteps: result.subSteps };
+}
+
 /** 承認/失敗リカバリの回答判定に必要なので、frontier かつ pending な候補ノードだけ
  *  スレッドの最新メッセージを取得する（全ノード分は叩かない） */
 function candidateIdsNeedingThread(nodes: Node[]): string[] {
@@ -279,7 +289,7 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
   await patchNode(node.id, { status: "running" }, ENGINE_ACTOR, VIA);
   log(`実行開始: id=${node.id} title=${node.title} executor=${node.executor}`);
 
-  let result: { success: boolean; output: string; error?: string };
+  let result: { success: boolean; output: string; error?: string; subSteps?: SubStep[] };
   let executorName: string;
   let aiSources: string[] = [];
 
@@ -355,7 +365,12 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
 
     autoRetryCounts.delete(node.id);
     const summary = truncate(result.output || "(出力なし)", 500);
-    await postMessage(node.id, { kind: "status", body: `実行成功: ${summary}` }, actor, VIA);
+    await postMessage(
+      node.id,
+      { kind: "status", body: `実行成功: ${summary}`, payload: withSubSteps(undefined, result) },
+      actor,
+      VIA,
+    );
     // AI発言の出典バッジ用データ（docs/design.md 3.8）。script executor には該当する文脈が無いので付けない
     const sayPayload = node.executor === "ai" ? { sources: aiSources } : undefined;
     await postMessage(
@@ -379,7 +394,11 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     autoRetryCounts.set(node.id, count);
     await postMessage(
       node.id,
-      { kind: "status", body: truncate(`実行失敗（自律リトライ ${count}/${MAX_AUTO_RETRIES}）: ${reason}`, 500) },
+      {
+        kind: "status",
+        body: truncate(`実行失敗（自律リトライ ${count}/${MAX_AUTO_RETRIES}）: ${reason}`, 500),
+        payload: withSubSteps(undefined, result),
+      },
       actor,
       VIA,
     );
@@ -391,7 +410,7 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
   autoRetryCounts.delete(node.id);
   await postMessage(
     node.id,
-    { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) },
+    { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(undefined, result) },
     actor,
     VIA,
   );
@@ -503,7 +522,12 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
       if (!result.success) {
         const reason = result.error || "不明なエラー";
-        await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
+        await postMessage(
+          node.id,
+          { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(undefined, result) },
+          actor,
+          VIA,
+        );
               await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
         log(`分岐の ai 実行失敗: id=${node.id} reason=${reason}`);
         return true;
@@ -511,12 +535,22 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       const choice = parseBranchChoice(node, result.output);
       if (!choice) {
         const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
-        await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
+        await postMessage(
+          node.id,
+          { kind: "status", body: `実行失敗: ${reason}`, payload: withSubSteps(undefined, result) },
+          actor,
+          VIA,
+        );
               await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
         log(`分岐の ai 出力が不正: id=${node.id}`);
         return true;
       }
-      await postMessage(node.id, { kind: "say", body: result.output.trim() }, actor, VIA);
+      await postMessage(
+        node.id,
+        { kind: "say", body: result.output.trim(), payload: withSubSteps(undefined, result) },
+        actor,
+        VIA,
+      );
       await decideNode(node.id, choice, actor, VIA);
       log(`分岐確定(ai): id=${node.id} choice=${choice}`);
       return true;
@@ -533,7 +567,7 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
   await patchRunItem(run.id, node.id, { status: "running" }, ENGINE_ACTOR, VIA);
   log(`ラン実行開始: run=${run.id} node=${node.id} title=${node.title} executor=${node.executor}`);
 
-  let result: { success: boolean; output: string; error?: string };
+  let result: { success: boolean; output: string; error?: string; subSteps?: SubStep[] };
   let executorName: string;
   let aiSources: string[] = [];
 
@@ -614,7 +648,12 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
 
     autoRetryCounts.delete(retryKey);
     const summary = truncate(result.output || "(出力なし)", 500);
-    await postMessage(node.id, { kind: "status", body: `実行成功: ${summary}`, payload }, actor, VIA);
+    await postMessage(
+      node.id,
+      { kind: "status", body: `実行成功: ${summary}`, payload: withSubSteps(payload, result) },
+      actor,
+      VIA,
+    );
     // AI発言の出典バッジ用データ（docs/design.md 3.8）。script executor には該当する文脈が無いので付けない
     const sayPayload = node.executor === "ai" ? { ...payload, sources: aiSources } : payload;
     await postMessage(
@@ -637,7 +676,11 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
     autoRetryCounts.set(retryKey, count);
     await postMessage(
       node.id,
-      { kind: "status", body: truncate(`実行失敗（自律リトライ ${count}/${MAX_AUTO_RETRIES}）: ${reason}`, 500), payload },
+      {
+        kind: "status",
+        body: truncate(`実行失敗（自律リトライ ${count}/${MAX_AUTO_RETRIES}）: ${reason}`, 500),
+        payload: withSubSteps(payload, result),
+      },
       actor,
       VIA,
     );
@@ -655,7 +698,7 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
   autoRetryCounts.delete(retryKey);
   await postMessage(
     node.id,
-    { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload },
+    { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(payload, result) },
     actor,
     VIA,
   );
@@ -1004,7 +1047,7 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
     const reason = result.error || "不明なエラー";
     await postMessage(
       node.id,
-      { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload },
+      { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(payload, result) },
       actor,
       VIA,
     );
@@ -1021,7 +1064,12 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
   const choice = parseBranchChoice(node, result.output);
   if (!choice) {
     const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
-    await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, payload }, actor, VIA);
+    await postMessage(
+      node.id,
+      { kind: "status", body: `実行失敗: ${reason}`, payload: withSubSteps(payload, result) },
+      actor,
+      VIA,
+    );
     await patchRunItem(
       run.id,
       node.id,
@@ -1032,7 +1080,12 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
     log(`ラン分岐の ai 出力が不正: run=${run.id} node=${node.id}`);
     return;
   }
-  await postMessage(node.id, { kind: "say", body: result.output.trim(), payload }, actor, VIA);
+  await postMessage(
+    node.id,
+    { kind: "say", body: result.output.trim(), payload: withSubSteps(payload, result) },
+    actor,
+    VIA,
+  );
   await decideRunItem(run.id, node.id, choice, actor, VIA);
   log(`ラン分岐確定(ai): run=${run.id} node=${node.id} choice=${choice}`);
 }
@@ -1219,7 +1272,13 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   const decision = parseAiFireDecision(result.output);
   if (decision === "fire") {
     try {
-      await postMessage(trigger.id, { kind: "say", body: result.output.trim() || "(理由なし)" }, actor, VIA);
+      // 発火判定でAIがツールを使った場合（ログ確認など）、その内訳も発火理由の記録として残す
+      await postMessage(
+        trigger.id,
+        { kind: "say", body: result.output.trim() || "(理由なし)", payload: withSubSteps(undefined, result) },
+        actor,
+        VIA,
+      );
       if (trigger.approval) {
         await openRequest(trigger.id, buildFireApprovalRequest(trigger), ENGINE_ACTOR, VIA);
         log(`AI判定fire→発火前承認カードを開いた: trigger=${trigger.id} title=${trigger.title}`);

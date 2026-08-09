@@ -76,6 +76,7 @@ import {
   verifyPassword,
 } from "./auth.js";
 import { assertTrialAllowed, runTrial, sha256Hex, substituteParams, trialCwd } from "./trial.js";
+import { expandNode } from "./expand.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -845,6 +846,22 @@ app.post("/api/nodes/:id/remove", async (c) => {
   // メンバーは巻き添え削除、外の子は参照を切り離す。core の removeNode 参照）
   graph.removeNode(c.req.param("id"), meta(body), { force: body?.force === true });
   return c.json({ removed: true });
+});
+
+// ---- 展開（「ノード内ノード」→ 実ノード連鎖。docs/design.md 3.14。実装は expand.ts） ----
+// AI実行ノードの実行記録（スレッドの status メッセージ）が持つ内訳（payload.subSteps）から、
+// ノードを実ノードの連鎖へ展開する。ノードidは history が下がる正データ（3.1 参照）なので、
+// これは「意図的な削除+追加」——各手順が addNode/patchNode/removeNode の独立した op として
+// ops.jsonl に乗るため、undo は逆操作N件で戻る。展開元のメッセージはテンプレート記録・
+// ラン記録のどちらでもよい（どちらから展開しても、編集対象は常にテンプレート側のグラフ）
+const ExpandBodySchema = z.object({ messageId: z.string().min(1) });
+
+app.post("/api/nodes/:id/expand", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const { messageId } = ExpandBodySchema.parse(body);
+  const result = expandNode(graph, threads, id, messageId, meta(body));
+  return c.json(result);
 });
 
 // ---- スクリプト試走（試走ゲート。docs/design.md 3.5 近く。実装は trial.ts） ----

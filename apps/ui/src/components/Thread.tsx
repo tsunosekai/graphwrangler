@@ -5,8 +5,9 @@ import { api } from "../lib/api";
 import { Linkify, mdComponents } from "../lib/linkify";
 import { displayNameOf, useTeam, type TeamUser } from "../lib/team";
 import { cn } from "../lib/utils";
-import type { MaterializedMessage, Node } from "../types";
+import { subStepsOf, type MaterializedMessage, type Node, type SubStep } from "../types";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
 import { ChatComposer, ThinkingIndicator } from "./ChatComposer";
 import { DecisionCard } from "./DecisionCard";
 
@@ -30,6 +31,10 @@ interface Props {
   aiEffort?: Node["aiEffort"];
   onAiModelChange?: (v: string | null) => void;
   onAiEffortChange?: (v: string | null) => void;
+  /** 「ノード内ノードに展開」ボタンを出してよいか（NodePanel が判定して渡す）:
+   *  ラン表示でない・このノードが今のグラフに実在する・kind=task・未Fix。
+   *  既定 false（履歴タブの過去セッション表示など、判定を渡さない呼び出し側では出さない） */
+  canExpand?: boolean;
   onMutated: () => void;
 }
 
@@ -59,6 +64,117 @@ function extractSources(payload: unknown): string[] | null {
   return sources as string[];
 }
 
+/** 実行の内訳（SubStep）1行。クリックで command/input・output を開閉する
+ *  （どちらも無ければクリック不可の静的行にする）。ツールのバッジは ChatMessage の
+ *  「⚙ ツール要約」バッジと同じ配色語彙（ai系トーン/失敗はdestructive）で揃える */
+function SubStepRow({ step }: { step: SubStep }) {
+  const [open, setOpen] = useState(false);
+  const detail = step.command ?? step.input;
+  const hasDetail = !!detail || !!step.output;
+  return (
+    <div className="rounded border border-border/70">
+      <button
+        type="button"
+        className={cn(
+          "flex w-full items-center gap-1.5 px-1.5 py-1 text-left text-xs",
+          hasDetail ? "cursor-pointer hover:bg-muted" : "cursor-default",
+        )}
+        onClick={() => hasDetail && setOpen((v) => !v)}
+        aria-expanded={hasDetail ? open : undefined}
+      >
+        <span className="w-4 shrink-0 text-right text-text-lo">{step.index + 1}</span>
+        <Badge variant="outline" className="shrink-0 border-ai/25 bg-ai/[0.08] text-muted-foreground">
+          {step.tool}
+        </Badge>
+        <span className="min-w-0 flex-1 truncate">{step.title}</span>
+        <span
+          className={cn("shrink-0 font-medium", step.status === "error" ? "text-destructive" : "text-ok")}
+          title={step.status === "error" ? "失敗" : "成功"}
+        >
+          {step.status === "error" ? "×" : "✓"}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-1.5 border-t border-border/70 px-1.5 py-1.5">
+          {detail && (
+            <div>
+              <div className="text-[11px] text-text-lo">{step.command ? "コマンド" : "入力"}</div>
+              <pre className="mt-0.5 max-h-32 overflow-auto rounded bg-muted px-1.5 py-1 font-mono text-[11px] break-all whitespace-pre-wrap">
+                {detail}
+              </pre>
+            </div>
+          )}
+          {step.output && (
+            <div>
+              <div className="text-[11px] text-text-lo">結果</div>
+              <pre className="mt-0.5 max-h-32 overflow-auto rounded bg-muted px-1.5 py-1 font-mono text-[11px] break-all whitespace-pre-wrap">
+                {step.output}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 「実行の内訳」ブロック。実行成功/失敗の status メッセージ（payload.subSteps）の下に出す。
+ *  展開ボタンは canExpand（= 会話タブ/ラン表示でなく・元task・未Fix・現行グラフに実在）のときだけ */
+function SubStepsSection({
+  steps,
+  nodeId,
+  messageId,
+  canExpand,
+  onMutated,
+}: {
+  steps: SubStep[];
+  nodeId: string;
+  messageId: string;
+  canExpand: boolean;
+  onMutated: () => void;
+}) {
+  const [expanding, setExpanding] = useState(false);
+
+  const handleExpand = async () => {
+    const ok = window.confirm(
+      `このノードを実行の内訳から作った ${steps.length} 個のノードに置き換えます。元のノードは削除されます（undo 可能）。`,
+    );
+    if (!ok) return;
+    setExpanding(true);
+    try {
+      await api.expandNode(nodeId, messageId);
+      onMutated();
+    } catch {
+      // エラーは api() 側でトースト表示済み
+    } finally {
+      setExpanding(false);
+    }
+  };
+
+  return (
+    <div className="mt-1.5 border-t border-border/60 pt-1.5">
+      <div className="mb-1 text-[11px] text-text-lo">実行の内訳</div>
+      <div className="flex flex-col gap-1">
+        {steps.map((s) => (
+          <SubStepRow key={s.id} step={s} />
+        ))}
+      </div>
+      {canExpand && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-1.5 h-6 px-2 text-xs"
+          disabled={expanding}
+          onClick={() => void handleExpand()}
+        >
+          {expanding ? "展開中…" : "ノード内ノードに展開"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /**
  * ノードスレッド。Claude Code と同じ構成:
  * 上=流れるメッセージ列（自動で最下部へスクロール）、下=入力欄。
@@ -78,6 +194,7 @@ export function Thread({
   aiEffort,
   onAiModelChange,
   onAiEffortChange,
+  canExpand = false,
   onMutated,
 }: Props) {
   // 発言者の表示名解決と「自分/他人の human 発言」の描き分け（チーム化 2026-08-04）
@@ -186,6 +303,7 @@ export function Thread({
                 ? "border-ai/40"
                 : "border-border";
           const sources = extractSources(m.payload);
+          const subSteps = subStepsOf(m.payload);
           return (
             <div key={m.id} className="contents">
             {unreadDivider}
@@ -231,6 +349,15 @@ export function Thread({
                     </Badge>
                   ))}
                 </div>
+              )}
+              {subSteps.length > 0 && (
+                <SubStepsSection
+                  steps={subSteps}
+                  nodeId={nodeId}
+                  messageId={m.id}
+                  canExpand={canExpand}
+                  onMutated={onMutated}
+                />
               )}
             </div>
             </div>

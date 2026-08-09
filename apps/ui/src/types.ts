@@ -193,6 +193,46 @@ export interface Run {
   created: string;
 }
 
+/** 実行の内訳（AI実行ノードの内部サブステップ。packages/core/src/schema.ts SubStepSchema と同形）。
+ *  実行成功/失敗の status メッセージの payload.subSteps に配列で載る。
+ *  「ノード内ノードに展開」（POST /api/nodes/:id/expand）の素材になる */
+export interface SubStep {
+  /** ツール呼び出し id（tool_use.id）。展開時のノード id とは無関係 */
+  id: string;
+  /** 実行順（0始まり） */
+  index: number;
+  /** ツール名。例: "Bash" "Read" "Edit" "Task" */
+  tool: string;
+  /** 表示名。Bash は description/コマンド先頭、他は主要引数の要約 */
+  title: string;
+  /** tool=Bash のときの実コマンド。展開時に script impl になる */
+  command: string | null;
+  /** 入力の要約（JSON文字列。保存前に切り詰め済み） */
+  input: string | null;
+  /** 結果の要約（切り詰め済み） */
+  output: string | null;
+  status: "ok" | "error";
+}
+
+/** payload から subSteps を安全に取り出す（無ければ空配列。core の同名関数と同じ役割だが
+ *  ここは zod を持たないので緩い形チェック——tool/title が string で status が ok/error であること
+ *  だけ見る。壊れた要素は個別に弾く（1件おかしくても他は出す） */
+export function subStepsOf(payload: unknown): SubStep[] {
+  const raw = (payload as { subSteps?: unknown } | null)?.subSteps;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((s): s is SubStep => {
+    if (!s || typeof s !== "object") return false;
+    const o = s as Record<string, unknown>;
+    return (
+      typeof o.id === "string" &&
+      typeof o.index === "number" &&
+      typeof o.tool === "string" &&
+      typeof o.title === "string" &&
+      (o.status === "ok" || o.status === "error")
+    );
+  });
+}
+
 /** トレース再生（GET /api/runs/:id/trace の1件）。ノードスレッドのメッセージに
  *  そのメッセージが属するノードのタイトルを添えたもの */
 export type TraceEvent = MaterializedMessage & { nodeTitle: string };

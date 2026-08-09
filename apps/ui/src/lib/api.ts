@@ -352,6 +352,15 @@ export const api = {
       body: JSON.stringify(opts.force ? { force: true } : {}),
     }),
 
+  /** 「ノード内ノードに展開」（実行の内訳 payload.subSteps を素材に、このノードを実ノード連鎖へ
+   *  置き換える）。messageId は展開元の実行成功/失敗の status メッセージ。元ノードは消えるので
+   *  既読マーク（withSelfRead）はしない——消えた id への既読は意味を持たない */
+  expandNode: (id: string, messageId: string) =>
+    request<{ created: string[] }>(`/nodes/${id}/expand`, {
+      method: "POST",
+      body: JSON.stringify({ messageId }),
+    }),
+
   // ---- スクリプト試走（試走ゲート。docs/design.md 3.5 近く。実装は packages/server/src/trial.ts） ----
 
   trialNode: (id: string) =>

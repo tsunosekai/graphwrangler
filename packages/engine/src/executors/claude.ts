@@ -1,14 +1,24 @@
 // executor=ai: claude -p を子プロセスで起動する。zinsei desk/engine.py の _run_claude と
 // 同型（shell 経由ではなく argv 配列で渡す。プロンプトはコマンドライン引数として渡すので
 // シェルクォート事故が起きない）。--dangerously-skip-permissions は絶対に使わない。
+//
+// 2026-08-09: --output-format stream-json --verbose を追加し、stdout を「実行結果の
+// テキスト」だけでなく「AIが実際に呼んだツール（Bash/Edit/Task…）の列」としても読めるように
+// した（AI実行の内部で実際に何が行われたかをノード内ノードとして記録するため。
+// packages/core/src/schema.ts の SubStep がその契約型、パースは stream_trace.ts）。
+// 素の -p（テキスト出力）に比べて stdout は増えるが、成功時の output は従来どおり
+// 最終テキストのみ（stream_trace.parseStreamJsonOutput が result 行から取り出す）。
 import { spawn } from "node:child_process";
 import { autonomyPromptLines } from "../ask.js";
-import type { Autonomy, Node } from "../types.js";
+import type { Autonomy, Node, SubStep } from "../types.js";
+import { parseStreamJsonOutput } from "./stream_trace.js";
 
 export interface ExecResult {
   success: boolean;
   output: string;
   error?: string;
+  /** 実行中に呼ばれたツールの内訳（stream-json から復元）。空なら付けない */
+  subSteps?: SubStep[];
 }
 
 // Bash 許可で実作業（ビルド・テスト・データ処理）が10分を超えうるため、権限拡張と同時に
@@ -197,6 +207,10 @@ export function runClaude(
       ...ALLOWED_TOOLS,
       ...sanitizeExtraTools(config.extraTools),
       ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", d]),
+      // 内訳（サブステップ）を復元するため、1行1JSONの詳細ログで出させる（stream_trace.ts）
+      "--output-format",
+      "stream-json",
+      "--verbose",
     ];
     let stdout = "";
     let stderr = "";
@@ -238,27 +252,46 @@ export function runClaude(
 
     child.on("close", (code) => {
       clearTimeout(timer);
+      // stream-json を通した以上 stdout は常にパースを試す。タイムアウト・異常終了でも
+      // ここまでに出た tool_use/tool_result は「どこまで進んだか」を示す貴重な情報なので、
+      // 途中で切れていても拾えるだけ拾う（parseStreamJsonOutput は壊れた最終行を読み飛ばす）
+      const parsed = parseStreamJsonOutput(stdout);
+      const subSteps = parsed.subSteps.length > 0 ? parsed.subSteps : undefined;
       if (timedOut) {
         resolve({
           success: false,
           output: stdout,
           error: `タイムアウト（${Math.round(timeoutMs / 60000)}分）`,
+          subSteps,
         });
         return;
       }
       if (code !== 0) {
         // claude CLI はエラーの種類によって stdout/stderr どちらに理由を出すか一定しない
         // （実機確認で判明: 認証エラーは stdout、stdin待ちの警告は stderr に出た）。
-        // 両方を拾って人間に見せる理由文にする
-        const combined = [stderr.trim(), stdout.trim()].filter(Boolean).join(" / ");
+        // stream-json が最後まで通っていれば result.result（人間向けの理由文）を優先し、
+        // 通っていなければ従来どおり stderr/stdout の生テキストを繋げる
+        const reason = parsed.output ?? [stderr.trim(), stdout.trim()].filter(Boolean).join(" / ");
         resolve({
           success: false,
           output: stdout,
-          error: combined.slice(0, 500) || `終了コード ${code}`,
+          error: reason.slice(0, 500) || `終了コード ${code}`,
+          subSteps,
         });
         return;
       }
-      resolve({ success: true, output: stdout.trim() });
+      if (parsed.isError) {
+        // 終了コード0でも result.is_error=true は「AIが処理を終えたが失敗として報告した」
+        // ケース（権限拒否で何もできなかった等）。exit code だけ見ると成功扱いになってしまう
+        resolve({
+          success: false,
+          output: stdout,
+          error: (parsed.output ?? "AIがエラーを報告しました（詳細不明）").slice(0, 500),
+          subSteps,
+        });
+        return;
+      }
+      resolve({ success: true, output: parsed.output ?? stdout.trim(), subSteps });
     });
   });
 }

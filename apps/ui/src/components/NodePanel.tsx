@@ -713,6 +713,12 @@ export function NodePanel({
     return (m.kind === "status" || m.kind === "artifact") && !isChatBreak(m);
   };
   const filtered = (tab === "talk" ? talkSource : messages).filter((m) => inTab(m, tab));
+  // 「ノード内ノードに展開」ボタンを出してよいか（実行の内訳＝実行記録の下に出す）。
+  // ラン表示（runView）は発火時点のフォークを見せているだけで書き込み対象ではないので不可、
+  // それ以外は kind=task・未Fix・このノードが今のグラフに実在する（allNodes は
+  // App が runView 時は runNodes に差し替えるので、run 中に消えた/ラン専用の
+  // ノードでは false になる。expand 自体は409で弾かれるがボタンは出さない側で先に絞る）
+  const canExpandSubSteps = !runView && node.kind === "task" && !node.fixed && allNodes.some((n) => n.id === node.id);
   // 履歴タブ用: chatBreak で区切った過去セッション一覧（GraphWrangler AI のアーカイブ一覧と
   // 同じ意味）。スレッドは経緯の正史なので実体は動かさず、区切りから毎回導出する。
   // ts は区切った時刻＝GraphWrangler AI の「新しい会話を押した時刻」に対応する
@@ -2028,6 +2034,7 @@ export function NodePanel({
         aiEffort={node.aiEffort}
         onAiModelChange={runView ? undefined : (v) => patch({ aiModel: v })}
         onAiEffortChange={runView ? undefined : (v) => patch({ aiEffort: v as Node["aiEffort"] })}
+        canExpand={canExpandSubSteps}
         onMutated={() => {
           onMutated();
           refreshThread();
