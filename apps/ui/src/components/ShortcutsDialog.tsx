@@ -13,6 +13,9 @@ const MOUSE_ROWS: ShortcutRow[] = [
   { keys: ["ドラッグ"], desc: "画面を動かす（ホイールでズーム）" },
   { keys: ["Shift", "ドラッグ"], desc: "矩形選択（Shift/Ctrl+クリックで追加選択）" },
   { keys: ["ダブルクリック"], desc: "ノードのタイトルを編集" },
+  // 右クリックは例外なくメニュー（2026-08-09 案B）。空白の右クリックが直接ノードを作る
+  // 挙動は廃止し、メニューの「ここにノードを作る」に入った
+  { keys: ["右クリック"], desc: "メニュー（ノード / 空白 / 左レールの行 / 台帳）" },
   { keys: ["○からドラッグ"], desc: "ノード下端の点から次のノードへ依存エッジをつなぐ" },
   { keys: ["紐を空白で放す"], desc: "その位置に新しいノードを作って接続" },
   { keys: ["エッジをクリック"], desc: "選択して✂で依存を切る" },
@@ -54,7 +57,10 @@ export function ShortcutsDialog({ open, onOpenChange }: Props) {
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
           <DialogTitle>ショートカット一覧</DialogTitle>
-          <DialogDescription>グラフビュー上で有効（入力欄・ダイアログにフォーカス中は無効）</DialogDescription>
+          <DialogDescription>
+            グラフビュー上で有効（入力欄・ダイアログにフォーカス中は無効）。右クリックのメニューだけは
+            左レールの行・台帳でも使える
+          </DialogDescription>
         </DialogHeader>
         {/* 2節構成で縦に長くなったため、小さい画面でははみ出さず内部スクロール */}
         <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto">

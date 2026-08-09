@@ -213,6 +213,14 @@ function AppInner() {
   const pageId = folders.some((f) => f.id === pageIdRaw) ? pageIdRaw : (folders[0]?.id ?? null);
   const pageNode = folders.find((f) => f.id === pageId) ?? null;
   const pageNodes = useMemo(() => nodes.filter((n) => n.group === pageId), [nodes, pageId]);
+  // グラフの右クリックメニュー「ページへ移動 ▸」の候補: 表示中ページと同じ節
+  // （プロジェクト / ルーティーン。PageList と同じ isRoutinePage 判定）の他ページ。
+  // 節をまたぐ移動はレールのドラッグでもさせていないので、ここでも出さない
+  const movePages = useMemo(() => {
+    if (!pageNode) return [];
+    const routine = isRoutinePage(pageNode, nodes);
+    return folders.filter((f) => f.id !== pageNode.id && isRoutinePage(f, nodes) === routine);
+  }, [folders, pageNode, nodes]);
 
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
 
@@ -597,6 +605,10 @@ function AppInner() {
             folderNodes={folderNodes}
             allNodes={nodes}
             onMutated={handleMutated}
+            // 右クリックの「既読にする」用（NodePanel の onViewed と同じ即時反映）と、
+            // 発火・ラン名変更・キャンセルの直後のラン一覧の取り直し（2026-08-09）
+            onViewed={markViewed}
+            onRunsMutated={refreshRailRuns}
             pageId={pageId}
             threadMeta={threadMeta}
             reads={reads}
@@ -641,6 +653,7 @@ function AppInner() {
             selectedId={selectedId}
             threadMeta={threadMeta}
             reads={reads}
+            onViewed={markViewed}
             activeRun={activeRun}
             pageRuns={pageRuns}
             onProjectRun={(runId) => {
@@ -659,6 +672,7 @@ function AppInner() {
             }}
             onMutated={handleMutated}
             onSelectionIdsChange={setSelectedIds}
+            movePages={movePages}
           />
         </div>
         {(mv === null || mv === "node") &&

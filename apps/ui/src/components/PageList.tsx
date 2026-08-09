@@ -20,28 +20,54 @@
 // - ドラッグはマウスもタッチも pointer events 1本で扱う（モバイルでも並べ替えられる）
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Archive,
+  ArchiveRestore,
+  Ban,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   Folder,
+  FolderInput,
   FolderPlus,
   GripVertical,
   PanelLeft,
   PanelLeftClose,
   Pencil,
+  Play,
   Trash2,
 } from "lucide-react";
+import {
+  cancelRunWithConfirm,
+  hasUnread,
+  markKeysRead,
+  readKeysForPage,
+  renameRunDialog,
+} from "../lib/actions";
 import { api } from "../lib/api";
 import { focusGoalCapture } from "../lib/capture";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
+import { fireTrigger } from "../lib/fire";
 import { HINT_TEXT } from "../lib/hints";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { moveWithin, railPatches, sortRail } from "../lib/rail";
+import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { isRoutinePage } from "../lib/routine";
 import { isUnreadKey, threadKey, unreadCountForNode } from "../lib/unread";
 import { colorOf, displayNameOf, effectiveMembers, initialOf, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { Node, Run, Status } from "../types";
 import { Button } from "./ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Hint } from "./Hint";
 import { Icon } from "./Icon";
@@ -71,6 +97,13 @@ interface Props {
   onSelectRun: (pageId: string, runId: string) => void;
   /** フォルダ操作・並べ替えを打った直後の再取得（ポーリング待ちの3秒を出さない） */
   onMutated: () => void;
+  /** 既読の即時反映（App の readOverrides。NodePanel の onViewed と同じもの）。
+   *  既読の送信（postReads）は投げっぱなしなので、これを呼ばないと右クリックの
+   *  「既読にする」でバッジが消えるのが次のポーリングまで遅れる */
+  onViewed: (key: string, lastTs: string | null) => void;
+  /** ラン一覧（App が5秒ごとに引く /runs/summary）の取り直し。発火・ラン名の変更・
+   *  キャンセルの直後に呼ぶ（ノード側の onMutated ではランは更新されない） */
+  onRunsMutated: () => void;
 }
 
 const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
@@ -105,6 +138,12 @@ const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 /** ラン子行: 開いたとき一度に見せる行数。超えたら子リスト内スクロール（2026-08-08 本人指定「10件以上はスクロール」） */
 const RUN_ROWS_VISIBLE = 10;
+/** 行の操作アイコン（✎🗑）の出し方。常時表示だとレールがごちゃついて名前が読みにくいので、
+ *  マウスの hover とキーボードフォーカスのときだけ出す（2026-08-09 本人指示）。
+ *  タッチ環境では hover が無いので出さない——長押しの右クリックメニューが同じ操作を持つ。
+ *  行側に `group` が要る */
+const ROW_ACTION =
+  "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:hidden";
 /** ドットの共通ヒント文。色ルールの正文はここ */
 const DOTS_HINT =
   "ノード1つ=点1つ。色は担当の色（黄緑=人間 青=AI 灰=スクリプト）で、橙=あなたの番だけ例外。薄い点=完了・中止・スキップ";
@@ -153,6 +192,8 @@ export function PageList({
   onSelectPage,
   onSelectRun,
   onMutated,
+  onViewed,
+  onRunsMutated,
 }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
   // チーム化（2026-08-04）: 人フィルタとイニシャルバッジ。ロスターが2人未満なら出さない
@@ -465,6 +506,104 @@ export function PageList({
     }
   };
 
+  // ---- 右クリックメニューの操作（2026-08-09） ----
+  // メニューは「既存操作への近道（第0層）」。ここで新しい概念は作らず、パネル・台帳・
+  // ドラッグでできることと**同じ api・同じ確認文**を呼ぶだけにする。
+  // 該当しない項目は disabled にせず出さない（メニューを短く保つ）——例外は
+  // 「既読にする」で、押しても意味が無いだけなので disabled で残す
+
+  /** ページ名の変更。フォルダ行の✎（renameFolder）と同じ流儀 */
+  const renamePage = async (f: Node) => {
+    const name = await promptDialog(isRoutinePage(f, allNodes) ? "ルーティーン名" : "プロジェクト名", {
+      defaultValue: f.title,
+      confirmLabel: "変更",
+    });
+    if (name === null || !name.trim() || name.trim() === f.title) return;
+    try {
+      await api.patchNode(f.id, { title: name.trim() });
+      onMutated();
+    } catch {
+      // api 側でトースト済み
+    }
+  };
+
+  /** 指定キーを既読にする（サーバへ送る + ローカル上書きで即バッジを消す） */
+  const markRead = (keys: string[]) => {
+    markKeysRead(keys, threadMeta, onViewed);
+  };
+
+  /** メニューの「フォルダへ移動」。ドラッグで棚へ落としたのと同じ結果（folder + order）に
+   *  なるよう、落とし先の末尾へ置く applyDrop と同じ計算を通す */
+  const moveToFolder = async (f: Node, folderId: string | null) => {
+    const siblings = pageIdsIn(sectionOf(f), folderId).filter((id) => id !== f.id);
+    await applyOrder([...siblings, f.id], folderId);
+  };
+
+  /** アーカイブ（節の出し入れ）。専用APIは無く status からの導出なので patch で切り替える */
+  const setPageArchived = async (f: Node, archived: boolean) => {
+    try {
+      await api.patchNode(f.id, { status: archived ? "done" : "pending" });
+      onMutated();
+    } catch {
+      // api 側でトースト済み
+    }
+  };
+
+  /** ページの削除。メンバーの巻き添えはサーバ（force）が面倒を見るので、こちらは
+   *  NodePanel の削除と同じ警告（removeImpactWarnings）を出すだけにする */
+  const removePage = async (f: Node) => {
+    const impact = computeRemoveImpact([f.id], allNodes);
+    const ok = await confirmDialog(
+      buildRemoveMessage(
+        `「${f.title || "（無題）"}」を削除しますか？（Ctrl+Z で戻せます）`,
+        removeImpactWarnings(impact),
+      ),
+      { danger: true, confirmLabel: "削除" },
+    );
+    if (!ok) return;
+    try {
+      await api.removeNode(f.id, { force: true });
+      onMutated();
+    } catch {
+      // api 側でトースト済み
+    }
+  };
+
+  /** 発火（ルーティーンページのトリガー）。フォームと確認文は lib/fire.ts に集約してあり、
+   *  カードの▶と同じものが出る。生まれたランのページへはラン子行クリックと同じ経路で移る */
+  const firingRef = useRef(false);
+  const firePage = async (f: Node, trigger: Node) => {
+    if (firingRef.current) return; // 連打の幽霊ラン防止（カードの▶の firing と同じ役目）
+    firingRef.current = true;
+    try {
+      const runs = pageRuns[f.id] ?? [];
+      const run = await fireTrigger(trigger, {
+        runningRunCount: runs.filter((r) => r.status === "running").length,
+        lastRunContext: runs[0]?.context ?? null,
+      });
+      if (!run) return;
+      onMutated();
+      onRunsMutated(); // 生まれたばかりのランは一覧にまだ載っていない
+      onSelectRun(f.id, run.id);
+    } finally {
+      firingRef.current = false;
+    }
+  };
+
+  /** ラン名の変更。台帳（LedgerView）の✎・グラフ上部の✎と同じダイアログ・同じ api */
+  const renameRun = async (r: Run) => {
+    if (!(await renameRunDialog(r))) return;
+    onRunsMutated();
+    onMutated();
+  };
+
+  /** ランの打ち切り。今は台帳タブでしかできない操作の近道（確認文も台帳と同じ） */
+  const cancelRun = async (r: Run) => {
+    if (!(await cancelRunWithConfirm(r))) return;
+    onRunsMutated();
+    onMutated();
+  };
+
   /** 落とし先の見せ方: 前後は行の縁に線、中へはフォルダ行を縁取る。
    *  線は inset の box-shadow ではなく絶対配置の擬似要素で描く——box-shadow は行の角丸
    *  （rounded-sm）に沿って端が丸まり、まっすぐな横線に見えないため（2026-08-06 本人指摘）。
@@ -577,8 +716,10 @@ export function PageList({
         dim: isSettled(st),
       }));
 
-  /** ラン子行1本。状態マーク + タイトル + そのランの進捗ドット。trailing は畳み時の「+n」 */
-  const renderRunRow = (f: Node, r: Run) => {
+  /** ラン子行1本。状態マーク + タイトル + そのランの進捗ドット。trailing は畳み時の「+n」。
+   *  pageKeys = そのページの既読キー全部（呼び出し側で1回だけ集める。行ごとに集め直すと
+   *  ページ数 × ラン数ぶん全ノードを走ることになる） */
+  const renderRunRow = (f: Node, r: Run, pageKeys: string[]) => {
     // このランで未読のノード数。ワークアイテム（トリガーの子孫）だけでなく**ページの全ノード**
     // を見る——「発火」の記録はトリガーのスレッドに載り、トリガーは items に入らないため
     const runUnread = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)].filter(
@@ -587,47 +728,75 @@ export function PageList({
     const dots = runDotsOf(r);
     const shown = dots.slice(0, MAX_DOTS);
     const rest = dots.length - shown.length;
+    // 右クリックの「既読にする」が扱うのは**このラン**のキーだけ（"<ノードid>@<ランid>"）
+    const runKeys = pageKeys.filter((k) => k.endsWith(`@${r.id}`));
     return (
-      <div
-        key={r.id}
-        role="button"
-        tabIndex={0}
-        className={cn(
-          "flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-xs text-text-lo hover:bg-accent/60 hover:text-muted-foreground",
-          // 表示中のランはページ行と同じ流儀で地色を濃くする（2026-08-08 本人要望）
-          selectedRunId === r.id && "bg-accent text-foreground",
-        )}
-        onClick={() => onSelectRun(f.id, r.id)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onSelectRun(f.id, r.id);
-          }
-        }}
-      >
-        {/* 状態の絵はグラフ上部のラン選択セレクタと共有（RunStatusIcon） */}
-        <RunStatusIcon status={r.status} />
-        <span className="min-w-0 flex-1 truncate" title={r.title}>
-          {r.title}
-        </span>
-        <span className="flex max-w-[45%] flex-shrink-0 flex-wrap items-center justify-end gap-[3px]">
-          {shown.map(dotEl)}
-          {rest > 0 && <span className="font-mono text-[10px] text-text-lo">+{rest}</span>}
-        </span>
-        {/* そのランの未読数（2026-08-08 本人要望「欄にもバッジを出して」）。
-            ページ行のバッジは「このページのどこか」、こちらは「どのランか」を示す */}
-        {runUnread > 0 && (
-          <Hint
-            id="unread"
-            always={`このランで未読のノード ${runUnread} 件`}
-            text={HINT_TEXT.unread}
+      <ContextMenu key={r.id}>
+        <ContextMenuTrigger asChild>
+          <div
+            role="button"
+            tabIndex={0}
+            className={cn(
+              "flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-xs text-text-lo hover:bg-accent/60 hover:text-muted-foreground",
+              // 表示中のランはページ行と同じ流儀で地色を濃くする（2026-08-08 本人要望）
+              selectedRunId === r.id && "bg-accent text-foreground",
+            )}
+            onClick={() => onSelectRun(f.id, r.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelectRun(f.id, r.id);
+              }
+            }}
           >
-            <span className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white">
-              {runUnread}
+            {/* 状態の絵はグラフ上部のラン選択セレクタと共有（RunStatusIcon） */}
+            <RunStatusIcon status={r.status} />
+            <span className="min-w-0 flex-1 truncate" title={r.title}>
+              {r.title}
             </span>
-          </Hint>
-        )}
-      </div>
+            <span className="flex max-w-[45%] flex-shrink-0 flex-wrap items-center justify-end gap-[3px]">
+              {shown.map(dotEl)}
+              {rest > 0 && <span className="font-mono text-[10px] text-text-lo">+{rest}</span>}
+            </span>
+            {/* そのランの未読数（2026-08-08 本人要望「欄にもバッジを出して」）。
+                ページ行のバッジは「このページのどこか」、こちらは「どのランか」を示す */}
+            {runUnread > 0 && (
+              <Hint
+                id="unread"
+                always={`このランで未読のノード ${runUnread} 件`}
+                text={HINT_TEXT.unread}
+              >
+                <span className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white">
+                  {runUnread}
+                </span>
+              </Hint>
+            )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => onSelectRun(f.id, r.id)}>
+            <ExternalLink className="size-3.5" /> 開く
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => void renameRun(r)}>
+            <Pencil className="size-3.5" /> 名前を変更
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!hasUnread(runKeys, threadMeta, reads)}
+            onSelect={() => markRead(runKeys)}
+          >
+            <CheckCheck className="size-3.5" /> 既読にする
+          </ContextMenuItem>
+          {/* 打ち切りは実行中のランにだけ意味がある（済んだランには出さない） */}
+          {r.status === "running" && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem variant="destructive" onSelect={() => void cancelRun(r)}>
+                <Ban className="size-3.5" /> キャンセル
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
     );
   };
 
@@ -635,7 +804,7 @@ export function PageList({
    *  （RUN_ROWS_VISIBLE 行を超えたら子リスト内スクロール。本人指定 2026-08-08）。
    *  開閉はフォルダ行と同じ絵（chevron + フォルダ。ただし小さめ）で、行の**前**に置く
    *  （2026-08-08 本人指定。旧: 行末の「+n」ボタンで開いていた） */
-  const runsBlock = (f: Node) => {
+  const runsBlock = (f: Node, pageKeys: string[]) => {
     const runsAll = pageRuns[f.id] ?? [];
     if (runsAll.length === 0) return null;
     const open = openRunPages.has(f.id);
@@ -670,7 +839,7 @@ export function PageList({
             open && runsAll.length > RUN_ROWS_VISIBLE && "max-h-[250px] overflow-y-auto",
           )}
         >
-          {rows.map((r) => renderRunRow(f, r))}
+          {rows.map((r) => renderRunRow(f, r, pageKeys))}
         </div>
       </div>
     );
@@ -709,13 +878,30 @@ export function PageList({
     // 手動だけだと配下に担当者が居てもバッジが出ず「誰のページか」が見えない）
     const effMembers = teamEnabled ? effectiveMembers(f, allNodes) : [];
 
+    // ---- 右クリックメニューの材料（2026-08-09） ----
+    // 発火先のトリガー（台帳と同じ created 昇順）。ルーティーン = トリガーを持つページ
+    const triggers = routine
+      ? allNodes
+          .filter((n) => n.group === f.id && n.kind === "trigger")
+          .sort((a, b) => a.created.localeCompare(b.created))
+      : [];
+    // 「既読にする」の対象キー（このページの全ノード × テンプレート + 全ラン）。
+    // ラン子行のメニューはここからそのランのぶんだけ絞る（runsBlock へ渡す）
+    const pageKeys = readKeysForPage(f.id, allNodes, threadMeta);
+    const shelves = shelvesIn(routine ? "routine" : "project");
+    const currentFolder = folderOf(f);
+
     return (
       // 行 + ラン子行をひとつの縦組みで返す（子行は行の外＝兄弟。行の hover やドラッグの
       // 当たり判定に巻き込まないため）。インデントは外側のラッパが持つ
       <div key={f.id} className={cn("flex flex-col gap-px", indented && "ml-3 w-[calc(100%-0.75rem)]")}>
       {/* 行自体は button でなく div[role=button]（行の中に本物の <button> を置いても
           入れ子にならないように。2026-08-04）。Enter/Space の選択も維持する。
-          行全体が掴める（rowDragHandlers。2026-08-08 取っ手アイコン廃止） */}
+          行全体が掴める（rowDragHandlers。2026-08-08 取っ手アイコン廃止）。
+          右クリックのメニューは asChild で**この行そのもの**をトリガーにする（2026-08-09）
+          ——ラッパ要素を挟むと data-rail-* の当たり判定（ドラッグの落とし先解決）が変わる */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
       <div
         role="button"
         tabIndex={0}
@@ -723,7 +909,7 @@ export function PageList({
         data-rail-kind="page"
         data-rail-section={routine ? "routine" : "project"}
         className={cn(
-          "flex w-full cursor-pointer flex-col items-stretch gap-0.5 rounded-sm px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/60",
+          "group flex w-full cursor-pointer flex-col items-stretch gap-0.5 rounded-sm px-2 py-1.5 text-left text-muted-foreground hover:bg-accent/60",
           pageId === f.id && "bg-accent text-foreground",
           archived && "opacity-70",
           drag?.id === f.id && "opacity-40",
@@ -794,7 +980,37 @@ export function PageList({
           {/* ページ詳細への⚙は廃止（2026-08-06 本人指示「要らない」）。行のクリック自体が
               ページ選択と同時にページ自身のノードを選ぶ（App の onSelectPage）ので、
               タイトル編集・関係者・削除へはそのまま NodePanel が開く。グラフ左上のページ名
-              ボタンも同じ入口として残っている */}
+              ボタンも同じ入口として残っている。
+              名前の変更と削除だけは hover で出す（2026-08-09 本人指示）——右クリックの
+              メニューにも同じ2つが載っているが、そちらは見えない導線なので手掛かりを残す */}
+          <Hint id="page-rename" always="ページ名を変更">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn("size-5 flex-shrink-0 text-text-lo hover:text-foreground", ROW_ACTION)}
+              onClick={(e) => {
+                e.stopPropagation();
+                void renamePage(f);
+              }}
+            >
+              <Pencil className="size-3" />
+            </Button>
+          </Hint>
+          <Hint id="page-remove" always="ページを削除" text="中のノードも一緒に消える">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn("size-5 flex-shrink-0 text-text-lo hover:text-destructive", ROW_ACTION)}
+              onClick={(e) => {
+                e.stopPropagation();
+                void removePage(f);
+              }}
+            >
+              <Trash2 className="size-3" />
+            </Button>
+          </Hint>
         </span>
         {dots.length > 0 && (
           <span className="flex flex-wrap items-center gap-[3px] pl-5">
@@ -803,7 +1019,85 @@ export function PageList({
           </span>
         )}
       </div>
-      {runsBlock(f)}
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => void renamePage(f)}>
+            <Pencil className="size-3.5" /> 名前を変更
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!hasUnread(pageKeys, threadMeta, reads)}
+            onSelect={() => markRead(pageKeys)}
+          >
+            <CheckCheck className="size-3.5" /> 既読にする
+          </ContextMenuItem>
+          {/* 発火はルーティーン（トリガーを持つページ）だけ。トリガーが複数あるページでは
+              どれを発火するか選ばせる（カードの▶と同じフォームが出る） */}
+          {triggers.length === 1 && (
+            <ContextMenuItem onSelect={() => void firePage(f, triggers[0])}>
+              <Play className="size-3.5" /> 発火
+            </ContextMenuItem>
+          )}
+          {triggers.length > 1 && (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <Play className="size-3.5" /> 発火
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                {triggers.map((t) => (
+                  <ContextMenuItem key={t.id} onSelect={() => void firePage(f, t)}>
+                    {t.title || "（無題）"}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          )}
+          {/* フォルダ（棚）への出し入れ。今はドラッグだけの操作で、マウスでは取っ手が
+              隠れていて見つけにくい。棚が1つも無いアーカイブ行では出さない */}
+          {!archived && (shelves.length > 0 || currentFolder !== null) && (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <FolderInput className="size-3.5" /> フォルダへ移動
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                {shelves.map((s) => (
+                  <ContextMenuItem
+                    key={s.id}
+                    disabled={currentFolder === s.id}
+                    onSelect={() => void moveToFolder(f, s.id)}
+                  >
+                    <Folder className="size-3.5" /> {s.title || "（無題）"}
+                  </ContextMenuItem>
+                ))}
+                {currentFolder !== null && (
+                  <>
+                    {shelves.length > 0 && <ContextMenuSeparator />}
+                    <ContextMenuItem onSelect={() => void moveToFolder(f, null)}>
+                      フォルダから出す
+                    </ContextMenuItem>
+                  </>
+                )}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          )}
+          {/* アーカイブは status からの導出（done|dropped = アーカイブ節）。ルーティーンは
+              常にアクティブ扱いでアーカイブ節に来ないので出さない */}
+          {!routine &&
+            (archived ? (
+              <ContextMenuItem onSelect={() => void setPageArchived(f, false)}>
+                <ArchiveRestore className="size-3.5" /> 元に戻す
+              </ContextMenuItem>
+            ) : (
+              <ContextMenuItem onSelect={() => void setPageArchived(f, true)}>
+                <Archive className="size-3.5" /> アーカイブする
+              </ContextMenuItem>
+            ))}
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" onSelect={() => void removePage(f)}>
+            <Trash2 className="size-3.5" /> 削除
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      {runsBlock(f, pageKeys)}
       </div>
     );
   };
@@ -814,6 +1108,9 @@ export function PageList({
     const section = shelfSection(f);
     return (
       <div key={f.id} className="flex flex-col gap-px">
+        {/* 右クリックは行の✎🗑と同じ操作を出すだけ（ボタンは残す。2026-08-09） */}
+        <ContextMenu>
+        <ContextMenuTrigger asChild>
         <div
           role="button"
           tabIndex={0}
@@ -821,7 +1118,7 @@ export function PageList({
           data-rail-kind="folder"
           data-rail-section={section}
           className={cn(
-            "flex w-full cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 text-left text-muted-foreground hover:bg-accent/60",
+            "group flex w-full cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 text-left text-muted-foreground hover:bg-accent/60",
             drag?.id === f.id && "opacity-40",
             dropClass(f.id),
           )}
@@ -843,7 +1140,6 @@ export function PageList({
           ) : (
             <ChevronRight className="size-3.5 flex-shrink-0" />
           )}
-          <Folder className="size-3.5 flex-shrink-0" />
           <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
           {!open && children.length > 0 && (
             <span className="flex-shrink-0 text-[10px] text-text-lo">{children.length}</span>
@@ -853,7 +1149,7 @@ export function PageList({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
+              className={cn("size-5 flex-shrink-0 text-text-lo hover:text-foreground", ROW_ACTION)}
               onClick={(e) => {
                 e.stopPropagation();
                 void renameFolder(f);
@@ -867,7 +1163,7 @@ export function PageList({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-5 flex-shrink-0 text-text-lo hover:text-destructive"
+              className={cn("size-5 flex-shrink-0 text-text-lo hover:text-destructive", ROW_ACTION)}
               onClick={(e) => {
                 e.stopPropagation();
                 void removeFolder(f);
@@ -877,6 +1173,16 @@ export function PageList({
             </Button>
           </Hint>
         </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => void renameFolder(f)}>
+            <Pencil className="size-3.5" /> 名前を変更
+          </ContextMenuItem>
+          <ContextMenuItem variant="destructive" onSelect={() => void removeFolder(f)}>
+            <Trash2 className="size-3.5" /> 削除
+          </ContextMenuItem>
+        </ContextMenuContent>
+        </ContextMenu>
         {open && children.map((c) => renderRow(c, false, true))}
       </div>
     );

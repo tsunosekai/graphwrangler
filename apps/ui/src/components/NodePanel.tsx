@@ -19,7 +19,7 @@ import {
 import { effortLabel, modelLabel, useAiDefaults } from "../lib/aiDefaults";
 import { api, postReads, type NodePatchInput } from "../lib/api";
 import { confirmDialog, formDialog, promptDialog } from "../lib/dialogs";
-import { HINT_TEXT } from "../lib/hints";
+import { HINT_TEXT, TRIAL_CONFIRM_MESSAGE } from "../lib/hints";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { isRoutinePage } from "../lib/routine";
@@ -105,7 +105,6 @@ type ImplTypeOption = "none" | "doc" | "script";
 /** 試走状態の4値（試走ゲート。docs/design.md 3.5.1）。hash は server の sha256Hex と
  *  同じ値を Web Crypto で計算して突き合わせる */
 type ImplStatusUi = "ok" | "stale" | "unverified" | "not-script";
-const TRIAL_CONFIRM_MESSAGE = "スクリプトのテスト実行が成功していません。このまま続けますか？";
 // 進捗ラベルのヒント（プロジェクトの進捗とラン投影の進捗、2箇所で同じ id="status" を使う）
 const STATUS_HINT =
   "未計画=やり方が決まっていない（エンジンは実行しない）。計画済みにすると待ちになり、前のノードが終わると着手できる。スキップ=分岐で選ばれなかった枝";

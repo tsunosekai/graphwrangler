@@ -11,8 +11,20 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { Pencil } from "lucide-react";
 import { api } from "../lib/api";
-import { confirmDialog, promptDialog } from "../lib/dialogs";
+import {
+  collectDescendants,
+  copyText,
+  deletionOrder,
+  hasUnread,
+  markKeysRead,
+  nodeUrl,
+  readKeysForNode,
+  renameRunDialog,
+} from "../lib/actions";
+import { confirmDialog } from "../lib/dialogs";
+import { TRIAL_CONFIRM_MESSAGE } from "../lib/hints";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { subscribeOpenShortcuts } from "../lib/palette";
 import { pushToast } from "../lib/toast";
@@ -31,8 +43,15 @@ import { CutEdge, type CutEdgeData } from "./CutEdge";
 import { RefEdge, type RefEdgeData } from "./RefEdge";
 import { Hint } from "./Hint";
 import { LedgerView } from "./LedgerView";
-import { NodeCard, type NodeCardData } from "./NodeCard";
+import { NodeCard, type NodeCardData, type NodeMenuActions } from "./NodeCard";
 import { ShortcutsDialog } from "./ShortcutsDialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
 
 const nodeTypes = { task: NodeCard };
 const edgeTypes = { cut: CutEdge, ref: RefEdge };
@@ -71,6 +90,8 @@ interface ClipboardNode {
 }
 let clipboard: ClipboardNode[] = [];
 
+// 担当を script へ変えるときの試走ゲート確認（NodePanel:108 の同名メッセージと同じ文面。
+// パネルとメニューで別々の言い回しにしないための複製で、値の正本はパネル側）
 /** 入力欄・ダイアログ・ChatDrawer にフォーカスがある間はショートカットを無効にする */
 function isShortcutBlocked(e: KeyboardEvent): boolean {
   const target = e.target as HTMLElement | null;
@@ -100,6 +121,10 @@ interface Props {
   threadMeta: Record<string, string>;
   /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
   reads: Record<string, string>;
+  /** 既読の即時反映（App の readOverrides。NodePanel / PageList の onViewed と同じもの）。
+   *  右クリックメニューの「既読にする」は postReads を投げっぱなしにするので、これが
+   *  無いとバッジが消えるのが次のポーリングまで遅れる。台帳（LedgerView）へも渡す */
+  onViewed: (key: string, lastTs: string | null) => void;
   /** グラフに投影中のラン（docs/design.md 3.8）。ルーティーンページでない/実行中のランが
    *  無い間は null（App が算出して渡す）。ある間だけテンプレートのカードにその進捗を投影する */
   activeRun: Run | null;
@@ -124,6 +149,9 @@ interface Props {
   onMutated: () => void;
   /** 選択中ノードの id 一覧（複数選択）。App が一括編集パネル（BulkPanel）の表示に使う */
   onSelectionIdsChange?: (ids: string[]) => void;
+  /** 右クリックメニュー「ページへ移動 ▸」の候補。表示中ページと同じ節（プロジェクト /
+   *  ルーティーン）の他ページだけを App が算出して渡す——節の判定には全ノードが要るため */
+  movePages?: Node[];
 }
 
 function GraphViewInner({
@@ -132,6 +160,7 @@ function GraphViewInner({
   selectedId,
   threadMeta,
   reads,
+  onViewed,
   activeRun,
   pageRuns = [],
   onProjectRun,
@@ -141,6 +170,7 @@ function GraphViewInner({
   onNodeTap,
   onMutated,
   onSelectionIdsChange,
+  movePages = [],
 }: Props) {
   const positionsRef = useRef<Map<string, Pos>>(new Map());
   // 紐を空中に放して作ったノードの「落とした位置」。次のレイアウト再計算時に適用して消す
@@ -158,6 +188,9 @@ function GraphViewInner({
   // 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // クリップボード（モジュール変数）の中身の有無。ペインのメニューに「貼り付け」を
+  // 出すかの判定に使う——モジュール変数のままでは Ctrl+C しても再レンダーが起きない
+  const [hasClipboard, setHasClipboard] = useState(clipboard.length > 0);
   const { fitView, screenToFlowPosition, getNodes, getViewport, setViewport } = useReactFlow();
   const isMobile = useIsMobile();
 
@@ -735,6 +768,20 @@ function GraphViewInner({
     [nodes, pageNode, onMutated, onSelect, screenToFlowPosition],
   );
 
+  // 画面座標（clientX/Y）の位置にノードを作って即リネーム。ペインのダブルクリック・
+  // 右クリックメニューの「ここにノードを作る」・Tab（画面中央）の共通経路
+  const createNodeAtScreen = useCallback(
+    async (clientX: number, clientY: number) => {
+      const pos = screenToFlowPosition({ x: clientX, y: clientY });
+      const created = await api.addNode({ title: "", group: pageNode?.id ?? null });
+      overridesRef.current.set(created.id, { x: pos.x - 110, y: pos.y - 16 });
+      onMutated();
+      onSelect(created.id);
+      setEditingId(created.id);
+    },
+    [pageNode, onMutated, onSelect, screenToFlowPosition],
+  );
+
   // ペイン空白部のダブルクリックでその位置にノードを作成+リネームモードへ
   // （React Flow の onPaneClick とは別に、ラッパー div へ渡る素の onDoubleClick を使う。
   //  ノード/エッジ/コントロール上のダブルクリックはここでは無視する）
@@ -744,16 +791,9 @@ function GraphViewInner({
       if (target.closest(".react-flow__node, .react-flow__edge, .react-flow__controls, .react-flow__panel")) {
         return;
       }
-      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      void (async () => {
-        const created = await api.addNode({ title: "", group: pageNode?.id ?? null });
-        overridesRef.current.set(created.id, { x: pos.x - 110, y: pos.y - 16 });
-        onMutated();
-        onSelect(created.id);
-        setEditingId(created.id);
-      })();
+      void createNodeAtScreen(e.clientX, e.clientY);
     },
-    [pageNode, onMutated, onSelect, screenToFlowPosition],
+    [createNodeAtScreen],
   );
 
   // 自動整列: 手動ドラッグ位置を破棄して dagre レイアウトへ戻す。
@@ -880,6 +920,7 @@ function GraphViewInner({
       });
     }
     clipboard = entries;
+    setHasClipboard(entries.length > 0);
     pushToast(`${entries.length}件コピーしました`, "info");
   }, [nodes, getSelectedNodeIds]);
 
@@ -980,13 +1021,8 @@ function GraphViewInner({
     const rect = paneRef.current?.getBoundingClientRect();
     const cx = rect ? rect.left + rect.width / 2 : 0;
     const cy = rect ? rect.top + rect.height / 2 : 0;
-    const pos = screenToFlowPosition({ x: cx, y: cy });
-    const created = await api.addNode({ title: "", group: pageNode?.id ?? null });
-    overridesRef.current.set(created.id, { x: pos.x - 110, y: pos.y - 16 });
-    onMutated();
-    onSelect(created.id);
-    setEditingId(created.id);
-  }, [pageNode, onMutated, onSelect, screenToFlowPosition]);
+    await createNodeAtScreen(cx, cy);
+  }, [createNodeAtScreen]);
 
   // ---- ノードエディタ標準のキーボードショートカット（Houdini/Blender/ComfyUI 準拠）。
   //      window で一元管理し、入力欄フォーカス中・ダイアログ/ChatDrawer 内では全て無効にする ----
@@ -1099,6 +1135,213 @@ function GraphViewInner({
     createNodeAtCenter,
     selectedInPage,
   ]);
+
+  // ---- 右クリックメニュー（第0層＝既存操作への近道。docs/design.md 4章の視距離3層に
+  //      新しい階を増やさない）。ここに新しい判断は置かず、上のショートカット処理・
+  //      カードのボタン・パネルと同じ関数を呼ぶだけにする ----
+
+  // 粗いポインタ（タッチ主体）の環境では出さない: このペインのパン/ピンチは自前の touch
+  // ハンドラが持っていて（上の isMobile の useEffect）、Radix の長押しメニューと重なると
+  // 「パンしたつもりでメニューが出る」が起きやすい。右クリックのある環境だけの機能にする。
+  // 幅ではなくポインタ種別で判定する——幅の狭いデスクトップ窓ではメニューを使えるように
+  const contextMenuEnabled = useMemo(
+    () => !window.matchMedia?.("(pointer: coarse)").matches,
+    [],
+  );
+
+  // 右クリックした画面座標（ペインの「ここにノードを作る」の作成位置）。Radix は
+  // 右クリック位置を渡してくれないので、トリガーの onContextMenu で控えておく
+  const paneMenuPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  /** 右クリックしたノードが未選択なら単独選択に切り替える。選択に含まれていればそのまま
+   *  ——選択内での右クリックが選択を壊さないのはノードエディタ共通の流儀で、これにより
+   *  「複製」「削除」が既存の選択ベースのハンドラをそのまま呼べる */
+  const focusNodeForMenu = useCallback(
+    (id: string) => {
+      if (!getSelectedNodeIds().includes(id)) applySelection([id]);
+    },
+    [getSelectedNodeIds, applySelection],
+  );
+
+  // 「ここから下を全部 ▸」を出すかの判定はカードの描画ごとに要るので、ページのノードが
+  // 変わったときにまとめて数えておく
+  const descendantCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of nodes) m.set(n.id, collectDescendants(nodes, n.id).size);
+    return m;
+  }, [nodes]);
+
+  // 既読にする（テンプレート + そのノードの全ランぶん）。postReads は投げっぱなしなので、
+  // onViewed（App のローカル上書き）でその場のバッジを消す——左レール・台帳と同じ経路
+  const markNodeRead = useCallback(
+    (id: string) => {
+      markKeysRead(readKeysForNode(id, threadMeta), threadMeta, onViewed);
+    },
+    [threadMeta, onViewed],
+  );
+
+  const copyWithToast = useCallback(async (text: string, label: string) => {
+    const ok = await copyText(text);
+    pushToast(ok ? `${label}をコピーしました` : `${label}をコピーできませんでした`, ok ? "info" : "error");
+  }, []);
+
+  // 担当変更（NodePanel の担当 Select と同じ patch）。script 化のときだけ試走ゲートの確認を
+  // 通す（NodePanel:685-693 の confirmPromotionIfNeeded と同じ趣旨）。実装ハッシュの
+  // 突き合わせ（パネルの implStatus）まではしないので、試走が成功済みでなければ確認する
+  // ＝パネルより安全側に倒れるだけで、素通しにはならない
+  const setNodeExecutor = useCallback(
+    async (id: string, executor: Node["executor"]) => {
+      const n = nodes.find((x) => x.id === id);
+      if (!n || n.executor === executor) return;
+      if (executor === "script") {
+        const verified = n.impl?.type === "script" && n.implTrial?.success === true;
+        if (!verified && !(await confirmDialog(TRIAL_CONFIRM_MESSAGE, { confirmLabel: "続ける" }))) return;
+      }
+      await api.patchNode(id, { executor });
+      onMutated();
+    },
+    [nodes, onMutated],
+  );
+
+  // 別ページへ移動（BulkPanel の「ページへ移動」と同じ group の patch）
+  const moveNodeToPage = useCallback(
+    async (id: string, target: string) => {
+      await api.patchNode(id, { group: target });
+      onMutated();
+      pushToast("ページへ移動しました（Ctrl+Zで戻せます）", "info");
+    },
+    [onMutated],
+  );
+
+  // 「ここから下を全部 → 計画済みにする」: 子孫のうち下書き（lifecycle=draft）だけを確定する。
+  // patch の中身はカードの「計画済みにする」・BulkPanel の commitAll と同じ
+  const commitDescendants = useCallback(
+    async (id: string) => {
+      const ids = collectDescendants(nodes, id);
+      const targets = nodes.filter((n) => ids.has(n.id) && n.lifecycle === "draft");
+      if (targets.length === 0) {
+        pushToast("下書きのノードはありません", "info");
+        return;
+      }
+      let ok = 0;
+      for (const n of targets) {
+        try {
+          // トリガーは進捗を持たない（lifecycle だけ確定する）
+          await api.patchNode(
+            n.id,
+            n.kind === "trigger" ? { lifecycle: "committed" } : { status: "pending", lifecycle: "committed" },
+          );
+          ok++;
+        } catch {
+          // api() 側でトースト表示済み（残りに適用を続ける）
+        }
+      }
+      onMutated();
+      pushToast(`${ok}件を計画済みにしました`, "info");
+    },
+    [nodes, onMutated],
+  );
+
+  // 「ここから下を全部 → 削除」: 子孫 + 自分を葉から順に消す。確認モーダルは通常の削除と
+  // 同じ組み立て（巻き添え・ロック・切り離しの警告 + Ctrl+Z の案内）に件数を足したもの
+  const removeSubtree = useCallback(
+    async (id: string) => {
+      const set = collectDescendants(nodes, id);
+      set.add(id);
+      const ids = deletionOrder(nodes, set);
+      let warnings: string[] = [];
+      try {
+        const state = await api.getState();
+        warnings = removeImpactWarnings(computeRemoveImpact(ids, state.nodes));
+      } catch {
+        // 状態の取り直しに失敗しても削除自体は進める（api() 側でトースト表示済み）
+      }
+      const ok = await confirmDialog(
+        buildRemoveMessage(
+          `このノードと下の ${ids.length - 1} 件、合わせて ${ids.length} 件を削除しますか？（Ctrl+Z で戻せます）`,
+          warnings,
+        ),
+        { danger: true, confirmLabel: "削除" },
+      );
+      if (!ok) return;
+      const deleted = await removeLeafFirst(ids);
+      applySelection([]);
+      onMutated();
+      if (deleted.length > 0) pushToast(`${deleted.length}件削除しました（Ctrl+Zで戻せます）`, "info");
+    },
+    [nodes, removeLeafFirst, applySelection, onMutated],
+  );
+
+  // 試走（NodePanel の試走ボタンと同じ api・同じ文面）
+  const runTrial = useCallback(
+    async (id: string) => {
+      try {
+        const result = await api.trialNode(id);
+        onMutated();
+        pushToast(
+          result.success ? "テスト成功" : `テスト失敗（exit ${result.exitCode ?? "?"}）`,
+          result.success ? "info" : "error",
+        );
+      } catch {
+        // api() 側でトースト表示済み
+      }
+    },
+    [onMutated],
+  );
+
+  const nodeMenu = useMemo<NodeMenuActions | undefined>(() => {
+    if (!contextMenuEnabled) return undefined;
+    return {
+      onOpen: focusNodeForMenu,
+      rename: (id) => setEditingId(id),
+      addChild: (id) => void createNode(id),
+      duplicate: () => void duplicateSelection(),
+      remove: () => void deleteSelectedNodes(),
+      hasUnread: (id) => hasUnread(readKeysForNode(id, threadMeta), threadMeta, reads),
+      markRead: markNodeRead,
+      copyLink: (id) =>
+        void copyWithToast(
+          nodeUrl({ pageId: pageNode?.id ?? null, nodeId: id, runId: runView?.id ?? null }),
+          "リンク",
+        ),
+      copyId: (id) => void copyWithToast(id, "ID"),
+      setExecutor: (id, executor) => void setNodeExecutor(id, executor),
+      // ランのページではテンプレートを書き換えないので移動先も出さない
+      movePages: runView ? [] : movePages.map((p) => ({ id: p.id, title: p.title || "（無題）" })),
+      moveToPage: (id, target) => void moveNodeToPage(id, target),
+      descendantCount: (id) => descendantCounts.get(id) ?? 0,
+      commitDescendants: (id) => void commitDescendants(id),
+      removeSubtree: (id) => void removeSubtree(id),
+      trial: (id) => void runTrial(id),
+    };
+  }, [
+    contextMenuEnabled,
+    focusNodeForMenu,
+    createNode,
+    duplicateSelection,
+    deleteSelectedNodes,
+    threadMeta,
+    reads,
+    markNodeRead,
+    copyWithToast,
+    pageNode,
+    runView,
+    setNodeExecutor,
+    movePages,
+    moveNodeToPage,
+    descendantCounts,
+    commitDescendants,
+    removeSubtree,
+    runTrial,
+  ]);
+
+  // メニューの呼び先はカードへ渡す data に載せる。rfNodes を組み立てる effect は
+  // この上（既存ハンドラ群の定義より前）にあるので、そこでは載せずにここで足す
+  const rfNodesForFlow = useMemo<RFNode<NodeCardData>[]>(
+    () =>
+      nodeMenu ? rfNodes.map((n) => ({ ...n, data: { ...n.data, menu: nodeMenu } })) : rfNodes,
+    [rfNodes, nodeMenu],
+  );
 
   // ---- Fix率チップ: Fix済み（やり方確定=ロック）ノード / 全メンバー。
   //      100% = このページの Fix 完了（スクリプト化率ではない。2026-07-31 本人定義） ----
@@ -1229,19 +1472,13 @@ function GraphViewInner({
             className="size-8 text-muted-foreground"
             onClick={() => {
               void (async () => {
-                const title = await promptDialog("ランの名前", {
-                  defaultValue: activeRun.title,
-                  confirmLabel: "変更",
-                });
-                if (title === null) return;
-                const trimmed = title.trim();
-                if (!trimmed || trimmed === activeRun.title) return;
-                await api.renameRun(activeRun.id, trimmed);
-                onMutated();
+                // ダイアログ・no-op 判定は台帳の✎・左レールのラン子行と共通（lib/actions.ts）
+                if (await renameRunDialog(activeRun)) onMutated();
               })();
             }}
           >
-            ✎
+            {/* アイコンは左レールのフォルダ・ページの「名前を変更」と同じ（2026-08-09 本人指示） */}
+            <Pencil className="size-3.5" />
           </Button>
           </Hint>
         )}
@@ -1287,64 +1524,107 @@ function GraphViewInner({
           <LedgerView
             page={pageNode}
             members={nodes}
+            threadMeta={threadMeta}
+            reads={reads}
+            onViewed={onViewed}
             onMutated={onMutated}
             onRunStarted={(runId) => onProjectRun?.(runId)}
           />
         </div>
       ) : (
-        <ReactFlow
-          nodes={rfNodes}
-          edges={rfEdges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={handleNodesChange}
-          // ランのページは「その回の記録」なので、つなぎ替え・ノード生成はさせない（2026-08-08）
-          onConnect={runView ? undefined : handleConnect}
-          onConnectEnd={runView ? undefined : handleConnectEnd}
-          nodesConnectable={!runView}
-          onNodeClick={(_, n) => {
-            lastClickedRef.current = n.id;
-            onSelect(n.id);
-            onNodeTap?.(n.id); // 実タップだけ（モバイルのビュー遷移用。selection-change とは区別）
-          }}
-          // 参照矢印（type="ref"）は選択・切断の対象外（自動導出の表示物。docs/design.md 3.15）
-          onEdgeClick={(_, edge) => {
-            if (edge.type === "cut") setSelectedEdgeId(edge.id);
-          }}
-          onSelectionChange={handleSelectionChange}
-          onPaneClick={() => {
-            onSelect(null);
-            onSelectionIdsChange?.([]);
-            setSelectedEdgeId(null);
-          }}
-          onDoubleClick={runView ? undefined : handlePaneDoubleClick}
-          zoomOnDoubleClick={false}
-          nodeDragThreshold={4}
-          // ノードのラッパーdivにフォーカスを取らせない（2026-08-07 本人報告「タイトル編集中に
-          // フォーカスが外れる」の修正）。React Flow 既定ではクリックでラッパーがフォーカスを
-          // 取り、タイトル編集の input の autoFocus に勝ってしまう。その状態で打鍵すると
-          // 文字がショートカット扱いされ（f=フィット/l=整列/Backspace=ノード削除）、
-          // 「編集できない+グラフが勝手に動く」の二重の不具合になっていた。
-          // キーボード操作は上の window keydown が一元管理しているので RF の a11y フォーカスは不要
-          nodesFocusable={false}
-          onPaneContextMenu={(e) => {
-            e.preventDefault();
-            if (!runView) createNode(null);
-          }}
-          proOptions={{ hideAttribution: true }}
-          // 複数選択: クリック/Shift+クリック/Ctrl+クリックで追加選択、Shift+ドラッグで矩形選択。
-          // パン(素のドラッグ)は既定のまま邪魔しない
-          minZoom={MIN_ZOOM}
-          maxZoom={MAX_ZOOM}
-          // モバイルは panOnDrag=false（パンもピンチも上の自前タッチ処理が持つ）
-          panOnDrag={!isMobile}
-          selectionKeyCode="Shift"
-          multiSelectionKeyCode={["Shift", "Control", "Meta"]}
-          fitView
-          fitViewOptions={FIT_VIEW_OPTIONS}
-        >
-          <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
-        </ReactFlow>
+        // 空白の右クリックもメニューにする（2026-08-09 本人採用の案B。旧: onPaneContextMenu が
+        // その場で無位置のノードを作っていた）。ノード上の右クリックは NodeCard 側の
+        // ContextMenuTrigger が stopPropagation するので、ここまでは上がってこない
+        <ContextMenu>
+          <ContextMenuTrigger
+            asChild
+            disabled={!contextMenuEnabled}
+            onContextMenu={(e) => {
+              paneMenuPointRef.current = { x: e.clientX, y: e.clientY };
+            }}
+          >
+            <div className="h-full w-full">
+              <ReactFlow
+                nodes={rfNodesForFlow}
+                edges={rfEdges}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                onNodesChange={handleNodesChange}
+                // ランのページは「その回の記録」なので、つなぎ替え・ノード生成はさせない（2026-08-08）
+                onConnect={runView ? undefined : handleConnect}
+                onConnectEnd={runView ? undefined : handleConnectEnd}
+                nodesConnectable={!runView}
+                onNodeClick={(_, n) => {
+                  lastClickedRef.current = n.id;
+                  onSelect(n.id);
+                  onNodeTap?.(n.id); // 実タップだけ（モバイルのビュー遷移用。selection-change とは区別）
+                }}
+                // 参照矢印（type="ref"）は選択・切断の対象外（自動導出の表示物。docs/design.md 3.15）
+                onEdgeClick={(_, edge) => {
+                  if (edge.type === "cut") setSelectedEdgeId(edge.id);
+                }}
+                onSelectionChange={handleSelectionChange}
+                onPaneClick={() => {
+                  onSelect(null);
+                  onSelectionIdsChange?.([]);
+                  setSelectedEdgeId(null);
+                }}
+                onDoubleClick={runView ? undefined : handlePaneDoubleClick}
+                zoomOnDoubleClick={false}
+                nodeDragThreshold={4}
+                // ノードのラッパーdivにフォーカスを取らせない（2026-08-07 本人報告「タイトル編集中に
+                // フォーカスが外れる」の修正）。React Flow 既定ではクリックでラッパーがフォーカスを
+                // 取り、タイトル編集の input の autoFocus に勝ってしまう。その状態で打鍵すると
+                // 文字がショートカット扱いされ（f=フィット/l=整列/Backspace=ノード削除）、
+                // 「編集できない+グラフが勝手に動く」の二重の不具合になっていた。
+                // キーボード操作は上の window keydown が一元管理しているので RF の a11y フォーカスは不要
+                nodesFocusable={false}
+                proOptions={{ hideAttribution: true }}
+                // 複数選択: クリック/Shift+クリック/Ctrl+クリックで追加選択、Shift+ドラッグで矩形選択。
+                // パン(素のドラッグ)は既定のまま邪魔しない
+                minZoom={MIN_ZOOM}
+                maxZoom={MAX_ZOOM}
+                // モバイルは panOnDrag=false（パンもピンチも上の自前タッチ処理が持つ）
+                panOnDrag={!isMobile}
+                selectionKeyCode="Shift"
+                multiSelectionKeyCode={["Shift", "Control", "Meta"]}
+                fitView
+                fitViewOptions={FIT_VIEW_OPTIONS}
+              >
+                <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
+              </ReactFlow>
+            </div>
+          </ContextMenuTrigger>
+          {/* 閉じたあとトリガー（キャンバス）へフォーカスを戻さない。「ここにノードを作る」で
+              開いたタイトル入力からフォーカスを奪い返す事故を防ぐ（NodeCard 側と同じ理由） */}
+          <ContextMenuContent className="w-52" onCloseAutoFocus={(e) => e.preventDefault()}>
+            {/* ランのページはテンプレートの編集不可（2026-08-08 のフォーク）なので作成系を出さない */}
+            {!runView && (
+              <ContextMenuItem
+                onSelect={() => {
+                  const p = paneMenuPointRef.current;
+                  if (p) void createNodeAtScreen(p.x, p.y);
+                }}
+              >
+                ここにノードを作る
+              </ContextMenuItem>
+            )}
+            {!runView && hasClipboard && (
+              <ContextMenuItem onSelect={() => void pasteClipboard()}>
+                貼り付け
+                <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onSelect={() => applySelection(nodes.map((n) => n.id))}>
+              全選択
+              <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={realign}>
+              整列
+              <ContextMenuShortcut>L</ContextMenuShortcut>
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       )}
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>

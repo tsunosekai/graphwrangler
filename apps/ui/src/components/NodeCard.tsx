@@ -2,14 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
-import { formDialog } from "../lib/dialogs";
+import { fireTrigger } from "../lib/fire";
 import { colorOf, displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
 import { HINT_TEXT } from "../lib/hints";
-import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
 import type { Node, RunItemStatus } from "../types";
 import { Hint } from "./Hint";
 import { Icon } from "./Icon";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
 
 // 担当アイコン（2026-07-31 本人選定「B. 明快系」: 人型 / ロボット顔 / ターミナル >_）
 const EXEC_ICON: Record<Node["executor"], "user" | "bot" | "terminal"> = {
@@ -40,6 +52,44 @@ const EXEC_TEXT: Record<Node["executor"], string> = {
   script: "text-script",
 };
 const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
+
+/** 右クリックメニュー（第0層＝既存操作への近道。docs/design.md 4章の視距離3層に階を
+ *  増やさない）から呼ぶ操作。実体は GraphView が持つ既存ハンドラ（F2 / Tab / Ctrl+D /
+ *  Delete …）で、カード側は「いまどの項目を出すか」だけを決める。
+ *  ここに新しい概念は置かない——同じことをする項目は必ず既存の関数を呼ぶ */
+export interface NodeMenuActions {
+  /** メニューを開く直前に呼ぶ。右クリックしたノードが未選択なら単独選択へ切り替える
+   *  （以降の項目が「選択中に対する既存操作」をそのまま呼べるようにするため） */
+  onOpen: (id: string) => void;
+  /** F2 と同じ（タイトル編集モードへ入る） */
+  rename: (id: string) => void;
+  /** Tab と同じ（そのノードの後続を作って即リネーム） */
+  addChild: (id: string) => void;
+  /** Ctrl+D と同じ（選択中を複製） */
+  duplicate: () => void;
+  /** Delete と同じ（選択中を削除。確認モーダルの出し方も既存のまま） */
+  remove: () => void;
+  /** そのノードの会話（テンプレート + 全ランぶん）に未読があるか */
+  hasUnread: (id: string) => boolean;
+  /** 上記をまとめて既読にする */
+  markRead: (id: string) => void;
+  copyLink: (id: string) => void;
+  copyId: (id: string) => void;
+  /** 担当の変更（NodePanel の担当 Select と同じ patch + 同じ試走ゲート確認） */
+  setExecutor: (id: string, executor: Node["executor"]) => void;
+  /** 「ページへ移動 ▸」の候補（同じ節の他ページ）。空ならサブメニューごと出さない */
+  movePages: { id: string; title: string }[];
+  /** BulkPanel の「別ページへ移動」と同じ（group を patch） */
+  moveToPage: (id: string, pageId: string) => void;
+  /** 「ここから下を全部 ▸」の対象数（0 なら親項目ごと出さない） */
+  descendantCount: (id: string) => number;
+  /** 子孫のうち下書きを計画済みにする */
+  commitDescendants: (id: string) => void;
+  /** 子孫 + 自分を葉から順に削除する（確認モーダルは件数付き） */
+  removeSubtree: (id: string) => void;
+  /** スクリプトの試走（api.trialNode） */
+  trial: (id: string) => void;
+}
 
 export interface NodeCardData {
   node: Node;
@@ -74,6 +124,9 @@ export interface NodeCardData {
   wiringWarnings?: string[];
   /** 既読ts（サーバ持ちの reads[<id>]）より新しいメッセージがあるか */
   unread?: boolean;
+  /** 右クリックメニューの呼び先。未指定＝メニューを出さない（粗いポインタ環境。
+   *  出す/出さないの判断は GraphView が一箇所で行う） */
+  menu?: NodeMenuActions;
   onSelect: (id: string) => void;
   /** 手動発火でランが生まれたときに呼ばれる（2026-08-08 本人指定「発火したらそのランの
    *  ページへ移る」）。移動そのものは App が行う */
@@ -142,38 +195,17 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
 
   // トリガー手動発火（human executor はこれが唯一の発火経路。script/aiは手動上書きとして使える。
   // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）。
-  // 同じルーティーンは並列で回せる（並行ラン）。ランに名前（作品名など）を
-  // 付けてどのランか区別する。プロンプトのキャンセルで発火自体を中止できる
-  // （▶連打の幽霊ラン防止も兼ねる）
+  // フォーム・確認文・トーストは lib/fire.ts が一箇所で持つ（左レールの「発火」・台帳の
+  // 開始ボタンと同じもの）。ここは▶の多重押し防止と、生まれたランへの移動だけを持つ
   const fire = async () => {
     if (firing) return;
-    const running = data.runningRunCount ?? 0;
-    // トリガーの outputs 宣言から発火フォームの入力欄を生成する（docs/design.md 3.15）。
-    // **必須にしない**——全部空でも発火できる（値は下流のノードが確定させる設計もある。
-    // 「▶が押せないは嫌」）。直近ランの context をプリフィルし、変えたい所だけ直す
-    const res = await formDialog(
-      running > 0
-        ? `実行中のラン ${running} 本に加えて、並行で新しいランを開始します。\nランの名前は？（作品名など）`
-        : "ランの名前は？（作品名など）",
-      {
-        fields: node.outputs ?? [],
-        prefill: data.lastRunContext ?? undefined,
-        titleInput: { placeholder: "空欄なら日時" },
-        confirmLabel: "開始",
-      },
-    );
-    if (res === null) return; // キャンセル = 発火しない
     setFiring(true);
     try {
-      const run = await api.fireTrigger(node.id, {
-        title: res.title.trim() || undefined,
-        // 空欄の欄は formDialog 側で落ちている。1個も無ければキー自体送らない
-        ...(Object.keys(res.values).length > 0 ? { context: res.values } : {}),
+      const run = await fireTrigger(node, {
+        runningRunCount: data.runningRunCount,
+        lastRunContext: data.lastRunContext,
       });
-      pushToast(`開始しました: ${run.title}`, "info");
-      data.onRunStarted?.(run.id); // 生まれたランのページへ移る
-    } catch {
-      // api() 側でトースト表示済み
+      if (run) data.onRunStarted?.(run.id); // 生まれたランのページへ移る
     } finally {
       setFiring(false);
     }
@@ -224,8 +256,49 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         : !isTemplate && data.isFrontier && node.kind === "task" && node.status === "pending"
           ? { label: "完了", patch: { status: "done" } as const }
           : null;
+  // カードのボタンと右クリックメニューで同じ処理を呼ぶための切り出し（挙動の二重管理を避ける）
+  const applyPhaseAction = async () => {
+    if (phaseAction) await api.patchNode(node.id, phaseAction.patch);
+  };
+  const toggleFixed = async () => {
+    await api.patchNode(node.id, { fixed: !node.fixed });
+  };
 
-  return (
+  // ---- 右クリックメニュー（第0層）。該当しない項目は disabled にせず出さない
+  //      （メニューを短く保つ）。「既読にする」だけは押しても無害なので disabled で残す ----
+  const menu = data.menu;
+  // ランのページ（記録）ではテンプレートを書き換える項目を出さない（2026-08-08 のフォーク）
+  const canEditTemplate = !data.inRunPage;
+  // 進捗: カードのボタンと同じ語彙・同じハンドラ。分岐(decision)に実行系（着手/完了/戻す）が
+  // 出ないのは phaseAction / runButtons の条件（kind==="task"）がそのまま担保する
+  // （docs/design.md 3.9「決着経路は分岐を選ぶのみ」。計画系は NodePanel と同じく残す）
+  const progressItems: { label: string; run: () => void }[] = [];
+  if (phaseAction) progressItems.push({ label: phaseAction.label, run: () => void applyPhaseAction() });
+  for (const b of runButtons) progressItems.push({ label: b.label, run: () => void patchRunItemStatus(b.status) });
+  // 「計画済みにする」の逆操作（NodePanel の status-unplan と同じ patch）。カードにボタンは
+  // 無いが、計画の語彙として対が無いと行き止まりになるのでメニューには出す。
+  // ラン投影中/ランのページでは出さない——実行中のランの進捗操作と混ざるため
+  const unplanPatch: Parameters<typeof api.patchNode>[1] | null = data.inRunPage
+    ? null
+    : node.kind === "trigger"
+      ? node.lifecycle === "committed"
+        ? { lifecycle: "draft" }
+        : null
+      : isTemplate
+        ? node.lifecycle === "committed" && node.status !== "unplanned" && !projecting
+          ? { status: "unplanned", lifecycle: "draft" }
+          : null
+        : node.status === "pending"
+          ? { status: "unplanned" }
+          : null;
+  if (unplanPatch) {
+    progressItems.push({ label: "未計画に戻す", run: () => void api.patchNode(node.id, unplanPatch) });
+  }
+  // トリガーの「発火」（カードの▶と同じハンドラ）。ラン表示中は▶と同じく出さない
+  const canFire = node.kind === "trigger" && !projecting && !data.inRunPage;
+  const descendants = menu ? menu.descendantCount(node.id) : 0;
+
+  const card = (
     <div
       className={cn(
         // marker クラス（exec-*/status-*/lifecycle-*）は index.css のパルスアニメーション・
@@ -330,7 +403,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             )}
             onClick={async (e) => {
               e.stopPropagation();
-              await api.patchNode(node.id, { fixed: !node.fixed });
+              await toggleFixed();
             }}
           >
             {node.fixed ? <Lock className="size-3" /> : <Unlock className="size-3" />}
@@ -490,7 +563,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
                 className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
                 onClick={async (e) => {
                   e.stopPropagation();
-                  await api.patchNode(node.id, phaseAction.patch);
+                  await applyPhaseAction();
                 }}
               >
                 {phaseAction.label}
@@ -589,5 +662,131 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         <Handle type="source" position={Position.Bottom} />
       )}
     </div>
+  );
+
+  if (!menu) return card;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        asChild
+        // ノード上の右クリックはペインのメニューまで上げない（両方が同時に開かないように）。
+        // preventDefault はしない——Radix 側の内部ハンドラ（メニューを開く）が走らなくなる
+        onContextMenu={(e) => {
+          e.stopPropagation();
+          menu.onOpen(node.id);
+        }}
+      >
+        {card}
+      </ContextMenuTrigger>
+      <ContextMenuContent
+        className="w-52"
+        // 閉じたあとカードへフォーカスを戻さない。「名前を変更」で開いたタイトル入力から
+        // フォーカスを奪い返す事故を構造的に防ぐ（2026-08-07「タイトル編集中にフォーカスが
+        // 外れる」と同じ経路）。キーボード操作は GraphView の window keydown が一元管理する
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        {progressItems.map((item) => (
+          <ContextMenuItem key={item.label} onSelect={item.run}>
+            {item.label}
+          </ContextMenuItem>
+        ))}
+        {canFire && <ContextMenuItem onSelect={() => void fire()}>発火</ContextMenuItem>}
+        {(progressItems.length > 0 || canFire) && <ContextMenuSeparator />}
+        <ContextMenuItem
+          // 未読が無いときは押しても意味が無いだけなので disabled（非表示にはしない）
+          disabled={!menu.hasUnread(node.id)}
+          onSelect={() => menu.markRead(node.id)}
+        >
+          既読にする
+        </ContextMenuItem>
+        {canEditTemplate && (
+          <>
+            <ContextMenuSeparator />
+            {/* Fix済みは名前も変えられない（F2 と同じガード） */}
+            {!node.fixed && (
+              <ContextMenuItem onSelect={() => menu.rename(node.id)}>
+                名前を変更
+                <ContextMenuShortcut>F2</ContextMenuShortcut>
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onSelect={() => menu.addChild(node.id)}>
+              子ノードを作る
+              <ContextMenuShortcut>Tab</ContextMenuShortcut>
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => menu.duplicate()}>
+              複製
+              <ContextMenuShortcut>Ctrl+D</ContextMenuShortcut>
+            </ContextMenuItem>
+            {/* 「やり方」フィールド（担当・ページ）は Fix済みだとサーバが409で拒否する */}
+            {!node.fixed && <ContextMenuSeparator />}
+            {!node.fixed && (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>担当を変える</ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  <ContextMenuRadioGroup
+                    value={node.executor}
+                    onValueChange={(v) => menu.setExecutor(node.id, v as Node["executor"])}
+                  >
+                    {(["human", "ai", "script"] as const).map((ex) => (
+                      <ContextMenuRadioItem key={ex} value={ex}>
+                        {EXEC_JA[ex]}
+                      </ContextMenuRadioItem>
+                    ))}
+                  </ContextMenuRadioGroup>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            )}
+            {!node.fixed && menu.movePages.length > 0 && (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>ページへ移動</ContextMenuSubTrigger>
+                <ContextMenuSubContent className="max-h-72 overflow-y-auto">
+                  {menu.movePages.map((p) => (
+                    <ContextMenuItem key={p.id} onSelect={() => menu.moveToPage(node.id, p.id)}>
+                      {p.title}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => void toggleFixed()}>
+              {node.fixed ? "Fix を解除" : "Fix する"}
+            </ContextMenuItem>
+          </>
+        )}
+        {/* 試走はランのページでも出す（テンプレートを書き換えないため） */}
+        {node.impl?.type === "script" && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => menu.trial(node.id)}>試走</ContextMenuItem>
+          </>
+        )}
+        {canEditTemplate && descendants > 0 && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>ここから下を全部</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem onSelect={() => menu.commitDescendants(node.id)}>
+                計画済みにする
+              </ContextMenuItem>
+              <ContextMenuItem variant="destructive" onSelect={() => menu.removeSubtree(node.id)}>
+                削除（{descendants + 1}件）
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => menu.copyLink(node.id)}>リンクをコピー</ContextMenuItem>
+        <ContextMenuItem onSelect={() => menu.copyId(node.id)}>ID をコピー</ContextMenuItem>
+        {canEditTemplate && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onSelect={() => menu.remove()}>
+              削除
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
