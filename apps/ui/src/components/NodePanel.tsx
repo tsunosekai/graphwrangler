@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { effortLabel, modelLabel, useAiDefaults } from "../lib/aiDefaults";
 import { api, postReads, type NodePatchInput } from "../lib/api";
-import { confirmDialog, formDialog, promptDialog } from "../lib/dialogs";
+import { confirmDialog, confirmWithAltDialog, formDialog, promptDialog } from "../lib/dialogs";
 import { HINT_TEXT, TRIAL_CONFIRM_MESSAGE } from "../lib/hints";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -784,14 +784,32 @@ export function NodePanel({
     // ロック・メンバー持ち・子持ちでも削除は常にできる。危ないケースは削除前に
     // モーダルで教える（2026-08-01 本人指摘「消せないのは違う。ロックはモーダルで確認」）
     const impact = computeRemoveImpact([node.id], allNodes);
-    const ok = await confirmDialog(
+    // ページ（kind=goal / メンバー持ち）を消すときだけ「消さずにアーカイブする」を推しで
+    // 並べる（2026-08-09 本人要望。左レールの削除と同じ選択肢）。ページ内の1ノードには
+    // アーカイブという畳み先が無いので出さない
+    const isPage = node.kind === "goal" || allNodes.some((n) => n.group === node.id);
+    const canArchive = isPage && node.status !== "done" && node.status !== "dropped";
+    const choice = await confirmWithAltDialog(
       buildRemoveMessage(
         `「${node.title || "（無題）"}」を削除しますか？（Ctrl+Z で戻せます）`,
         removeImpactWarnings(impact),
       ),
-      { danger: true, confirmLabel: "削除" },
+      {
+        danger: true,
+        confirmLabel: "削除",
+        ...(canArchive ? { alt: { label: "アーカイブする" } } : {}),
+      },
     );
-    if (!ok) return;
+    if (choice === "alt") {
+      try {
+        await api.patchNode(node.id, { status: "done" });
+        onMutated();
+      } catch {
+        // エラーは api() 側でトースト表示済み
+      }
+      return;
+    }
+    if (choice !== "confirm") return;
     try {
       await api.removeNode(node.id, { force: true });
       onMutated();

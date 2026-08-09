@@ -26,6 +26,17 @@ export function isFireableTrigger(node: Node): boolean {
   return node.kind === "trigger" && node.lifecycle === "committed";
 }
 
+/** 終いにしたページ（完了/中止 = アーカイブ節）か。
+ *  ここに来たページのトリガーは発火させない（2026-08-09 本人報告の不具合）。
+ *  それまでは所属ページの状態を一切見ていなかったので、「もう終わり」と完了にした
+ *  ルーティーンが裏で回り続けていた。人が終いにした宣言（status）を自動実行の
+ *  停止条件として扱う——止め方が「トリガーを消す/draftへ戻す」しか無いのは、
+ *  完了という操作が用意されている以上おかしい。
+ *  ページが取得できないとき（group 無し等）は false ＝従来どおり発火させる */
+export function isClosedPage(page: Node | null | undefined): boolean {
+  return !!page && (page.status === "done" || page.status === "dropped");
+}
+
 /**
  * script トリガーの発火判定。schedule が無い/未対応の書式は null を返す
  * （呼び出し側で警告ログを出す）。

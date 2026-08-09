@@ -46,7 +46,7 @@ import {
 } from "../lib/actions";
 import { api } from "../lib/api";
 import { focusGoalCapture } from "../lib/capture";
-import { confirmDialog, promptDialog } from "../lib/dialogs";
+import { confirmDialog, confirmWithAltDialog, promptDialog } from "../lib/dialogs";
 import { fireTrigger } from "../lib/fire";
 import { HINT_TEXT } from "../lib/hints";
 import { useResizableWidth } from "../hooks/useResizableWidth";
@@ -262,14 +262,16 @@ export function PageList({
   // 入口が2つあると「無題のゴール」が量産されるため
   const addGoal = () => focusGoalCapture();
 
-  // ルーティーンは対象外（常にアクティブ扱い）。goal 等の status が done|dropped のものだけ
-  // アーカイブへ回す
-  const activeFolders = folders.filter(
-    (f) => isRoutinePage(f, allNodes) || (f.status !== "done" && f.status !== "dropped"),
-  );
-  const archivedFolders = sortRail(
-    folders.filter((f) => !isRoutinePage(f, allNodes) && (f.status === "done" || f.status === "dropped")),
-  );
+  // status が done|dropped のページをアーカイブ節へ回す。**ルーティーンも同じ**
+  // （2026-08-09 本人報告の不具合の修正）: 以前はルーティーンを「常にアクティブ扱い」として
+  // 除外していたため、完了にしたルーティーンがルーティーン節に居座り、アーカイブへ行かず、
+  // 右クリックにも出し入れが出ない行き止まりになっていた（さらにエンジンは所属ページの
+  // status を見ないので裏で発火し続けていた——engine の isClosedPage で併せて止めた）。
+  // 「繰り返しには終わりが無い」のは既定の話で、人が終いだと宣言したものまで
+  // 畳めなくする理由にはならない
+  const isArchivedPage = (f: Node) => f.status === "done" || f.status === "dropped";
+  const activeFolders = folders.filter((f) => !isArchivedPage(f));
+  const archivedFolders = sortRail(folders.filter(isArchivedPage));
 
   // ---- 並び・フォルダ分け ----
   const nodeById = useMemo(() => new Map(allNodes.map((n) => [n.id, n])), [allNodes]);
@@ -561,17 +563,29 @@ export function PageList({
   };
 
   /** ページの削除。メンバーの巻き添えはサーバ（force）が面倒を見るので、こちらは
-   *  NodePanel の削除と同じ警告（removeImpactWarnings）を出すだけにする */
+   *  NodePanel の削除と同じ警告（removeImpactWarnings）を出すだけにする。
+   *  アーカイブ済みでないページには「消さずにアーカイブする」を推しとして並べる
+   *  （2026-08-09 本人要望。ページは会話も実行履歴もぶら下げた重い単位で、消すのは
+   *  ほとんどの場合やりすぎ——既定の出口をアーカイブにする） */
   const removePage = async (f: Node) => {
     const impact = computeRemoveImpact([f.id], allNodes);
-    const ok = await confirmDialog(
+    const canArchive = !isArchivedPage(f);
+    const choice = await confirmWithAltDialog(
       buildRemoveMessage(
         `「${f.title || "（無題）"}」を削除しますか？（Ctrl+Z で戻せます）`,
         removeImpactWarnings(impact),
       ),
-      { danger: true, confirmLabel: "削除" },
+      {
+        danger: true,
+        confirmLabel: "削除",
+        ...(canArchive ? { alt: { label: "アーカイブする" } } : {}),
+      },
     );
-    if (!ok) return;
+    if (choice === "alt") {
+      await setPageArchived(f, true);
+      return;
+    }
+    if (choice !== "confirm") return;
     try {
       await api.removeNode(f.id, { force: true });
       onMutated();
@@ -1095,18 +1109,18 @@ export function PageList({
               </ContextMenuSubContent>
             </ContextMenuSub>
           )}
-          {/* アーカイブは status からの導出（done|dropped = アーカイブ節）。ルーティーンは
-              常にアクティブ扱いでアーカイブ節に来ないので出さない */}
-          {!routine &&
-            (archived ? (
-              <ContextMenuItem onSelect={() => void setPageArchived(f, false)}>
-                <ArchiveRestore className="size-3.5" /> 元に戻す
-              </ContextMenuItem>
-            ) : (
-              <ContextMenuItem onSelect={() => void setPageArchived(f, true)}>
-                <Archive className="size-3.5" /> アーカイブする
-              </ContextMenuItem>
-            ))}
+          {/* アーカイブは status からの導出（done|dropped = アーカイブ節）。ルーティーンにも
+              出す（2026-08-09。以前は「常にアクティブ扱い」で隠していたが、完了にした
+              ルーティーンを畳む手段が無くなっていた）。アーカイブすると発火も止まる */}
+          {archived ? (
+            <ContextMenuItem onSelect={() => void setPageArchived(f, false)}>
+              <ArchiveRestore className="size-3.5" /> 元に戻す
+            </ContextMenuItem>
+          ) : (
+            <ContextMenuItem onSelect={() => void setPageArchived(f, true)}>
+              <Archive className="size-3.5" /> アーカイブする
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem variant="destructive" onSelect={() => void removePage(f)}>
             <Trash2 className="size-3.5" /> 削除

@@ -34,7 +34,7 @@ export function DialogHost() {
   if (!current) return null;
 
   const finish = (submit: boolean) => {
-    if (current.kind === "confirm") current.resolve(submit);
+    if (current.kind === "confirm") current.resolve(submit ? "confirm" : "cancel");
     else if (current.kind === "prompt") current.resolve(submit ? value : null);
     else {
       // 空欄のキーは落として返す（空文字を context に積まない。docs/design.md 3.15）
@@ -47,6 +47,13 @@ export function DialogHost() {
     }
     setQueue((q) => q.slice(1));
   };
+
+  /** 第3の選択肢（confirm の alt。例: 削除の代わりにアーカイブ） */
+  const finishAlt = () => {
+    if (current.kind === "confirm") current.resolve("alt");
+    setQueue((q) => q.slice(1));
+  };
+  const alt = current.kind === "confirm" ? current.alt : undefined;
 
   // Enter で確定（IME変換中は除く）。prompt / form の各入力欄で共通
   const submitOnEnter = (e: React.KeyboardEvent) => {
@@ -108,13 +115,15 @@ export function DialogHost() {
             ))}
           </div>
         )}
+        {/* alt がある確認は「推し（alt）を右端の primary」に置き、危ない方（confirm）は
+            その左の控えめなボタンに落とす。初期フォーカスも推しへ渡す（2026-08-09） */}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="outline" onClick={() => finish(false)}>
             キャンセル
           </Button>
           <Button
             type="button"
-            autoFocus={current.kind === "confirm"}
+            autoFocus={current.kind === "confirm" && !alt}
             variant={current.kind === "confirm" && current.danger ? "outline" : "default"}
             className={
               current.kind === "confirm" && current.danger
@@ -125,6 +134,11 @@ export function DialogHost() {
           >
             {current.confirmLabel ?? "OK"}
           </Button>
+          {alt && (
+            <Button type="button" autoFocus className="text-primary-foreground" onClick={finishAlt}>
+              {alt.label}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>

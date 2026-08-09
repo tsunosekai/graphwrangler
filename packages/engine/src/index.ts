@@ -69,6 +69,7 @@ import {
   fireBaseline,
   hasUnconsumedGo,
   isDetectScriptTrigger,
+  isClosedPage,
   isFireableTrigger,
   parseAiFireDecision,
   parseDetectEmitLines,
@@ -1618,7 +1619,12 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
 /** kind=trigger(lifecycle=committed) のノードを毎tickチェックする。executor軸で分岐:
  *  script=cron的、ai=間隔チェック、human=エンジンは何もしない（手動 /fire のみ） */
 async function triggerTick(nodes: Node[]): Promise<void> {
-  const triggers = nodes.filter(isFireableTrigger);
+  // 所属ページが完了/中止（＝アーカイブ節）のトリガーは対象から外す。人が終いにした
+  // ルーティーンが裏で回り続けないように（2026-08-09。trigger.ts の isClosedPage）
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const triggers = nodes.filter(
+    (n) => isFireableTrigger(n) && !isClosedPage(n.group ? byId.get(n.group) : null),
+  );
   if (triggers.length === 0) return;
 
   // ページ横断の一覧APIは無いため、対象トリガーの所属ページ(group)ごとに束ねて取得する

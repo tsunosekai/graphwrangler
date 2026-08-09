@@ -8,7 +8,14 @@ export interface ConfirmOptions {
   confirmLabel?: string;
   /** 破壊的操作（削除など）。OKボタンを destructive 色にする */
   danger?: boolean;
+  /** 第3の選択肢（2026-08-09）。「消す代わりにこうする」を並べるためのもので、
+   *  danger 指定の確認では**こちらが既定の推し**（primary色 + 初期フォーカス）になり、
+   *  危ない方（confirm）は控えめなボタンに落ちる。使う側は confirmWithAltDialog を呼ぶ */
+  alt?: { label: string };
 }
+
+/** confirm の結果。alt を出さない場合は "confirm" | "cancel" しか返らない */
+export type ConfirmChoice = "confirm" | "alt" | "cancel";
 
 export interface PromptOptions {
   defaultValue?: string;
@@ -43,7 +50,7 @@ export interface FormResult {
 }
 
 export type DialogRequest =
-  | ({ kind: "confirm"; message: string; resolve: (ok: boolean) => void } & ConfirmOptions)
+  | ({ kind: "confirm"; message: string; resolve: (choice: ConfirmChoice) => void } & ConfirmOptions)
   | ({ kind: "prompt"; message: string; resolve: (value: string | null) => void } & PromptOptions)
   | ({ kind: "form"; message: string; resolve: (value: FormResult | null) => void } & FormOptions);
 
@@ -58,10 +65,16 @@ export function subscribeDialogs(fn: Listener): () => void {
 }
 
 /** window.confirm の代替。OK で true、キャンセル/閉じるで false */
-export function confirmDialog(message: string, opts: ConfirmOptions = {}): Promise<boolean> {
+export function confirmDialog(message: string, opts: Omit<ConfirmOptions, "alt"> = {}): Promise<boolean> {
+  return confirmWithAltDialog(message, opts).then((choice) => choice === "confirm");
+}
+
+/** 第3の選択肢つきの確認。「削除しますか？」に「消さずにアーカイブする」を並べる用途
+ *  （2026-08-09 本人要望「基本こっちを選ばせたい」）。閉じる/キャンセルは "cancel" */
+export function confirmWithAltDialog(message: string, opts: ConfirmOptions = {}): Promise<ConfirmChoice> {
   return new Promise((resolve) => {
     if (!listener) {
-      resolve(false); // ホスト未マウント（理論上起きない）。安全側=キャンセル扱い
+      resolve("cancel"); // ホスト未マウント（理論上起きない）。安全側=キャンセル扱い
       return;
     }
     listener({ kind: "confirm", message, resolve, ...opts });

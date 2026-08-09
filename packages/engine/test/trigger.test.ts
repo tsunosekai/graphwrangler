@@ -9,6 +9,7 @@ import {
   findLatestFireEvent,
   fireBaseline,
   hasUnconsumedGo,
+  isClosedPage,
   isDetectScriptTrigger,
   isFireableTrigger,
   parseAiFireDecision,
@@ -63,6 +64,20 @@ describe("isFireableTrigger", () => {
     expect(isFireableTrigger(node({ kind: "trigger", lifecycle: "committed" }))).toBe(true);
     expect(isFireableTrigger(node({ kind: "trigger", lifecycle: "draft" }))).toBe(false);
     expect(isFireableTrigger(node({ kind: "task", lifecycle: "committed" }))).toBe(false);
+  });
+});
+
+describe("isClosedPage", () => {
+  it("完了/中止のページは終い（トリガーを発火させない）", () => {
+    expect(isClosedPage(node({ kind: "goal", status: "done" }))).toBe(true);
+    expect(isClosedPage(node({ kind: "goal", status: "dropped" }))).toBe(true);
+  });
+
+  it("進行中のページと、ページが取れないときは従来どおり発火させる", () => {
+    expect(isClosedPage(node({ kind: "goal", status: "pending" }))).toBe(false);
+    expect(isClosedPage(node({ kind: "goal", status: "running" }))).toBe(false);
+    expect(isClosedPage(null)).toBe(false);
+    expect(isClosedPage(undefined)).toBe(false);
   });
 });
 

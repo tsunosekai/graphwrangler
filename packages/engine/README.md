@@ -69,8 +69,10 @@ cwd をワークスペースルートにし（AI の Read/Grep/Glob がリポジ
 ## やること（1周のループ。`src/index.ts` の `tick()`）
 
 1. `GET /api/state` で全ノードを取得
-2. **トリガー発火判定**（`triggerTick`）: `kind=trigger` かつ `lifecycle=committed` のノードを
-   executor 軸で処理する
+2. **トリガー発火判定**（`triggerTick`）: `kind=trigger` かつ `lifecycle=committed` で、
+   **所属ページ（group）が終いになっていない**（`isClosedPage` = status が done/dropped
+   でない。2026-08-09）ノードを executor 軸で処理する。完了・中止にしたルーティーンは
+   発火が止まり、アーカイブから戻せばまた回り出す
    - **script** = cron的な定期実行。`node.schedule`（`every Nm/Nh/Nd` / `daily HH:MM` /
      `weekly dow HH:MM`）を `src/schedule.ts` で判定し、条件を満たせば
      `POST /api/nodes/:id/fire` で発火する。未対応の書式は無視して警告ログのみ
