@@ -1,7 +1,7 @@
 // 配線チェック（ランのコンテキストの静的検査。docs/design.md 3.15「配線チェック」）。
 // ルーティーンページの各 script ノードのコマンド中 `{name}` 参照（consumer）と、
 // メンバーの outputs 宣言（producer。トリガー含む）を照合し、参照矢印（破線描画用）と
-// 警告バッジの素材を返す。**発火は絶対に止めない**——ここは警告のみで、実行時に本当に
+// 警告バッジの素材を返す。**ラン作成は絶対に止めない**——ここは警告のみで、実行時に本当に
 // 値が無ければそのノードだけが失敗リカバリに落ちる（3.15 の原則）。
 // 純関数: サーバの GET /api/pages/:id/wiring がグラフの現在ノードを渡して呼ぶ。
 import type { Node } from "./schema.js";
@@ -97,7 +97,7 @@ export function checkWiring(allNodes: Node[], pageId: string): WiringResult {
    * これに含まれる。consumer 自身の parentOptions は見ない——consumer が skip される
    * 経路ではそもそもコマンドが動かないので、値が来ない問題は起きないため。
    * 近似ゆえに「枝を経由しない別経路もある」ケースでも警告になりうるが、
-   * 警告は発火を止めない（過検知は許容。3.15）
+   * 警告はラン作成を止めない（過検知は許容。3.15）
    */
   function isBranchDependent(producer: Node, consumerAncestors: Set<string>): boolean {
     for (const n of members) {

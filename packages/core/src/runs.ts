@@ -17,18 +17,18 @@ import { GraphError, collectDescendantsAmong } from "./graph.js";
 
 export interface TriggerRunOpts {
   title?: string;
-  /** 発火理由の自由文字列（"manual" / "schedule:<原文>" / "ai" 等。既定 "manual"）。
+  /** ラン作成の理由の自由文字列（"manual" / "schedule:<原文>" / "ai" 等。既定 "manual"）。
    *  run.trigger は "trigger:<triggerId>:<via>" の形で記録する */
   via?: string;
-  /** ページ自身のノード（kind=goal）。渡すと発火時点のスナップショットに含める
+  /** ページ自身のノード（kind=goal）。渡すとラン作成時点のスナップショットに含める
    *  （ページ名も当時のものを見せられる。allMembers には自分自身は入らないため別引数） */
   pageNode?: Node | null;
-  /** ランのコンテキストの初期値（3.15）。手動▶のフォーム / fire API の context /
+  /** ランのコンテキストの初期値（3.15）。手動▶のフォーム / ラン作成 API の context /
    *  検知スクリプトの emit から渡る。省略 = 空 */
   context?: Record<string, string>;
 }
 
-/** ノードから発火時点スナップショット（NodeSnapshotSchema の形）を作る */
+/** ノードからラン作成時点のスナップショット（NodeSnapshotSchema の形）を作る */
 function toNodeSnapshot(n: Node): NodeSnapshot {
   return {
     id: n.id,
@@ -87,7 +87,7 @@ export class RunStore {
   }
 
   /**
-   * トリガーノード（kind=trigger）の発火からランを作成する（docs/design.md 3.8）。
+   * トリガーノード（kind=trigger）からランを作成する（docs/design.md 3.8）。
    *
    * - items = トリガーの子孫（parents を辿って allMembers 内で到達可能なメンバー。分岐・合流を
    *   含む）。トリガー自身は items に含めない
@@ -119,7 +119,7 @@ export class RunStore {
       };
     }
     const via = opts.via ?? "manual";
-    // 発火時点の中身を焼く（2026-08-08）。items（＝トリガーの子孫）だけでなくページ構成
+    // ラン作成時点の中身を焼く（2026-08-08）。items（＝トリガーの子孫）だけでなくページ構成
     // まるごと（ページ自身・トリガー・items に入らないメンバー）を残す——後から見返すときに
     // 「そのとき何がぶら下がっていたか」まで再現できないと当時のグラフにならないため
     const snapshotSource = opts.pageNode ? [opts.pageNode, ...allMembers] : allMembers;

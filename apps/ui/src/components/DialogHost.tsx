@@ -10,7 +10,7 @@ import { Input } from "./ui/input";
 export function DialogHost() {
   const [queue, setQueue] = useState<DialogRequest[]>([]);
   const [value, setValue] = useState("");
-  // form 用の欄ごとの値（キーは fields[].name。docs/design.md 3.15 発火フォーム等）
+  // form 用の欄ごとの値（キーは fields[].name。docs/design.md 3.15 ラン作成フォーム等）
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const current = queue[0] ?? null;
 

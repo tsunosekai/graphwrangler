@@ -99,7 +99,7 @@ describe("RunStore.createFromTrigger", () => {
     expect(run.items[unplannedChild.id].status).toBe("skipped");
   });
 
-  it("run.trigger に発火元(trigger:<id>:<via>)が記録される。via省略時はmanual", () => {
+  it("run.trigger にラン作成元(trigger:<id>:<via>)が記録される。via省略時はmanual", () => {
     const runs = new RunStore(dir);
     const { page, trigger } = setupTriggerPage();
     const withDefault = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id));

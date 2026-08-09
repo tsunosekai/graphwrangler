@@ -62,7 +62,7 @@ interface Props {
   /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
   reads: Record<string, string>;
   /** ランのページを見ているか（2026-08-08 本人指定「ランは個別ページ」）。非 null のとき:
-   *  - node はそのランのフォーク（発火時点の中身）＝やり方の編集はできない
+   *  - node はそのランのフォーク（ラン作成時点の中身）＝やり方の編集はできない
    *  - 会話・実行履歴もそのランのものだけを出し、書き込みもそのランに属する */
   runView?: { id: string; title: string } | null;
   /** スレッドを表示した時点で呼ばれる（App が既読オーバーレイでカード/レールの未読バッジを
@@ -567,7 +567,7 @@ export function NodePanel({
   //      テンプレートの patch（patchNode）ではなく、ランのアイテムを更新する（api.patchRunItem） ----
   const activeRunItem = activeRun?.items[node.id] ?? null;
   // ラン内フロンティア: 親の「ランのアイテム」が全部 done|skipped か（親がトリガー等でランに
-  // アイテムを持たない場合は「既に発火済み」として満たしている扱い。GraphView と同じ規則）
+  // アイテムを持たない場合は「既に作成済み」として満たしている扱い。GraphView と同じ規則）
   const runFrontier = !!(
     activeRun &&
     node.parents.every((pid) => {
@@ -851,7 +851,7 @@ export function NodePanel({
   };
   const filtered = (tab === "talk" ? talkSource : messages).filter((m) => inTab(m, tab));
   // 「ノード内ノードに展開」ボタンを出してよいか（実行の内訳＝実行記録の下に出す）。
-  // ラン表示（runView）は発火時点のフォークを見せているだけで書き込み対象ではないので不可、
+  // ラン表示（runView）はラン作成時点のフォークを見せているだけで書き込み対象ではないので不可、
   // それ以外は kind=task・未Fix・このノードが今のグラフに実在する（allNodes は
   // App が runView 時は runNodes に差し替えるので、run 中に消えた/ラン専用の
   // ノードでは false になる。expand 自体は409で弾かれるがボタンは出さない側で先に絞る）
@@ -1078,7 +1078,7 @@ export function NodePanel({
       {/* 担当×実装の不整合⚠（docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）:
           担当=script なのに impl が script でない=実行すると失敗する組み合わせ。
           常に見えるようにする（メタ折りたたみの外）。NodeCard 側にも同じ理由で⚠バッジを出す。
-          kind=trigger は対象外——トリガーの executor=script は「schedule で発火する」の意味で
+          kind=trigger は対象外——トリガーの executor=script は「schedule でランを作る」の意味で
           あって command 実行ではない（docs/design.md 3.8）ため、impl 不要 */}
       {node.executor === "script" && node.kind !== "trigger" && node.impl?.type !== "script" && (
         <div
@@ -1136,8 +1136,8 @@ export function NodePanel({
               今と同じなら何も出ない。上の欄は常に**今**のテンプレートで、編集もそちらに効く */}
           <RunTimeNote run={activeRun} node={node} />
 
-          {/* トリガーの起動方式（docs/design.md 3.8）。human は手動発火(▶)のみなので欄自体を出さない。
-              script=cron的な発火条件、ai=発火要否を判定させる間隔 */}
+          {/* トリガーの起動方式（docs/design.md 3.8）。human は手動でランを作る操作(▶)のみなので欄自体を出さない。
+              script=cron的なランを作る条件、ai=ラン作成要否を判定させる間隔 */}
           {node.kind === "trigger" &&
             (node.executor === "human" ? (
               <p className="text-xs text-muted-foreground">手動開始のみ（ノードの ▶ から開始）</p>
@@ -1259,8 +1259,8 @@ export function NodePanel({
             )}
             {/* 承認ゲートは「機械（AI/スクリプト）の仕事」の直前に挟まるもの。担当=人間の
                 ノードでは本人の操作が承認そのものなのでトグルを出さない（既に irreversible の
-                ノードだけは解除できるよう表示する）。トリガーでは意味が「発火前承認」になる
-                （script の定刻発火・AI の自動発火の直前にゲート。手動▶はそのまま発火） */}
+                ノードだけは解除できるよう表示する）。トリガーでは意味が「ラン前承認」になる
+                （script の定刻ラン作成・AI の自動のラン作成の直前にゲート。手動▶はそのままラン作成） */}
             {(node.executor !== "human" || node.approval) && (
               <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
                 {/* 「?」アイコンは廃止し、ラベル自体のマウスオーバーに統一（2026-08-05 本人指定） */}
@@ -1346,7 +1346,7 @@ export function NodePanel({
                 </label>
               </>
             )}
-            {/* トリガーに進捗はない（docs/design.md 3.8。発火はあってもステータス遷移という概念が無い）。
+            {/* トリガーに進捗はない（docs/design.md 3.8。ラン作成はあってもステータス遷移という概念が無い）。
                 質問が開いている（pendingRequest あり）間は status が何であれ「あなたの番」を優先して
                 描き、進捗ボタンも出さない（NodeCard の visualStatus / PageList の effStatus と同じ保険。
                 回答は上の判断カードから行う） */}
@@ -1365,10 +1365,10 @@ export function NodePanel({
               </div>
             )}
             {/* トリガーのプラン取り消し（2026-08-06 本人要望「ルーティーンも未計画に戻せるように」）。
-                task と違い status ではなく lifecycle を draft へ戻す——エンジンの発火判定
-                （engine の isFireableTrigger）は committed のトリガーだけを拾うので、
+                task と違い status ではなく lifecycle を draft へ戻す——エンジンのラン作成の判定
+                （engine の isRunnableTrigger）は committed のトリガーだけを拾うので、
                 トリガーにとっての「未計画」は draft。手動▶（POST /fire）は draft でも通るため、
-                自動発火だけが止まる */}
+                自動のラン作成だけが止まる */}
             {node.kind === "trigger" && node.lifecycle === "committed" && (
               <div className="col-span-2 flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">計画済み</span>
@@ -1985,7 +1985,7 @@ export function NodePanel({
 
           {/* 出力宣言エディタ（docs/design.md 3.15）: このノードがランのコンテキストへ書き出す
               キーの宣言（name/label/example）。task と trigger で表示する。トリガーの outputs は
-              「発火時に入る初期キー」＝手動▶の発火フォームの項目 / 検知スクリプトの emit 契約。
+              「ランを作るときに入る初期キー」＝手動▶のラン作成フォームの項目 / 検知スクリプトの emit 契約。
               ラン表示（runView）では出さない——宣言はやり方（テンプレート側）だから */}
           {!runView && (node.kind === "task" || node.kind === "trigger") && (
             <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2.5">
@@ -1993,7 +1993,7 @@ export function NodePanel({
                 id="outputs"
                 text={
                   node.kind === "trigger"
-                    ? "発火時にランへ入る初期キーの宣言。手動▶の入力フォームの項目になり、検知スクリプト・AI発火が出す context の契約にもなる（入力は任意＝空でも発火できる）"
+                    ? "ランを作るときに入る初期キーの宣言。手動▶の入力フォームの項目になり、検知スクリプト・AIのラン作成が出す context の契約にもなる（入力は任意＝空でもランは作れる）"
                     : "このノードがランのコンテキストへ書き出すキーの宣言。下流のコマンドは {name} で参照でき、配線チェック（参照矢印と警告）の根拠になる"
                 }
               >

@@ -12,7 +12,7 @@ export interface Actor {
 
 /** goal=プロジェクトページ（ノード群のフォルダ） / task=作業 /
  *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） /
- *  trigger=起点ノード（発火するとそのページ(group)でランが生成される。3.4/3.8/3.9。
+ *  trigger=起点ノード（ランを作るとそのページ(group)でランが生成される。3.4/3.8/3.9。
  *  parents を持てない=グラフの起点であることを構造的に保証する） /
  *  folder=左レールの整理棚（2026-08-05）。ページを束ねるだけでグラフ・実行には関与しない */
 export type NodeKind = "goal" | "task" | "decision" | "trigger" | "folder";
@@ -57,8 +57,8 @@ export interface NodeBranch {
 }
 
 /** ランのコンテキストへの出力宣言（docs/design.md 3.15）。宣言のみで値は持たない
- *  （値は実行時に run.context へ載る）。トリガーの outputs は特別扱いで「発火時に入る
- *  初期キー」＝手動▶の発火フォームの項目 / 検知スクリプトの emit 契約になる
+ *  （値は実行時に run.context へ載る）。トリガーの outputs は特別扱いで「ラン作成時に入る
+ *  初期キー」＝手動▶のラン作成フォームの項目 / 検知スクリプトの emit 契約になる
  *  （packages/core/src/schema.ts OutputParamSchema と同形） */
 export interface OutputParam {
   name: string;
@@ -93,7 +93,7 @@ export interface Node {
   order: number | null;
   kind: NodeKind;
   executor: Executor;
-  /** 実行前承認（trigger では発火前承認）。true = 実行の直前に人間の承認ゲートを通る。
+  /** 実行前承認（trigger ではラン前承認）。true = 実行の直前に人間の承認ゲートを通る。
    *  旧名 impact("safe"|"irreversible")、2026-08-03 改名 */
   approval: boolean;
   /** AI executor の自律度。AI以外の担当では使われない（値は常に持つ。既定 normal） */
@@ -109,11 +109,11 @@ export interface Node {
   /** open な判断リクエストの message id。あれば「あなたの番」（waiting 表示を導出する） */
   pendingRequest: string | null;
   /** kind=trigger 用の起動方式記述（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等）。
-   *  executor=script なら cron 的な発火判定、executor=ai なら「発火要否を判定させる間隔」
-   *  （everyのみ解釈、無指定は既定1時間）、executor=human では使わない（手動発火のみ） */
+   *  executor=script なら cron 的なラン作成の判定、executor=ai なら「ラン作成要否を判定させる間隔」
+   *  （everyのみ解釈、無指定は既定1時間）、executor=human では使わない（手動でランを作る操作のみ） */
   schedule: string | null;
   /** ランのコンテキストへの出力宣言（docs/design.md 3.15）。null = 宣言なし。
-   *  トリガーでは発火フォームの項目、task では「このノードがランに書き足すキー」の宣言 */
+   *  トリガーではラン作成フォームの項目、task では「このノードがランに書き足すキー」の宣言 */
   outputs: OutputParam[] | null;
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個）。それ以外の kind では null */
   branches: NodeBranch[] | null;
@@ -200,13 +200,13 @@ export interface Run {
   /** ランが属するページ(group)のid。既存ランファイルとの互換のためキー名は procedure のまま */
   procedure: string;
   title: string;
-  /** 発火元の記録。"trigger:<triggerノードid>:<via>" の形（via は "manual" /
+  /** ラン作成元の記録。"trigger:<triggerノードid>:<via>" の形（via は "manual" /
    *  "schedule:<原文>" / "ai" 等の自由文字列） — 固定書式を仮定せず生表示する */
   trigger: string;
   status: RunStatus;
   /** テンプレートノード id → ワークアイテム */
   items: Record<string, RunItem>;
-  /** ランのコンテキスト（docs/design.md 3.15）。発火時の初期値 + ノードが ##gw / API で
+  /** ランのコンテキスト（docs/design.md 3.15）。ラン作成時の初期値 + ノードが ##gw / API で
    *  書き足す key→現在値。同一ラン内は last-write-wins */
   context: Record<string, string>;
   created: string;
@@ -277,8 +277,8 @@ export type TraceEvent = MaterializedMessage & { nodeTitle: string };
 /**
  * ランの時点のノード（GET /api/runs/:id/graph の1件。2026-08-08）。
  * source = その中身の出どころ:
- *   snapshot 発火時にランへ焼いたもの（最も確か）
- *   replay   操作ログを発火時刻まで再生して復元したもの
+ *   snapshot ラン作成時にランへ焼いたもの（最も確か）
+ *   replay   操作ログをラン作成時刻まで再生して復元したもの
  *   current  当時の記録が無く、現在の中身で代用（当時と違う可能性がある）
  */
 export type RunGraphNode = Partial<Node> & {

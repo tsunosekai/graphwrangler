@@ -54,7 +54,7 @@ claude mcp add graphwrangler -- npx tsx D:/VSCodeProject/infra-tools/graphwrangl
 | `message_post` | スレッドへの投稿（say/status/artifact） |
 | `request_open` | 判断リクエストを開く（pendingRequest がセットされ、ボールが人間に渡る） |
 | `request_answer` | 判断リクエストへの回答（option=null でラリー継続） |
-| `trigger_fire` | トリガーノード（kind=trigger）を手動発火し、その group（所属ページ）でランを1本作成する。`context`（このランの初期コンテキスト。3.15）も指定可 |
+| `trigger_run` | トリガーノード（kind=trigger）を手動で起動し、その group（所属ページ）でランを1本作成する。`context`（このランの初期コンテキスト。3.15）も指定可 |
 | `run_context_set` | ランのコンテキスト（run.context。3.15）へキー→値を merge する（同一ラン内は last-write-wins）。script executor の `##gw` マーカーと同じ効果を持つ、エンジン外からの書き込み経路 |
 | `run_list` | ページの過去のラン一覧（要約: id/title/status/trigger/created/context + ワークアイテム状態内訳カウント） |
 | `run_get` | ラン1件の全フィールド（items/context/resolvedParams の詳細を含む） |
@@ -90,7 +90,7 @@ node packages/mcp/test/e2e.mjs
 - ラン関連ツールは HTTP API（`packages/server`）へのプロキシ。run=実行インスタンスという
   用語は docs/design.md 3.8 に対応する。`run_cancel` に取り消し操作は無い
   （undo/redo はグラフ本体の操作ログのみが対象）
-- `run_context_set`/`trigger_fire` の `context` は run.context（ランのコンテキスト。
+- `run_context_set`/`trigger_run` の `context` は run.context（ランのコンテキスト。
   docs/design.md 3.15「attribute flow」）を指す。`run_context_set` に `nodeId` を渡すと
   そのノードのスレッドへ、省略時は `run.trigger` から取り出したトリガーノードへ、
   更新の status メッセージが記録される（監査用。サーバ側の挙動でこのパッケージは中継のみ）

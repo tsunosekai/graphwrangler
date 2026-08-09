@@ -268,7 +268,7 @@ const share = await post("/api/nodes", {
 
 // ランを3本流しておく（台帳のデモ用）: 過去2本は完走、最新はAIが人間の番まで進めた状態
 for (let i = 0; i < 2; i++) {
-  const run = await post(`/api/nodes/${watchTrigger.id}/fire`, { via: "manual" });
+  const run = await post(`/api/nodes/${watchTrigger.id}/run`, { via: "manual" });
   for (const n of [collect, summarize]) {
     await post(`/api/runs/${run.id}/items/${n.id}`, {
       status: "done",
@@ -283,7 +283,7 @@ for (let i = 0; i < 2; i++) {
   });
 }
 
-const runNow = await post(`/api/nodes/${watchTrigger.id}/fire`, { via: "manual" });
+const runNow = await post(`/api/nodes/${watchTrigger.id}/run`, { via: "manual" });
 await post(`/api/runs/${runNow.id}/items/${collect.id}`, {
   status: "done",
   note: "新着3件",
@@ -297,7 +297,7 @@ await post(`/api/runs/${runNow.id}/items/${summarize.id}`, {
   via: "engine",
 });
 
-// ---- ルーティーン2: 問い合わせの一次対応（AIトリガーの例。発火の判断自体をAIがする） ----
+// ---- ルーティーン2: 問い合わせの一次対応（AIトリガーの例。ランを作るかの判断自体をAIがする） ----
 
 const inbox = await post("/api/nodes", {
   title: "問い合わせの一次対応",
@@ -310,7 +310,7 @@ const inboxTrigger = await post("/api/nodes", {
   kind: "trigger",
   executor: "ai",
   schedule: "every 1h",
-  detail: "サポート宛の未対応メールが3件以上溜まっていたら発火する",
+  detail: "サポート宛の未対応メールが3件以上溜まっていたらランを作る",
   lifecycle: "committed",
 });
 const reply = await post("/api/nodes", {

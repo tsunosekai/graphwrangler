@@ -425,18 +425,18 @@ export const api = {
 
   // ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 
-  /** トリガーを発火し、そのページ(group)でランを1本作る。title はランの名前（作品名など。
+  /** トリガーからランを1本作り、そのページ(group)へ置く。title はランの名前（作品名など。
    *  並列ランの区別用）。via 省略時はサーバ既定の "manual"。context はランの初期コンテキスト
-   *  （docs/design.md 3.15。発火フォームの入力。空欄のキーは呼び出し側が落として渡す） */
-  fireTrigger: async (
+   *  （docs/design.md 3.15。ラン作成フォームの入力。空欄のキーは呼び出し側が落として渡す） */
+  runTrigger: async (
     nodeId: string,
     opts: { via?: string; title?: string; context?: Record<string, string> } = {},
   ) => {
-    const run = await request<Run>(`/nodes/${nodeId}/fire`, {
+    const run = await request<Run>(`/nodes/${nodeId}/run`, {
       method: "POST",
       body: JSON.stringify(opts),
     });
-    // 「発火: <ラン名>」の記録は生まれたランのスレッドに載る。自分の操作なので既読にしておく
+    // 「ラン: <ラン名>」の記録は生まれたランのスレッドに載る。自分の操作なので既読にしておく
     markSelfActionRead(threadKey(nodeId, run.id));
     return run;
   },
@@ -446,7 +446,7 @@ export const api = {
   listRuns: (pageId: string) => request<{ runs: Run[] }>(`/pages/${pageId}/runs`),
 
   /** 全ページのラン一覧を1リクエストで（ページ id → ラン配列。新しい順）。左レール用。
-   *  発火時スナップショットはサーバ側で落とされている（2026-08-08 最適化） */
+   *  ラン作成時のスナップショットはサーバ側で落とされている（2026-08-08 最適化） */
   listAllRuns: () => request<{ runs: Record<string, Run[]> }>("/runs/summary"),
 
   getRun: (runId: string) => request<Run>(`/runs/${runId}`),
@@ -508,7 +508,7 @@ export const api = {
     }
   },
 
-  /** そのランの時点のノード（2026-08-08）。発火時に焼いたスナップショット、無ければ
+  /** そのランの時点のノード（2026-08-08）。ラン作成時に焼いたスナップショット、無ければ
    *  操作ログの再生、それも無ければ現在の中身。どれを使ったかは各ノードの source に入る */
   getRunGraph: (runId: string) =>
     request<{ runId: string; at: string; nodes: RunGraphNode[] }>(`/runs/${runId}/graph`),

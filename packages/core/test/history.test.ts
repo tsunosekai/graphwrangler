@@ -1,5 +1,5 @@
 // 「その時のノードの状態」（2026-08-08 本人要望）の2本柱のテスト:
-//   A. 発火時にランへ中身を焼く（RunStore.createFromTrigger の snapshot）
+//   A. ラン作成時にランへ中身を焼く（RunStore.createFromTrigger の snapshot）
 //   B. 操作ログを時刻まで再生して当時を復元する（GraphStore.nodesAt）+ ログの辻褄合わせ（reconcileLog）
 import { describe, expect, it, beforeEach } from "vitest";
 import fs from "node:fs";
@@ -27,8 +27,8 @@ function restampOps(sidecar: string, pick: (line: Record<string, unknown>) => st
   fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n", "utf8");
 }
 
-describe("ランへの発火時スナップショット（A）", () => {
-  it("発火時点のタイトル・手順を残し、後からテンプレートを書き換えても影響されない", () => {
+describe("ランへのラン作成時スナップショット（A）", () => {
+  it("ラン作成時点のタイトル・手順を残し、後からテンプレートを書き換えても影響されない", () => {
     const g = new GraphStore(dir);
     const page = g.addNode({ title: "ルーティーン", kind: "goal" });
     const trigger = g.addNode({ title: "定刻", kind: "trigger", group: page.id, executor: "script" });

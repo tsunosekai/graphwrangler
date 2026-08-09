@@ -142,7 +142,7 @@ describe("shouldCreateScheduledRun: daily", () => {
   });
 });
 
-describe("shouldCreateScheduledRun: 実行中ランがあっても定刻で発火する（2026-08-08 修正）", () => {
+describe("shouldCreateScheduledRun: 実行中ランがあっても定刻でランを作る（2026-08-08 修正）", () => {
   it("実行中ランの有無は判定に影響しない（旧仕様では常にfalseだった）", () => {
     const every = parseSchedule("every 15m")!;
     const daily = parseSchedule("daily 09:00")!;

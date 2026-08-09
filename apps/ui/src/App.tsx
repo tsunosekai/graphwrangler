@@ -300,7 +300,7 @@ function AppInner() {
 
   // ---- ランのページ（2026-08-08 本人指定「ランを押すとその瞬間にグラフもノードのプロパティも
   //      すべてフォークして、それぞれ別のものとして表示される」）。
-  //      中身は GET /api/runs/:id/graph（発火時スナップショット → 操作ログ復元 → 現在の順で
+  //      中身は GET /api/runs/:id/graph（ラン作成時のスナップショット → 操作ログ復元 → 現在の順で
   //      当時を割り出す）。ラン内の進捗（items）を status に載せて、テンプレートとは別の
   //      ノード集合として扱う。ラン中に中身は変わらないので取得は開いたときだけでよい ----
   const { data: runGraph } = usePolling(
@@ -314,7 +314,7 @@ function AppInner() {
       .filter((n) => n.id !== openRun.procedure) // ページ自身はメンバーではない
       .map((n) => {
         const item = openRun.items[n.id];
-        // トリガーはランのワークアイテムを持たない＝ランが在る時点で発火済み（完了）
+        // トリガーはランのワークアイテムを持たない＝ランが在る時点で作成済み（完了）
         const status: Node["status"] =
           item?.status === "waiting"
             ? "running" // waiting は保存値に無い派生状態。カードは pendingRequest 側で橙にする
@@ -606,7 +606,7 @@ function AppInner() {
             allNodes={nodes}
             onMutated={handleMutated}
             // 右クリックの「既読にする」用（NodePanel の onViewed と同じ即時反映）と、
-            // 発火・ラン名変更・キャンセルの直後のラン一覧の取り直し（2026-08-09）
+            // ラン作成・ラン名変更・キャンセルの直後のラン一覧の取り直し（2026-08-09）
             onViewed={markViewed}
             onRunsMutated={refreshRailRuns}
             pageId={pageId}
@@ -657,7 +657,7 @@ function AppInner() {
             activeRun={activeRun}
             pageRuns={pageRuns}
             onProjectRun={(runId) => {
-              // ランを開く（発火直後もここを通る）。生まれたばかりのランは一覧にまだ
+              // ランを開く（ラン作成の直後もここを通る）。生まれたばかりのランは一覧にまだ
               // 載っていないので、次のポーリングを待たずに取り直す（2026-08-08）
               setProjectedRunId(runId);
               if (runId) {

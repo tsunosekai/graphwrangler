@@ -711,7 +711,7 @@ app.get("/api/state", (c) => {
   const threadMeta: Record<string, string> = {};
   for (const n of graph.state().nodes) {
     for (const m of threads.list(n.id)) {
-      // 実行履歴（kind=status: 状態遷移・発火・実行成否）は未読にしない
+      // 実行履歴（kind=status: 状態遷移・ラン作成・実行成否）は未読にしない
       // （2026-08-08 本人指定。機械が書く記録で、人が読むべき新情報ではない。
       //  会話・質問・成果物＝say / decision_request / decision_answer / artifact だけ数える）
       if (m.kind === "status") continue;
@@ -1151,21 +1151,21 @@ app.post("/api/nodes/:id/decide/revert", async (c) => {
 
 // ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 // 「ルーティーンであること」はページ種別ではなく先頭のトリガーノードから導出する。
-// トリガーが発火すると、その group ページで createFromTrigger によりランが1本生成される。
+// トリガーを回すと、その group ページで createFromTrigger によりランが1本生成される。
 
 const FireSchema = z.object({
   via: z.string().min(1).optional(),
   /** ランの名前（作品名など）。同じルーティーンを並列で回すとき（並行ラン）に
    *  どのランか区別するためのラベル。省略時は「MM/DD HH:mm のラン」 */
   title: z.string().min(1).optional(),
-  /** ランのコンテキストの初期値（3.15）。手動▶の発火フォーム・MCP trigger_fire・
-   *  外部システムの curl が同じ口で渡す。省略 = 空（発火は値なしでも止めない） */
+  /** ランのコンテキストの初期値（3.15）。手動▶のラン作成フォーム・MCP trigger_run・
+   *  外部システムの curl が同じ口で渡す。省略 = 空（値なしでもラン作成は止めない） */
   context: z.record(z.string(), z.string()).optional(),
 });
 
-/** トリガーノードを発火し、その group ページでランを作成する。トリガーのスレッドへ
- *  「発火: <run.title>」を payload {runId} 付きで記録する */
-app.post("/api/nodes/:id/fire", async (c) => {
+/** トリガーノードからランを1本作り、その group ページへ置く。トリガーのスレッドへ
+ *  「ラン: <run.title>」を payload {runId} 付きで記録する */
+app.post("/api/nodes/:id/run", async (c) => {
   const id = c.req.param("id");
   const trigger = graph.get(id);
   const body = await c.req.json().catch(() => ({}));
@@ -1176,20 +1176,20 @@ app.post("/api/nodes/:id/fire", async (c) => {
   }
   const pageId = trigger.group;
   if (!pageId) {
-    throw new GraphError(`trigger node ${trigger.id} has no group (page) to fire into`, 400);
+    throw new GraphError(`trigger node ${trigger.id} has no group (page) to create a run in`, 400);
   }
   const members = graph.state().nodes.filter((n) => n.group === pageId);
   const run = runs.createFromTrigger(pageId, trigger.id, members, {
     title: title ?? defaultRunTitle(),
     via: via ?? "manual",
-    // ページ自身も発火時点スナップショットに含める（当時のページ名まで残す。2026-08-08）
+    // ページ自身もラン作成時点のスナップショットに含める（当時のページ名まで残す。2026-08-08）
     pageNode: graph.has(pageId) ? graph.get(pageId) : null,
     // ランのコンテキストの初期値（3.15）。以降の書き足しは POST /api/runs/:id/context
     context,
   });
   threads.post(trigger.id, {
     kind: "status",
-    body: `発火: ${run.title}`,
+    body: `ラン: ${run.title}`,
     payload: { runId: run.id },
     runId: run.id, // このランのスレッドへ（テンプレートの会話には混ぜない。2026-08-08）
     author: m.actor,
@@ -1200,7 +1200,7 @@ app.post("/api/nodes/:id/fire", async (c) => {
 
 // ---- ラン（実行インスタンス。docs/design.md 3.8） ----
 
-/** 一覧レスポンスから発火時スナップショット（run.snapshot）を落とす。一覧の用途
+/** 一覧レスポンスからラン作成時のスナップショット（run.snapshot）を落とす。一覧の用途
  *  （進捗の点・台帳の表）には要らないうえ、ページ構成まるごと入っていて重い——
  *  左レールは全ページぶんを5秒ごとに引くので、載せると毎回その全部が流れる（2026-08-08）。
  *  当時の中身が要るときは GET /api/runs/:id/graph が返す */
@@ -1231,7 +1231,7 @@ app.get("/api/pages/:id/runs", (c) => {
 /** 配線チェック（ランのコンテキストの静的検査。docs/design.md 3.15。実装は core の
  *  checkWiring）。ページの script ノードの {name} 参照と outputs 宣言を照合し、
  *  参照矢印（破線描画用）と警告バッジ（missing / not-ancestor / branch-dependent /
- *  duplicate）を返す。警告のみで発火は止めない */
+ *  duplicate）を返す。警告のみでラン作成は止めない */
 app.get("/api/pages/:id/wiring", (c) => {
   const id = c.req.param("id");
   graph.get(id); // 404: ページが存在しない
@@ -1376,7 +1376,7 @@ const PatchRunContextSchema = z.object({
 /** ランのコンテキストへ値を merge し、更新後の Run を返す。run ファイル自身は現在値だけを
  *  持つので、「誰がいつ何を書いたか」の監査はノードスレッドへの status メッセージで残す
  *  （nodeId がワークアイテムのノードならラントレース GET /api/runs/:id/trace にも
- *  同じ経路で乗る。トリガーノード宛はトレース対象外＝発火記録と同じ扱い） */
+ *  同じ経路で乗る。トリガーノード宛はトレース対象外＝ラン作成の記録と同じ扱い） */
 app.post("/api/runs/:id/context", async (c) => {
   const runId = c.req.param("id");
   const body = await c.req.json();
@@ -1409,8 +1409,8 @@ app.post("/api/runs/:id/context", async (c) => {
  *
  * テンプレートは共有なので、後から書き換えると過去のランを開いても今の文面しか出ない。
  * 出どころを3段で解決し、ノードごとにどれを使ったかを source に載せて返す:
- *   snapshot = 発火時にランへ焼いた中身（この機能以降のランで最も確か）
- *   replay   = 操作ログを発火時刻まで再生して復元した中身
+ *   snapshot = ラン作成時にランへ焼いた中身（この機能以降のランで最も確か）
+ *   replay   = 操作ログをラン作成時刻まで再生して復元した中身
  *   current  = どちらも無く、現在の中身で代用（当時と違う可能性がある）
  * replay のうち「作られた記録がログに無く、辻褄合わせで後から足された」ノードも
  * 当時の中身は分からないので current と同じ扱い（正直に出す）にする。

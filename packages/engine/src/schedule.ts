@@ -12,7 +12,7 @@
 //     （2026-08-07 追加——人もAIも自然に cron で書くのに未対応で、書いたトリガーが黙って
 //     動かない事故が多発していた。* / 数値 / a-b / */n / a-b/n / カンマ区切りに対応。
 //     判定は「今この分がマッチしているか」なので、その分にエンジンが落ちていた場合の
-//     追い付き発火はしない——every/daily と違い任意条件の遡り計算が高くつくため）
+//     追い付きラン作成はしない——every/daily と違い任意条件の遡り計算が高くつくため）
 
 export const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
@@ -175,8 +175,8 @@ function lastWeeklyOccurrence(weekday: Weekday, hour: number, minute: number, no
  * スケジュールに基づき、今このタイミングで新しいランを生成すべきか判定する（純粋関数）。
  *
  * **実行中のランがあっても判定に影響しない**（2026-08-08 本人指摘「前の Run が終わらないと
- * 次の Run が発火できない不具合」）。旧実装は status=running のランが1本でもあると
- * スケジュール発火を止めていたが、並列ラン（同じルーティーンを複数のランで回す）は
+ * 次の Run がラン作成できない不具合」）。旧実装は status=running のランが1本でもあると
+ * スケジュールラン作成を止めていたが、並列ラン（同じルーティーンを複数のランで回す）は
  * 設計上の前提であり、しかも人間の回答待ち（waiting）のランは長時間 running のままなので、
  * 「定刻に動くはずのルーティーンが黙って動かない」状態が常態化していた。
  * 同じ周期で二重に作らない保証は latestRun ベースの判定（下記）が担う。
@@ -189,7 +189,7 @@ function lastWeeklyOccurrence(weekday: Weekday, hour: number, minute: number, no
  * - "weekly": 対象曜日が今日で、かつ今日の目標時刻をまだ過ぎていない間は false（dailyと同じ理由。
  *   「無ければ即座に生成」にはしない）。それ以外は直近の対象曜日・時刻（必ず now 以前）を求め、
  *   最新ランが無いか、その時刻より前なら true（今週分は trigger を問わず1本で足りる、という判定。
- *   dailyの「同じ暦日か」の代わりに「直近の発火時刻より後か」で判定する）
+ *   dailyの「同じ暦日か」の代わりに「直近のラン作成時刻より後か」で判定する）
  */
 export function shouldCreateScheduledRun(
   schedule: ParsedSchedule,
@@ -212,7 +212,7 @@ export function shouldCreateScheduledRun(
   }
 
   if (schedule.type === "cron") {
-    // 「今この分」がマッチしているときだけ発火。同じ分に2回作らないよう、最新ランが
+    // 「今この分」がマッチしているときだけラン作成。同じ分に2回作らないよう、最新ランが
     // この分の開始以降なら見送る（エンジンは5秒間隔でここを通るため）
     if (!matchesCron(schedule.fields, now)) return false;
     if (!latestRun) return true;

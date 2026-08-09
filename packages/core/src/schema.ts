@@ -16,7 +16,7 @@ export const ViaSchema = z.string().min(1);
 
 /** goal=プロジェクトページ（ノード群のフォルダ） / task=作業 /
  *  decision=分岐ノード（完了時に選択肢を1つ選ぶ。docs/design.md 3.9） /
- *  trigger=起点ノード（Rx の Observable のソース。発火するとそのページ(group)でランが
+ *  trigger=起点ノード（Rx の Observable のソース。ランを作るとそのページ(group)へランが
  *  生成される。docs/design.md 3.4/3.8/3.9。parents を持てない=グラフの起点であることを
  *  構造的に保証する） /
  *  folder=左レールの整理棚（2026-08-05）。ページを束ねるだけの入れ物で、グラフ・実行・
@@ -67,7 +67,7 @@ export type ScriptParam = z.infer<typeof ScriptParamSchema>;
 
 /** ランのコンテキストへの出力宣言（2026-08-09。docs/design.md 3.15）。
  *  「このノードはランのキー name を出力する」の宣言で、値は持たない（値はランの進行中に
- *  run.context へ書かれる）。kind=trigger では発火フォームの項目 / 検知スクリプトの
+ *  run.context へ書かれる）。kind=trigger ではラン作成フォームの項目 / 検知スクリプトの
  *  emit 契約になる。ScriptParam と違い value フィールドが無いのが本質的な差
  *  （宣言と値の置き場を分けるのがこの設計の骨子） */
 export const OutputParamSchema = z.object({
@@ -151,7 +151,7 @@ export const NodeSchema = z.object({
   order: z.number().nullable().default(null),
   kind: NodeKindSchema,
   executor: ExecutorSchema,
-  /** 実行前承認（trigger では発火前承認）。true = 実行の直前に人間の承認ゲートを通る。
+  /** 実行前承認（trigger ではラン前承認）。true = 実行の直前に人間の承認ゲートを通る。
    *  旧名 impact("safe"|"irreversible")（2026-08-03 改名。impl と紛らわしい・
    *  「承認ゲートの有無」の実態と名前がズレていた・判断リクエストの impact と同名衝突、
    *  の3点を解消。旧データは *CompatSchema の読み替えレイヤで受ける） */
@@ -174,16 +174,16 @@ export const NodeSchema = z.object({
    *  UI・エンジンはこれの有無から waiting 表示/実行除外を導出する */
   pendingRequest: z.string().nullable(),
   /** kind=trigger 用の起動方式記述（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等）。
-   *  executor=script なら cron 的な発火判定にそのまま使う。executor=ai なら「AIに発火要否を
+   *  executor=script なら cron 的なラン作成の判定にそのまま使う。executor=ai なら「AIにラン作成の要否を
    *  判定させる間隔」として使う（every系のみ解釈、無指定は既定1時間）。executor=human では
-   *  使わない（手動発火のみ）。書式は自由文字列で、パースできないものは無視される */
+   *  使わない（手動でランを作るのみ）。書式は自由文字列で、パースできないものは無視される */
   schedule: z.string().nullable(),
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個。elseなし・単一選択。docs/design.md 3.9）。
    *  それ以外の kind では null */
   branches: z.array(NodeBranchSchema).nullable().default(null),
   /** 決定済みの枝id（プロジェクト層。kind=decision が完了すると入る）。ラン側は RunItem.choice */
   choice: z.string().nullable().default(null),
-  /** ランのコンテキストへの出力宣言（3.15）。null=宣言なし。trigger では発火フォームの
+  /** ランのコンテキストへの出力宣言（3.15）。null=宣言なし。trigger ではラン作成フォームの
    *  項目 / emit 契約になる。既存データ互換で default null */
   outputs: z.array(OutputParamSchema).nullable().default(null),
   /** 子側: どの親decisionのどの枝から生えるか（親decisionId → 枝id）。
@@ -442,10 +442,10 @@ export const RunStatusSchema = z.enum(["running", "done", "cancelled"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 /**
- * 発火時点のノードの中身（2026-08-08 本人要望「その時のノードの状態を見れるように」）。
+ * ラン作成時点のノードの中身（2026-08-08 本人要望「その時のノードの状態を見れるように」）。
  *
  * テンプレートノードはランをまたいで共有されるため、後からタイトルや手順書を書き換えると
- * 過去のランを見返しても**今の文面**しか出ない。ランの当時を再現できるように、発火時点の
+ * 過去のランを見返しても**今の文面**しか出ない。ランの当時を再現できるように、ラン作成時点の
  * 中身をランへ焼いて残す。id と、後から書き換わりうる表示・実行に関わるフィールドだけを持つ
  * （created/createdBy のような不変値、order/folder のような見せ方だけの値は入れない）。
  */
@@ -463,7 +463,7 @@ export const NodeSnapshotSchema = z.object({
   aiModel: z.string().nullable(),
   aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable(),
   lifecycle: LifecycleSchema,
-  /** 発火時点の**テンプレート**の status（ランの進捗は RunItem.status が持つ） */
+  /** ラン作成時点の**テンプレート**の status（ランの進捗は RunItem.status が持つ） */
   status: StatusSchema,
   fixed: z.boolean(),
   schedule: z.string().nullable(),
@@ -480,17 +480,17 @@ export const RunSchema = z.object({
   /** ランが属するページ(group)のid。既存ランファイルとの互換のためキー名は procedure のまま */
   procedure: z.string(),
   title: z.string().min(1),
-  /** 発火元の記録。"trigger:<triggerノードid>:<via>" の形
+  /** ラン作成元の記録。"trigger:<triggerノードid>:<via>" の形
    *  （via は "manual" / "schedule:<原文>" / "ai" 等の自由文字列） */
   trigger: z.string().min(1),
   status: RunStatusSchema,
   /** テンプレートノード id → ワークアイテム */
   items: z.record(z.string(), RunItemSchema),
-  /** ランのコンテキスト（3.15。2026-08-09）。発火時の初期値が入り、ランの進行中に
+  /** ランのコンテキスト（3.15。2026-08-09）。ラン作成時の初期値が入り、ランの進行中に
    *  ノード（##gw マーカー / 完了フォーム / API）が書き足す。last-write-wins。
    *  旧ランファイル互換で default {} */
   context: z.record(z.string(), z.string()).default({}),
-  /** 発火時点のページ構成（ページ自身 + メンバー全部。トリガーや items に入らないノードも含む）。
+  /** ラン作成時点のページ構成（ページ自身 + メンバー全部。トリガーや items に入らないノードも含む）。
    *  null = この機能より前のラン。その場合は ops.jsonl の再生で当時を復元する
    *  （GraphStore.nodesAt。サーバの GET /api/runs/:id/graph が両者を束ねる） */
   snapshot: z

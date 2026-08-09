@@ -134,7 +134,7 @@ interface Props {
   /** null = テンプレート（設計図）を開く / ラン id = そのランのページへ移る */
   onProjectRun?: (runId: string | null) => void;
   /** ランのページを開いているか（2026-08-08 本人指定「ランは個別ページ」）。
-   *  ここが非 null のとき nodes/pageNode は**そのランのフォーク**（発火時の中身 + ランの進捗）で、
+   *  ここが非 null のとき nodes/pageNode は**そのランのフォーク**（ラン作成時の中身 + ランの進捗）で、
    *  テンプレートの編集（追加・つなぎ替え・並べ替え・名前変更）はできない。
    *  context はそのランのコンテキスト（docs/design.md 3.15。ツールバーのチップに出す） */
   runView?: { id: string; title: string; status: Run["status"]; context: Record<string, string> } | null;
@@ -506,7 +506,7 @@ function GraphViewInner({
         return st === "done" || st === "skipped";
       });
     // ラン内フロンティア（docs/design.md 3.8 投影）: 親の「ランのアイテム」が全部 done|skipped か。
-    // 親がトリガー（ラン内にアイテムを持たない=常に「既に発火済み」）の場合は満たしている扱いにする
+    // 親がトリガー（ラン内にアイテムを持たない=常に「既に作成済み」）の場合は満たしている扱いにする
     const isRunFrontierOf = (n: Node) =>
       !!activeRun &&
       n.parents.every((p) => {
@@ -534,9 +534,9 @@ function GraphViewInner({
             editing: n.id === editingId,
             isTemplate: isRoutine,
             isFrontier: isFrontierOf(n),
-            // トリガーはランのアイテムを持たないが、ラン投影中は「発火済み=完了」として描く
+            // トリガーはランのアイテムを持たないが、ラン投影中は「作成済み=完了」として描く
             // （2026-07-31 本人指示「トリガーも完了になれるように」。ランが存在する時点で
-            // トリガーの仕事=発火は済んでいる）
+            // トリガーの仕事=ラン作成は済んでいる）
             runItem: runItem
               ? { runId: activeRun!.id, status: runItem.status, note: runItem.note }
               : activeRun && n.kind === "trigger"
@@ -544,16 +544,16 @@ function GraphViewInner({
                 : null,
             isRunFrontier: isRunFrontierOf(n),
             inRunPage: !!runView,
-            // 発火フォームのプリフィル: 直近ラン（pageRuns は新しい順）の context（3.15）
+            // ラン作成フォームのプリフィル: 直近ラン（pageRuns は新しい順）の context（3.15）
             lastRunContext: n.kind === "trigger" ? (pageRuns[0]?.context ?? null) : null,
             // 配線チェックの警告（テンプレート表示のときだけ wiring が取れている）
             wiringWarnings: wiringByNode.get(n.id),
-            // 発火の確認文で「並行で増える」ことを伝えるため（2026-08-08）。テンプレート表示
-            // からしか発火できなくなったので、投影中のアイテムでは並走を知れない
+            // ラン作成の確認文で「並行で増える」ことを伝えるため（2026-08-08）。テンプレート表示
+            // からしかランを作れなくなったので、投影中のアイテムでは並走を知れない
             runningRunCount: pageRuns.filter((r) => r.status === "running").length,
             unread,
             onSelect: (id: string) => onSelect(id),
-            // 発火したら生まれたランのページへ移る（2026-08-08 本人指定）
+            // ランを作ったら生まれたランのページへ移る（2026-08-08 本人指定）
             onRunStarted: (runId: string) => onProjectRun?.(runId),
             // ランのページではタイトル編集させない（記録なので。2026-08-08）
             onDoubleClick: (id: string) => {
@@ -1409,12 +1409,12 @@ function GraphViewInner({
               </Button>
             </Hint>
             {/* ランのコンテキストのチップ（docs/design.md 3.15）: このランに載っている引数。
-                発火時の初期値にノードが ##gw / API で書き足していく。全文は native title で開示 */}
+                ランを作るときの初期値にノードが ##gw / API で書き足していく。全文は native title で開示 */}
             {Object.keys(runView.context).length > 0 && (
               <Hint
                 id="run-context"
                 always="ランのコンテキスト"
-                text="このランに載っている引数（key=value）。発火時の初期値に、実行中のノードが書き足していく"
+                text="このランに載っている引数（key=value）。ランを作るときの初期値に、実行中のノードが書き足していく"
               >
                 <span className="flex max-w-[28rem] flex-wrap items-center gap-1">
                   {Object.entries(runView.context).map(([k, v]) => (

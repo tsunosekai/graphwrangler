@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
-import { fireTrigger } from "../lib/fire";
+import { runTrigger } from "../lib/run";
 import { colorOf, displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
 import { HINT_TEXT } from "../lib/hints";
 import { cn } from "../lib/utils";
@@ -109,14 +109,14 @@ export interface NodeCardData {
    *  true のときテンプレートを書き換える操作（計画済みにする等）は出さない——直すべきは
    *  テンプレート側で、ランは起きたことの記録だから */
   inRunPage?: boolean;
-  /** kind=trigger のカードだけが受ける「いま実行中のランの本数」。発火時の確認文で
+  /** kind=trigger のカードだけが受ける「いま実行中のランの本数」。ラン作成時の確認文で
    *  「並行で増える」ことを伝えるのに使う（2026-08-08。ラン表示中は▶を無効にしたので、
    *  投影中のワークアイテムからは並走を知れなくなった） */
   runningRunCount?: number;
   /** runItem 版のフロンティア判定（親の「ランのアイテム」が全部 done|skipped か）。
    *  isFrontier のラン投影版。段階式アクションボタン（着手/完了）の表示条件 */
   isRunFrontier?: boolean;
-  /** 発火フォームのプリフィル: 同じページの直近ランの context（docs/design.md 3.15
+  /** ラン作成フォームのプリフィル: 同じページの直近ランの context（docs/design.md 3.15
    *  「変えたい所だけ直す」）。kind=trigger のカードだけが使う */
   lastRunContext?: Record<string, string> | null;
   /** 配線チェック（GET /pages/:id/wiring）のこのノード宛警告 message 一覧。
@@ -128,7 +128,7 @@ export interface NodeCardData {
    *  出す/出さないの判断は GraphView が一箇所で行う） */
   menu?: NodeMenuActions;
   onSelect: (id: string) => void;
-  /** 手動発火でランが生まれたときに呼ばれる（2026-08-08 本人指定「発火したらそのランの
+  /** 手動でランを作る操作でランが生まれたときに呼ばれる（2026-08-08 本人指定「ランを作ったらそのランの
    *  ページへ移る」）。移動そのものは App が行う */
   onRunStarted?: (runId: string) => void;
   onDoubleClick: (id: string) => void;
@@ -193,15 +193,15 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
     }
   };
 
-  // トリガー手動発火（human executor はこれが唯一の発火経路。script/aiは手動上書きとして使える。
-  // docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）。
-  // フォーム・確認文・トーストは lib/fire.ts が一箇所で持つ（左レールの「発火」・台帳の
+  // トリガー手動でランを作る操作（human executor はこれが唯一のラン作成経路。script/aiは手動上書きとして使える。
+  // docs/design.md 3.8「human = 手動でランを作る操作（トリガー上の▶）」）。
+  // フォーム・確認文・トーストは lib/run.ts が一箇所で持つ（左レールの「ラン作成」・台帳の
   // 開始ボタンと同じもの）。ここは▶の多重押し防止と、生まれたランへの移動だけを持つ
-  const fire = async () => {
+  const createRun = async () => {
     if (firing) return;
     setFiring(true);
     try {
-      const run = await fireTrigger(node, {
+      const run = await runTrigger(node, {
         runningRunCount: data.runningRunCount,
         lastRunContext: data.lastRunContext,
       });
@@ -294,8 +294,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   if (unplanPatch) {
     progressItems.push({ label: "未計画に戻す", run: () => void api.patchNode(node.id, unplanPatch) });
   }
-  // トリガーの「発火」（カードの▶と同じハンドラ）。ラン表示中は▶と同じく出さない
-  const canFire = node.kind === "trigger" && !projecting && !data.inRunPage;
+  // トリガーの「ラン作成」（カードの▶と同じハンドラ）。ラン表示中は▶と同じく出さない
+  const canRun = node.kind === "trigger" && !projecting && !data.inRunPage;
   const descendants = menu ? menu.descendantCount(node.id) : 0;
 
   const card = (
@@ -356,19 +356,19 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           </span>
         </Hint>
       )}
-      {/* 右側のバッジ列: 発火(▶) + Fix（ロック）トグル */}
+      {/* 右側のバッジ列: ラン作成(▶) + Fix（ロック）トグル */}
       <span className="absolute -right-[30px] inset-y-0 flex flex-col items-center justify-center gap-1">
         {node.kind === "trigger" && (
-          // ラン表示中は押せない（2026-08-08 本人指定「既に押した発火はもう押せないように」）。
-          // そのランは発火済みで、ここから作れるのは常に**別の**ランだから紛らわしい。
-          // 新しく始めるのはテンプレート表示（＝ページを開いた既定）と実行一覧の発火ボタンから
+          // ラン表示中は押せない（2026-08-08 本人指定「既に押したラン作成はもう押せないように」）。
+          // そのランは作成済みで、ここから作れるのは常に**別の**ランだから紛らわしい。
+          // 新しく始めるのはテンプレート表示（＝ページを開いた既定）と実行一覧のランボタンから
           // ——並行ランは従来どおり何本でも回せる
           <Hint
             id="fire"
-            always={projecting ? "このランは発火済み" : "手動で開始"}
+            always={projecting ? "このランは作成済み" : "手動でランを作る"}
             text={
               projecting
-                ? "表示中のランはもう発火しています。新しく始めるにはページを開き直す（テンプレート表示）か、実行一覧の発火から"
+                ? "表示中のランはもう作られています。新しく始めるにはページを開き直す（テンプレート表示）か、実行一覧のランから"
                 : HINT_TEXT.fire
             }
           >
@@ -378,10 +378,10 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
               disabled={firing || projecting}
               // disabled にはポインタイベントが来ない＝Hint のツールチップが出ないので、
               // 押せない理由だけは native title で見せる
-              title={projecting ? "このランは発火済み" : undefined}
+              title={projecting ? "このランは作成済み" : undefined}
               onClick={(e) => {
                 e.stopPropagation();
-                void fire();
+                void createRun();
               }}
             >
               <Play className="size-3" />
@@ -505,7 +505,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         {/* 担当×実装の不整合⚠（docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）:
             担当=script なのに impl が script でない=実行すると失敗する。既存の不可逆⚠と
             同じ Icon name="alert" を使い、title で理由を区別する（NodePanel にも同じ警告を出す）。
-            kind=trigger は対象外——トリガーの executor=script は「schedule で発火する」の意味で
+            kind=trigger は対象外——トリガーの executor=script は「schedule でランを作る」の意味で
             あって command 実行ではない（docs/design.md 3.8）ため、impl 不要 */}
         {node.executor === "script" && node.kind !== "trigger" && node.impl?.type !== "script" && (
           <Hint
@@ -530,7 +530,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           </Hint>
         )}
         {/* 配線チェックの警告⚠（docs/design.md 3.15）: このノードの {x} 参照に供給元が無い等。
-            発火は止めない（警告のみ）ので、エラー赤ではなく注意の橙（--attention）で描く */}
+            ラン作成は止めない（警告のみ）ので、エラー赤ではなく注意の橙（--attention）で描く */}
         {(data.wiringWarnings?.length ?? 0) > 0 && (
           <Hint
             id="wiring-warning"
@@ -588,8 +588,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           ))}
         </div>
       )}
-      {/* トリガーの起動方式（docs/design.md 3.8）。script=cron的な発火条件、ai=発火要否を判定させる間隔。
-          human はここには何も出さない（▶ボタンが唯一の発火経路のため） */}
+      {/* トリガーの起動方式（docs/design.md 3.8）。script=cron的なランを作る条件、ai=ラン作成要否を判定させる間隔。
+          human はここには何も出さない（▶ボタンが唯一のラン作成経路のため） */}
       {node.kind === "trigger" && node.executor === "script" && (
         <div className="mt-1.5 text-xs">
           {node.schedule ? (
@@ -691,8 +691,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             {item.label}
           </ContextMenuItem>
         ))}
-        {canFire && <ContextMenuItem onSelect={() => void fire()}>発火</ContextMenuItem>}
-        {(progressItems.length > 0 || canFire) && <ContextMenuSeparator />}
+        {canRun && <ContextMenuItem onSelect={() => void createRun()}>ラン</ContextMenuItem>}
+        {(progressItems.length > 0 || canRun) && <ContextMenuSeparator />}
         <ContextMenuItem
           // 未読が無いときは押しても意味が無いだけなので disabled（非表示にはしない）
           disabled={!menu.hasUnread(node.id)}

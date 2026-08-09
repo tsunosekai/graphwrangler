@@ -1,13 +1,13 @@
-// トリガーの手動発火（docs/design.md 3.8「human = 手動発火（トリガー上の▶）」）を、
+// トリガーから手動でランを作る操作（docs/design.md 3.8「human = 手動でランを作る（トリガー上の▶）」）を、
 // 呼び出し口をまたいで1箇所に置いたもの。カードの▶（NodeCard）・左レールのページ行の
-// 右クリックメニュー（PageList）・台帳の発火ボタン（LedgerView）で**同じフォーム・同じ
+// 右クリックメニュー（PageList）・台帳のランボタン（LedgerView）で**同じフォーム・同じ
 // 確認文**にするため——挙動が二重管理になると「▶ではプリフィルされるのにメニューでは
 // されない」といったズレが出る。
 //
 // フォームの規約（docs/design.md 3.15）:
-// - 入力欄はトリガーの outputs 宣言から作る。**必須にしない**（全部空でも発火できる）
+// - 入力欄はトリガーの outputs 宣言から作る。**必須にしない**（全部空でもランは作れる）
 // - 直近ランの context をプリフィルし、変えたい所だけ直す
-// - キャンセル（null）で発火自体を中止する（▶連打の幽霊ラン防止も兼ねる）
+// - キャンセル（null）でラン作成自体を中止する（▶連打の幽霊ラン防止も兼ねる）
 import type { Node, Run } from "../types";
 import { api } from "./api";
 import { formDialog } from "./dialogs";
@@ -20,10 +20,10 @@ export interface FireOptions {
   lastRunContext?: Record<string, string> | null;
 }
 
-/** 発火フォームを出して api.fireTrigger まで通す。キャンセル・失敗はどちらも null を返す
+/** ラン作成フォームを出して api.runTrigger まで通す。キャンセル・失敗はどちらも null を返す
  *  （失敗のトーストは api() 側で出ている）。成功したら生まれたランを返すので、
  *  呼び出し側は「そのランのページへ移る」等の後始末だけを持てばよい */
-export async function fireTrigger(trigger: Node, opts: FireOptions = {}): Promise<Run | null> {
+export async function runTrigger(trigger: Node, opts: FireOptions = {}): Promise<Run | null> {
   const running = opts.runningRunCount ?? 0;
   const res = await formDialog(
     running > 0
@@ -38,7 +38,7 @@ export async function fireTrigger(trigger: Node, opts: FireOptions = {}): Promis
   );
   if (res === null) return null;
   try {
-    const run = await api.fireTrigger(trigger.id, {
+    const run = await api.runTrigger(trigger.id, {
       title: res.title.trim() || undefined,
       // 空欄の欄は formDialog 側で落ちている。1個も無ければキー自体送らない
       ...(Object.keys(res.values).length > 0 ? { context: res.values } : {}),

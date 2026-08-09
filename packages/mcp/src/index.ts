@@ -150,8 +150,8 @@ server.registerTool(
       detail: z.string().nullable().optional().describe("補足・文脈"),
       kind: NodeKindSchema.optional().describe(
         "goal=プロジェクトページ(ルート意図) / task=作業 / decision=分岐ノード(branchesが必要) / " +
-          "trigger=起点ノード(parentsを持てない。schedule+executorで発火方式を決める。発火は " +
-          "trigger_fire)。既定 task",
+          "trigger=起点ノード(parentsを持てない。schedule+executorでラン作成の方式を決める。作成は " +
+          "trigger_run)。既定 task",
       ),
       executor: ExecutorSchema.optional().describe("誰にディスパッチするか。既定 human"),
       approval: z.boolean().optional().describe("実行前承認。true=実行の直前に人間の承認ゲートを通す（不可逆な外部副作用がある作業など）。既定 false"),
@@ -180,7 +180,7 @@ server.registerTool(
       ),
       outputs: z.array(OutputParamSchema).nullable().optional().describe(
         "ランのコンテキストへの出力宣言 [{name, label?, example?}]（design.md 3.15）。" +
-          "trigger では発火フォームの項目 / 検知スクリプトの emit 契約になる。既定 null",
+          "trigger ではラン作成フォームの項目 / 検知スクリプトの emit 契約になる。既定 null",
       ),
     },
   },
@@ -298,25 +298,25 @@ server.registerTool(
   ),
 );
 
-// ---- 10. trigger_fire ----
-// トリガーノード（kind=trigger）を手動発火する。docs/design.md 3.4/3.8/3.9。
+// ---- 10. trigger_run ----
+// トリガーノード（kind=trigger）から手動でランを1本作る。docs/design.md 3.4/3.8/3.9。
 // run=ページから生成される1回分の実行インスタンス（ワークアイテムごとに進捗状態を持つ）。
 
 server.registerTool(
-  "trigger_fire",
+  "trigger_run",
   {
     description:
-      "トリガーノード（kind=trigger）を手動発火し、その group（所属ページ）でランを1本作成する。" +
+      "トリガーノード（kind=trigger）から手動でランを1本作り、その group（所属ページ）へ置く。" +
       "対象ノードが kind=trigger でない、または group（所属ページ）が無い場合は失敗する。" +
       "ワークアイテムはトリガーの子孫（parentsを辿って到達可能なメンバー。lifecycleを問わず" +
       "items に入るが、実行されるのは lifecycle=committed のみ）。" +
       "context はこのランの初期コンテキスト（ランのコンテキスト。3.15）。トリガーの outputs 宣言が" +
-      "発火フォーム項目/emit契約に相当し、そこで挙がっているキーを渡すとよいが必須ではない" +
-      "（空でも発火できる。値は下流のノードが確定させる設計もあるため）。作成されたランを返す" +
+      "ラン作成フォームの項目/emit契約に相当し、そこで挙がっているキーを渡すとよいが必須ではない" +
+      "（空でもランは作れる。値は下流のノードが確定させる設計もあるため）。作成されたランを返す" +
       "（run.context に反映される）。",
     inputSchema: {
-      nodeId: z.string().describe("発火させるトリガーノードid（kind=trigger）"),
-      via: z.string().min(1).optional().describe("発火理由の自由文字列。省略時はサーバ既定の \"manual\""),
+      nodeId: z.string().describe("ランを作るトリガーノードid（kind=trigger）"),
+      via: z.string().min(1).optional().describe("ラン作成の理由の自由文字列。省略時はサーバ既定の \"manual\""),
       context: z
         .record(z.string(), z.string())
         .optional()
@@ -324,7 +324,7 @@ server.registerTool(
     },
   },
   safe(async ({ nodeId, ...rest }: { nodeId: string; [key: string]: unknown }) =>
-    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/fire`, withMeta(rest)),
+    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/run`, withMeta(rest)),
   ),
 );
 
@@ -413,7 +413,7 @@ server.registerTool(
       "ラン1件の全フィールドを取得する: procedure(属するページのid)・title・trigger・status(running/done/cancelled)・" +
       "items（テンプレートノードid→{status,note,choice,resolvedParams}の全件。resolvedParams は script" +
       "実行時に解決された{name:値}で未実行なら null）・context（run.context。3.15。Record<string,string>。" +
-      "発火時の初期値+ノードが書き足した現在値）・created。runId は run_list / trigger_fire から得る。",
+      "ラン作成時の初期値+ノードが書き足した現在値）・created。runId は run_list / trigger_run から得る。",
     inputSchema: { runId: z.string().describe("取得したいランid") },
   },
   safe(async ({ runId }: { runId: string }) => apiGet(`/api/runs/${encodeURIComponent(runId)}`)),

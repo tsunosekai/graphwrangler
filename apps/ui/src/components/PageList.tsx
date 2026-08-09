@@ -47,7 +47,7 @@ import {
 import { api } from "../lib/api";
 import { focusGoalCapture } from "../lib/capture";
 import { confirmDialog, confirmWithAltDialog, promptDialog } from "../lib/dialogs";
-import { fireTrigger } from "../lib/fire";
+import { runTrigger } from "../lib/run";
 import { HINT_TEXT } from "../lib/hints";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { moveWithin, railPatches, sortRail } from "../lib/rail";
@@ -101,7 +101,7 @@ interface Props {
    *  既読の送信（postReads）は投げっぱなしなので、これを呼ばないと右クリックの
    *  「既読にする」でバッジが消えるのが次のポーリングまで遅れる */
   onViewed: (key: string, lastTs: string | null) => void;
-  /** ラン一覧（App が5秒ごとに引く /runs/summary）の取り直し。発火・ラン名の変更・
+  /** ラン一覧（App が5秒ごとに引く /runs/summary）の取り直し。ラン作成・ラン名の変更・
    *  キャンセルの直後に呼ぶ（ノード側の onMutated ではランは更新されない） */
   onRunsMutated: () => void;
 }
@@ -266,7 +266,7 @@ export function PageList({
   // （2026-08-09 本人報告の不具合の修正）: 以前はルーティーンを「常にアクティブ扱い」として
   // 除外していたため、完了にしたルーティーンがルーティーン節に居座り、アーカイブへ行かず、
   // 右クリックにも出し入れが出ない行き止まりになっていた（さらにエンジンは所属ページの
-  // status を見ないので裏で発火し続けていた——engine の isClosedPage で併せて止めた）。
+  // status を見ないので裏でラン作成し続けていた——engine の isClosedPage で併せて止めた）。
   // 「繰り返しには終わりが無い」のは既定の話で、人が終いだと宣言したものまで
   // 畳めなくする理由にはならない
   const isArchivedPage = (f: Node) => f.status === "done" || f.status === "dropped";
@@ -594,15 +594,15 @@ export function PageList({
     }
   };
 
-  /** 発火（ルーティーンページのトリガー）。フォームと確認文は lib/fire.ts に集約してあり、
+  /** ラン作成（ルーティーンページのトリガー）。フォームと確認文は lib/run.ts に集約してあり、
    *  カードの▶と同じものが出る。生まれたランのページへはラン子行クリックと同じ経路で移る */
   const firingRef = useRef(false);
-  const firePage = async (f: Node, trigger: Node) => {
+  const runPage = async (f: Node, trigger: Node) => {
     if (firingRef.current) return; // 連打の幽霊ラン防止（カードの▶の firing と同じ役目）
     firingRef.current = true;
     try {
       const runs = pageRuns[f.id] ?? [];
-      const run = await fireTrigger(trigger, {
+      const run = await runTrigger(trigger, {
         runningRunCount: runs.filter((r) => r.status === "running").length,
         lastRunContext: runs[0]?.context ?? null,
       });
@@ -651,7 +651,7 @@ export function PageList({
   const rowDragHandlers = (st: DragState) => ({
     onPointerDown: (e: React.PointerEvent) => {
       if (e.pointerType !== "mouse" || e.button !== 0) return;
-      e.preventDefault(); // ドラッグ中に行のテキストが選択されるのを防ぐ（click はこれでも発火する）
+      e.preventDefault(); // ドラッグ中に行のテキストが選択されるのを防ぐ（click はこれでもランを作る）
       pressRef.current = { st, x: e.clientX, y: e.clientY };
     },
     onPointerMove: (e: React.PointerEvent) => {
@@ -746,7 +746,7 @@ export function PageList({
    *  ページ数 × ラン数ぶん全ノードを走ることになる） */
   const renderRunRow = (f: Node, r: Run, pageKeys: string[]) => {
     // このランで未読のノード数。ワークアイテム（トリガーの子孫）だけでなく**ページの全ノード**
-    // を見る——「発火」の記録はトリガーのスレッドに載り、トリガーは items に入らないため
+    // を見る——「ラン作成」の記録はトリガーのスレッドに載り、トリガーは items に入らないため
     const runUnread = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)].filter(
       (id) => isUnread(id, r.id),
     ).length;
@@ -907,7 +907,7 @@ export function PageList({
     const effMembers = teamEnabled ? effectiveMembers(f, allNodes) : [];
 
     // ---- 右クリックメニューの材料（2026-08-09） ----
-    // 発火先のトリガー（台帳と同じ created 昇順）。ルーティーン = トリガーを持つページ
+    // ラン作成の対象のトリガー（台帳と同じ created 昇順）。ルーティーン = トリガーを持つページ
     const triggers = routine
       ? allNodes
           .filter((n) => n.group === f.id && n.kind === "trigger")
@@ -1060,21 +1060,21 @@ export function PageList({
           >
             <CheckCheck className="size-3.5" /> 既読にする
           </ContextMenuItem>
-          {/* 発火はルーティーン（トリガーを持つページ）だけ。トリガーが複数あるページでは
-              どれを発火するか選ばせる（カードの▶と同じフォームが出る） */}
+          {/* ラン作成はルーティーン（トリガーを持つページ）だけ。トリガーが複数あるページでは
+              どれをランを作るか選ばせる（カードの▶と同じフォームが出る） */}
           {triggers.length === 1 && (
-            <ContextMenuItem onSelect={() => void firePage(f, triggers[0])}>
-              <Play className="size-3.5" /> 発火
+            <ContextMenuItem onSelect={() => void runPage(f, triggers[0])}>
+              <Play className="size-3.5" /> ラン
             </ContextMenuItem>
           )}
           {triggers.length > 1 && (
             <ContextMenuSub>
               <ContextMenuSubTrigger>
-                <Play className="size-3.5" /> 発火
+                <Play className="size-3.5" /> ラン
               </ContextMenuSubTrigger>
               <ContextMenuSubContent>
                 {triggers.map((t) => (
-                  <ContextMenuItem key={t.id} onSelect={() => void firePage(f, t)}>
+                  <ContextMenuItem key={t.id} onSelect={() => void runPage(f, t)}>
                     {t.title || "（無題）"}
                   </ContextMenuItem>
                 ))}
@@ -1111,7 +1111,7 @@ export function PageList({
           )}
           {/* アーカイブは status からの導出（done|dropped = アーカイブ節）。ルーティーンにも
               出す（2026-08-09。以前は「常にアクティブ扱い」で隠していたが、完了にした
-              ルーティーンを畳む手段が無くなっていた）。アーカイブすると発火も止まる */}
+              ルーティーンを畳む手段が無くなっていた）。アーカイブするとラン作成も止まる */}
           {archived ? (
             <ContextMenuItem onSelect={() => void setPageArchived(f, false)}>
               <ArchiveRestore className="size-3.5" /> 元に戻す

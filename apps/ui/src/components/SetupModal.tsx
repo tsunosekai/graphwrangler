@@ -198,7 +198,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
 
   const [saving, setSaving] = useState(false);
 
-  // あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際の発火は App 側）
+  // あなたの番が来たらデスクトップ通知（localStorage gw.notify。実際のラン作成は App 側）
   const [notifyEnabled, setNotifyEnabled] = useState(() => localStorage.getItem("gw.notify") === "1");
 
   // Discord Webhook 通知（2026-08-07。こちらはサーバ設定＝タブを閉じていても届く）。

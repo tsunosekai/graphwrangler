@@ -24,7 +24,7 @@ export interface PromptOptions {
   confirmLabel?: string;
 }
 
-/** 任意入力フォーム（発火フォーム・human 完了ミニフォーム。docs/design.md 3.15）の1欄。
+/** 任意入力フォーム（ラン作成フォーム・human 完了ミニフォーム。docs/design.md 3.15）の1欄。
  *  Node.outputs の宣言（name/label/example）と同形——label をラベル、example をプレースホルダに使う */
 export interface FormFieldDecl {
   name: string;
@@ -92,7 +92,7 @@ export function promptDialog(message: string, opts: PromptOptions = {}): Promise
   });
 }
 
-/** 複数欄の任意入力フォーム（docs/design.md 3.15: 発火フォーム / human 完了ミニフォーム）。
+/** 複数欄の任意入力フォーム（docs/design.md 3.15: ラン作成フォーム / human 完了ミニフォーム）。
  *  全欄が任意＝空のまま OK できる。OK で FormResult、キャンセル/閉じるで null */
 export function formDialog(message: string, opts: FormOptions): Promise<FormResult | null> {
   return new Promise((resolve) => {

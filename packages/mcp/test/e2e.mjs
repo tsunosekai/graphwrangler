@@ -157,7 +157,7 @@ try {
       "message_post",
       "request_open",
       "request_answer",
-      "trigger_fire",
+      "trigger_run",
       "run_list",
       "run_get",
       "run_item_patch",
@@ -356,9 +356,9 @@ try {
     memberId = node.id;
   });
 
-  await step("tools/call trigger_fire", async () => {
+  await step("tools/call trigger_run", async () => {
     const run = toolResultJson(
-      await rpc("tools/call", { name: "trigger_fire", arguments: { nodeId: triggerId } }),
+      await rpc("tools/call", { name: "trigger_run", arguments: { nodeId: triggerId } }),
     );
     assert.equal(run.procedure, pageId);
     assert.equal(run.status, "running");
@@ -405,7 +405,7 @@ try {
 
   await step("tools/call run_cancel (2本目のランを中断)", async () => {
     const secondRun = toolResultJson(
-      await rpc("tools/call", { name: "trigger_fire", arguments: { nodeId: triggerId } }),
+      await rpc("tools/call", { name: "trigger_run", arguments: { nodeId: triggerId } }),
     );
     const cancelled = toolResultJson(
       await rpc("tools/call", { name: "run_cancel", arguments: { runId: secondRun.id } }),

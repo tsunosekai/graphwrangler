@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AI_CHECK_INTERVAL_MS,
-  FIRE_GATE_MARKER,
-  buildFireApprovalRequest,
+  RUN_GATE_MARKER,
+  buildRunApprovalRequest,
   buildTriggerPrompt,
-  describeFireEvent,
-  findFireGate,
-  findLatestFireEvent,
-  fireBaseline,
+  describeRunEvent,
+  findRunGate,
+  findLatestRunEvent,
+  runBaseline,
   hasUnconsumedGo,
   isClosedPage,
   isDetectScriptTrigger,
-  isFireableTrigger,
-  parseAiFireDecision,
+  isRunnableTrigger,
+  parseAiRunDecision,
   parseDetectEmitLines,
   resolveAiCheckIntervalMs,
   shouldEvaluateAiTrigger,
-  shouldFireScriptTrigger,
+  shouldRunScriptTrigger,
   shouldRunDetectScript,
-  type FireGateState,
+  type RunGateState,
 } from "../src/trigger.js";
 import type { Message, Node } from "../src/types.js";
 
@@ -59,21 +59,21 @@ function node(partial: Partial<Node> = {}): Node {
   };
 }
 
-describe("isFireableTrigger", () => {
+describe("isRunnableTrigger", () => {
   it("kind=trigger かつ lifecycle=committed のみ対象", () => {
-    expect(isFireableTrigger(node({ kind: "trigger", lifecycle: "committed" }))).toBe(true);
-    expect(isFireableTrigger(node({ kind: "trigger", lifecycle: "draft" }))).toBe(false);
-    expect(isFireableTrigger(node({ kind: "task", lifecycle: "committed" }))).toBe(false);
+    expect(isRunnableTrigger(node({ kind: "trigger", lifecycle: "committed" }))).toBe(true);
+    expect(isRunnableTrigger(node({ kind: "trigger", lifecycle: "draft" }))).toBe(false);
+    expect(isRunnableTrigger(node({ kind: "task", lifecycle: "committed" }))).toBe(false);
   });
 });
 
 describe("isClosedPage", () => {
-  it("完了/中止のページは終い（トリガーを発火させない）", () => {
+  it("完了/中止のページは終い（トリガーからランを作らせない）", () => {
     expect(isClosedPage(node({ kind: "goal", status: "done" }))).toBe(true);
     expect(isClosedPage(node({ kind: "goal", status: "dropped" }))).toBe(true);
   });
 
-  it("進行中のページと、ページが取れないときは従来どおり発火させる", () => {
+  it("進行中のページと、ページが取れないときは従来どおりランを作らせる", () => {
     expect(isClosedPage(node({ kind: "goal", status: "pending" }))).toBe(false);
     expect(isClosedPage(node({ kind: "goal", status: "running" }))).toBe(false);
     expect(isClosedPage(null)).toBe(false);
@@ -81,30 +81,30 @@ describe("isClosedPage", () => {
   });
 });
 
-// 1. script発火判定の流用（schedule.ts の parseSchedule/shouldCreateScheduledRunをそのまま使う）
-describe("shouldFireScriptTrigger: script発火判定の流用", () => {
-  it("schedule文字列が無ければnull（発火判定できない）", () => {
-    expect(shouldFireScriptTrigger(null, null, new Date())).toBeNull();
+// 1. script のラン作成判定の流用（schedule.ts の parseSchedule/shouldCreateScheduledRunをそのまま使う）
+describe("shouldRunScriptTrigger: script のラン作成判定の流用", () => {
+  it("schedule文字列が無ければnull（ラン作成の判定ができない）", () => {
+    expect(shouldRunScriptTrigger(null, null, new Date())).toBeNull();
   });
 
   it("未対応の書式はnull", () => {
-    expect(shouldFireScriptTrigger("every 15", null, new Date())).toBeNull();
+    expect(shouldRunScriptTrigger("every 15", null, new Date())).toBeNull();
   });
 
   it("'every 15m'で最新ランが無ければtrue（schedule.tsのshouldCreateScheduledRunと同じ判定）", () => {
     const now = new Date("2026-01-01T00:20:00Z");
-    expect(shouldFireScriptTrigger("every 15m", null, now)).toBe(true);
+    expect(shouldRunScriptTrigger("every 15m", null, now)).toBe(true);
   });
 
   it("経過時間がN未満ならfalse", () => {
     const latestRun = { created: "2026-01-01T00:10:00Z" };
     const now = new Date("2026-01-01T00:20:00Z"); // 10分経過 < 15分
-    expect(shouldFireScriptTrigger("every 15m", latestRun, now)).toBe(false);
+    expect(shouldRunScriptTrigger("every 15m", latestRun, now)).toBe(false);
   });
 
-  it("実行中ランがあっても定刻ぶんは発火する（2026-08-08 修正。旧仕様では常にfalseだった）", () => {
+  it("実行中ランがあっても定刻ぶんはランを作る（2026-08-08 修正。旧仕様では常にfalseだった）", () => {
     const now = new Date("2026-01-01T00:20:00Z");
-    expect(shouldFireScriptTrigger("every 15m", null, now)).toBe(true);
+    expect(shouldRunScriptTrigger("every 15m", null, now)).toBe(true);
   });
 });
 
@@ -165,7 +165,7 @@ describe("parseDetectEmitLines: emit 行のパース", () => {
     expect(r.invalidLines).toEqual([]);
   });
 
-  it("空出力は発火なし", () => {
+  it("空出力はラン作成なし", () => {
     expect(parseDetectEmitLines("")).toEqual({ events: [], invalidLines: [] });
   });
 
@@ -175,7 +175,7 @@ describe("parseDetectEmitLines: emit 行のパース", () => {
     expect(r.invalidLines).toHaveLength(3);
   });
 
-  it("context も title も無い {} は空イベントとして発火できる（値は下流が確定させる設計もある）", () => {
+  it("context も title も無い {} は空イベントとしてランを作れる（値は下流が確定させる設計もある）", () => {
     expect(parseDetectEmitLines("{}").events).toEqual([{ context: {}, title: null }]);
   });
 
@@ -185,12 +185,12 @@ describe("parseDetectEmitLines: emit 行のパース", () => {
   });
 });
 
-describe("describeFireEvent", () => {
+describe("describeRunEvent", () => {
   it("title と context を人間向けの1行にする", () => {
-    expect(describeFireEvent({ context: { a: "1" }, title: "作品A" })).toBe("作品A（a=1）");
-    expect(describeFireEvent({ context: {}, title: "作品A" })).toBe("作品A");
-    expect(describeFireEvent({ context: { a: "1", b: "2" }, title: null })).toBe("a=1, b=2");
-    expect(describeFireEvent({ context: {}, title: null })).toBe("(内容なし)");
+    expect(describeRunEvent({ context: { a: "1" }, title: "作品A" })).toBe("作品A（a=1）");
+    expect(describeRunEvent({ context: {}, title: "作品A" })).toBe("作品A");
+    expect(describeRunEvent({ context: { a: "1", b: "2" }, title: null })).toBe("a=1, b=2");
+    expect(describeRunEvent({ context: {}, title: null })).toBe("(内容なし)");
   });
 });
 
@@ -225,28 +225,33 @@ describe("resolveAiCheckIntervalMs / shouldEvaluateAiTrigger: aiチェック間�
   });
 });
 
-// 3. fire/skip パース
-describe("parseAiFireDecision: fire/skipパース", () => {
+// 3. run/skip パース
+describe("parseAiRunDecision: run/skipパース", () => {
   it("完全一致(大文字小文字無視)", () => {
-    expect(parseAiFireDecision("fire")).toBe("fire");
-    expect(parseAiFireDecision("SKIP")).toBe("skip");
+    expect(parseAiRunDecision("run")).toBe("run");
+    expect(parseAiRunDecision("SKIP")).toBe("skip");
   });
 
   it("前後の空白・改行は無視する", () => {
-    expect(parseAiFireDecision("  fire  \n")).toBe("fire");
+    expect(parseAiRunDecision("  run  \n")).toBe("run");
   });
 
   it("前後に説明が付いた複数行でも、行単位で一致すれば拾う", () => {
-    expect(parseAiFireDecision("検討した結果\nfire\nとします")).toBe("fire");
+    expect(parseAiRunDecision("検討した結果\nrun\nとします")).toBe("run");
   });
 
-  it("fire/skipのどちらでもない出力はnull（不正出力）", () => {
-    expect(parseAiFireDecision("わかりません")).toBeNull();
-    expect(parseAiFireDecision("")).toBeNull();
+  it("旧トークン fire も run として受ける（2026-08-09 の語彙統一。手順書に残った書き方で黙らない）", () => {
+    expect(parseAiRunDecision("fire")).toBe("run");
+    expect(parseAiRunDecision("検討した結果\nfire\nとします")).toBe("run");
+  });
+
+  it("run/skipのどちらでもない出力はnull（不正出力）", () => {
+    expect(parseAiRunDecision("わかりません")).toBeNull();
+    expect(parseAiRunDecision("")).toBeNull();
   });
 });
 
-// ---- 発火前承認（approval=true のトリガー） ----
+// ---- ラン前承認（approval=true のトリガー） ----
 
 function gateRequest(id: string, ts: string, answered: string | null = null): Message {
   return {
@@ -256,7 +261,7 @@ function gateRequest(id: string, ts: string, answered: string | null = null): Me
     author: { kind: "agent", name: "engine" },
     via: "engine",
     kind: "decision_request",
-    body: `開始していいですか？ ${FIRE_GATE_MARKER}`,
+    body: `開始していいですか？ ${RUN_GATE_MARKER}`,
     runId: null,
     payload: null,
     ...(answered
@@ -279,17 +284,17 @@ function gateAnswer(id: string, requestId: string, option: string | null, ts: st
   };
 }
 
-describe("buildFireApprovalRequest", () => {
+describe("buildRunApprovalRequest", () => {
   it("go/skip の2択・リクエストimpact=irreversible・question にマーカーを含む", () => {
-    const req = buildFireApprovalRequest({ title: "毎週月曜9時", detail: null });
+    const req = buildRunApprovalRequest({ title: "毎週月曜9時", detail: null });
     expect(req.options.map((o) => o.id)).toEqual(["go", "skip"]);
     expect(req.impact).toBe("irreversible");
-    expect(req.question).toContain(FIRE_GATE_MARKER);
+    expect(req.question).toContain(RUN_GATE_MARKER);
     expect(req.context).toContain("毎週月曜9時");
   });
 
   it("検知イベントがあれば内容を文面に含める（機械可読な本体は payload.fireEvent 側）", () => {
-    const req = buildFireApprovalRequest(
+    const req = buildRunApprovalRequest(
       { title: "新着検知", detail: null },
       { context: { remix: "RMX-1" }, title: "作品A" },
     );
@@ -299,8 +304,8 @@ describe("buildFireApprovalRequest", () => {
   });
 });
 
-describe("findLatestFireEvent: 承認カードに対応する検知イベントの復元", () => {
-  function fireEventMessage(id: string, ts: string, fireEvent: unknown): Message {
+describe("findLatestRunEvent: 承認カードに対応する検知イベントの復元", () => {
+  function runEventMessage(id: string, ts: string, fireEvent: unknown): Message {
     return {
       id,
       node: "n-t",
@@ -316,32 +321,32 @@ describe("findLatestFireEvent: 承認カードに対応する検知イベント�
 
   it("payload.fireEvent 付きの最新メッセージから復元する", () => {
     const msgs = [
-      fireEventMessage("m-1", "2026-01-01T00:00:00Z", { context: { a: "1" }, title: "古い" }),
-      fireEventMessage("m-2", "2026-01-02T00:00:00Z", { context: { a: "2" }, title: "新しい" }),
+      runEventMessage("m-1", "2026-01-01T00:00:00Z", { context: { a: "1" }, title: "古い" }),
+      runEventMessage("m-2", "2026-01-02T00:00:00Z", { context: { a: "2" }, title: "新しい" }),
     ];
-    expect(findLatestFireEvent(msgs, null)).toEqual({ context: { a: "2" }, title: "新しい" });
+    expect(findLatestRunEvent(msgs, null)).toEqual({ context: { a: "2" }, title: "新しい" });
   });
 
   it("最新ラン以前の ts のものは消費済みとみなして使わない", () => {
-    const msgs = [fireEventMessage("m-1", "2026-01-01T00:00:00Z", { context: { a: "1" }, title: null })];
-    expect(findLatestFireEvent(msgs, { created: "2026-01-01T01:00:00Z" })).toBeNull();
-    expect(findLatestFireEvent(msgs, { created: "2026-01-01T00:00:00Z" })).toBeNull(); // 同時刻も消費済み
+    const msgs = [runEventMessage("m-1", "2026-01-01T00:00:00Z", { context: { a: "1" }, title: null })];
+    expect(findLatestRunEvent(msgs, { created: "2026-01-01T01:00:00Z" })).toBeNull();
+    expect(findLatestRunEvent(msgs, { created: "2026-01-01T00:00:00Z" })).toBeNull(); // 同時刻も消費済み
   });
 
   it("fireEvent が無ければ null。形が壊れていても null", () => {
-    expect(findLatestFireEvent([], null)).toBeNull();
-    const broken = [fireEventMessage("m-1", "2026-01-01T00:00:00Z", { context: [1, 2] })];
-    expect(findLatestFireEvent(broken, null)).toBeNull();
+    expect(findLatestRunEvent([], null)).toBeNull();
+    const broken = [runEventMessage("m-1", "2026-01-01T00:00:00Z", { context: [1, 2] })];
+    expect(findLatestRunEvent(broken, null)).toBeNull();
   });
 });
 
-describe("findFireGate", () => {
+describe("findRunGate", () => {
   it("マーカー付きリクエストが無ければ none", () => {
-    expect(findFireGate([])).toEqual({ status: "none" });
+    expect(findRunGate([])).toEqual({ status: "none" });
   });
 
   it("open なリクエストがあれば open", () => {
-    expect(findFireGate([gateRequest("m-1", "2026-01-01T00:00:00Z")])).toEqual({ status: "open" });
+    expect(findRunGate([gateRequest("m-1", "2026-01-01T00:00:00Z")])).toEqual({ status: "open" });
   });
 
   it("回答済みなら answered + option + 回答の ts", () => {
@@ -349,7 +354,7 @@ describe("findFireGate", () => {
       gateRequest("m-1", "2026-01-01T00:00:00Z", "m-2"),
       gateAnswer("m-2", "m-1", "go", "2026-01-01T00:05:00Z"),
     ];
-    expect(findFireGate(msgs)).toEqual({ status: "answered", option: "go", ts: "2026-01-01T00:05:00Z" });
+    expect(findRunGate(msgs)).toEqual({ status: "answered", option: "go", ts: "2026-01-01T00:05:00Z" });
   });
 
   it("複数のゲートがあれば最新のものを見る", () => {
@@ -358,47 +363,47 @@ describe("findFireGate", () => {
       gateAnswer("m-2", "m-1", "skip", "2026-01-01T00:05:00Z"),
       gateRequest("m-3", "2026-01-02T00:00:00Z"),
     ];
-    expect(findFireGate(msgs)).toEqual({ status: "open" });
+    expect(findRunGate(msgs)).toEqual({ status: "open" });
   });
 });
 
-describe("fireBaseline: skip をその回の発火とみなす", () => {
-  const skip: FireGateState = { status: "answered", option: "skip", ts: "2026-01-01T09:00:00Z" };
+describe("runBaseline: skip をその回のラン作成とみなす", () => {
+  const skip: RunGateState = { status: "answered", option: "skip", ts: "2026-01-01T09:00:00Z" };
 
   it("skip 回答が最新ランより新しければ skip の ts が基準になる", () => {
-    expect(fireBaseline({ created: "2026-01-01T00:00:00Z" }, skip)).toEqual({
+    expect(runBaseline({ created: "2026-01-01T00:00:00Z" }, skip)).toEqual({
       created: "2026-01-01T09:00:00Z",
     });
   });
 
   it("最新ランの方が新しければランが基準のまま", () => {
-    expect(fireBaseline({ created: "2026-01-02T00:00:00Z" }, skip)).toEqual({
+    expect(runBaseline({ created: "2026-01-02T00:00:00Z" }, skip)).toEqual({
       created: "2026-01-02T00:00:00Z",
     });
   });
 
   it("ランが無くても skip があれば基準になる（every 系の再確認スパム防止）", () => {
-    expect(fireBaseline(null, skip)).toEqual({ created: "2026-01-01T09:00:00Z" });
+    expect(runBaseline(null, skip)).toEqual({ created: "2026-01-01T09:00:00Z" });
   });
 
   it("gate が none/go なら最新ランのまま", () => {
-    expect(fireBaseline(null, { status: "none" })).toBeNull();
-    const go: FireGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
-    expect(fireBaseline({ created: "2026-01-01T00:00:00Z" }, go)).toEqual({
+    expect(runBaseline(null, { status: "none" })).toBeNull();
+    const go: RunGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
+    expect(runBaseline({ created: "2026-01-01T00:00:00Z" }, go)).toEqual({
       created: "2026-01-01T00:00:00Z",
     });
   });
 });
 
-describe("hasUnconsumedGo: go 回答は発火1回で消費される", () => {
-  it("go 回答が最新ランより新しければ未消費（発火してよい）", () => {
-    const go: FireGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
+describe("hasUnconsumedGo: go 回答はラン1本で消費される", () => {
+  it("go 回答が最新ランより新しければ未消費（ランを作ってよい）", () => {
+    const go: RunGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
     expect(hasUnconsumedGo(go, { created: "2026-01-01T00:00:00Z" })).toBe(true);
     expect(hasUnconsumedGo(go, null)).toBe(true);
   });
 
-  it("発火後（最新ランが回答より新しい）は消費済み＝次の周期で改めて承認を求める", () => {
-    const go: FireGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
+  it("ラン作成後（最新ランが回答より新しい）は消費済み＝次の周期で改めて承認を求める", () => {
+    const go: RunGateState = { status: "answered", option: "go", ts: "2026-01-01T09:00:00Z" };
     expect(hasUnconsumedGo(go, { created: "2026-01-01T09:01:00Z" })).toBe(false);
   });
 
@@ -422,13 +427,13 @@ describe("buildTriggerPrompt", () => {
     expect(prompt).toContain("在庫が閾値を割ったら発火");
     expect(prompt).toContain("在庫APIを見て50個未満ならfire");
     expect(prompt).toContain(now.toISOString());
-    expect(prompt).toContain("fire、見送るなら skip");
+    expect(prompt).toContain("run、見送るなら skip");
   });
 
   it("impl=null(会話段)ならdoc全文は含めない", () => {
     const n = node({ title: "起点", detail: null, impl: null });
     const prompt = buildTriggerPrompt(n, new Date("2026-01-01T00:00:00Z"));
-    expect(prompt).not.toContain("発火条件");
+    expect(prompt).not.toContain("ランを作る条件");
   });
 
   it("outputs 宣言があれば ##gw マーカーで context を出せる指示を含める（3.15）", () => {

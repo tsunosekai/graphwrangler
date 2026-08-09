@@ -12,7 +12,7 @@ import {
   renameRunDialog,
 } from "../lib/actions";
 import { api } from "../lib/api";
-import { fireTrigger } from "../lib/fire";
+import { runTrigger } from "../lib/run";
 import { usePolling } from "../hooks/usePolling";
 import { HINT_TEXT } from "../lib/hints";
 import { buildRoute } from "../lib/route";
@@ -45,7 +45,7 @@ interface Props {
   /** 既読の即時反映（App の readOverrides。NodePanel / PageList / グラフと同じもの） */
   onViewed: (key: string, lastTs: string | null) => void;
   onMutated: () => void;
-  /** 発火でランが生まれたときに呼ばれる（そのランのページへ移る。2026-08-08） */
+  /** ランが生まれたときに呼ばれる（そのランのページへ移る。2026-08-08） */
   onRunStarted?: (runId: string) => void;
 }
 
@@ -212,7 +212,7 @@ export function LedgerView({
     setReplaying(true);
   }, [replaying, events.length]);
 
-  // 発火先: メンバー中のトリガーノード（created昇順で最初の1件。docs/design.md 3.8）。
+  // ラン作成の対象: メンバー中のトリガーノード（created昇順で最初の1件。docs/design.md 3.8）。
   // ルーティーンページ ⇔ トリガーを持つページ なので、台帳が出ている時点で必ず存在する
   const triggerNode = useMemo(
     () =>
@@ -226,9 +226,9 @@ export function LedgerView({
     if (!triggerNode) return;
     setStarting(true);
     try {
-      // フォーム（名前 + トリガーの outputs 宣言）・確認文・トーストは lib/fire.ts が持つ
-      // ——カードの▶・左レールの「発火」と同じもの。ここは開始後の後始末だけ
-      const run = await fireTrigger(triggerNode, { lastRunContext: runs[0]?.context });
+      // フォーム（名前 + トリガーの outputs 宣言）・確認文・トーストは lib/run.ts が持つ
+      // ——カードの▶・左レールの「ラン作成」と同じもの。ここは開始後の後始末だけ
+      const run = await runTrigger(triggerNode, { lastRunContext: runs[0]?.context });
       if (!run) return;
       await refreshRuns();
       setSelectedRunId(run.id);
@@ -344,9 +344,9 @@ export function LedgerView({
               title={triggerNode ? undefined : "トリガーがありません"}
               onClick={startRun}
             >
-              {/* 絵はノードの発火ボタン・ラン状態と同じ Play で揃える（2026-08-08） */}
+              {/* 絵はノードのランボタン・ラン状態と同じ Play で揃える（2026-08-08） */}
               <Play className="size-3" />
-              発火
+              ラン作成
             </Button>
           </Hint>
         </div>

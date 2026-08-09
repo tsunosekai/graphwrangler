@@ -1,7 +1,7 @@
 # @graphwrangler/engine
 
 GraphWrangler の常駐実行エンジン。HTTP API（`packages/server`）をポーリングし、
-実行可能なノード（`executor: ai | script`）・トリガーの発火・ランのワークアイテムを
+実行可能なノード（`executor: ai | script`）・トリガーのラン作成・ランのワークアイテムを
 自動で処理する。設計の正は `docs/design.md`（3.4/3.5/3.8/3.9/3.12/3.14/3.15）。
 
 このパッケージは `packages/mcp` と同じ方針で **`packages/server` の実装には依存しない
@@ -69,27 +69,28 @@ cwd をワークスペースルートにし（AI の Read/Grep/Glob がリポジ
 ## やること（1周のループ。`src/index.ts` の `tick()`）
 
 1. `GET /api/state` で全ノードを取得
-2. **トリガー発火判定**（`triggerTick`）: `kind=trigger` かつ `lifecycle=committed` で、
+2. **トリガーのラン判定**（`triggerTick`）: `kind=trigger` かつ `lifecycle=committed` で、
    **所属ページ（group）が終いになっていない**（`isClosedPage` = status が done/dropped
    でない。2026-08-09）ノードを executor 軸で処理する。完了・中止にしたルーティーンは
-   発火が止まり、アーカイブから戻せばまた回り出す
+   ランの作成が止まり、アーカイブから戻せばまた回り出す
    - **script** = cron的な定期実行。`node.schedule`（`every Nm/Nh/Nd` / `daily HH:MM` /
      `weekly dow HH:MM`）を `src/schedule.ts` で判定し、条件を満たせば
-     `POST /api/nodes/:id/fire` で発火する。未対応の書式は無視して警告ログのみ
-   - **ai** = `schedule` を「AIに発火要否を判定させる間隔」として使う（`every` 系のみ解釈、
+     `POST /api/nodes/:id/run` でランを作る。未対応の書式は無視して警告ログのみ
+   - **ai** = `schedule` を「AIにラン作成の要否を判定させる間隔」として使う（`every` 系のみ解釈、
      無指定は既定1時間）。間隔が経過したら `buildTriggerPrompt` を AI に渡し、
-     出力を `fire`/`skip` として解釈する。`fire` ならスレッドへ理由を残して発火、
-     `skip` はエンジンログのみ。チェック時刻はエンジンのメモリ管理
-   - **human** = エンジンは何もしない（手動 `/fire` のみ）
+     出力を `run`/`skip` として解釈する（パーサは旧トークン `fire` も受け付ける）。
+     `run` ならスレッドへ理由を残してランを作り、`skip` はエンジンログのみ。
+     チェック時刻はエンジンのメモリ管理
+   - **human** = エンジンは何もしない（手動 `/run` のみ）
    - 重複防止は最新ランの時刻で行う（every=経過時間 / daily=同じ暦日か /
      weekly=直近の対象時刻より後か)。**実行中ランの有無は見ない**（2026-08-08 に
-     「実行中ランがあれば発火しない」を撤廃。人間の回答待ちで止まっているランがあると
+     「実行中ランがあればランを作らない」を撤廃。人間の回答待ちで止まっているランがあると
      定刻のルーティーンが永久に沈黙していたため。design.md 3.8）
-   - **発火前承認**: `approval=true`（発火前承認）のトリガーは発火の代わりに go/skip の承認カードを
-     トリガーのスレッドへ開き、go 回答の1回だけ発火する（発火すると回答は消費され、次の
-     周期では改めて確認する）。skip はその回の発火とみなして次の周期まで黙る。
-     手動 `/fire` はゲートを通らない（`src/trigger.ts` の `buildFireApprovalRequest` /
-     `findFireGate` / `fireBaseline` / `hasUnconsumedGo`）
+   - **ラン前承認**: `approval=true`（ラン前承認）のトリガーはランを作る代わりに go/skip の承認カードを
+     トリガーのスレッドへ開き、go 回答の1回だけランを作る（ランを作ると回答は消費され、次の
+     周期では改めて確認する）。skip はその回にランを作ったものとみなして次の周期まで黙る。
+     手動 `/run` はゲートを通らない（`src/trigger.ts` の `buildRunApprovalRequest` /
+     `findRunGate` / `runBaseline` / `hasUnconsumedGo`）
 3. **プロジェクト側の実行候補を1件選ぶ**（`src/pick.ts` の `selectAction`。純粋関数）:
    - `lifecycle=committed` / `status=pending` / `executor: ai|script` / `kind=task` /
      frontier（parents が全て done|skipped）
@@ -178,7 +179,7 @@ tool_result が来ていない SubStep は `status:"error"` として拾う）�
 
 ## ランのコンテキスト（docs/design.md 3.15。attribute flow）
 
-ラン層の実行（`executeRunItem`/`executeRunDecisionItem`）では、発火時の初期値+以後の書き足しが
+ラン層の実行（`executeRunItem`/`executeRunDecisionItem`）では、ランを作った時点の初期値+以後の書き足しが
 乗った `run.context`（`Record<string,string>`）を実行に渡す。プロジェクト層（ランが無い実行）
 には渡さない。
 
@@ -207,14 +208,14 @@ tool_result が来ていない SubStep は `status:"error"` として拾う）�
   解釈できない行は `invalidLines` として `status` に記録する（実行自体は成功扱いのまま）
 - **出力宣言（outputs）**: ノードの `outputs:[{name,label?,example?}]` は「このランへ
   このキーを出力する」宣言。ai executor はこの宣言があるとプロンプトへ `##gw` 出力指示を
-  追加する。トリガーの `outputs` は発火フォーム項目/検知スクリプトの emit 契約になる
-  （AIトリガーは判定出力の `##gw` マーカーを発火時の `context` として渡す）
+  追加する。トリガーの `outputs` はラン作成フォーム項目/検知スクリプトの emit 契約になる
+  （AIトリガーは判定出力の `##gw` マーカーをランを作った時点の `context` として渡す）
 - **ラン作業ディレクトリ**（`ensureRunDir`）: ワークスペースモードでのみ
   `<workspaceRoot>/.graphwrangler/runfiles/<runId>` を実行前に作成し `GW_RUN_DIR` として渡す
   （成果物はファイル、context にはパスを載せる設計。3.15）。data-dir モード/作成失敗時は
   `GW_RUN_DIR` を渡さない
-- MCP の `run_context_set`（外部からの書き込み口）・トリガー発火時の初期 `context`
-  （手動▶フォーム/`trigger_fire`/検知スクリプトの emit）についてはこのパッケージの
+- MCP の `run_context_set`（外部からの書き込み口）・トリガーがランを作った時点の初期 `context`
+  （手動▶フォーム/`trigger_run`/検知スクリプトの emit）についてはこのパッケージの
   責務外（`packages/server`/`packages/mcp` 側）だが、同じ `run.context` を介して合流する
 
 ## 安全設計
@@ -231,7 +232,7 @@ tool_result が来ていない SubStep は `status:"error"` として拾う）�
   上記「エンジンAI設定」参照）
 - **`approval=true`（実行前承認）は無条件に実行しない**。承認カードで人間が `go` を選んだ、その1回の
   実行だけを許可する。再実行時は改めて承認を求め直す（「不可逆は毎回確認する」）。
-  トリガーの `approval=true`（発火前承認）も同型
+  トリガーの `approval=true`（ラン前承認）も同型
 - ネットワークI/Oを伴わない判断ロジック（pick / pickRun / approval / decision / decisionRun /
   schedule / trigger / context / params / ask）は全て純粋関数に切り出し、vitest でユニットテストしている
 

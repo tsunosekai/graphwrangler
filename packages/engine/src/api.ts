@@ -113,8 +113,8 @@ export async function listPageRuns(pageId: string): Promise<Run[]> {
   return res.runs;
 }
 
-/** トリガーノード（kind=trigger）を発火する（POST /api/nodes/:id/fire）。そのノードの
- *  group ページで createFromTrigger によりランが1本作られる。opts.via は発火理由の自由文字列
+/** トリガーノード（kind=trigger）からランを1本作る（POST /api/nodes/:id/run）。そのノードの
+ *  group ページで createFromTrigger によりランが1本作られる。opts.via はラン作成の理由の自由文字列
  *  （"manual" / "schedule:<原文>" / "ai" 等。省略時はサーバ側既定の "manual"）で、
  *  この1フィールドが run.trigger の記録とスレッド投稿の帰属(via)の両方に使われる
  *  （他の書き込みAPIのような actor/via 2引数と違い、このエンドポイントは via を1つしか
@@ -122,12 +122,12 @@ export async function listPageRuns(pageId: string): Promise<Run[]> {
  *  実際に踏んだ穴なので、シグネチャで区別する）。
  *  opts.title はラン名、opts.context はランのコンテキストの初期値（docs/design.md 3.15。
  *  検知スクリプトの emit / ai トリガーの ##gw マーカー由来） */
-export async function fireTriggerNode(
+export async function runTriggerNode(
   nodeId: string,
   opts: { via?: string; title?: string; context?: Record<string, string> } = {},
   actor: Actor,
 ): Promise<Run> {
-  return (await request("POST", `/api/nodes/${nodeId}/fire`, {
+  return (await request("POST", `/api/nodes/${nodeId}/run`, {
     ...opts,
     actor,
   })) as Run;
