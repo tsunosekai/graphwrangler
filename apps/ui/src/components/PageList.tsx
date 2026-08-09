@@ -826,10 +826,6 @@ export function PageList({
             ) : (
               <ChevronRight className="size-3" />
             )}
-            {/* 畳んでいる間は総本数を添える（フォルダ行が閉じているときと同じ流儀） */}
-            {!open && runsAll.length > 1 && (
-              <span className="pl-0.5 text-[10px] leading-none">{runsAll.length}</span>
-            )}
           </button>
         </Hint>
         <div
@@ -841,6 +837,13 @@ export function PageList({
         >
           {rows.map((r) => renderRunRow(f, r, pageKeys))}
         </div>
+        {/* 畳んでいる間の総本数。▸ の横ではなくブロックの一番右に出す
+            （2026-08-09 本人指示「数字は必ず一番右」）。展開中は行数で分かるので出さない */}
+        {!open && runsAll.length > 1 && (
+          <span className="mt-1 flex-shrink-0 text-[10px] leading-none text-text-lo">
+            {runsAll.length}
+          </span>
+        )}
       </div>
     );
   };
@@ -966,17 +969,6 @@ export function PageList({
           )}
           {/* 実行中ラン数の「▶ n」バッジは廃止（2026-08-08 本人指示）。ランはこの行の下の
               ラン子行として出し、隠れている本数はドット列の隣の「+n」が示す */}
-          {unreadCount > 0 && (
-            <Hint
-              id="unread"
-              always={`未読メッセージのあるノード ${unreadCount} 件`}
-              text={HINT_TEXT.unread}
-            >
-              <span className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white">
-                {unreadCount}
-              </span>
-            </Hint>
-          )}
           {/* ページ詳細への⚙は廃止（2026-08-06 本人指示「要らない」）。行のクリック自体が
               ページ選択と同時にページ自身のノードを選ぶ（App の onSelectPage）ので、
               タイトル編集・関係者・削除へはそのまま NodePanel が開く。グラフ左上のページ名
@@ -1011,6 +1003,19 @@ export function PageList({
               <Trash2 className="size-3" />
             </Button>
           </Hint>
+          {/* 未読数も行の一番右（2026-08-09 本人指示「数字は必ず一番右」）。
+              hover で出る ✎🗑 より右に置かないと、hover のたびに右端から浮いて見える */}
+          {unreadCount > 0 && (
+            <Hint
+              id="unread"
+              always={`未読メッセージのあるノード ${unreadCount} 件`}
+              text={HINT_TEXT.unread}
+            >
+              <span className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white">
+                {unreadCount}
+              </span>
+            </Hint>
+          )}
         </span>
         {dots.length > 0 && (
           <span className="flex flex-wrap items-center gap-[3px] pl-5">
@@ -1141,9 +1146,6 @@ export function PageList({
             <ChevronRight className="size-3.5 flex-shrink-0" />
           )}
           <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
-          {!open && children.length > 0 && (
-            <span className="flex-shrink-0 text-[10px] text-text-lo">{children.length}</span>
-          )}
           <Hint id="folder-rename" always="フォルダ名を変更">
             <Button
               type="button"
@@ -1172,6 +1174,12 @@ export function PageList({
               <Trash2 className="size-3" />
             </Button>
           </Hint>
+          {/* 数（中のページ数）は行の一番右（2026-08-09 本人指示「数字は必ず一番右」）。
+              hover で出る ✎🗑 は opacity で消しているだけ＝場所は取り続けるので、
+              数字を左に置くと右端から浮いて見える */}
+          {!open && children.length > 0 && (
+            <span className="flex-shrink-0 text-[10px] text-text-lo">{children.length}</span>
+          )}
         </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
