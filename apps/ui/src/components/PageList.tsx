@@ -277,11 +277,22 @@ export function PageList({
   /** 棚がどちらの節のものか。null = プロジェクト節（既存フォルダの互換。2026-08-08） */
   const shelfSection = (f: Node): Section => (f.folderSection === "routine" ? "routine" : "project");
   const shelvesIn = (section: Section) => folderList.filter((f) => shelfSection(f) === section);
-  const folderIds = useMemo(() => new Set(folderNodes.map((f) => f.id)), [folderNodes]);
-  /** ページの所属フォルダ（消えたフォルダを指していたら直下扱いにする） */
-  const folderOf = (f: Node): string | null =>
-    f.folder && folderIds.has(f.folder) ? f.folder : null;
+  const shelfById = useMemo(() => new Map(folderNodes.map((f) => [f.id, f])), [folderNodes]);
   const sectionOf = (f: Node): Section => (isRoutinePage(f, allNodes) ? "routine" : "project");
+  /** ページの所属フォルダ。次のどちらかなら直下扱いにする:
+   *  - 消えたフォルダを指している
+   *  - **節の違う棚**を指している（2026-08-09 本人報告の不具合）。ページにトリガーを足すと
+   *    プロジェクト → ルーティーンへ節が変わるが、folder は元の節の棚を指したまま残るので、
+   *    そのままだと元の棚の中に居座って「ルーティーンの方に移らない」。棚は節ごとに分かれて
+   *    いる（folderSection）ので、節が合わない紐づけは無効とみなし、その節の直下へ出す。
+   *    データ（node.folder）は書き換えない——トリガーを外して戻ったときに元の棚へ帰るし、
+   *    描画のたびに書き込むと複数クライアントで競合するため */
+  const folderOf = (f: Node): string | null => {
+    if (!f.folder) return null;
+    const shelf = shelfById.get(f.folder);
+    if (!shelf) return null;
+    return shelfSection(shelf) === sectionOf(f) ? f.folder : null;
+  };
 
   // プロジェクト（トリガー無し）/ ルーティーン（トリガー有り）のビュー的な分類（本人指定）。
   // 人フィルタ中はプロジェクト節・ルーティーン節の両方に同じ述語（上の byPerson）を適用する
