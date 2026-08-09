@@ -47,16 +47,17 @@ claude mcp add graphwrangler -- npx tsx D:/VSCodeProject/infra-tools/graphwrangl
 |---|---|
 | `state_get` | グラフ全体の要約（ノード数・ページ一覧・各ノードの主要フィールドのみ。`createdBy`/`assignee` を含み、detail/impl は含まない） |
 | `node_get` | 1ノードの全フィールド |
-| `node_add` | ノード作成（`assignee`=担当者メール、`members`=ページの関係者メール配列も指定可。`createdBy` は入力不可＝サーバが刻む） |
-| `node_patch` | ノード部分更新（`assignee`/`members` も更新可。`createdBy` は不変の記録なので patch 不可） |
+| `node_add` | ノード作成（`assignee`=担当者メール、`members`=ページの関係者メール配列、`outputs`=ランのコンテキストへの出力宣言（3.15）も指定可。`createdBy` は入力不可＝サーバが刻む） |
+| `node_patch` | ノード部分更新（`assignee`/`members`/`outputs` も更新可。`createdBy` は不変の記録なので patch 不可） |
 | `node_remove` | ノード削除（子がいると失敗） |
 | `thread_get` | ノードスレッドのメッセージ一覧 |
 | `message_post` | スレッドへの投稿（say/status/artifact） |
 | `request_open` | 判断リクエストを開く（pendingRequest がセットされ、ボールが人間に渡る） |
 | `request_answer` | 判断リクエストへの回答（option=null でラリー継続） |
-| `trigger_fire` | トリガーノード（kind=trigger）を手動発火し、その group（所属ページ）でランを1本作成する |
-| `run_list` | ページの過去のラン一覧（要約: id/title/status/trigger/created + ワークアイテム状態内訳カウント） |
-| `run_get` | ラン1件の全フィールド（items の詳細を含む） |
+| `trigger_fire` | トリガーノード（kind=trigger）を手動発火し、その group（所属ページ）でランを1本作成する。`context`（このランの初期コンテキスト。3.15）も指定可 |
+| `run_context_set` | ランのコンテキスト（run.context。3.15）へキー→値を merge する（同一ラン内は last-write-wins）。script executor の `##gw` マーカーと同じ効果を持つ、エンジン外からの書き込み経路 |
+| `run_list` | ページの過去のラン一覧（要約: id/title/status/trigger/created/context + ワークアイテム状態内訳カウント） |
+| `run_get` | ラン1件の全フィールド（items/context/resolvedParams の詳細を含む） |
 | `run_item_patch` | ラン内の1ワークアイテムの状態/メモを更新 |
 | `run_cancel` | 実行中のランを中断（cancelled） |
 | `run_trace` | ランのトレース再生（紐づくスレッドメッセージを時系列で） |
@@ -70,7 +71,9 @@ MCP のツールエラー（`isError: true` + メッセージ）として返す�
 ## テスト
 
 `packages/server` に依存する E2E テスト（自分専用ポート・データディレクトリで HTTP サーバを起動し、
-MCP サーバの stdin/stdout に直接 JSON-RPC を流して全ツールを確認する）:
+MCP サーバの stdin/stdout に直接 JSON-RPC を流してツールの動作を確認する。`tools/list` は
+主要ツールが登録されていることを確認するが、新しいツール（`run_context_set` 等）の追加に
+個別ケースの追随が追いついていないことがある）:
 
 ```bash
 node packages/mcp/test/e2e.mjs
@@ -87,3 +90,7 @@ node packages/mcp/test/e2e.mjs
 - ラン関連ツールは HTTP API（`packages/server`）へのプロキシ。run=実行インスタンスという
   用語は docs/design.md 3.8 に対応する。`run_cancel` に取り消し操作は無い
   （undo/redo はグラフ本体の操作ログのみが対象）
+- `run_context_set`/`trigger_fire` の `context` は run.context（ランのコンテキスト。
+  docs/design.md 3.15「attribute flow」）を指す。`run_context_set` に `nodeId` を渡すと
+  そのノードのスレッドへ、省略時は `run.trigger` から取り出したトリガーノードへ、
+  更新の status メッセージが記録される（監査用。サーバ側の挙動でこのパッケージは中継のみ）
