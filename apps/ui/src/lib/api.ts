@@ -9,6 +9,8 @@ import type {
   RunGraphNode,
   RunItemStatus,
   TraceEvent,
+  WiringReference,
+  WiringWarning,
 } from "../types";
 import { pushToast } from "./toast";
 import { threadKey } from "./unread";
@@ -75,6 +77,8 @@ export interface NodeCreateInput {
   /** kind=decision のみ意味を持つ選択肢一覧（docs/design.md 3.9） */
   branches?: Node["branches"];
   parentOptions?: Node["parentOptions"];
+  /** ランのコンテキストへの出力宣言（docs/design.md 3.15） */
+  outputs?: Node["outputs"];
 }
 
 export type NodePatchInput = Partial<Omit<Node, "id" | "created">>;
@@ -422,8 +426,12 @@ export const api = {
   // ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 
   /** トリガーを発火し、そのページ(group)でランを1本作る。title はランの名前（作品名など。
-   *  並列ランの区別用）。via 省略時はサーバ既定の "manual" */
-  fireTrigger: async (nodeId: string, opts: { via?: string; title?: string } = {}) => {
+   *  並列ランの区別用）。via 省略時はサーバ既定の "manual"。context はランの初期コンテキスト
+   *  （docs/design.md 3.15。発火フォームの入力。空欄のキーは呼び出し側が落として渡す） */
+  fireTrigger: async (
+    nodeId: string,
+    opts: { via?: string; title?: string; context?: Record<string, string> } = {},
+  ) => {
     const run = await request<Run>(`/nodes/${nodeId}/fire`, {
       method: "POST",
       body: JSON.stringify(opts),
@@ -454,6 +462,51 @@ export const api = {
     request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
 
   getRunTrace: (runId: string) => request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`),
+
+  /** ランのコンテキストへ merge（docs/design.md 3.15 実行時の書き）。nodeId を渡すと
+   *  「コンテキスト更新: …」の status がそのノードのスレッド（このラン）へ積まれる
+   *  （human 完了ミニフォームからの書きは完了するノードを渡す）。更新後の Run が返る */
+  patchRunContext: (
+    runId: string,
+    set: Record<string, string>,
+    opts: { nodeId?: string; via?: string } = {},
+  ) =>
+    request<Run>(`/runs/${runId}/context`, {
+      method: "POST",
+      body: JSON.stringify({
+        set,
+        ...(opts.nodeId ? { nodeId: opts.nodeId } : {}),
+        ...(opts.via ? { via: opts.via } : {}),
+      }),
+    }),
+
+  /** 配線チェック（docs/design.md 3.15。ルーティーンページの参照矢印と警告バッジ）。
+   *  補助表示なので失敗はトーストせず null へ degrade する（旧サーバ 404 互換。
+   *  呼び出し側は「静かに描かない」——コンソール警告だけ残す） */
+  getPageWiring: async (
+    pageId: string,
+  ): Promise<{ references: WiringReference[]; warnings: WiringWarning[] } | null> => {
+    try {
+      const res = await fetch(`/api/pages/${pageId}/wiring`, {
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        console.warn(`配線チェックの取得に失敗しました (HTTP ${res.status})`);
+        return null;
+      }
+      const data = (await res.json()) as {
+        references?: WiringReference[];
+        warnings?: WiringWarning[];
+      };
+      return {
+        references: Array.isArray(data.references) ? data.references : [],
+        warnings: Array.isArray(data.warnings) ? data.warnings : [],
+      };
+    } catch (e) {
+      console.warn("配線チェックの取得に失敗しました", e);
+      return null;
+    }
+  },
 
   /** そのランの時点のノード（2026-08-08）。発火時に焼いたスナップショット、無ければ
    *  操作ログの再生、それも無ければ現在の中身。どれを使ったかは各ノードの source に入る */

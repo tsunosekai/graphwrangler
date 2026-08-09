@@ -13,6 +13,7 @@ import {
   NodePatchSchema,
   DecisionRequestSchema,
   RunItemStatusSchema,
+  OutputParamSchema,
 } from "@graphwrangler/core/schema";
 
 export {
@@ -23,6 +24,7 @@ export {
   StatusSchema,
   DecisionRequestSchema,
   RunItemStatusSchema,
+  OutputParamSchema,
 };
 
 /** ノードの impl フィールドは null（会話段）を許す。core 側では NodeImplSchema 自体は

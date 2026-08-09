@@ -217,6 +217,56 @@ describe("RunStore: ワークアイテム更新・一覧・永続化", () => {
   });
 });
 
+// ランのコンテキスト（docs/design.md 3.15）。値はランに乗って運ばれる（テンプレートには
+// 書き戻さない）。旧ランファイル（context/snapshot/resolvedParams が無い）との互換も見る
+describe("RunStore: ランのコンテキスト（3.15）", () => {
+  it("createFromTrigger: opts.context が初期値として入る。省略時は空", () => {
+    const runs = new RunStore(dir);
+    const { page, trigger } = setupTriggerPage();
+    const withCtx = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id), {
+      context: { remix: "RMX-1" },
+    });
+    expect(withCtx.context).toEqual({ remix: "RMX-1" });
+    const without = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id));
+    expect(without.context).toEqual({});
+  });
+
+  it("patchContext: merge（last-write-wins）。空キーは拒否", () => {
+    const runs = new RunStore(dir);
+    const { page, trigger } = setupTriggerPage();
+    const run = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id), {
+      context: { a: "1", b: "old" },
+    });
+    const updated = runs.patchContext(run.id, { b: "new", c: "3" });
+    expect(updated.context).toEqual({ a: "1", b: "new", c: "3" });
+    expect(() => runs.patchContext(run.id, { "": "x" })).toThrow(GraphError);
+  });
+
+  it("旧ランファイル互換: context/snapshot/resolvedParams の無いファイルが parse できる（default が効く）", () => {
+    const runs = new RunStore(dir);
+    // この機能より前のランファイルを模して、新フィールド抜きの JSON を直接置く
+    const runsDir = path.join(dir, "runs");
+    fs.mkdirSync(runsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runsDir, "r-20260101-0001.json"),
+      JSON.stringify({
+        id: "r-20260101-0001",
+        procedure: "p-1",
+        title: "旧ラン",
+        trigger: "trigger:n-1:manual",
+        status: "done",
+        items: { "n-2": { status: "done", note: null, choice: null } },
+        created: "2026-01-01T00:00:00.000Z",
+      }),
+      "utf8",
+    );
+    const run = runs.get("r-20260101-0001");
+    expect(run.context).toEqual({});
+    expect(run.snapshot).toBeNull();
+    expect(run.items["n-2"].resolvedParams).toBeNull();
+  });
+});
+
 // applyItemDecision の実行フェーズゲート（GraphStore.applyDecision の validateDecisionGate と
 // 同種で、ラン内では「テンプレートのラン内親が全てdone|skipped」を見る）
 describe("RunStore.applyItemDecision: 実行フェーズゲート", () => {

@@ -88,7 +88,7 @@ export interface ClaudeExecutorConfig {
 }
 
 export interface AiPromptInput {
-  node: Pick<Node, "title" | "detail" | "impl">;
+  node: Pick<Node, "title" | "detail" | "impl" | "outputs">;
   /** group が指すゴールノード（無ければ null） */
   goal: Pick<Node, "title" | "detail"> | null;
   /** 親ノードのスレッド末尾の say メッセージ（文脈）。"タイトル: 本文" の形で渡す */
@@ -98,6 +98,11 @@ export interface AiPromptInput {
   /** 自ノードのスレッドから拾った経緯（人間へのQ&A・直前の失敗。ask.ts の
    *  buildThreadContextLines）。質問への回答を踏まえた再実行で使う */
   threadContext?: string[];
+  /** ランのコンテキスト（docs/design.md 3.15）。**ラン層の実行でのみ渡す**（空 {} でも渡す。
+   *  undefined = プロジェクト層 = outputs 宣言があっても ##gw 出力指示は付けない）。
+   *  値があればプロンプトへ「ランのコンテキスト」ブロックとして注入する。
+   *  欠けていてもエラーにしない——AI は QUESTION プロトコルで人間に聞ける（3.15） */
+  runContext?: Record<string, string>;
 }
 
 export interface AiPromptResult {
@@ -114,7 +119,7 @@ export interface AiPromptResult {
  * 実際に組み込んだ文脈は sources として合わせて返す（AI発言の出典バッジ用）。
  */
 export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
-  const { node, goal, parentSayMessages, autonomy = "normal", threadContext = [] } = input;
+  const { node, goal, parentSayMessages, autonomy = "normal", threadContext = [], runContext } = input;
   const lines: string[] = [];
   const sources: string[] = [];
   lines.push(
@@ -140,6 +145,12 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
     for (const s of threadContext) lines.push(`- ${s}`);
     lines.push("");
   }
+  if (runContext && Object.keys(runContext).length > 0) {
+    sources.push("ランのコンテキスト");
+    lines.push("ランのコンテキスト（このランで引き継がれている値。docs/design.md 3.15）:");
+    for (const [k, v] of Object.entries(runContext)) lines.push(`- ${k}: ${v}`);
+    lines.push("");
+  }
   lines.push(`作業内容: ${node.title}`);
   if (node.detail) lines.push(`補足: ${node.detail}`);
   if (node.impl && node.impl.type === "doc" && node.impl.text) {
@@ -152,6 +163,20 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
       + "（ツールでの自己報告は不要です。あなたの標準出力がそのまま記録されます）。",
     ...autonomyPromptLines(autonomy),
   );
+  // ランのコンテキストへの出力宣言（3.15「実行時の書き」）。ラン層（runContext が渡された
+  // 実行）でのみ指示する——プロジェクト層では ##gw マーカーは無視される（ランでのみ有効）
+  if (runContext !== undefined && node.outputs && node.outputs.length > 0) {
+    lines.push(
+      "",
+      "このノードには、次のキーをランのコンテキストへ出力する宣言があります。"
+        + '結果の末尾に、キーごとに ##gw {"set":{"キー":"値"}} 形式の行（1行1個。行全体がこの形）を'
+        + "出力してください。この行は記録から自動で取り除かれ、ランのコンテキストへ書き込まれます:",
+      ...node.outputs.map(
+        (o) =>
+          `- ${o.name}${o.label ? `（${o.label}）` : ""}${o.example ? ` 例: ${o.example}` : ""}`,
+      ),
+    );
+  }
   return { prompt: lines.join("\n"), sources };
 }
 

@@ -42,6 +42,7 @@ function node(partial: Partial<Node> = {}): Node {
     createdBy: partial.createdBy ?? null,
     assignee: partial.assignee ?? null,
     members: partial.members ?? [],
+    outputs: partial.outputs ?? null,
     created: partial.created ?? `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
   };
 }
@@ -55,6 +56,7 @@ function decisionAnswer(option: string | null): Message {
     via: "ui",
     kind: "decision_answer",
     body: "",
+    runId: null,
     payload: { requestId: "m-req", option, note: null },
   };
 }

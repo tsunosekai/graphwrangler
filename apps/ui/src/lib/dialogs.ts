@@ -17,9 +17,35 @@ export interface PromptOptions {
   confirmLabel?: string;
 }
 
+/** 任意入力フォーム（発火フォーム・human 完了ミニフォーム。docs/design.md 3.15）の1欄。
+ *  Node.outputs の宣言（name/label/example）と同形——label をラベル、example をプレースホルダに使う */
+export interface FormFieldDecl {
+  name: string;
+  label?: string | null;
+  example?: string | null;
+}
+
+export interface FormOptions {
+  /** 入力欄の宣言。空配列ならタイトル欄（あれば）だけの prompt 相当になる */
+  fields: FormFieldDecl[];
+  /** 各欄の初期値（同じページの直近ランの context プリフィル等）。キーは fields[].name */
+  prefill?: Record<string, string>;
+  /** ラン名などのタイトル入力欄。省略で出さない */
+  titleInput?: { placeholder?: string; defaultValue?: string };
+  /** OKボタンのラベル（既定 "OK"） */
+  confirmLabel?: string;
+}
+
+/** values には空欄のキーは入らない（空文字の欄はキーごと送らない。docs/design.md 3.15） */
+export interface FormResult {
+  title: string;
+  values: Record<string, string>;
+}
+
 export type DialogRequest =
   | ({ kind: "confirm"; message: string; resolve: (ok: boolean) => void } & ConfirmOptions)
-  | ({ kind: "prompt"; message: string; resolve: (value: string | null) => void } & PromptOptions);
+  | ({ kind: "prompt"; message: string; resolve: (value: string | null) => void } & PromptOptions)
+  | ({ kind: "form"; message: string; resolve: (value: FormResult | null) => void } & FormOptions);
 
 type Listener = (req: DialogRequest) => void;
 let listener: Listener | null = null;
@@ -50,5 +76,17 @@ export function promptDialog(message: string, opts: PromptOptions = {}): Promise
       return;
     }
     listener({ kind: "prompt", message, resolve, ...opts });
+  });
+}
+
+/** 複数欄の任意入力フォーム（docs/design.md 3.15: 発火フォーム / human 完了ミニフォーム）。
+ *  全欄が任意＝空のまま OK できる。OK で FormResult、キャンセル/閉じるで null */
+export function formDialog(message: string, opts: FormOptions): Promise<FormResult | null> {
+  return new Promise((resolve) => {
+    if (!listener) {
+      resolve(null);
+      return;
+    }
+    listener({ kind: "form", message, resolve, ...opts });
   });
 }

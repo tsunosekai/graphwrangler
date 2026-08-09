@@ -148,6 +148,7 @@ describe("操作ログの辻褄合わせ（reconcileLog）", () => {
     createdBy: null,
     assignee: null,
     members: [],
+    outputs: null,
     created,
   });
 

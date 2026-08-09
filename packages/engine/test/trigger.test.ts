@@ -4,14 +4,19 @@ import {
   FIRE_GATE_MARKER,
   buildFireApprovalRequest,
   buildTriggerPrompt,
+  describeFireEvent,
   findFireGate,
+  findLatestFireEvent,
   fireBaseline,
   hasUnconsumedGo,
+  isDetectScriptTrigger,
   isFireableTrigger,
   parseAiFireDecision,
+  parseDetectEmitLines,
   resolveAiCheckIntervalMs,
   shouldEvaluateAiTrigger,
   shouldFireScriptTrigger,
+  shouldRunDetectScript,
   type FireGateState,
 } from "../src/trigger.js";
 import type { Message, Node } from "../src/types.js";
@@ -44,6 +49,7 @@ function node(partial: Partial<Node> = {}): Node {
     schedule: partial.schedule ?? null,
     branches: partial.branches ?? null,
     choice: partial.choice ?? null,
+    outputs: partial.outputs ?? null,
     parentOptions: partial.parentOptions ?? {},
     createdBy: partial.createdBy ?? null,
     assignee: partial.assignee ?? null,
@@ -84,6 +90,92 @@ describe("shouldFireScriptTrigger: script発火判定の流用", () => {
   it("実行中ランがあっても定刻ぶんは発火する（2026-08-08 修正。旧仕様では常にfalseだった）", () => {
     const now = new Date("2026-01-01T00:20:00Z");
     expect(shouldFireScriptTrigger("every 15m", null, now)).toBe(true);
+  });
+});
+
+// 1.5 検知スクリプト（impl.command のある script トリガー。docs/design.md 3.8/3.15）
+describe("isDetectScriptTrigger", () => {
+  it("executor=script かつ impl.type=script（command あり）のみ検知スクリプト", () => {
+    expect(isDetectScriptTrigger(node({ executor: "script", impl: { type: "script", command: "node d.mjs" } }))).toBe(true);
+    expect(isDetectScriptTrigger(node({ executor: "script", impl: null }))).toBe(false);
+    expect(isDetectScriptTrigger(node({ executor: "script", impl: { type: "doc", text: "手順" } }))).toBe(false);
+    expect(isDetectScriptTrigger(node({ executor: "ai", impl: { type: "script", command: "node d.mjs" } }))).toBe(false);
+  });
+});
+
+describe("shouldRunDetectScript: schedule をチェック間隔として使う", () => {
+  it("schedule無指定は既定1時間の間隔チェック", () => {
+    const base = 1_000_000;
+    expect(shouldRunDetectScript(null, null, new Date(base))).toBe(true);
+    expect(shouldRunDetectScript(null, base, new Date(base + DEFAULT_AI_CHECK_INTERVAL_MS - 1))).toBe(false);
+    expect(shouldRunDetectScript(null, base, new Date(base + DEFAULT_AI_CHECK_INTERVAL_MS))).toBe(true);
+  });
+
+  it("every 系はその間隔", () => {
+    const base = 1_000_000;
+    expect(shouldRunDetectScript("every 5m", base, new Date(base + 4 * 60_000))).toBe(false);
+    expect(shouldRunDetectScript("every 5m", base, new Date(base + 5 * 60_000))).toBe(true);
+  });
+
+  it("daily は shouldCreateScheduledRun を lastCheckedAt 基準で流用（同じ暦日にチェック済みなら false）", () => {
+    const now = new Date("2026-01-02T10:00:00");
+    expect(shouldRunDetectScript("daily 09:00", null, now)).toBe(true);
+    // 今日すでにチェック済み
+    expect(shouldRunDetectScript("daily 09:00", new Date("2026-01-02T09:00:30").getTime(), now)).toBe(false);
+    // 前日のチェックなら今日ぶんを実行する
+    expect(shouldRunDetectScript("daily 09:00", new Date("2026-01-01T09:00:30").getTime(), now)).toBe(true);
+    // 目標時刻前は実行しない
+    expect(shouldRunDetectScript("daily 09:00", null, new Date("2026-01-02T08:00:00"))).toBe(false);
+  });
+
+  it("未対応の書式は既定1時間へフォールバック", () => {
+    expect(shouldRunDetectScript("nonsense", null, new Date())).toBe(true);
+  });
+});
+
+describe("parseDetectEmitLines: emit 行のパース", () => {
+  it("'{' で始まる各行を {context, title} として読む（1行=1ラン）", () => {
+    const out = '{"context":{"remix":"RMX-1"},"title":"作品A"}\n{"context":{"remix":"RMX-2"}}';
+    const r = parseDetectEmitLines(out);
+    expect(r.events).toEqual([
+      { context: { remix: "RMX-1" }, title: "作品A" },
+      { context: { remix: "RMX-2" }, title: null },
+    ]);
+    expect(r.invalidLines).toEqual([]);
+  });
+
+  it("'{' 以外で始まる行はログとして無視する", () => {
+    const r = parseDetectEmitLines("checking...\n件数: 0\n");
+    expect(r.events).toEqual([]);
+    expect(r.invalidLines).toEqual([]);
+  });
+
+  it("空出力は発火なし", () => {
+    expect(parseDetectEmitLines("")).toEqual({ events: [], invalidLines: [] });
+  });
+
+  it("'{' 始まりでパース不能・形が不正な行は invalidLines に入る", () => {
+    const r = parseDetectEmitLines('{壊れてる\n{"context":"not-a-record"}\n{"title":123}');
+    expect(r.events).toEqual([]);
+    expect(r.invalidLines).toHaveLength(3);
+  });
+
+  it("context も title も無い {} は空イベントとして発火できる（値は下流が確定させる設計もある）", () => {
+    expect(parseDetectEmitLines("{}").events).toEqual([{ context: {}, title: null }]);
+  });
+
+  it("context の数値・真偽値は文字列化する", () => {
+    const r = parseDetectEmitLines('{"context":{"count":3}}');
+    expect(r.events).toEqual([{ context: { count: "3" }, title: null }]);
+  });
+});
+
+describe("describeFireEvent", () => {
+  it("title と context を人間向けの1行にする", () => {
+    expect(describeFireEvent({ context: { a: "1" }, title: "作品A" })).toBe("作品A（a=1）");
+    expect(describeFireEvent({ context: {}, title: "作品A" })).toBe("作品A");
+    expect(describeFireEvent({ context: { a: "1", b: "2" }, title: null })).toBe("a=1, b=2");
+    expect(describeFireEvent({ context: {}, title: null })).toBe("(内容なし)");
   });
 });
 
@@ -150,6 +242,7 @@ function gateRequest(id: string, ts: string, answered: string | null = null): Me
     via: "engine",
     kind: "decision_request",
     body: `開始していいですか？ ${FIRE_GATE_MARKER}`,
+    runId: null,
     payload: null,
     ...(answered
       ? { requestStatus: "answered" as const, answeredBy: answered }
@@ -166,6 +259,7 @@ function gateAnswer(id: string, requestId: string, option: string | null, ts: st
     via: "ui",
     kind: "decision_answer",
     body: "",
+    runId: null,
     payload: { requestId, option, note: null },
   };
 }
@@ -177,6 +271,52 @@ describe("buildFireApprovalRequest", () => {
     expect(req.impact).toBe("irreversible");
     expect(req.question).toContain(FIRE_GATE_MARKER);
     expect(req.context).toContain("毎週月曜9時");
+  });
+
+  it("検知イベントがあれば内容を文面に含める（機械可読な本体は payload.fireEvent 側）", () => {
+    const req = buildFireApprovalRequest(
+      { title: "新着検知", detail: null },
+      { context: { remix: "RMX-1" }, title: "作品A" },
+    );
+    expect(req.context).toContain("検知イベント");
+    expect(req.context).toContain("作品A");
+    expect(req.context).toContain("remix=RMX-1");
+  });
+});
+
+describe("findLatestFireEvent: 承認カードに対応する検知イベントの復元", () => {
+  function fireEventMessage(id: string, ts: string, fireEvent: unknown): Message {
+    return {
+      id,
+      node: "n-t",
+      ts,
+      author: { kind: "agent", name: "engine" },
+      via: "engine",
+      kind: "status",
+      body: "検知イベント: …",
+      runId: null,
+      payload: { fireEvent },
+    };
+  }
+
+  it("payload.fireEvent 付きの最新メッセージから復元する", () => {
+    const msgs = [
+      fireEventMessage("m-1", "2026-01-01T00:00:00Z", { context: { a: "1" }, title: "古い" }),
+      fireEventMessage("m-2", "2026-01-02T00:00:00Z", { context: { a: "2" }, title: "新しい" }),
+    ];
+    expect(findLatestFireEvent(msgs, null)).toEqual({ context: { a: "2" }, title: "新しい" });
+  });
+
+  it("最新ラン以前の ts のものは消費済みとみなして使わない", () => {
+    const msgs = [fireEventMessage("m-1", "2026-01-01T00:00:00Z", { context: { a: "1" }, title: null })];
+    expect(findLatestFireEvent(msgs, { created: "2026-01-01T01:00:00Z" })).toBeNull();
+    expect(findLatestFireEvent(msgs, { created: "2026-01-01T00:00:00Z" })).toBeNull(); // 同時刻も消費済み
+  });
+
+  it("fireEvent が無ければ null。形が壊れていても null", () => {
+    expect(findLatestFireEvent([], null)).toBeNull();
+    const broken = [fireEventMessage("m-1", "2026-01-01T00:00:00Z", { context: [1, 2] })];
+    expect(findLatestFireEvent(broken, null)).toBeNull();
   });
 });
 
@@ -274,5 +414,22 @@ describe("buildTriggerPrompt", () => {
     const n = node({ title: "起点", detail: null, impl: null });
     const prompt = buildTriggerPrompt(n, new Date("2026-01-01T00:00:00Z"));
     expect(prompt).not.toContain("発火条件");
+  });
+
+  it("outputs 宣言があれば ##gw マーカーで context を出せる指示を含める（3.15）", () => {
+    const n = node({
+      title: "新着検知",
+      outputs: [{ name: "remix", label: "リミックスID", example: "RMX-0231" }],
+    });
+    const prompt = buildTriggerPrompt(n, new Date("2026-01-01T00:00:00Z"));
+    expect(prompt).toContain("##gw");
+    expect(prompt).toContain("remix");
+    expect(prompt).toContain("リミックスID");
+    expect(prompt).toContain("RMX-0231");
+  });
+
+  it("outputs が無ければ ##gw の指示は含めない", () => {
+    const prompt = buildTriggerPrompt(node({ title: "起点" }), new Date("2026-01-01T00:00:00Z"));
+    expect(prompt).not.toContain("##gw");
   });
 });

@@ -79,6 +79,9 @@ data/
 │                            {nodeId:ts} は shared として読み替える）
 ├── users.json           … ログインユーザー台帳（email + scrypt ハッシュ + displayName。
 │                            scripts/gw-user.mjs で管理、git 管理外。1人でも居ればログイン必須）
+├── user-settings.json   … ユーザーごとの個別設定（Task AI 返信の Discord 通知スイッチ等）
+├── auth-secret          … セッション署名鍵（サーバが自動生成。git 管理外）
+├── attachments/         … チャット添付ファイルの置き場
 ├── branding/favicon.png … インスタンスのファビコン（手置き。無ければ UI 同梱の既定。3.13）
 ├── threads/<node>.jsonl … ノードスレッド（追記専用）
 ├── chats/global.json    … GraphWrangler AI の会話履歴（1本のグローバル会話。archive で過去分を退避。2026-08-02 にページ単位を廃止、旧 chats/<page>.json は遺構）
@@ -87,8 +90,10 @@ data/
 
 これは既定の data-dir モード。既存リポジトリを開くワークスペースモード（3.10）では、
 上記の代わりに正データファイル（`<repo>/workflow.gw.json`）+ サイドカー `.graphwrangler/`
-（threads/ と chats/ はコミット対象、ops.jsonl・runs/・settings.json・reads.json は
-自動生成の .gitignore で除外）という配置になる。
+（threads/ と chats/ はコミット対象、それ以外——ops.jsonl・runs/・runfiles/・
+settings.json・user-settings.json・reads.json・users.json・auth-secret・attachments/・
+branding/——は自動生成の .gitignore で除外）という配置になる。特に users.json
+（パスワードハッシュ）と auth-secret（セッション署名鍵）は絶対にコミットさせない。
 
 ## 3. 大原則
 
@@ -283,10 +288,18 @@ impl.command はワークスペースルートからの相対パスで書く。�
 
 - **トリガーノード（kind="trigger"）**: フローの先頭に置く。parents を持てない。
   起動方式は executor 軸で一貫（実行・判断・起点の全てが 人間/AI/スクリプト）:
-  - **script** = cron 的な定期実行。schedule 文字列（every Nm/Nh/Nd・daily HH:MM・weekly dow HH:MM）
+  - **script** = impl.command が**無ければ** cron 的な無条件定期実行。schedule 文字列
+    （every Nm/Nh/Nd・daily HH:MM・weekly dow HH:MM）。impl.command が**あれば**
+    検知スクリプト（2026-08-09。3.15）: schedule をチェック間隔とし、間隔ごとにエンジンが
+    command を実行して、stdout の JSON 行 `{"context":{...},"title":"..."}` を
+    emit された数だけ発火する（1行=1ラン。空出力=今回は発火なし。Rx の
+    「payload 付きイベント」）。同じ対象で二重にランを作らない責務は検知スクリプト側が持つ
+    （クエリ条件や自前の記録で）。パース不能な行・非0終了はトリガーのスレッドへ失敗として記録
   - **ai** = schedule をチェック間隔とし、間隔ごとにエンジンが AI に「今発火すべきか」を
-    判定させる。条件は detail / 手順書に書く。人間へのリマインドもこれ
-  - **human** = 手動発火（トリガー上の ▶）
+    判定させる。条件は detail / 手順書に書く。人間へのリマインドもこれ。
+    発火時は ##gw マーカーで context も出せる（3.15）
+  - **human** = 手動発火（トリガー上の ▶）。トリガーに outputs 宣言があれば
+    発火フォームで context を入力できる（任意。直近ランの値をプリフィル。3.15）
 - **発火 = ラン生成**。ワークアイテムはトリガーの子孫（トリガー自身は含めない）
 - **並列ラン（パラレルワールド）**: 同じルーティーンを複数のランで並行して回せる
   （同じテンプレートグラフ・別のラン状態。例: 作品Aと作品Bのボイス収録を同時進行）。
@@ -324,10 +337,12 @@ impl.command はワークスペースルートからの相対パスで書く。�
   「プロジェクト/ルーティーン」は呼び名として残る（トリガーの有無の別名）
 - 台帳ビュー・トレースはトリガーを持つページに表示。ランの待ち（ワークアイテムが
   waiting）はデスクトップ通知の対象として拾う
-- **Discord Webhook 通知**（2026-08-07。`packages/server/src/discord.ts`）: 「あなたの番」の
-  発生源はサーバに2つ——①判断リクエストが開く（POST /nodes/:id/request）②ランのワーク
-  アイテムが waiting へ遷移（POST /runs/:id/items/:nodeId）——で、そこから Webhook へ
-  1通 POST する（タブが開いている間しか鳴らないデスクトップ通知の補完。Bot でなく
+- **Discord Webhook 通知**（2026-08-07。`packages/server/src/discord.ts`）: 通知の
+  発生源はサーバに3つ——①判断リクエストが開く（POST /nodes/:id/request）②ランのワーク
+  アイテムが waiting へ遷移（POST /runs/:id/items/:nodeId）③Task AI がスレッドへ返信
+  （notifyAiReply。ユーザーごとの user-settings `discordAiReplies`〈既定ON〉で
+  オプトアウト可）——で、そこから Webhook へ1通 POST する。通知本文には
+  settings.notify.publicUrl があれば `<publicUrl>/#/n/<nodeId>` のリンクを付ける（タブが開いている間しか鳴らないデスクトップ通知の補完。Bot でなく
   Webhook を選んだのはトークン管理・常駐が不要なため）。担当者ありは users.json の
   discordId で `<@id>` メンション（未登録なら鳴らさず名前だけ）、担当者なしの全員の番は
   @here。設定は settings.notify（URL は apiKey と同じ書き込み専用）+ ⚙の通知節、
@@ -386,7 +401,10 @@ impl.command はワークスペースルートからの相対パスで書く。�
 <repo>/
 ├── workflow.gw.json        ← 正データ（グラフ定義）。人がレビュー/コミットする対象
 ├── .graphwrangler/         ← サイドカー（サーバが自動生成）
-│   ├── .gitignore          ← 自動生成（ops.jsonl / runs/ / settings.json / reads.json / branding/ を除外）
+│   ├── .gitignore          ← 自動生成（ops.jsonl / runs/ / runfiles/ / settings.json /
+│   │                          user-settings.json / reads.json / users.json / auth-secret /
+│   │                          attachments/ / branding/ を除外。users.json と auth-secret は
+│   │                          セキュリティ上コミット厳禁）
 │   ├── threads/*.jsonl     ← 会話・判断の経緯。コミットする
 │   ├── chats/global.json   ← GraphWrangler AI の会話履歴（グローバル1本）。同じ理由でコミットする
 │   ├── runs/*.json         ← ラン履歴。gitignore
@@ -413,8 +431,9 @@ impl.command はワークスペースルートからの相対パスで書く。�
 - 移行: `node scripts/migrate-to-workspace.mjs <dataDir> <canonicalFile>`
 - **自動プッシュ（2026-08-03。`packages/server/src/gitsync.ts`）**: 設定（⚙の
   「Git 自動プッシュ」、既定OFF）を入れると、GW が書くファイル（正データ +
-  `.graphwrangler/` のコミット対象）に変更が出るたび自動で commit → pull --rebase → push
-  する（間隔は設定、既定60秒）。**git add は必ずパス指定**——ドキュメントリポに同居する
+  `.graphwrangler/` のコミット対象。加えて settings.git.extraPaths で手順書の docs/ など
+  任意のワークスペース内相対パスを対象に追加できる）に変更が出るたび自動で
+  commit → pull --rebase → push する（間隔は設定、既定60秒）。**git add は必ずパス指定**——ドキュメントリポに同居する
   前提なので、人間が編集中の他ファイルは絶対に巻き込まない。rebase 衝突時は abort して
   次周へ持ち越し（壊すより止まる）。状態は `GET /api/gitsync`、手動実行は
   `POST /api/gitsync/run`。外部コミットの取り込み（pull）はあくまで push の前段であり、
@@ -537,6 +556,160 @@ impl.command はワークスペースルートからの相対パスで書く。�
 - アップロードは PNG / SVG のみ・512KB まで。**Content-Type もファイル名も信じず**
   中身（PNG のマジックバイト + IHDR / XML のルート要素）で判定する。SVG は同一オリジンの
   スクリプト実行面になりうるので、配信時に閉じた CSP と `nosniff` を付ける
+
+### 3.14 実行の内訳（ノード内ノード）と展開
+
+AI executor のタスクは、実行中に**何をやったか**（読んだ・書いた・叩いたコマンド）が
+1つの `impl` の裏に隠れてしまう。これを見えるようにし、望めば**そのままグラフの実ノードへ
+組み替えられる**ようにしたのが「実行の内訳（ノード内ノード）」と「展開」（2026-08-09）。
+
+**捕捉**: エンジンが `claude -p` を `stream-json` 出力で起動し、標準出力に流れる
+`tool_use` / `tool_result` イベントを1件ずつ `SubStep`（`packages/core/src/schema.ts`）へ
+整形する。`{ id, index, tool, title, command, input, output, status }` — `command` は
+tool=Bash のときの実コマンド（展開時に script impl の材料になる）、`input`/`output` は
+保存前に切り詰め済みの要約。
+
+**保存**: 実行成功/失敗を記録する status メッセージ（3.2 のスレッド）の
+`payload.subSteps` に配列で載せるだけで、専用のストレージは増やさない。ラン別フォーク
+（「会話や実行履歴もフォーク」の既存 `runId` 機構。5.3 近く）がそのまま効くので、
+どのランの内訳かは他のスレッド記録と同じ規則で切り分かる。ラン単位の実行トレース
+（`GET /api/runs/:id/trace`）にも他の status メッセージと同じ経路で自動的に乗る——
+内訳のためだけの特別扱いは無い。
+
+**閲覧**: UI は NodePanel の実行記録（status メッセージ）でこの内訳を展開表示する
+（1ツール呼び出し = 1行。ツール名・タイトル・成否）。
+
+**展開**（`POST /api/nodes/:id/expand`。実装 `packages/server/src/expand.ts`）:
+内訳を持つ実行記録から、そのノードを**実ノードの連鎖に組み替える**。ボディは
+`{ messageId }`（テンプレート記録・ラン記録のどちらでもよい。編集対象は常にテンプレート
+側のグラフ）、レスポンスは `{ created: string[] }`（作られたノードidを実行順で）。
+
+- ガード（すべて409）: 内訳が空 / `kind !== "task"` / `fixed`（やり方確定済みは分解不可）/
+  ページ化している（他ノードの `group` が自分を指す）/ 分岐の配線対象になっている
+  （自分の `parentOptions` が非空、または他ノードの `parentOptions` のキーが自分＝
+  自分が decision として参照されている）。**MVPは怪しければ拒否**——賢く配線を
+  引き継ぐより、安全側に倒して拒否する
+- 作る側: SubStep ごとに1ノード（`title`/`kind:"task"`/`lifecycle:"draft"`/元の `group`。
+  `tool==="Bash"` かつ `command` があれば `executor:"script"` + `impl:{type:"script",command}`、
+  それ以外は `executor:"ai"` + `impl:null`）。`parents` は先頭が元ノードの `parents` を継承、
+  以降は直前のノード1つだけを親に持つ直列連鎖
+- 子の付け替え: 元ノードを `parents` に持っていたノードを、連鎖の最後のノードへ繋ぎ替える
+- 3.1 の「ノードIDを壊さない」は**history が下がっている ID を無闇に消さない**という
+  原則であって、展開のような**意図的な**削除+追加まで禁じるものではない。消えた元ノードの
+  記録はそれでも読める（消えたノードのランの記録も読めるようにする仕組みがそのまま効く）。
+  各手順（`node.add` × N・`node.patch`（子の付け替え）・`node.remove`）は独立した op として
+  ops.jsonl に乗るので、undo は逆操作N件で戻る（3.2 と同じ「1つの巨大トランザクションopは
+  持たない」設計）
+
+### 3.15 ランのコンテキスト（引数の流れ。attribute flow）
+
+**動作ごとに異なる引数・文脈を、ランに載せて運ぶ**（2026-08-09 本人要望。Houdini の
+attribute が発想元: ネットワークを流れるジオメトリに attribute が載るように、
+テンプレートグラフを流れるランに context が載る）。対応関係:
+
+| Houdini | GraphWrangler |
+| --- | --- |
+| ノードネットワーク | テンプレートグラフ |
+| 流れるジオメトリ | ラン |
+| detail attribute | run.context |
+| attribute を読む式（`@x`） | コマンド中の `{x}` プレースホルダ |
+| パラメータのデフォルト値 | impl.params[].value（UI入力欄） |
+| wedge（並列バリエーション） | 並列ラン（1対象=1ラン。3.8） |
+
+**原則**:
+
+- **値は必ずランに乗って運ばれる**。ノード同士がファイルや環境変数で直接受け渡さない
+  （並列ランで混ざらないことの保証はここから来る）。`run.context` は
+  `Record<string,string>`（キー→現在値）で、発火時に初期値が入り、ランの進行中に
+  ノードが書き足す。**テンプレートには書き戻さない**（並列ランが最後に走った値で
+  上書きし合うため。記録はラン側が持つ）
+- **出力宣言（producer）**: どのノードも `outputs: [{name, label?, example?}]` で
+  「このランのキーを出力する」と宣言できる。トリガーの outputs は特別扱いで
+  「発火時に入る初期キー」＝手動▶のフォーム項目 / 検知スクリプトの emit 契約になる
+- **参照（consumer）**: script ノードのコマンド中の `{x}`。解決順は
+  **① run.context[x] → ② impl.params[].value（デフォルト値に降格）→ ③ 未入力エラー**。
+  プロジェクト層（ランが無い）では従来どおり ② のみ
+- **参照矢印**: 出力宣言と参照から**自動導出**して破線で描く（Houdini のパラメータ参照
+  リンクと同じ流儀。手で線は引かない）。依存エッジとは別物
+- **1ラン=1対象**。1ランの中で複数対象へ fan-out する point attribute 的な流し方は
+  やらない（DAG にループ・多重インスタンスが無い現設計と衝突する）。複数対象は
+  複数ラン＝wedge で表現する（「繰り返しは次のラン」の原則どおり）
+- **式は入れない**: `{x}` は名前の単純一致のみ。計算式・文字列加工（parm expression 相当）は
+  仕様が膨らむので採らない（必要になったら別途）
+
+**発火時の初期値**:
+
+- 手動▶: トリガーの outputs から生成したフォームで入力（**必須ではない**。空でも発火できる
+  ——値は下流のノードが確定させる設計もあるため。2026-08-09 本人指定「▶が押せないは嫌」）。
+  フォームは**同じルーティーンの直近ランの context をプリフィル**する（変えたい所だけ直す）
+- `POST /api/nodes/:id/fire` の body に `context: Record<string,string>` を受ける
+  （MCP `trigger_fire`・外部システムの curl も同じ口）
+- script トリガー（検知スクリプト。3.8 参照）: emit された各イベントの context がそのまま入る
+- ai トリガー: 発火判定の出力に context を含められる（##gw マーカー。下記）
+
+**実行時の読み**:
+
+- script executor: `{x}` 置換に加えて、環境変数でも渡す——`GW_RUN_ID` / `GW_CONTEXT`
+  （context 全体の JSON）/ `GW_RUN_DIR`（後述）/ `GW_PARAM_<NAME>`（解決済みの各値。
+  name は大文字化し英数以外を `_` に）。**インジェクションガード**: **run.context 由来の値**は
+  シェルのメタ文字（`` ` `` `$` `\` `"` `'` `;` `|` `&` `<` `>` `(` `)` `{` `}` 改行）を
+  含むと**置換せず実行失敗**にする（エラー文言で `GW_PARAM_*` 環境変数の使用へ誘導。
+  環境変数はシェル展開を通らないので安全）。テンプレートのデフォルト値（人間が UI で
+  入力）は従来どおりの引用符エスケープのみ——自分のマシンで任意コマンドを書ける人間の
+  入力を縛っても防御にならず、括弧入りタイトル等が使えなくなる退行だけが残るため。
+  context の書き手が人間だけでなく AI・スクリプト・外部 MCP になるため、
+  作品メモ等の外部由来文字列 → AI が context へ転記 → コマンド置換、という
+  プロンプトインジェクション→シェルインジェクションの導線をここで遮断する
+- ai executor: プロンプトに「ランのコンテキスト」ブロックとして注入（出典バッジ
+  sources にも同名で載せる）。**欠けていてもエラーにしない**——AI は QUESTION プロトコルで
+  人間に聞ける（自律度の柔らかさを潰さない）
+- human executor: ランページに表示されるだけ（人間は無くても動ける）
+- 実行済みの値の記録: script アイテムの実行時に**解決済みの値を `RunItem.resolvedParams` へ
+  焼く**。ランページのパネルは引数欄をその値入り（読み取り専用）で表示する。
+  resolvedParams と現在の run.context がずれたら「古い値で実行済み」バッジを出す
+  （**自動再実行はしない**——task graph は cook graph ではない。やり直しの範囲は
+  人間が判断する、の原則維持。3.9 の選び直しと同じ思想）
+
+**実行時の書き（wrangle 相当）**:
+
+- script: stdout に **`##gw {"set":{"key":"value"}}`** の JSON マーカー行（1行1個。
+  素の key=value 形式は無し——ログとの偽陽性衝突を避ける）。エンジンが抽出して
+  context へ merge し、マーカー行は say 本文から取り除いて status「コンテキスト更新: …」を
+  積む（監査はスレッドに残る）
+- ai: outputs 宣言のあるノードは、プロンプトに同じ ##gw マーカーで出力する指示が入る
+- human: outputs 宣言のあるノードをパネルから完了するとき、任意入力のミニフォームが出る。
+  **必須にはしない**（完了経路は台帳セル・カード・MCP と複数あり、全部に差し込むと
+  ワンクリック完了を壊す）。未入力のまま完了したら status に記録し、下流が困ったら
+  失敗リカバリで拾う（強制より回収）
+- API: `POST /api/runs/:id/context`（merge。エンジン・MCP・外部から）
+- 同一ラン内は last-write-wins。DAG の順序（producer が consumer の祖先）が
+  事実上の書き順を決める
+
+**配線チェック（編集時の静的検査）**: ルーティーンページの各 script ノードの `{x}` に
+ついて、**祖先（parents を遡った先＋トリガー）に x の producer 宣言があるか**を照合し、
+警告バッジを出す。**発火は絶対に止めない**（警告のみ。実行時に本当に無ければそのノード
+だけが失敗リカバリに落ち、リカバリカードの入力欄で人間が値を入れて「もう一度」できる）。
+警告の種類:
+
+1. **供給元なし**: どのノードも x を出力宣言していない
+2. **祖先でない producer**: 宣言はあるが consumer の祖先にいない（並列の枝＝実行順の保証が
+   無い。last-write-wins の運ゲーになる）
+3. **経路依存**: producer が decision の枝の下・consumer が合流の先（経路によっては
+   skip されて値が来ない。デフォルト値があれば黙認）
+4. **重複 producer**: 互いに祖先関係にない複数ノードが同じキーを宣言（書き順の運ゲー）
+
+サーバ `GET /api/pages/:id/wiring` が警告一覧と参照矢印（producer→consumer の組）を返し、
+UI がバッジと破線を描く。
+
+**成果物はファイル、context にはパス**: NG リストのような大きい成果物を context に
+入れない。エンジンがラン毎の作業ディレクトリ `.graphwrangler/runfiles/<runId>/` を作って
+`GW_RUN_DIR` で渡すので、実体はそこ（またはリポ内の恒久パス）へ書き、context には
+パスを載せる。runfiles/ はサイドカーの自動 .gitignore 対象。
+
+**適用範囲はルーティーンのみ**: context はランに載るので、トリガーの無いプロジェクト
+（一回きり）には存在しない。プロジェクト層の `{x}` は従来どおりデフォルト値のみで解決し、
+##gw マーカーは無視して status にその旨を残す。outputs 宣言自体は置けるが
+「ランでのみ有効」と UI が注記する。
 
 ## 4. HITL（人間にボールが回る）設計
 
@@ -668,6 +841,9 @@ impl.command はワークスペースルートからの相対パスで書く。�
                                   //   （旧名 impact。2026-08-03 改名、旧データは読み替え互換あり）
   "autonomy": "normal",           // high / normal / low（UI名「自律度」。AI executor が人間に
                                   //   どこまで聞かずに進むか——3.4。旧データには無く既定 normal）
+  "aiModel": null,                // このノードのAI（実行AI・Task AI）のモデル上書き（"opus" 等。
+                                  //   2026-08-07）。null=設定の既定に従う
+  "aiEffort": null,               // 同エフォート（low/medium/high/xhigh/max）。null=設定の既定
   "lifecycle": "draft",           // draft / committed（= プラン済み）
   "status": "pending",            // unplanned / pending / running / done / dropped / skipped
   "fixed": false,                 // Fix（やり方の確定=ロック）。未Fixで生まれる
@@ -675,6 +851,8 @@ impl.command はワークスペースルートからの相対パスで書く。�
   "schedule": null,               // kind=trigger の起動方式（"every 15m"/"daily 09:00"/
                                   //   "weekly mon 09:00"）。パース不能な文字列は無視される
   "branches": null,               // kind=decision の選択肢 [{id, label, then?}]（3.9）
+  "outputs": null,                // ランコンテキストへの出力宣言 [{name, label?, example?}]（3.15）。
+                                  //   trigger では発火フォーム項目 / emit 契約。null=宣言なし
   "choice": null,                 // decision が確定した枝id（プロジェクト層。ラン層は RunItem.choice）
   "parentOptions": {},            // 親decisionId → 枝id（どの枝から生えるか）
   "createdBy": null,              // 作成者メール。作成時にサーバが刻む不変の記録（patch 不可。3.11）。
@@ -798,7 +976,12 @@ open なリクエストの存在 ⇔ ボールが人間、が機械的に対応�
   "items": {                      // テンプレートノードid → ワークアイテム
     "n-…": { "status": "pending", // pending/running/waiting/done/dropped/skipped
               "note": null,
-              "choice": null }    // テンプレートが decision のとき確定した枝id
+              "choice": null,     // テンプレートが decision のとき確定した枝id
+              "resolvedParams": null } // script 実行時に解決された {name:値}（3.15）。
+                                  //   ランページの引数欄は実行後この値入りで表示（読み取り専用）
+  },
+  "context": {                    // ランのコンテキスト（3.15）。発火時の初期値 + ノードが書き足す。
+    "remix": "RMX-0231"           //   Record<string,string>。旧ラン互換は default {}
   },
   "snapshot": {                   // 発火時点のページ構成（2026-08-08）。null = この機能より前のラン
     "capturedAt": "…",

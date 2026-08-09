@@ -20,6 +20,7 @@ import { layoutGraph, structureSignature, type Pos } from "../lib/layout";
 import { isRoutinePage } from "../lib/routine";
 import { isUnreadKey, threadKey } from "../lib/unread";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { usePolling } from "../hooks/usePolling";
 import type { Node, Run } from "../types";
 import { Badge } from "./ui/badge";
 import { RunStatusIcon } from "./RunStatusIcon";
@@ -27,13 +28,14 @@ import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { CutEdge, type CutEdgeData } from "./CutEdge";
+import { RefEdge, type RefEdgeData } from "./RefEdge";
 import { Hint } from "./Hint";
 import { LedgerView } from "./LedgerView";
 import { NodeCard, type NodeCardData } from "./NodeCard";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 
 const nodeTypes = { task: NodeCard };
-const edgeTypes = { cut: CutEdge };
+const edgeTypes = { cut: CutEdge, ref: RefEdge };
 
 // ズームの下限・上限。ReactFlow の props とモバイルの自前ピンチズームで同じ値を使う
 const MIN_ZOOM = 0.15;
@@ -59,6 +61,8 @@ interface ClipboardNode {
   kind: Node["kind"];
   /** kind=decision のときの選択肢定義（コピーで引き継ぐ。他kindではnull。docs/design.md 3.9） */
   branches: Node["branches"];
+  /** ランのコンテキストへの出力宣言（コピーで引き継ぐ。docs/design.md 3.15） */
+  outputs: Node["outputs"];
   /** コピー元選択内で閉じた依存だけを覚える（外部への parents は貼り付け時に捨てる） */
   parentOrigIds: string[];
   /** parentOrigIds のうち親がdecisionのものについて、どの枝から生えるか（親id → 枝id） */
@@ -106,8 +110,9 @@ interface Props {
   onProjectRun?: (runId: string | null) => void;
   /** ランのページを開いているか（2026-08-08 本人指定「ランは個別ページ」）。
    *  ここが非 null のとき nodes/pageNode は**そのランのフォーク**（発火時の中身 + ランの進捗）で、
-   *  テンプレートの編集（追加・つなぎ替え・並べ替え・名前変更）はできない */
-  runView?: { id: string; title: string; status: Run["status"] } | null;
+   *  テンプレートの編集（追加・つなぎ替え・並べ替え・名前変更）はできない。
+   *  context はそのランのコンテキスト（docs/design.md 3.15。ツールバーのチップに出す） */
+  runView?: { id: string; title: string; status: Run["status"]; context: Record<string, string> } | null;
   /** ランのページからテンプレート（設計図）へ戻る */
   onLeaveRun?: () => void;
   onSelect: (id: string | null) => void;
@@ -368,6 +373,29 @@ function GraphViewInner({
   const isRoutine = pageNode ? isRoutinePage(pageNode, nodes) : false;
   const [viewMode, setViewMode] = useState<"graph" | "ledger">("graph");
 
+  // ---- 配線チェック（docs/design.md 3.15）: ルーティーンページの**テンプレート表示**でだけ
+  //      GET /pages/:id/wiring を取り、参照矢印（破線）と警告バッジを描く。ランのページでは
+  //      描かない（その回の記録に配線検査は要らない）。取得失敗は静かに描かない
+  //      （api.getPageWiring が null へ degrade。コンソール警告のみ） ----
+  const { data: wiring } = usePolling(
+    async () => {
+      if (!pageNode || !isRoutine || runView) return null;
+      return api.getPageWiring(pageNode.id);
+    },
+    5000,
+    `${pageNode?.id ?? ""}:${isRoutine}:${runView?.id ?? ""}`,
+  );
+  // ノードid → 警告メッセージ一覧（カードの⚠バッジ用）
+  const wiringByNode = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const w of wiring?.warnings ?? []) {
+      const list = m.get(w.nodeId) ?? [];
+      list.push(w.message);
+      m.set(w.nodeId, list);
+    }
+    return m;
+  }, [wiring]);
+
   const commitTitle = useCallback(
     async (id: string, title: string) => {
       setEditingId(null);
@@ -483,6 +511,10 @@ function GraphViewInner({
                 : null,
             isRunFrontier: isRunFrontierOf(n),
             inRunPage: !!runView,
+            // 発火フォームのプリフィル: 直近ラン（pageRuns は新しい順）の context（3.15）
+            lastRunContext: n.kind === "trigger" ? (pageRuns[0]?.context ?? null) : null,
+            // 配線チェックの警告（テンプレート表示のときだけ wiring が取れている）
+            wiringWarnings: wiringByNode.get(n.id),
             // 発火の確認文で「並行で増える」ことを伝えるため（2026-08-08）。テンプレート表示
             // からしか発火できなくなったので、投影中のアイテムでは並走を知れない
             runningRunCount: pageRuns.filter((r) => r.status === "running").length,
@@ -512,6 +544,7 @@ function GraphViewInner({
     activeRun,
     pageRuns,
     runView,
+    wiringByNode,
     onProjectRun,
     onSelect,
     commitTitle,
@@ -544,7 +577,7 @@ function GraphViewInner({
   const rfEdges: RFEdge[] = useMemo(() => {
     const byId = new Map(nodes.map((n) => [n.id, n] as const));
     const ids = new Set(nodes.map((n) => n.id));
-    return nodes.flatMap((n) =>
+    const depEdges: RFEdge[] = nodes.flatMap((n) =>
       n.parents
         .filter((p) => ids.has(p))
         .map((p) => {
@@ -575,7 +608,30 @@ function GraphViewInner({
           };
         }),
     );
-  }, [nodes, selectedEdgeId, cutEdge]);
+    // 参照矢印（docs/design.md 3.15）: 出力宣言と {x} 参照から自動導出された破線。
+    // テンプレート表示のときだけ（ランのページでは wiring 自体を取っていない）。
+    // 依存エッジとは別物なので選択・切断はできない（selectable:false + onEdgeClick 対象外）
+    const refEdges: RFEdge[] = (runView ? [] : (wiring?.references ?? []))
+      .filter((r) => ids.has(r.producerId) && ids.has(r.consumerId))
+      .map((r) => {
+        const producer = byId.get(r.producerId);
+        return {
+          id: `ref:${r.producerId}->${r.consumerId}:${r.name}`,
+          source: r.producerId,
+          target: r.consumerId,
+          // decision は枝ハンドルしか持たない（既定ハンドル無し）ため、どれかに載せないと
+          // エッジ自体が描かれない。参照は枝を選ばないので先頭の枝に代表で載せる
+          ...(producer?.kind === "decision" && producer.branches?.length
+            ? { sourceHandle: producer.branches[0].id }
+            : {}),
+          type: "ref",
+          selectable: false,
+          focusable: false,
+          data: { label: r.name } satisfies RefEdgeData,
+        };
+      });
+    return [...depEdges, ...refEdges];
+  }, [nodes, selectedEdgeId, cutEdge, wiring, runView]);
 
   const handleNodesChange = useCallback((changes: NodeChange<RFNode<NodeCardData>>[]) => {
     for (const c of changes) {
@@ -813,6 +869,7 @@ function GraphViewInner({
         kind: n.kind,
         // kind=decision の選択肢定義はそのまま引き継ぐ（無いと貼り付け時にサーバ検証で弾かれる）
         branches: n.branches,
+        outputs: n.outputs,
         // 選択内で閉じた依存だけ覚える。外部への parents は貼り付け時に捨てる
         parentOrigIds: n.parents.filter((p) => idSet.has(p)),
         // 同様に、選択内で閉じたdecision親への枝の対応だけ引き継ぐ
@@ -843,6 +900,7 @@ function GraphViewInner({
           autonomy: entry.autonomy,
           kind: entry.kind,
           branches: entry.branches,
+          outputs: entry.outputs,
           group: pageNode?.id ?? null,
           lifecycle: "draft",
           status: "pending",
@@ -897,6 +955,7 @@ function GraphViewInner({
         autonomy: n.autonomy,
         kind: n.kind,
         branches: n.branches,
+        outputs: n.outputs,
         parentOrigIds: n.parents.filter((p) => idSet.has(p)),
         parentOptions: Object.fromEntries(
           Object.entries(n.parentOptions).filter(([decisionId]) => idSet.has(decisionId)),
@@ -1106,6 +1165,29 @@ function GraphViewInner({
                 テンプレートへ
               </Button>
             </Hint>
+            {/* ランのコンテキストのチップ（docs/design.md 3.15）: このランに載っている引数。
+                発火時の初期値にノードが ##gw / API で書き足していく。全文は native title で開示 */}
+            {Object.keys(runView.context).length > 0 && (
+              <Hint
+                id="run-context"
+                always="ランのコンテキスト"
+                text="このランに載っている引数（key=value）。発火時の初期値に、実行中のノードが書き足していく"
+              >
+                <span className="flex max-w-[28rem] flex-wrap items-center gap-1">
+                  {Object.entries(runView.context).map(([k, v]) => (
+                    <span
+                      key={k}
+                      className="inline-flex max-w-44 items-center rounded-full border border-border bg-card px-2 py-0.5 text-xs text-muted-foreground"
+                      title={`${k}=${v}`}
+                    >
+                      <span className="truncate">
+                        <span className="text-foreground">{k}</span>={v}
+                      </span>
+                    </span>
+                  ))}
+                </span>
+              </Hint>
+            )}
           </>
         )}
         {/* ランの切り替え（このページのラン一覧）。選ぶとそのランのページへ移る */}
@@ -1225,7 +1307,10 @@ function GraphViewInner({
             onSelect(n.id);
             onNodeTap?.(n.id); // 実タップだけ（モバイルのビュー遷移用。selection-change とは区別）
           }}
-          onEdgeClick={(_, edge) => setSelectedEdgeId(edge.id)}
+          // 参照矢印（type="ref"）は選択・切断の対象外（自動導出の表示物。docs/design.md 3.15）
+          onEdgeClick={(_, edge) => {
+            if (edge.type === "cut") setSelectedEdgeId(edge.id);
+          }}
           onSelectionChange={handleSelectionChange}
           onPaneClick={() => {
             onSelect(null);

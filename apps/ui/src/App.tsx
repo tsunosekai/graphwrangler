@@ -626,7 +626,17 @@ function AppInner() {
           <GraphView
             nodes={inRunPage ? runNodes : pageNodes}
             pageNode={inRunPage ? (runPageNode ?? pageNode) : pageNode}
-            runView={inRunPage && openRun ? { id: openRun.id, title: openRun.title, status: openRun.status } : null}
+            runView={
+              inRunPage && openRun
+                ? {
+                    id: openRun.id,
+                    title: openRun.title,
+                    status: openRun.status,
+                    // 旧サーバのランファイルには context が無い（3.15 より前）ので空へ倒す
+                    context: openRun.context ?? {},
+                  }
+                : null
+            }
             onLeaveRun={() => setProjectedRunId(null)}
             selectedId={selectedId}
             threadMeta={threadMeta}

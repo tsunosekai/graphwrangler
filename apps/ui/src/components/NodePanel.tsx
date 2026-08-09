@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { effortLabel, modelLabel, useAiDefaults } from "../lib/aiDefaults";
 import { api, postReads, type NodePatchInput } from "../lib/api";
-import { confirmDialog, promptDialog } from "../lib/dialogs";
+import { confirmDialog, formDialog, promptDialog } from "../lib/dialogs";
 import { HINT_TEXT } from "../lib/hints";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -31,7 +31,7 @@ import { missingParamNames } from "../lib/params";
 import { colorOf, displayNameOf, effectiveMembers, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { pushToast } from "../lib/toast";
 import { cn } from "../lib/utils";
-import type { MaterializedMessage, Node, NodeBranch, Run, RunItemStatus, ScriptParam, Status } from "../types";
+import type { MaterializedMessage, Node, NodeBranch, OutputParam, Run, RunItemStatus, ScriptParam, Status } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
@@ -218,6 +218,101 @@ function ParamRow({ param, onCommit }: { param: ScriptParam; onCommit: (value: s
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
       />
+    </div>
+  );
+}
+
+/** 出力宣言（docs/design.md 3.15）の新規行の name 採番: out1, out2, ... の空いている最初の番号 */
+function nextOutputName(existing: OutputParam[]): string {
+  let i = 1;
+  while (existing.some((o) => o.name === `out${i}`)) i++;
+  return `out${i}`;
+}
+
+/** 出力宣言エディタの1行（docs/design.md 3.15）。name / label / example を blur で確定する
+ *  （title/detail/BranchRow と同じ「編集中は自分のdraftを見る」流儀）。行の追加・削除は親が持つ */
+function OutputRow({
+  output,
+  disabled,
+  onCommit,
+  onRemove,
+}: {
+  output: OutputParam;
+  disabled?: boolean;
+  onCommit: (next: OutputParam) => void;
+  onRemove: () => void;
+}) {
+  const [draft, setDraft] = useState<OutputParam>(output);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(output);
+  }, [output, focused]);
+
+  const commit = () => {
+    setFocused(false);
+    const name = draft.name.trim();
+    if (!name) {
+      setDraft(output); // name 空は無効。元の値へ戻す
+      return;
+    }
+    const next: OutputParam = {
+      name,
+      label: draft.label?.trim() || null,
+      example: draft.example?.trim() || null,
+    };
+    if (next.name !== output.name || next.label !== (output.label ?? null) || next.example !== (output.example ?? null)) {
+      onCommit(next);
+    }
+  };
+
+  const blurOnEnter = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Input
+        className="h-8 w-24 flex-shrink-0 font-mono text-xs"
+        placeholder="name"
+        value={draft.name}
+        disabled={disabled}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+        onBlur={commit}
+        onKeyDown={blurOnEnter}
+      />
+      <Input
+        className="h-8 flex-1"
+        placeholder="ラベル"
+        value={draft.label ?? ""}
+        disabled={disabled}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
+        onBlur={commit}
+        onKeyDown={blurOnEnter}
+      />
+      <Input
+        className="h-8 flex-1"
+        placeholder="例"
+        value={draft.example ?? ""}
+        disabled={disabled}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setDraft((d) => ({ ...d, example: e.target.value }))}
+        onBlur={commit}
+        onKeyDown={blurOnEnter}
+      />
+      <Hint id="output-remove" always="この出力宣言を削除">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          disabled={disabled}
+          title={disabled ? "ロック中は編集できません" : undefined}
+          onClick={onRemove}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </Hint>
     </div>
   );
 }
@@ -495,6 +590,29 @@ export function NodePanel({
     }
   };
 
+  // human ノードの完了ミニフォーム（docs/design.md 3.15 実行時の書き）: outputs 宣言のある
+  // 担当=human のアイテムを**パネルから**完了するとき、宣言キーの任意入力欄を出す。
+  // **必須にしない**（スキップ可＝全部空のまま完了できる。完了経路は台帳セル・カード・MCP と
+  // 複数あり、全部に差し込むとワンクリック完了を壊すため、出すのはこの経路だけ）。
+  // 入力があれば先に POST /runs/:id/context（nodeId 付き＝更新記録はこのノードのスレッドへ）
+  const completeRunItem = async () => {
+    if (activeRun && node.executor === "human" && (node.outputs?.length ?? 0) > 0) {
+      const res = await formDialog(
+        "完了します。ランに値を書き足しますか？（任意。空のままでも完了できます）",
+        { fields: node.outputs!, confirmLabel: "完了" },
+      );
+      if (res === null) return; // キャンセル = 完了しない
+      if (Object.keys(res.values).length > 0) {
+        try {
+          await api.patchRunContext(activeRun.id, res.values, { nodeId: node.id });
+        } catch {
+          return; // トーストは api() 側。コンテキストが書けなかったら完了も進めない
+        }
+      }
+    }
+    await patchRunItemStatus("done");
+  };
+
   // 実装の種類セレクトの変更。中身（path/text/command）は種類を跨いで保持しない
   // （doc⇔scriptは別素材のため引き継ぐ意味が薄い。desk のFix定義通り「素材」の切替）
   const setImplType = async (v: ImplTypeOption) => {
@@ -604,6 +722,8 @@ export function NodePanel({
         group: node.group,
         kind: node.kind,
         branches: node.branches,
+        // 出力宣言も「やり方」の一部なので引き継ぐ（3.15）
+        outputs: node.outputs,
         executor: node.executor,
         approval: node.approval,
         autonomy: node.autonomy,
@@ -1396,7 +1516,8 @@ export function NodePanel({
                         variant="outline"
                         size="sm"
                         disabled={runItemBusy}
-                        onClick={() => patchRunItemStatus("done")}
+                        // outputs 宣言があれば完了ミニフォーム（任意入力）を経由する（3.15）
+                        onClick={() => void completeRunItem()}
                       >
                         完了
                       </Button>
@@ -1728,26 +1849,68 @@ export function NodePanel({
                   }}
                 />
 
-                {/* パラメータ宣言（docs/design.md 3.5.1）: 宣言=AI、値=人間がここで入力。
-                    Fix中でも値の入力だけは活かす（docs/design.md 3.5 実効化: 値は実行時入力でやり方ではない）。
-                    宣言の追加/削除UIはv1では作らない（GraphWrangler AIが command と一緒に書く想定） */}
-                {(node.impl.params?.length ?? 0) > 0 && (
+                {/* ラン表示で実行済みの記録があるとき: 解決済みの値（RunItem.resolvedParams）を
+                    値入り・読み取り専用で見せる（docs/design.md 3.15 実行時の読み）。実行後に
+                    run.context が変わってずれたキーには「古い値で実行済み」を出す——**自動では
+                    再実行しない**（task graph は cook graph ではない。やり直しは人間の判断） */}
+                {runView && activeRunItem?.resolvedParams ? (
                   <div className="flex flex-col gap-1.5">
-                    <span className="text-xs text-muted-foreground">パラメータ</span>
-                    {node.impl.params!.map((p) => (
-                      <ParamRow
-                        key={p.name}
-                        param={p}
-                        onCommit={(value) => {
-                          if (node.impl?.type !== "script") return;
-                          const params = (node.impl.params ?? []).map((x) =>
-                            x.name === p.name ? { ...x, value: value || null } : x,
-                          );
-                          patch({ impl: { type: "script", command: node.impl.command, params } });
-                        }}
-                      />
-                    ))}
+                    <span className="text-xs text-muted-foreground">
+                      パラメータ（このランで実行された値）
+                    </span>
+                    {Object.entries(activeRunItem.resolvedParams).map(([name, value]) => {
+                      const decl =
+                        node.impl?.type === "script"
+                          ? node.impl.params?.find((p) => p.name === name)
+                          : undefined;
+                      const current = activeRun?.context?.[name];
+                      const stale = current !== undefined && current !== value;
+                      return (
+                        <div key={name} className="flex items-center gap-1.5">
+                          <span
+                            className="w-24 flex-shrink-0 truncate text-xs text-muted-foreground"
+                            title={name}
+                          >
+                            {decl?.label ?? name}
+                          </span>
+                          <Input className="h-8 flex-1" value={value} readOnly disabled />
+                          {stale && (
+                            <Hint
+                              id="resolved-stale"
+                              always="古い値で実行済み"
+                              text={`実行後にランのコンテキストが変わっています（現在: ${current}）。自動では再実行しない——やり直すかは人間が判断する`}
+                            >
+                              <span className="flex-shrink-0" style={{ color: "var(--attention)" }}>
+                                <Icon name="alert" size={12} />
+                              </span>
+                            </Hint>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
+                ) : (
+                  /* パラメータ宣言（docs/design.md 3.5.1）: 宣言=AI、値=人間がここで入力。
+                     Fix中でも値の入力だけは活かす（docs/design.md 3.5 実効化: 値は実行時入力でやり方ではない）。
+                     宣言の追加/削除UIはv1では作らない（GraphWrangler AIが command と一緒に書く想定） */
+                  (node.impl.params?.length ?? 0) > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-muted-foreground">パラメータ</span>
+                      {node.impl.params!.map((p) => (
+                        <ParamRow
+                          key={p.name}
+                          param={p}
+                          onCommit={(value) => {
+                            if (node.impl?.type !== "script") return;
+                            const params = (node.impl.params ?? []).map((x) =>
+                              x.name === p.name ? { ...x, value: value || null } : x,
+                            );
+                            patch({ impl: { type: "script", command: node.impl.command, params } });
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )
                 )}
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -1802,6 +1965,73 @@ export function NodePanel({
               </p>
             )}
           </div>
+
+          {/* 出力宣言エディタ（docs/design.md 3.15）: このノードがランのコンテキストへ書き出す
+              キーの宣言（name/label/example）。task と trigger で表示する。トリガーの outputs は
+              「発火時に入る初期キー」＝手動▶の発火フォームの項目 / 検知スクリプトの emit 契約。
+              ラン表示（runView）では出さない——宣言はやり方（テンプレート側）だから */}
+          {!runView && (node.kind === "task" || node.kind === "trigger") && (
+            <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2.5">
+              <Hint
+                id="outputs"
+                text={
+                  node.kind === "trigger"
+                    ? "発火時にランへ入る初期キーの宣言。手動▶の入力フォームの項目になり、検知スクリプト・AI発火が出す context の契約にもなる（入力は任意＝空でも発火できる）"
+                    : "このノードがランのコンテキストへ書き出すキーの宣言。下流のコマンドは {name} で参照でき、配線チェック（参照矢印と警告）の根拠になる"
+                }
+              >
+                <span className="self-start text-sm text-muted-foreground">
+                  出力（ランのコンテキスト）
+                </span>
+              </Hint>
+              {(node.outputs ?? []).map((o, i) => (
+                <OutputRow
+                  // name は編集で変わり得るので index を key にする（BranchRow と違い恒久idが無い）
+                  key={i}
+                  output={o}
+                  disabled={contentLocked}
+                  onCommit={(next) =>
+                    patch({
+                      outputs: (node.outputs ?? []).map((x, j) => (j === i ? next : x)),
+                    })
+                  }
+                  onRemove={() => {
+                    const rest = (node.outputs ?? []).filter((_, j) => j !== i);
+                    patch({ outputs: rest.length > 0 ? rest : null });
+                  }}
+                />
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="self-start"
+                disabled={contentLocked}
+                title={node.fixed ? "ロック中は編集できません" : undefined}
+                onClick={() =>
+                  patch({
+                    outputs: [
+                      ...(node.outputs ?? []),
+                      { name: nextOutputName(node.outputs ?? []), label: null, example: null },
+                    ],
+                  })
+                }
+              >
+                + 出力を追加
+              </Button>
+              {/* トリガーを持たないページ（プロジェクト）ではランが無い＝context も無い。
+                  宣言自体は置けるが効かないことを注記する（docs/design.md 3.15 適用範囲） */}
+              {node.kind !== "trigger" &&
+                !(
+                  node.group != null &&
+                  allNodes.some((n) => n.kind === "trigger" && n.group === node.group)
+                ) && (
+                  <p className="text-xs text-text-lo">
+                    このページはトリガーを持たない（プロジェクト）ため、出力宣言はランでのみ有効です
+                  </p>
+                )}
+            </div>
+          )}
 
           {/* decision の枝エディタ: ラベル編集+削除（最低2枝）+追加。id は既存のものを変更しない
               （エッジが parentOptions[decisionId]=branchId で紐づいているため。docs/design.md 3.9） */}

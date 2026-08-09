@@ -43,6 +43,7 @@ function node(partial: Partial<Node> = {}): Node {
     createdBy: partial.createdBy ?? null,
     assignee: partial.assignee ?? null,
     members: partial.members ?? [],
+    outputs: partial.outputs ?? null,
     created: partial.created ?? `2026-01-01T00:00:${String(nodeSeq).padStart(2, "0")}Z`,
   };
 }
@@ -58,6 +59,7 @@ function message(partial: Partial<Message>): Message {
     via: partial.via ?? "engine",
     kind: partial.kind ?? "say",
     body: partial.body ?? "",
+    runId: partial.runId ?? null,
     payload: partial.payload ?? null,
     ...(partial.requestStatus !== undefined ? { requestStatus: partial.requestStatus } : {}),
     ...(partial.answeredBy !== undefined ? { answeredBy: partial.answeredBy } : {}),

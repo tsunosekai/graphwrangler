@@ -56,6 +56,16 @@ export interface NodeBranch {
   then?: string;
 }
 
+/** ランのコンテキストへの出力宣言（docs/design.md 3.15）。宣言のみで値は持たない
+ *  （値は実行時に run.context へ載る）。トリガーの outputs は特別扱いで「発火時に入る
+ *  初期キー」＝手動▶の発火フォームの項目 / 検知スクリプトの emit 契約になる
+ *  （packages/core/src/schema.ts OutputParamSchema と同形） */
+export interface OutputParam {
+  name: string;
+  label?: string | null;
+  example?: string | null;
+}
+
 /** スクリプト試走（試走ゲート。docs/design.md 3.5 近く「担当×実装の対応表と試走ゲート」）の記録。
  *  hash は試走時点の impl.command の sha256 hex。null = 未試走 */
 export interface ImplTrial {
@@ -102,6 +112,9 @@ export interface Node {
    *  executor=script なら cron 的な発火判定、executor=ai なら「発火要否を判定させる間隔」
    *  （everyのみ解釈、無指定は既定1時間）、executor=human では使わない（手動発火のみ） */
   schedule: string | null;
+  /** ランのコンテキストへの出力宣言（docs/design.md 3.15）。null = 宣言なし。
+   *  トリガーでは発火フォームの項目、task では「このノードがランに書き足すキー」の宣言 */
+  outputs: OutputParam[] | null;
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個）。それ以外の kind では null */
   branches: NodeBranch[] | null;
   /** 決定済みの枝id（プロジェクト層。kind=decision が完了すると入る）。ラン側は RunItem.choice */
@@ -175,6 +188,9 @@ export interface RunItem {
   note: string | null;
   /** テンプレートが kind=decision のとき、そのランで確定した枝id。それ以外は null */
   choice: string | null;
+  /** script 実行時に解決された {name: 値}（docs/design.md 3.15）。実行済みの記録なので
+   *  以後 run.context が変わっても書き換わらない——ずれたら UI が「古い値で実行済み」を出す */
+  resolvedParams: Record<string, string> | null;
 }
 
 export type RunStatus = "running" | "done" | "cancelled";
@@ -190,7 +206,28 @@ export interface Run {
   status: RunStatus;
   /** テンプレートノード id → ワークアイテム */
   items: Record<string, RunItem>;
+  /** ランのコンテキスト（docs/design.md 3.15）。発火時の初期値 + ノードが ##gw / API で
+   *  書き足す key→現在値。同一ラン内は last-write-wins */
+  context: Record<string, string>;
   created: string;
+}
+
+// ---- 配線チェック（GET /api/pages/:id/wiring。docs/design.md 3.15） ----
+
+/** 参照矢印の1本: producer（出力宣言）→ consumer（コマンド中の {name} 参照） */
+export interface WiringReference {
+  producerId: string;
+  consumerId: string;
+  name: string;
+}
+
+/** 配線の警告。missing=供給元なし / not-ancestor=祖先でないproducer /
+ *  branch-dependent=経路依存 / duplicate=重複producer。message は日本語の説明文 */
+export interface WiringWarning {
+  nodeId: string;
+  name: string;
+  kind: "missing" | "not-ancestor" | "branch-dependent" | "duplicate";
+  message: string;
 }
 
 /** 実行の内訳（AI実行ノードの内部サブステップ。packages/core/src/schema.ts SubStepSchema と同形）。

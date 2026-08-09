@@ -16,6 +16,7 @@ import {
   LifecycleSchema,
   StatusSchema,
   RunItemStatusSchema,
+  OutputParamSchema,
 } from "./schemas.js";
 
 const MCP_ACTOR = { kind: "agent" as const, name: "mcp" };
@@ -177,6 +178,10 @@ server.registerTool(
       members: z.array(z.string()).optional().describe(
         "ページの関係者のメール配列。ページ（kind=goal / メンバー持ち）でのみ意味を持つ。既定 []",
       ),
+      outputs: z.array(OutputParamSchema).nullable().optional().describe(
+        "ランのコンテキストへの出力宣言 [{name, label?, example?}]（design.md 3.15）。" +
+          "trigger では発火フォームの項目 / 検知スクリプトの emit 契約になる。既定 null",
+      ),
     },
   },
   safe(async (input: Record<string, unknown>) => apiPost("/api/nodes", withMeta(input))),
@@ -304,10 +309,18 @@ server.registerTool(
       "トリガーノード（kind=trigger）を手動発火し、その group（所属ページ）でランを1本作成する。" +
       "対象ノードが kind=trigger でない、または group（所属ページ）が無い場合は失敗する。" +
       "ワークアイテムはトリガーの子孫（parentsを辿って到達可能なメンバー。lifecycleを問わず" +
-      "items に入るが、実行されるのは lifecycle=committed のみ）。作成されたランを返す。",
+      "items に入るが、実行されるのは lifecycle=committed のみ）。" +
+      "context はこのランの初期コンテキスト（ランのコンテキスト。3.15）。トリガーの outputs 宣言が" +
+      "発火フォーム項目/emit契約に相当し、そこで挙がっているキーを渡すとよいが必須ではない" +
+      "（空でも発火できる。値は下流のノードが確定させる設計もあるため）。作成されたランを返す" +
+      "（run.context に反映される）。",
     inputSchema: {
       nodeId: z.string().describe("発火させるトリガーノードid（kind=trigger）"),
       via: z.string().min(1).optional().describe("発火理由の自由文字列。省略時はサーバ既定の \"manual\""),
+      context: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe("このランの初期コンテキスト（キー→値）。省略時は空。ランの進行中に run_context_set で書き足せる"),
     },
   },
   safe(async ({ nodeId, ...rest }: { nodeId: string; [key: string]: unknown }) =>
@@ -315,7 +328,35 @@ server.registerTool(
   ),
 );
 
-// ---- 11. run_list ----
+// ---- 11. run_context_set ----
+// ランのコンテキスト（docs/design.md 3.15）への書き込み口。POST /api/runs/:id/context は
+// merge（last-write-wins）。DAG の順序（producer が consumer の祖先）が事実上の書き順を決める。
+
+server.registerTool(
+  "run_context_set",
+  {
+    description:
+      "ランのコンテキスト（run.context。3.15）を更新する。set の各キーを現在の run.context へ" +
+      "merge する（同一ラン内は last-write-wins。テンプレートには書き戻さない＝このランだけの値）。" +
+      "nodeId を渡すとそのノードのスレッドへ、省略時は run.trigger から取り出したトリガーノードへ、" +
+      "runId 付きで「コンテキスト更新: k=v, …」の status メッセージが積まれる（監査用）。" +
+      "script executor が stdout に出す `##gw {\"set\":{...}}` マーカー行と同じ効果を持つ、" +
+      "エンジン外（MCP・人間・外部システム）からの書き込み経路。更新後のラン全体を返す。",
+    inputSchema: {
+      runId: z.string().describe("対象のランid"),
+      set: z.record(z.string(), z.string()).describe("run.context へ merge するキー→値"),
+      nodeId: z
+        .string()
+        .optional()
+        .describe("更新をどのノードのスレッドへ記録するか。省略時は run.trigger のトリガーノードへ記録する"),
+    },
+  },
+  safe(async ({ runId, ...rest }: { runId: string; [key: string]: unknown }) =>
+    apiPost(`/api/runs/${encodeURIComponent(runId)}/context`, withMeta(rest)),
+  ),
+);
+
+// ---- 12. run_list ----
 
 type RunItemLike = { status: string };
 type RunSummaryLike = {
@@ -324,6 +365,7 @@ type RunSummaryLike = {
   status: unknown;
   trigger: unknown;
   created: unknown;
+  context: unknown;
   items: Record<string, RunItemLike>;
 };
 
@@ -332,9 +374,10 @@ server.registerTool(
   {
     description:
       "指定したページの過去のラン一覧を要約で取得する（新しい順）。各ランは" +
-      "{id,title,status,trigger,created} と itemCounts（ワークアイテムの状態別件数。" +
-      "pending/running/waiting/done/dropped/skipped ごとの内訳のみ）を返す。個々のワークアイテムが" +
-      "どのノードで今どの状態かの詳細が必要なら run_get を使うこと。",
+      "{id,title,status,trigger,created,context} と itemCounts（ワークアイテムの状態別件数。" +
+      "pending/running/waiting/done/dropped/skipped ごとの内訳のみ）を返す。context はそのランの" +
+      "run.context（3.15。Record<string,string>）。個々のワークアイテムがどのノードで今どの状態か・" +
+      "resolvedParams の詳細が必要なら run_get を使うこと。",
     inputSchema: { pageId: z.string().describe("対象のページid（state_get の pages から選ぶ）") },
   },
   safe(async ({ pageId }: { pageId: string }) => {
@@ -347,26 +390,36 @@ server.registerTool(
         for (const item of Object.values(r.items ?? {})) {
           itemCounts[item.status] = (itemCounts[item.status] ?? 0) + 1;
         }
-        return { id: r.id, title: r.title, status: r.status, trigger: r.trigger, created: r.created, itemCounts };
+        return {
+          id: r.id,
+          title: r.title,
+          status: r.status,
+          trigger: r.trigger,
+          created: r.created,
+          context: r.context ?? {},
+          itemCounts,
+        };
       }),
     };
   }),
 );
 
-// ---- 12. run_get ----
+// ---- 13. run_get ----
 
 server.registerTool(
   "run_get",
   {
     description:
       "ラン1件の全フィールドを取得する: procedure(属するページのid)・title・trigger・status(running/done/cancelled)・" +
-      "items（テンプレートノードid→{status,note,choice}の全件）・created。runId は run_list / trigger_fire から得る。",
+      "items（テンプレートノードid→{status,note,choice,resolvedParams}の全件。resolvedParams は script" +
+      "実行時に解決された{name:値}で未実行なら null）・context（run.context。3.15。Record<string,string>。" +
+      "発火時の初期値+ノードが書き足した現在値）・created。runId は run_list / trigger_fire から得る。",
     inputSchema: { runId: z.string().describe("取得したいランid") },
   },
   safe(async ({ runId }: { runId: string }) => apiGet(`/api/runs/${encodeURIComponent(runId)}`)),
 );
 
-// ---- 13. run_item_patch ----
+// ---- 14. run_item_patch ----
 
 server.registerTool(
   "run_item_patch",
@@ -388,7 +441,7 @@ server.registerTool(
   ),
 );
 
-// ---- 14. run_cancel ----
+// ---- 15. run_cancel ----
 
 server.registerTool(
   "run_cancel",
@@ -401,7 +454,7 @@ server.registerTool(
   safe(async ({ runId }: { runId: string }) => apiPost(`/api/runs/${encodeURIComponent(runId)}/cancel`, withMeta({}))),
 );
 
-// ---- 15. run_trace ----
+// ---- 16. run_trace ----
 
 server.registerTool(
   "run_trace",
@@ -409,13 +462,15 @@ server.registerTool(
     description:
       "ランのトレースを再生する。ページノード本体と全ワークアイテムのノードのスレッドから、そのラン" +
       "（payload.runId が一致）に紐づくメッセージだけを集め、時系列(ts昇順)で返す。各イベントに元メッセージの" +
-      "全フィールド（kind/body/author/via/ts等）+ nodeTitle が付く。「このランで何が起きたか」を後から追うのに使う。",
+      "全フィールド（kind/body/author/via/ts等）+ nodeTitle が付く（run_context_set やスクリプトの" +
+      "##gw マーカーによる「コンテキスト更新: k=v, …」の status メッセージもここに乗る）。" +
+      "「このランで何が起きたか」を後から追うのに使う。",
     inputSchema: { runId: z.string().describe("対象のランid") },
   },
   safe(async ({ runId }: { runId: string }) => apiGet(`/api/runs/${encodeURIComponent(runId)}/trace`)),
 );
 
-// ---- 16. undo ----
+// ---- 17. undo ----
 
 server.registerTool(
   "undo",
@@ -429,7 +484,7 @@ server.registerTool(
   safe(async () => apiPost("/api/undo", withMeta({}))),
 );
 
-// ---- 17. redo ----
+// ---- 18. redo ----
 
 server.registerTool(
   "redo",

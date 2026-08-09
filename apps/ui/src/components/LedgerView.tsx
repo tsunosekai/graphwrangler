@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { api } from "../lib/api";
-import { promptDialog } from "../lib/dialogs";
+import { formDialog, promptDialog } from "../lib/dialogs";
 import { usePolling } from "../hooks/usePolling";
 import { HINT_TEXT } from "../lib/hints";
 import { pushToast } from "../lib/toast";
@@ -180,15 +180,22 @@ export function LedgerView({ page, members, onMutated, onRunStarted }: Props) {
 
   const startRun = useCallback(async () => {
     if (!triggerNode) return;
-    // 並列ラン（並行ラン）の区別用に名前を付けられる。キャンセルで発火中止
-    const title = await promptDialog("ランの名前は？（作品名など）", {
-      placeholder: "空欄なら日時",
+    // 並列ラン（並行ラン）の区別用に名前を付けられる。キャンセルで発火中止。
+    // トリガーの outputs 宣言があれば context の入力欄も出す（任意＝空でも発火できる。
+    // 直近ランの context をプリフィル。docs/design.md 3.15）
+    const res = await formDialog("ランの名前は？（作品名など）", {
+      fields: triggerNode.outputs ?? [],
+      prefill: runs[0]?.context,
+      titleInput: { placeholder: "空欄なら日時" },
       confirmLabel: "開始",
     });
-    if (title === null) return;
+    if (res === null) return;
     setStarting(true);
     try {
-      const run = await api.fireTrigger(triggerNode.id, { title: title.trim() || undefined });
+      const run = await api.fireTrigger(triggerNode.id, {
+        title: res.title.trim() || undefined,
+        ...(Object.keys(res.values).length > 0 ? { context: res.values } : {}),
+      });
       await refreshRuns();
       setSelectedRunId(run.id);
       onMutated();
@@ -197,7 +204,7 @@ export function LedgerView({ page, members, onMutated, onRunStarted }: Props) {
     } finally {
       setStarting(false);
     }
-  }, [triggerNode, refreshRuns, onMutated, onRunStarted]);
+  }, [triggerNode, runs, refreshRuns, onMutated, onRunStarted]);
 
   const cancelSelected = useCallback(async () => {
     if (!selectedRunId) return;

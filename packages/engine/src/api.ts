@@ -119,10 +119,12 @@ export async function listPageRuns(pageId: string): Promise<Run[]> {
  *  この1フィールドが run.trigger の記録とスレッド投稿の帰属(via)の両方に使われる
  *  （他の書き込みAPIのような actor/via 2引数と違い、このエンドポイントは via を1つしか
  *  持たない。他の関数と同じ形で末尾に別の via を足すと上書きされて事故る＝2026-07-31に
- *  実際に踏んだ穴なので、シグネチャで区別する） */
+ *  実際に踏んだ穴なので、シグネチャで区別する）。
+ *  opts.title はラン名、opts.context はランのコンテキストの初期値（docs/design.md 3.15。
+ *  検知スクリプトの emit / ai トリガーの ##gw マーカー由来） */
 export async function fireTriggerNode(
   nodeId: string,
-  opts: { via?: string } = {},
+  opts: { via?: string; title?: string; context?: Record<string, string> } = {},
   actor: Actor,
 ): Promise<Run> {
   return (await request("POST", `/api/nodes/${nodeId}/fire`, {
@@ -131,11 +133,12 @@ export async function fireTriggerNode(
   })) as Run;
 }
 
-/** ランのワークアイテムを部分更新する。actor/via で帰属を明示する */
+/** ランのワークアイテムを部分更新する。actor/via で帰属を明示する。
+ *  resolvedParams は script 実行直前に解決済みの {name: 値} を焼く用途（docs/design.md 3.15） */
 export async function patchRunItem(
   runId: string,
   nodeId: string,
-  patch: { status?: RunItemStatus; note?: string | null },
+  patch: { status?: RunItemStatus; note?: string | null; resolvedParams?: Record<string, string> | null },
   actor: Actor,
   via: string,
 ): Promise<Run> {
@@ -143,6 +146,22 @@ export async function patchRunItem(
     ...patch,
     actor,
     via,
+  })) as Run;
+}
+
+/** ランのコンテキストへ値を merge する（POST /api/runs/:id/context。docs/design.md 3.15）。
+ *  nodeId を渡すとサーバがそのノードのスレッドへ runId 付き status「コンテキスト更新: …」を
+ *  積む（監査はスレッドに残る）。無ければ run.trigger からトリガーノードへ積まれる */
+export async function patchRunContext(
+  runId: string,
+  set: Record<string, string>,
+  nodeId?: string,
+  via?: string,
+): Promise<Run> {
+  return (await request("POST", `/api/runs/${runId}/context`, {
+    set,
+    ...(nodeId ? { nodeId } : {}),
+    ...(via ? { via } : {}),
   })) as Run;
 }
 

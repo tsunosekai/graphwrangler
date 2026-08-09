@@ -42,6 +42,7 @@ function node(partial: Partial<Node> = {}): Node {
     createdBy: partial.createdBy ?? null,
     assignee: partial.assignee ?? null,
     members: partial.members ?? [],
+    outputs: partial.outputs ?? null,
     created: partial.created ?? `2026-01-01T00:00:${String(nodeSeq).padStart(2, "0")}Z`,
   };
 }
@@ -51,6 +52,7 @@ function item(partial: Partial<RunItem> = {}): RunItem {
     status: partial.status ?? "waiting",
     note: partial.note ?? APPROVAL_WAITING_NOTE,
     choice: partial.choice ?? null,
+    resolvedParams: partial.resolvedParams ?? null,
   };
 }
 
@@ -64,6 +66,8 @@ function run(items: Record<string, RunItem>, partial: Partial<Run> = {}): Run {
     trigger: partial.trigger ?? "manual",
     status: partial.status ?? "running",
     items,
+    context: partial.context ?? {},
+    snapshot: partial.snapshot ?? null,
     created: partial.created ?? `2026-01-01T01:00:${String(runSeq).padStart(2, "0")}Z`,
   };
 }
@@ -77,6 +81,7 @@ function decisionRequestMessage(runId: string, opts: { answered?: boolean; id?: 
     via: "engine",
     kind: "decision_request",
     body: `これは元に戻せない操作です。実行していいですか？ ${runGateMarker(runId)}`,
+    runId: null,
     payload: null,
     requestStatus: opts.answered ? "answered" : "open",
   };
@@ -91,6 +96,7 @@ function decisionAnswerMessage(requestId: string, option: string | null): Messag
     via: "ui",
     kind: "decision_answer",
     body: "",
+    runId: null,
     payload: { requestId, option, note: null },
   };
 }
@@ -180,7 +186,7 @@ describe("selectRunApprovalAction: go後に1回実行", () => {
   it("実行後(アイテムがwaiting/承認待ちでなくなった)は対象から外れる", () => {
     const n = node({ id: "irr1" });
     // 実行済みを模して item.status が done に変わった状態
-    const r = run({ irr1: { status: "done", note: null, choice: null } });
+    const r = run({ irr1: { status: "done", note: null, choice: null, resolvedParams: null } });
     const gateStates = { [gateKey(r.id, "irr1")]: { status: "answered" as const, option: "go" } };
     const action = selectRunApprovalAction([n], [r], gateStates);
     expect(action).toEqual({ type: "none" });

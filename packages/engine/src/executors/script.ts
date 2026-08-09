@@ -37,6 +37,9 @@ export interface RunScriptOptions {
    *  ワークスペースモードでは正データファイルのあるディレクトリ（workspace root）を渡す
    *  （ワークスペース=1ファイル化仕様: スクリプトがリポジトリ内のファイルを素で参照できる） */
   cwd?: string;
+  /** 追加の環境変数（ランのコンテキスト GW_RUN_ID / GW_CONTEXT / GW_RUN_DIR / GW_PARAM_* 等。
+   *  docs/design.md 3.15）。process.env に重ねて子プロセスへ渡す */
+  env?: Record<string, string>;
 }
 
 /**
@@ -47,7 +50,7 @@ export interface RunScriptOptions {
  * 割れるのを防ぐ + 上記の Shift_JIS フォールバックのため）。
  */
 export function runScript(command: string, opts: RunScriptOptions = {}): Promise<ExecResult> {
-  const { timeoutMs = SCRIPT_TIMEOUT_MS, cwd = os.tmpdir() } = opts;
+  const { timeoutMs = SCRIPT_TIMEOUT_MS, cwd = os.tmpdir(), env } = opts;
   return new Promise((resolve) => {
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
@@ -56,6 +59,8 @@ export function runScript(command: string, opts: RunScriptOptions = {}): Promise
     const child = spawn(command, {
       shell: true,
       cwd,
+      // env 省略時は spawn 既定（process.env 継承）のまま。指定時だけ重ねる
+      ...(env ? { env: { ...process.env, ...env } } : {}),
     });
 
     const timer = setTimeout(() => {

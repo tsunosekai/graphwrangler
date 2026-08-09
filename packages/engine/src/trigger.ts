@@ -9,11 +9,15 @@
 // approval=true のトリガーは「発火前承認」: 自動発火の直前に go/skip の承認カードを
 // トリガーのスレッドへ開き、go 回答の1回だけ発火する（task の実行前承認と同型。手動▶は
 // 人間が押すこと自体が承認なのでゲートを通らない）。
+// script トリガーに impl.command があれば「検知スクリプト」（2026-08-09。docs/design.md 3.15）:
+// schedule をチェック間隔とし、間隔ごとにエンジンが command を実行して、stdout の JSON 行
+// {"context":{...},"title":"..."} を emit された数だけ発火する（1行=1ラン。空出力=発火なし）。
 // ネットワークI/Oを一切持たない純粋関数のみを置く（vitest でユニットテストする対象）。
+import { coerceStringRecord } from "./context.js";
 import { parseSchedule, shouldCreateScheduledRun } from "./schedule.js";
 import type { DecisionAnswer, DecisionRequest, Message, Node } from "./types.js";
 
-/** ai トリガーのチェック間隔が未指定/未対応の書式のときの既定値（1時間） */
+/** ai トリガー・検知スクリプトのチェック間隔が未指定/未対応の書式のときの既定値（1時間） */
 export const DEFAULT_AI_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 /** kind=trigger かつ lifecycle=committed のノードだけがエンジンの対象
@@ -47,6 +51,105 @@ export function resolveAiCheckIntervalMs(scheduleText: string | null): number {
   const schedule = parseSchedule(scheduleText);
   if (!schedule || schedule.type !== "every") return DEFAULT_AI_CHECK_INTERVAL_MS;
   return schedule.ms;
+}
+
+// ---- 検知スクリプト（impl.command のある script トリガー。docs/design.md 3.8/3.15） ----
+
+/** script トリガーのうち「検知スクリプト」（impl.command あり）か。無条件 cron 発火
+ *  （従来の script トリガー）との分岐に使う */
+export function isDetectScriptTrigger(node: Pick<Node, "executor" | "impl">): boolean {
+  return node.executor === "script" && node.impl?.type === "script";
+}
+
+/**
+ * 検知スクリプトを今回実行すべきか（純粋関数）。schedule は「チェック間隔」として扱う:
+ * - every 系: その間隔（ai トリガーと同じ in-memory lastCheckedAt 方式）
+ * - daily/weekly/cron: shouldCreateScheduledRun を lastCheckedAt 基準で流用
+ *   （「最新ラン」の代わりに「最後にチェックした時刻」を渡す。発火の有無はスクリプトの
+ *   emit が決めるので、ランの有無をここで見ない）
+ * - 無指定/未対応の書式: 既定1時間
+ * lastCheckedAt はエンジンのメモリ管理（プロセス再起動で即再チェックされるのは許容する）。
+ */
+export function shouldRunDetectScript(
+  scheduleText: string | null,
+  lastCheckedAt: number | null,
+  now: Date,
+): boolean {
+  const schedule = scheduleText ? parseSchedule(scheduleText) : null;
+  if (!schedule || schedule.type === "every") {
+    const intervalMs = schedule?.type === "every" ? schedule.ms : DEFAULT_AI_CHECK_INTERVAL_MS;
+    return shouldEvaluateAiTrigger(intervalMs, lastCheckedAt, now.getTime());
+  }
+  const baseline =
+    lastCheckedAt === null ? null : { created: new Date(lastCheckedAt).toISOString() };
+  return shouldCreateScheduledRun(schedule, baseline, now);
+}
+
+/** 検知スクリプトが emit した1イベント（= ラン1本の種）。3.8「payload 付きイベント」 */
+export interface DetectEmitEvent {
+  /** ランのコンテキストの初期値（3.15）。emit 行に context が無ければ {} */
+  context: Record<string, string>;
+  /** ラン名。無ければ null（サーバ既定の名前になる） */
+  title: string | null;
+}
+
+export interface DetectEmitResult {
+  events: DetectEmitEvent[];
+  /** '{' で始まるのに JSON として解釈できなかった行（トリガーのスレッドへ失敗として記録する対象） */
+  invalidLines: string[];
+}
+
+/** emit 行を1つのイベントへ緩く読む。context は string/number/boolean 値を文字列化して許す。
+ *  形が違えば null（=不正行） */
+function coerceEmitEvent(value: unknown): DetectEmitEvent | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const obj = value as { context?: unknown; title?: unknown };
+  let context: Record<string, string> = {};
+  if (obj.context !== undefined) {
+    const coerced = coerceStringRecord(obj.context);
+    if (!coerced) return null;
+    context = coerced;
+  }
+  if (obj.title !== undefined && obj.title !== null && typeof obj.title !== "string") return null;
+  return { context, title: typeof obj.title === "string" ? obj.title : null };
+}
+
+/**
+ * 検知スクリプトの stdout から emit イベントを取り出す（純粋関数。docs/design.md 3.8）。
+ * '{' で始まる各行を JSON の {"context":{...},"title":"..."} として読む（1行=1ラン）。
+ * '{' 以外で始まる行はログとして無視する。'{' 始まりでパース不能・形が不正な行は
+ * invalidLines に入れる（呼び出し側がトリガーのスレッドへ status で失敗記録する）。
+ */
+export function parseDetectEmitLines(output: string): DetectEmitResult {
+  const events: DetectEmitEvent[] = [];
+  const invalidLines: string[] = [];
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line.startsWith("{")) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      invalidLines.push(line);
+      continue;
+    }
+    const event = coerceEmitEvent(parsed);
+    if (!event) {
+      invalidLines.push(line);
+      continue;
+    }
+    events.push(event);
+  }
+  return { events, invalidLines };
+}
+
+/** イベントの人間向け1行要約（承認カードの文面・ログ用） */
+export function describeFireEvent(event: DetectEmitEvent): string {
+  const pairs = Object.entries(event.context)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(", ");
+  if (event.title && pairs) return `${event.title}（${pairs}）`;
+  return event.title ?? (pairs || "(内容なし)");
 }
 
 /**
@@ -86,11 +189,20 @@ export function parseAiFireDecision(output: string): "fire" | "skip" | null {
  *  ゲート状態を復元するのに使う（approval.ts の runGateMarker と同じ方式） */
 export const FIRE_GATE_MARKER = "[発火前承認]";
 
-/** 発火の許可を求める判断リクエスト（task の buildIrreversibleGateRequest の発火版） */
-export function buildFireApprovalRequest(node: Pick<Node, "title" | "detail">): DecisionRequest {
+/** 発火の許可を求める判断リクエスト（task の buildIrreversibleGateRequest の発火版）。
+ *  event（検知スクリプトの emit / ai トリガーの ##gw 由来）があれば人間向けの内容を文面へ足す。
+ *  機械可読な {context, title} 本体は、カードを開く直前に payload.fireEvent 付きの status として
+ *  トリガーのスレッドへ積んでおき（index.ts）、go 回答時に findLatestFireEvent で復元する
+ *  （DecisionRequest スキーマは固定形でスキーマ外フィールドを持てないため、保持はメッセージ
+ *  payload 側が担う） */
+export function buildFireApprovalRequest(
+  node: Pick<Node, "title" | "detail">,
+  event?: DetectEmitEvent | null,
+): DecisionRequest {
   const detail = node.detail ? `\n補足: ${node.detail}` : "";
+  const eventLine = event ? `\n検知イベント: ${describeFireEvent(event)}` : "";
   return {
-    context: `トリガー「${node.title}」の開始条件を満たしました。${detail}`,
+    context: `トリガー「${node.title}」の開始条件を満たしました。${detail}${eventLine}`,
     question: `開始していいですか？ ${FIRE_GATE_MARKER}`,
     options: [
       { id: "go", label: "開始して", then: "ランを1本開始する" },
@@ -99,6 +211,28 @@ export function buildFireApprovalRequest(node: Pick<Node, "title" | "detail">): 
     impact: "irreversible",
     undo: null,
   };
+}
+
+/**
+ * トリガーのスレッドから、発火前承認カードに対応する検知イベント（payload.fireEvent）を
+ * 復元する（純粋関数）。エンジンはカードを開く直前に status として積む（index.ts の
+ * 検知スクリプト / ai トリガー処理）。latestRun 以前の ts のものは前回の発火で消費済みと
+ * みなして使わない（hasUnconsumedGo と同じ「発火で消費」の流儀）。
+ */
+export function findLatestFireEvent(
+  messages: Message[],
+  latestRun: { created: string } | null,
+): DetectEmitEvent | null {
+  const m = [...messages]
+    .reverse()
+    .find((msg) => {
+      const ev = (msg.payload as { fireEvent?: unknown } | null)?.fireEvent;
+      if (!ev) return false;
+      if (latestRun && msg.ts <= latestRun.created) return false;
+      return true;
+    });
+  if (!m) return null;
+  return coerceEmitEvent((m.payload as { fireEvent: unknown }).fireEvent);
 }
 
 export type FireGateState =
@@ -154,9 +288,11 @@ export function hasUnconsumedGo(
 /**
  * ai トリガー向けのプロンプトを組み立てる（純粋関数）。発火条件は title/detail/impl(doc全文)
  * に書かれている想定（docs/design.md「条件は detail / impl(doc) に書かれている」）。
+ * outputs 宣言があれば、fire 時に ##gw マーカーで context も出せることを指示する（3.15。
+ * fire 行 + マーカー行の形。マーカーは index.ts が extractGwMarkers で取り出して fire へ渡す）。
  */
 export function buildTriggerPrompt(
-  node: Pick<Node, "title" | "detail" | "impl">,
+  node: Pick<Node, "title" | "detail" | "impl" | "outputs">,
   now: Date,
 ): string {
   const lines: string[] = [
@@ -172,5 +308,16 @@ export function buildTriggerPrompt(
     "",
     "発火すべきなら fire、見送るなら skip のみを1行で出力してください（他の文字・説明は含めないこと）。",
   );
+  if (node.outputs && node.outputs.length > 0) {
+    lines.push(
+      "発火する場合は、fire の行に続けて次のキーを"
+        + ' ##gw {"set":{"キー":"値"}} 形式の行（1行1個。行全体がこの形）で出力できます'
+        + "（開始されるランのコンテキスト初期値になります）:",
+      ...node.outputs.map(
+        (o) =>
+          `- ${o.name}${o.label ? `（${o.label}）` : ""}${o.example ? ` 例: ${o.example}` : ""}`,
+      ),
+    );
+  }
   return lines.join("\n");
 }

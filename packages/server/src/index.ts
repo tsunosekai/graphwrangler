@@ -21,6 +21,7 @@ import {
   RunItemStatusSchema,
   nowIso,
   runIdOf,
+  checkWiring,
   type Actor,
   type Run,
 } from "@graphwrangler/core";
@@ -106,9 +107,11 @@ function resolveCanonicalFile(rawPath: string): string {
 // users.json（パスワードハッシュ）と auth-secret（セッション署名鍵）は絶対にコミットさせない
 // （authDir = sidecar なので、この2行が無いとワークスペースモードで git に乗ってしまう）
 // branding/ もインスタンス固有（settings.json と同じ扱い）。会社/個人で別のロゴを出すための
-// 手置き画像なので、リポジトリに乗せるとワークスペースを共有した相手の見た目まで変わる
+// 手置き画像なので、リポジトリに乗せるとワークスペースを共有した相手の見た目まで変わる。
+// runfiles/ はラン毎の作業ディレクトリ（GW_RUN_DIR。docs/design.md 3.15「成果物はファイル、
+// context にはパス」）——実行の中間生成物なのでコミットさせない
 const GITIGNORE_CONTENT =
-  "ops.jsonl\nruns/\nsettings.json\nuser-settings.json\nreads.json\nusers.json\nauth-secret\nattachments/\nbranding/\n";
+  "ops.jsonl\nruns/\nrunfiles/\nsettings.json\nuser-settings.json\nreads.json\nusers.json\nauth-secret\nattachments/\nbranding/\n";
 
 const workspaceArg = process.env.GRAPHWRANGLER_WORKSPACE ?? parseWorkspaceArg(process.argv.slice(2));
 
@@ -876,9 +879,13 @@ app.post("/api/nodes/:id/trial", async (c) => {
   const id = c.req.param("id");
   const node = graph.get(id);
   assertTrialAllowed(node); // 400: impl.type!=="script"
+  // 試走はテンプレート層（ランが無い）なので context は渡さない＝解決はデフォルト値のみ
+  // （3.15 の解決順②だけが効く従来動作）。unsafe は context 由来の値にしか付かないため
+  // ここでの失敗は常に kind:"missing"（分岐は型を閉じるための保険）
   const sub = substituteParams(node.impl.command, node.impl.params);
   if (!sub.ok) {
-    throw new GraphError(`パラメータが未入力です: ${sub.missing.join(", ")}`, 400);
+    const names = sub.kind === "missing" ? sub.missing : sub.unsafe;
+    throw new GraphError(`パラメータが未入力です: ${names.join(", ")}`, 400);
   }
   const resolvedCommand = `${sub.command} --dry-run`;
   const cwd = trialCwd(graph.workspaceInfo().root);
@@ -1151,6 +1158,9 @@ const FireSchema = z.object({
   /** ランの名前（作品名など）。同じルーティーンを並列で回すとき（並行ラン）に
    *  どのランか区別するためのラベル。省略時は「MM/DD HH:mm のラン」 */
   title: z.string().min(1).optional(),
+  /** ランのコンテキストの初期値（3.15）。手動▶の発火フォーム・MCP trigger_fire・
+   *  外部システムの curl が同じ口で渡す。省略 = 空（発火は値なしでも止めない） */
+  context: z.record(z.string(), z.string()).optional(),
 });
 
 /** トリガーノードを発火し、その group ページでランを作成する。トリガーのスレッドへ
@@ -1159,7 +1169,7 @@ app.post("/api/nodes/:id/fire", async (c) => {
   const id = c.req.param("id");
   const trigger = graph.get(id);
   const body = await c.req.json().catch(() => ({}));
-  const { via, title } = FireSchema.parse(body);
+  const { via, title, context } = FireSchema.parse(body);
   const m = meta(body);
   if (trigger.kind !== "trigger") {
     throw new GraphError(`node ${trigger.id} is not a trigger (kind=${trigger.kind})`, 400);
@@ -1174,6 +1184,8 @@ app.post("/api/nodes/:id/fire", async (c) => {
     via: via ?? "manual",
     // ページ自身も発火時点スナップショットに含める（当時のページ名まで残す。2026-08-08）
     pageNode: graph.has(pageId) ? graph.get(pageId) : null,
+    // ランのコンテキストの初期値（3.15）。以降の書き足しは POST /api/runs/:id/context
+    context,
   });
   threads.post(trigger.id, {
     kind: "status",
@@ -1216,6 +1228,16 @@ app.get("/api/pages/:id/runs", (c) => {
   return c.json({ runs: runs.list(id).map(withoutSnapshot) });
 });
 
+/** 配線チェック（ランのコンテキストの静的検査。docs/design.md 3.15。実装は core の
+ *  checkWiring）。ページの script ノードの {name} 参照と outputs 宣言を照合し、
+ *  参照矢印（破線描画用）と警告バッジ（missing / not-ancestor / branch-dependent /
+ *  duplicate）を返す。警告のみで発火は止めない */
+app.get("/api/pages/:id/wiring", (c) => {
+  const id = c.req.param("id");
+  graph.get(id); // 404: ページが存在しない
+  return c.json(checkWiring(graph.state().nodes, id));
+});
+
 app.get("/api/runs/:id", (c) => {
   return c.json(runs.get(c.req.param("id")));
 });
@@ -1223,6 +1245,10 @@ app.get("/api/runs/:id", (c) => {
 const PatchRunItemSchema = z.object({
   status: RunItemStatusSchema.optional(),
   note: z.string().nullable().optional(),
+  /** script 実行時に実際に解決された {name: 値}（3.15）。エンジンが実行直前に焼く。
+   *  ランページの引数欄が値入り（読み取り専用）表示に使い、現在の run.context と
+   *  ずれていたら「古い値で実行済み」を出す */
+  resolvedParams: z.record(z.string(), z.string()).nullable().optional(),
 });
 
 /** ワークアイテム更新。テンプレートノードのスレッドへ状態遷移を記録し、
@@ -1237,7 +1263,11 @@ app.post("/api/runs/:id/items/:nodeId", async (c) => {
   }
   const body = await c.req.json();
   const input = PatchRunItemSchema.parse(body);
-  const run = runs.patchItem(runId, nodeId, { status: input.status, note: input.note });
+  const run = runs.patchItem(runId, nodeId, {
+    status: input.status,
+    note: input.note,
+    resolvedParams: input.resolvedParams,
+  });
   const m = meta(body);
   const node = graph.get(nodeId);
   const fromStatus = beforeItem.status;
@@ -1330,6 +1360,48 @@ app.post("/api/runs/:id/rename", async (c) => {
 
 app.post("/api/runs/:id/cancel", (c) => {
   return c.json(runs.cancel(c.req.param("id")));
+});
+
+// ---- ランのコンテキスト（3.15 の書き。エンジンの ##gw マーカー抽出・人間の完了フォーム・
+//      MCP・外部システムが全員この口から merge する） ----
+
+const PatchRunContextSchema = z.object({
+  /** merge する {キー: 値}（last-write-wins） */
+  set: z.record(z.string(), z.string()),
+  /** どのノードの実行がこの更新を書いたか（監査記録の宛先）。省略時は run.trigger から
+   *  トリガーノードを割り出してそちらへ積む */
+  nodeId: z.string().optional(),
+});
+
+/** ランのコンテキストへ値を merge し、更新後の Run を返す。run ファイル自身は現在値だけを
+ *  持つので、「誰がいつ何を書いたか」の監査はノードスレッドへの status メッセージで残す
+ *  （nodeId がワークアイテムのノードならラントレース GET /api/runs/:id/trace にも
+ *  同じ経路で乗る。トリガーノード宛はトレース対象外＝発火記録と同じ扱い） */
+app.post("/api/runs/:id/context", async (c) => {
+  const runId = c.req.param("id");
+  const body = await c.req.json();
+  const { set, nodeId } = PatchRunContextSchema.parse(body);
+  const m = meta(body);
+  const run = runs.patchContext(runId, set); // run が無ければ 404、空キーは 400
+  // 監査の宛先: 書き手のノード（nodeId）が指定されていればそのスレッド、無ければ
+  // run.trigger（"trigger:<id>:<via>" 形式）からトリガーノードのスレッドへ。
+  // ノードが後から消されていてもスレッドファイルには追記できる（ランの記録は
+  // テンプレート削除後も読める既存規則に合わせる）
+  const targetId = nodeId ?? /^trigger:([^:]+):/.exec(run.trigger)?.[1] ?? null;
+  if (targetId && Object.keys(set).length > 0) {
+    const summary = Object.entries(set)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(", ");
+    threads.post(targetId, {
+      kind: "status",
+      body: `コンテキスト更新: ${summary}`,
+      payload: { runId, set },
+      runId,
+      author: m.actor,
+      via: m.via,
+    });
+  }
+  return c.json(run);
 });
 
 /**

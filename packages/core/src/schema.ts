@@ -65,6 +65,18 @@ export const ScriptParamSchema = z.object({
 });
 export type ScriptParam = z.infer<typeof ScriptParamSchema>;
 
+/** ランのコンテキストへの出力宣言（2026-08-09。docs/design.md 3.15）。
+ *  「このノードはランのキー name を出力する」の宣言で、値は持たない（値はランの進行中に
+ *  run.context へ書かれる）。kind=trigger では発火フォームの項目 / 検知スクリプトの
+ *  emit 契約になる。ScriptParam と違い value フィールドが無いのが本質的な差
+ *  （宣言と値の置き場を分けるのがこの設計の骨子） */
+export const OutputParamSchema = z.object({
+  name: z.string().min(1),
+  label: z.string().nullable().optional(),
+  example: z.string().nullable().optional(),
+});
+export type OutputParam = z.infer<typeof OutputParamSchema>;
+
 /** ノードの実装形態（Fix3段階の後ろ2つ。null=会話段=AIの裁量で実行）
  *  - doc: 手順書。AI executor がこれを読んで実行する。text はインライン本文、path は
  *    ワークスペースモード（ワークスペース=1ファイル化）でリポジトリ内ファイルを指す相対パス
@@ -171,6 +183,9 @@ export const NodeSchema = z.object({
   branches: z.array(NodeBranchSchema).nullable().default(null),
   /** 決定済みの枝id（プロジェクト層。kind=decision が完了すると入る）。ラン側は RunItem.choice */
   choice: z.string().nullable().default(null),
+  /** ランのコンテキストへの出力宣言（3.15）。null=宣言なし。trigger では発火フォームの
+   *  項目 / emit 契約になる。既存データ互換で default null */
+  outputs: z.array(OutputParamSchema).nullable().default(null),
   /** 子側: どの親decisionのどの枝から生えるか（親decisionId → 枝id）。
    *  検証: キーが parents に含まれ、その親が kind=decision であること。値がその親の branches に存在すること */
   parentOptions: z.record(z.string(), z.string()).default({}),
@@ -212,6 +227,7 @@ export const NodeInputSchema = z.object({
   schedule: z.string().nullable().default(null),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   choice: z.string().nullable().default(null),
+  outputs: z.array(OutputParamSchema).nullable().default(null),
   parentOptions: z.record(z.string(), z.string()).default({}),
   /** createdBy は入力に含めない（サーバが操作者から刻む。クライアントに詐称させない） */
   assignee: z.string().nullable().default(null),
@@ -354,6 +370,38 @@ export function runIdOf(m: Pick<Message, "runId" | "payload">): string | null {
   return payload && typeof payload.runId === "string" ? payload.runId : null;
 }
 
+// ---- 実行の内訳（AI実行ノードの内部サブステップ） ----
+// AI 実行中に実際に行われた操作（ツール呼び出し）を1件ずつ記録したもの。
+// 実行成功/失敗の status メッセージの payload.subSteps に配列で載る。
+// 「ノード内ノード」の実体であり、展開（ノードをこの内訳の実ノード連鎖で
+// 置き換える POST /api/nodes/:id/expand）の素材になる。
+export const SubStepSchema = z.object({
+  /** ツール呼び出し id（tool_use.id）。展開時のノード id とは無関係 */
+  id: z.string(),
+  /** 実行順（0始まり） */
+  index: z.number().int().min(0),
+  /** ツール名。例: "Bash" "Read" "Edit" "Task" */
+  tool: z.string(),
+  /** 表示名。Bash は description/コマンド先頭、他は主要引数の要約 */
+  title: z.string(),
+  /** tool=Bash のときの実コマンド。展開時に script impl になる */
+  command: z.string().nullable().default(null),
+  /** 入力の要約（JSON文字列。保存前に切り詰め済み） */
+  input: z.string().nullable().default(null),
+  /** 結果の要約（切り詰め済み） */
+  output: z.string().nullable().default(null),
+  status: z.enum(["ok", "error"]),
+});
+export type SubStep = z.infer<typeof SubStepSchema>;
+
+/** payload から subSteps を安全に取り出す（無ければ空配列） */
+export function subStepsOf(payload: unknown): SubStep[] {
+  const raw = (payload as { subSteps?: unknown } | null)?.subSteps;
+  if (!Array.isArray(raw)) return [];
+  const parsed = z.array(SubStepSchema).safeParse(raw);
+  return parsed.success ? parsed.data : [];
+}
+
 /** リスト表示用: decision_request の状態を answers から導出した形 */
 export type MaterializedMessage = Message & {
   /** kind=decision_request のときのみ: open / answered */
@@ -383,6 +431,10 @@ export const RunItemSchema = z.object({
   note: z.string().nullable(),
   /** テンプレートが kind=decision のとき、そのランで確定した枝id。それ以外は null */
   choice: z.string().nullable().default(null),
+  /** script 実行時に実際に解決された {name: 値}（3.15。2026-08-09）。ランページの
+   *  引数欄はこの値入り（読み取り専用）で表示し、現在の run.context とずれていたら
+   *  「古い値で実行済み」を出す。null = 未実行 / この機能より前の記録 */
+  resolvedParams: z.record(z.string(), z.string()).nullable().default(null),
 });
 export type RunItem = z.infer<typeof RunItemSchema>;
 
@@ -416,6 +468,8 @@ export const NodeSnapshotSchema = z.object({
   fixed: z.boolean(),
   schedule: z.string().nullable(),
   branches: z.array(NodeBranchSchema).nullable(),
+  /** 出力宣言（3.15）。この機能より前のランのスナップショットには無いため default null */
+  outputs: z.array(OutputParamSchema).nullable().default(null),
   parentOptions: z.record(z.string(), z.string()),
   assignee: z.string().nullable(),
 });
@@ -432,6 +486,10 @@ export const RunSchema = z.object({
   status: RunStatusSchema,
   /** テンプレートノード id → ワークアイテム */
   items: z.record(z.string(), RunItemSchema),
+  /** ランのコンテキスト（3.15。2026-08-09）。発火時の初期値が入り、ランの進行中に
+   *  ノード（##gw マーカー / 完了フォーム / API）が書き足す。last-write-wins。
+   *  旧ランファイル互換で default {} */
+  context: z.record(z.string(), z.string()).default({}),
   /** 発火時点のページ構成（ページ自身 + メンバー全部。トリガーや items に入らないノードも含む）。
    *  null = この機能より前のラン。その場合は ops.jsonl の再生で当時を復元する
    *  （GraphStore.nodesAt。サーバの GET /api/runs/:id/graph が両者を束ねる） */

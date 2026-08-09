@@ -93,18 +93,23 @@ test("assertTrialAllowed: approval=true でも試走できる（試走=常に--d
   );
 });
 
-// ---- substituteParams（パラメータ宣言の置換。docs/design.md 3.5.1） ----
+// ---- substituteParams（パラメータ宣言の置換。docs/design.md 3.5.1。
+//      2026-08-09 ランのコンテキスト解決を追加。docs/design.md 3.15） ----
 
 test("substituteParams: 宣言なし・プレースホルダなしのcommandはそのまま通る", () => {
   const result = substituteParams("echo hi", null);
-  assert.deepEqual(result, { ok: true, command: "echo hi" });
+  assert.deepEqual(result, { ok: true, command: "echo hi", resolved: {} });
 });
 
 test("substituteParams: {name} を対応する value に置換し、二重引用符で囲む", () => {
   const result = substituteParams("node run.mjs {target}", [
     { name: "target", value: "foo" },
   ]);
-  assert.deepEqual(result, { ok: true, command: 'node run.mjs "foo"' });
+  assert.deepEqual(result, {
+    ok: true,
+    command: 'node run.mjs "foo"',
+    resolved: { target: "foo" },
+  });
 });
 
 test("substituteParams: 複数のプレースホルダをそれぞれ置換する", () => {
@@ -112,37 +117,114 @@ test("substituteParams: 複数のプレースホルダをそれぞれ置換す�
     { name: "src", value: "a.txt" },
     { name: "dest", value: "b.txt" },
   ]);
-  assert.deepEqual(result, { ok: true, command: 'cp "a.txt" "b.txt"' });
+  assert.deepEqual(result, {
+    ok: true,
+    command: 'cp "a.txt" "b.txt"',
+    resolved: { src: "a.txt", dest: "b.txt" },
+  });
 });
 
 test("substituteParams: value 内の二重引用符は \\\" にエスケープする", () => {
   const result = substituteParams("echo {msg}", [{ name: "msg", value: 'say "hi"' }]);
-  assert.deepEqual(result, { ok: true, command: 'echo "say \\"hi\\""' });
+  assert.deepEqual(result, {
+    ok: true,
+    command: 'echo "say \\"hi\\""',
+    resolved: { msg: 'say "hi"' },
+  });
 });
 
+/** ok:false（missing）の検証ヘルパ。reason は文言全文でなく骨子だけ見る */
+function assertMissing(result: ReturnType<typeof substituteParams>, missing: string[]) {
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.kind, "missing");
+  if (result.kind !== "missing") return;
+  assert.deepEqual(result.missing, missing);
+  assert.match(result.reason, /パラメータが未入力です/);
+}
+
 test("substituteParams: value が未入力（null）の宣言が残っていれば missing に入る", () => {
-  const result = substituteParams("node run.mjs {target}", [{ name: "target", value: null }]);
-  assert.deepEqual(result, { ok: false, missing: ["target"] });
+  assertMissing(
+    substituteParams("node run.mjs {target}", [{ name: "target", value: null }]),
+    ["target"],
+  );
 });
 
 test("substituteParams: value が空文字の宣言も未入力扱い", () => {
-  const result = substituteParams("node run.mjs {target}", [{ name: "target", value: "" }]);
-  assert.deepEqual(result, { ok: false, missing: ["target"] });
+  assertMissing(
+    substituteParams("node run.mjs {target}", [{ name: "target", value: "" }]),
+    ["target"],
+  );
 });
 
 test("substituteParams: 宣言に無い {xxx} は missing に入る", () => {
-  const result = substituteParams("node run.mjs {target}", []);
-  assert.deepEqual(result, { ok: false, missing: ["target"] });
+  assertMissing(substituteParams("node run.mjs {target}", []), ["target"]);
 });
 
 test("substituteParams: missing は重複しない（同名プレースホルダが複数回出ても1回）", () => {
-  const result = substituteParams("echo {a} {a}", []);
-  assert.deepEqual(result, { ok: false, missing: ["a"] });
+  assertMissing(substituteParams("echo {a} {a}", []), ["a"]);
 });
 
 test("substituteParams: 未入力と成功が混在するときは未入力の名前だけ集める", () => {
-  const result = substituteParams("cp {src} {dest}", [{ name: "src", value: "a.txt" }]);
-  assert.deepEqual(result, { ok: false, missing: ["dest"] });
+  assertMissing(substituteParams("cp {src} {dest}", [{ name: "src", value: "a.txt" }]), ["dest"]);
+});
+
+// ---- substituteParams のランコンテキスト解決（3.15。試走は context を渡さないが、
+//      engine 複製と同一ロジックであることの検証をこちらでも持つ） ----
+
+/** ok:false（unsafe）の検証ヘルパ。reason は GW_PARAM_* への誘導が入っていることだけ見る */
+function assertUnsafe(result: ReturnType<typeof substituteParams>, unsafe: string[]) {
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.kind, "unsafe");
+  if (result.kind !== "unsafe") return;
+  assert.deepEqual(result.unsafe, unsafe);
+  assert.match(result.reason, /GW_PARAM_/);
+}
+
+test("substituteParams: run.context が impl.params のデフォルト値より優先される（解決順①→②）", () => {
+  const result = substituteParams(
+    "node run.mjs {target}",
+    [{ name: "target", value: "既定" }],
+    { target: "ラン値" },
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    command: 'node run.mjs "ラン値"',
+    resolved: { target: "ラン値" },
+  });
+});
+
+test("substituteParams: context に無いキーはデフォルト値へ降格する", () => {
+  const result = substituteParams(
+    "cp {src} {dest}",
+    [{ name: "dest", value: "b.txt" }],
+    { src: "a.txt" },
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    command: 'cp "a.txt" "b.txt"',
+    resolved: { src: "a.txt", dest: "b.txt" },
+  });
+});
+
+test("substituteParams: context 由来の値がシェルメタ文字を含むと unsafe（置換せず失敗）", () => {
+  assertUnsafe(substituteParams("echo {msg}", [], { msg: "a; rm -rf /" }), ["msg"]);
+});
+
+test("substituteParams: バッククォート・$・改行なども unsafe（ガードの代表例）", () => {
+  for (const bad of ["`whoami`", "$HOME", 'say "hi"', "a\nb", "a|b", "(x)", "{x}"]) {
+    assertUnsafe(substituteParams("echo {msg}", [], { msg: bad }), ["msg"]);
+  }
+});
+
+test("substituteParams: テンプレートのデフォルト値（人間のUI入力）はメタ文字ガードの対象外", () => {
+  const result = substituteParams("echo {msg}", [{ name: "msg", value: "括弧(入り)タイトル" }]);
+  assert.deepEqual(result, {
+    ok: true,
+    command: 'echo "括弧(入り)タイトル"',
+    resolved: { msg: "括弧(入り)タイトル" },
+  });
 });
 
 // ---- trialCwd ----

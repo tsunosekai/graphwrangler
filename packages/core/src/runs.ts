@@ -23,6 +23,9 @@ export interface TriggerRunOpts {
   /** ページ自身のノード（kind=goal）。渡すと発火時点のスナップショットに含める
    *  （ページ名も当時のものを見せられる。allMembers には自分自身は入らないため別引数） */
   pageNode?: Node | null;
+  /** ランのコンテキストの初期値（3.15）。手動▶のフォーム / fire API の context /
+   *  検知スクリプトの emit から渡る。省略 = 空 */
+  context?: Record<string, string>;
 }
 
 /** ノードから発火時点スナップショット（NodeSnapshotSchema の形）を作る */
@@ -45,6 +48,7 @@ function toNodeSnapshot(n: Node): NodeSnapshot {
     fixed: n.fixed,
     schedule: n.schedule,
     branches: n.branches,
+    outputs: n.outputs,
     parentOptions: n.parentOptions,
     assignee: n.assignee,
   };
@@ -54,6 +58,8 @@ export interface PatchItemInput {
   status?: RunItemStatus;
   note?: string | null;
   choice?: string | null;
+  /** script 実行時に解決された {name: 値} の記録（3.15）。エンジンが実行直前に書く */
+  resolvedParams?: Record<string, string> | null;
 }
 
 export class RunStore {
@@ -109,6 +115,7 @@ export class RunStore {
         status: n.status === "unplanned" ? "skipped" : "pending",
         note: null,
         choice: null,
+        resolvedParams: null,
       };
     }
     const via = opts.via ?? "manual";
@@ -123,6 +130,7 @@ export class RunStore {
       trigger: `trigger:${triggerId}:${via}`,
       status: "running",
       items,
+      context: opts.context ?? {},
       snapshot: { capturedAt: ts, nodes: snapshotSource.map(toNodeSnapshot) },
       created: ts,
     });
@@ -169,6 +177,8 @@ export class RunStore {
       status: patch.status ?? item.status,
       note: patch.note !== undefined ? patch.note : item.note,
       choice: patch.choice !== undefined ? patch.choice : item.choice,
+      resolvedParams:
+        patch.resolvedParams !== undefined ? patch.resolvedParams : item.resolvedParams,
     };
     const items = { ...run.items, [nodeId]: updatedItem };
     const allSettled = Object.values(items).every(
@@ -255,6 +265,21 @@ export class RunStore {
     );
     const status = run.status === "cancelled" ? run.status : allSettled ? "done" : run.status;
     const updated: Run = { ...run, items, status };
+    this.write(updated);
+    return updated;
+  }
+
+  /**
+   * ランのコンテキストへ値を merge する（3.15 の書き。last-write-wins）。
+   * キー空文字は拒否。監査（誰がいつ何を書いたか）は呼び出し側=server がスレッドへ
+   * status メッセージを積むことで残す（run ファイル自身は現在値だけを持つ）。
+   */
+  patchContext(runId: string, set: Record<string, string>): Run {
+    const run = this.get(runId);
+    for (const key of Object.keys(set)) {
+      if (!key) throw new GraphError("context のキーが空です");
+    }
+    const updated: Run = { ...run, context: { ...run.context, ...set } };
     this.write(updated);
     return updated;
   }

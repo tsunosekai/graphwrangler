@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { Loader2, Lock, Play, Unlock } from "lucide-react";
 import { api } from "../lib/api";
-import { promptDialog } from "../lib/dialogs";
+import { formDialog } from "../lib/dialogs";
 import { colorOf, displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
 import { HINT_TEXT } from "../lib/hints";
 import { pushToast } from "../lib/toast";
@@ -66,6 +66,12 @@ export interface NodeCardData {
   /** runItem 版のフロンティア判定（親の「ランのアイテム」が全部 done|skipped か）。
    *  isFrontier のラン投影版。段階式アクションボタン（着手/完了）の表示条件 */
   isRunFrontier?: boolean;
+  /** 発火フォームのプリフィル: 同じページの直近ランの context（docs/design.md 3.15
+   *  「変えたい所だけ直す」）。kind=trigger のカードだけが使う */
+  lastRunContext?: Record<string, string> | null;
+  /** 配線チェック（GET /pages/:id/wiring）のこのノード宛警告 message 一覧。
+   *  テンプレート表示のときだけ渡される（ランのページでは描かない。docs/design.md 3.15） */
+  wiringWarnings?: string[];
   /** 既読ts（サーバ持ちの reads[<id>]）より新しいメッセージがあるか */
   unread?: boolean;
   onSelect: (id: string) => void;
@@ -142,16 +148,28 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   const fire = async () => {
     if (firing) return;
     const running = data.runningRunCount ?? 0;
-    const title = await promptDialog(
+    // トリガーの outputs 宣言から発火フォームの入力欄を生成する（docs/design.md 3.15）。
+    // **必須にしない**——全部空でも発火できる（値は下流のノードが確定させる設計もある。
+    // 「▶が押せないは嫌」）。直近ランの context をプリフィルし、変えたい所だけ直す
+    const res = await formDialog(
       running > 0
         ? `実行中のラン ${running} 本に加えて、並行で新しいランを開始します。\nランの名前は？（作品名など）`
         : "ランの名前は？（作品名など）",
-      { placeholder: "空欄なら日時", confirmLabel: "開始" },
+      {
+        fields: node.outputs ?? [],
+        prefill: data.lastRunContext ?? undefined,
+        titleInput: { placeholder: "空欄なら日時" },
+        confirmLabel: "開始",
+      },
     );
-    if (title === null) return; // キャンセル = 発火しない
+    if (res === null) return; // キャンセル = 発火しない
     setFiring(true);
     try {
-      const run = await api.fireTrigger(node.id, { title: title.trim() || undefined });
+      const run = await api.fireTrigger(node.id, {
+        title: res.title.trim() || undefined,
+        // 空欄の欄は formDialog 側で落ちている。1個も無ければキー自体送らない
+        ...(Object.keys(res.values).length > 0 ? { context: res.values } : {}),
+      });
       pushToast(`開始しました: ${run.title}`, "info");
       data.onRunStarted?.(run.id); // 生まれたランのページへ移る
     } catch {
@@ -434,6 +452,19 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             text={HINT_TEXT.approval}
           >
             <span className="flex-shrink-0 text-destructive">
+              <Icon name="alert" size={12} />
+            </span>
+          </Hint>
+        )}
+        {/* 配線チェックの警告⚠（docs/design.md 3.15）: このノードの {x} 参照に供給元が無い等。
+            発火は止めない（警告のみ）ので、エラー赤ではなく注意の橙（--attention）で描く */}
+        {(data.wiringWarnings?.length ?? 0) > 0 && (
+          <Hint
+            id="wiring-warning"
+            always="引数の配線に注意"
+            text={<span className="whitespace-pre-line">{data.wiringWarnings!.join("\n")}</span>}
+          >
+            <span className="flex-shrink-0" style={{ color: "var(--attention)" }}>
               <Icon name="alert" size={12} />
             </span>
           </Hint>

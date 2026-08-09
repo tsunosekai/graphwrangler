@@ -118,6 +118,7 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
       createdBy: null,
       assignee: null,
       members: [],
+      outputs: null,
       created: "2026-01-01T00:00:00.000Z",
     });
     const a = fixedNode("n-20260101-0001", "a");

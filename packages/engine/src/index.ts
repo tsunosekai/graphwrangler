@@ -1,6 +1,8 @@
 // graphwrangler 実行エンジン。常駐プロセスとして HTTP API をポーリングし、
 // 実行可能なノード（実行者=ai|script）を1並列で処理する。
 // docs/design.md 3.4/3.5/3.8/3.9 が設計の正。
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import {
   decideNode,
   decideRunItem,
@@ -14,6 +16,7 @@ import {
   listPageRuns,
   openRequest,
   patchNode,
+  patchRunContext,
   patchRunItem,
   postMessage,
 } from "./api.js";
@@ -60,18 +63,25 @@ import {
 import {
   buildFireApprovalRequest,
   buildTriggerPrompt,
+  describeFireEvent,
   findFireGate,
+  findLatestFireEvent,
   fireBaseline,
   hasUnconsumedGo,
+  isDetectScriptTrigger,
   isFireableTrigger,
   parseAiFireDecision,
+  parseDetectEmitLines,
   resolveAiCheckIntervalMs,
   shouldEvaluateAiTrigger,
   shouldFireScriptTrigger,
+  shouldRunDetectScript,
+  type DetectEmitEvent,
   type FireGateState,
 } from "./trigger.js";
+import { buildContextEnv, extractGwMarkers } from "./context.js";
 import { runScript } from "./executors/script.js";
-import { missingParamsReason, substituteParams } from "./params.js";
+import { substituteParams } from "./params.js";
 import { buildAiPrompt, runClaude, type ClaudeExecutorConfig } from "./executors/claude.js";
 import { runApi } from "./executors/api.js";
 import type { Actor, Message, Node, Run, SubStep } from "./types.js";
@@ -267,6 +277,51 @@ async function parentSayContext(node: Node, nodes: Node[]): Promise<string[]> {
   return out;
 }
 
+/** メッセージの帰属ラン id。既存データ互換のためフィールド → payload の順に見る
+ *  （core の runIdOf と同じ規則。engine は HTTP API のみを統合点にするためここに再実装） */
+function runIdOf(m: Message): string | null {
+  if (m.runId) return m.runId;
+  const payload = m.payload as { runId?: unknown } | null;
+  return payload && typeof payload.runId === "string" ? payload.runId : null;
+}
+
+/** parentSayContext のラン層版: 同じランに属する say（runIdOf === runId）だけを拾う。
+ *  テンプレートのスレッドには複数の並列ランの記録が混ざるため、フィルタ無しで末尾を
+ *  拾うと別ランの成果を文脈として渡してしまう（従来はラン層で [] 固定＝親の成果が
+ *  全く渡っていなかった穴の修復。2026-08-09） */
+async function parentSayContextForRun(node: Node, nodes: Node[], runId: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const pid of node.parents) {
+    try {
+      const { messages } = await getThread(pid);
+      const say = [...messages].reverse().find((m) => m.kind === "say" && runIdOf(m) === runId);
+      if (say) {
+        const title = nodes.find((n) => n.id === pid)?.title ?? pid;
+        out.push(`${title}: ${say.body}`);
+      }
+    } catch (err) {
+      log(`親ノードの文脈取得に失敗（実行は継続）: run=${runId} node=${pid} ${String(err)}`);
+    }
+  }
+  return out;
+}
+
+/** ラン毎の作業ディレクトリ（3.15「成果物はファイル、context にはパス」）。ワークスペース
+ *  モードでのみ <workspaceRoot>/.graphwrangler/runfiles/<runId> を実行前に mkdir して返す。
+ *  data-dir モードでは null（GW_RUN_DIR を渡さない）。作成失敗も null で実行は続ける
+ *  （作業ディレクトリは補助であり、無いことはスクリプト側が GW_RUN_DIR の有無で判る） */
+async function ensureRunDir(runId: string): Promise<string | null> {
+  if (!workspaceRoot) return null;
+  const dir = path.join(workspaceRoot, ".graphwrangler", "runfiles", runId);
+  try {
+    await mkdir(dir, { recursive: true });
+    return dir;
+  } catch (err) {
+    log(`ラン作業ディレクトリの作成に失敗（GW_RUN_DIRなしで続行）: dir=${dir} ${String(err)}`);
+    return null;
+  }
+}
+
 /** 失敗リカバリの「内容を変える(modify)」回答を受けて、下書きに戻して人間の編集を待つ。
  *  回答直後に同じ内容で即再実行してしまわないための待避（編集後「プラン済みにする」で
  *  再び実行対象になる）。status メッセージを積むことでスレッド末尾の modify 回答を消費し、
@@ -298,9 +353,10 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     if (!node.impl || node.impl.type !== "script") {
       result = { success: false, output: "", error: "実装がない（impl が script 形式ではない）" };
     } else {
+      // プロジェクト層はランが無いので context を渡さない（従来どおりデフォルト値のみ。3.15）
       const sub = substituteParams(node.impl.command, node.impl.params);
       if (!sub.ok) {
-        result = { success: false, output: "", error: missingParamsReason(sub.missing) };
+        result = { success: false, output: "", error: sub.reason };
       } else {
         result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
       }
@@ -364,7 +420,21 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     }
 
     autoRetryCounts.delete(node.id);
-    const summary = truncate(result.output || "(出力なし)", 500);
+    // ##gw マーカーはランでのみ有効（3.15「適用範囲はルーティーンのみ」）。プロジェクト層では
+    // context に書かず、その旨を status に残して本文から取り除くだけ
+    const extraction = extractGwMarkers(result.output);
+    if (extraction.validCount > 0 || extraction.invalidLines.length > 0) {
+      await postMessage(
+        node.id,
+        {
+          kind: "status",
+          body: "コンテキスト書き込み（##gw マーカー）はランでのみ有効です。プロジェクトの実行では無視しました",
+        },
+        actor,
+        VIA,
+      );
+    }
+    const summary = truncate(extraction.body || "(出力なし)", 500);
     await postMessage(
       node.id,
       { kind: "status", body: `実行成功: ${summary}`, payload: withSubSteps(undefined, result) },
@@ -375,7 +445,7 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     const sayPayload = node.executor === "ai" ? { sources: aiSources } : undefined;
     await postMessage(
       node.id,
-      { kind: "say", body: result.output.trim() || "(結果なし)", payload: sayPayload },
+      { kind: "say", body: extraction.body.trim() || "(結果なし)", payload: sayPayload },
       actor,
       VIA,
     );
@@ -488,10 +558,10 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       }
       const sub = substituteParams(node.impl.command, node.impl.params);
       if (!sub.ok) {
-        const reason = missingParamsReason(sub.missing);
+        const reason = sub.reason;
         await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
               await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
-        log(`分岐: パラメータ未入力 id=${node.id} missing=${sub.missing.join(",")}`);
+        log(`分岐: パラメータ解決失敗 id=${node.id} reason=${reason}`);
         return true;
       }
       const result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
@@ -576,15 +646,25 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
     if (!node.impl || node.impl.type !== "script") {
       result = { success: false, output: "", error: "実装がない（impl が script 形式ではない）" };
     } else {
-      const sub = substituteParams(node.impl.command, node.impl.params);
+      // ラン層は run.context を渡して解決する（解決順: context → デフォルト値 → 未入力エラー。3.15）
+      const sub = substituteParams(node.impl.command, node.impl.params, run.context);
       if (!sub.ok) {
-        result = { success: false, output: "", error: missingParamsReason(sub.missing) };
+        result = { success: false, output: "", error: sub.reason };
       } else {
-        result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
+        // 実行直前に、実際に使った解決済みの値（context 由来+デフォルト値由来の両方）を
+        // ランへ焼く（RunItem.resolvedParams。ランページの引数欄が読み取り専用で表示し、
+        // 現在の run.context とずれたら「古い値で実行済み」バッジを出す。3.15）
+        await patchRunItem(run.id, node.id, { resolvedParams: sub.resolved }, ENGINE_ACTOR, VIA);
+        const runDir = await ensureRunDir(run.id);
+        result = await runScript(sub.command, {
+          cwd: workspaceRoot ?? undefined,
+          env: buildContextEnv(run.id, run.context, node.impl.params, runDir),
+        });
       }
     }
   } else {
     const pageNode = nodes.find((n) => n.id === run.procedure) ?? null;
+    const parentSayMessages = await parentSayContextForRun(node, nodes, run.id);
     const threadContext = await threadContextFor(node.id);
     const resolved = await resolveDocForPrompt(node);
     if (resolved.error) {
@@ -594,9 +674,10 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
       const built = buildAiPrompt({
         node: resolved.node,
         goal: pageNode,
-        parentSayMessages: [],
+        parentSayMessages,
         autonomy: node.autonomy,
         threadContext,
+        runContext: run.context,
       });
       aiSources = built.sources;
       if (engineMode === "api") {
@@ -647,7 +728,49 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
     }
 
     autoRetryCounts.delete(retryKey);
-    const summary = truncate(result.output || "(出力なし)", 500);
+    // ##gw マーカー（ランのコンテキストへの書き。3.15）を本文から取り出す。script の stdout /
+    // AI の出力の両方が対象。マーカー行は say 本文から取り除く（監査はサーバが status
+    // 「コンテキスト更新: …」を積むことで残る）
+    const extraction = extractGwMarkers(result.output);
+    if (Object.keys(extraction.set).length > 0) {
+      try {
+        await patchRunContext(run.id, extraction.set, node.id, VIA);
+      } catch (err) {
+        // 書き込み失敗は実行の成否に響かせない。値はマーカー行ごと本文から消えるので、
+        // 失っては困る中身を status に残す
+        await postMessage(
+          node.id,
+          {
+            kind: "status",
+            body: truncate(
+              `コンテキスト書き込みに失敗（set=${JSON.stringify(extraction.set)}）: ${String(err)}`,
+              500,
+            ),
+            payload,
+          },
+          actor,
+          VIA,
+        );
+        log(`コンテキスト書き込みに失敗: run=${run.id} node=${node.id} ${String(err)}`);
+      }
+    }
+    if (extraction.invalidLines.length > 0) {
+      // '{' で始まるのに JSON として読めない ##gw 行は失敗として記録する（実行自体は成功扱いのまま）
+      await postMessage(
+        node.id,
+        {
+          kind: "status",
+          body: truncate(
+            `##gw マーカーを解釈できません（実行は成功扱い）: ${extraction.invalidLines.join(" / ")}`,
+            500,
+          ),
+          payload,
+        },
+        actor,
+        VIA,
+      );
+    }
+    const summary = truncate(extraction.body || "(出力なし)", 500);
     await postMessage(
       node.id,
       { kind: "status", body: `実行成功: ${summary}`, payload: withSubSteps(payload, result) },
@@ -658,7 +781,7 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
     const sayPayload = node.executor === "ai" ? { ...payload, sources: aiSources } : payload;
     await postMessage(
       node.id,
-      { kind: "say", body: result.output.trim() || "(結果なし)", payload: sayPayload },
+      { kind: "say", body: extraction.body.trim() || "(結果なし)", payload: sayPayload },
       actor,
       VIA,
     );
@@ -983,7 +1106,7 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
     }
     const sub = substituteParams(node.impl.command, node.impl.params);
     if (!sub.ok) {
-      const reason = missingParamsReason(sub.missing);
+      const reason = sub.reason;
       await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, payload }, actor, VIA);
       await patchRunItem(
         run.id,
@@ -992,7 +1115,7 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
         ENGINE_ACTOR,
         VIA,
       );
-      log(`ラン分岐: パラメータ未入力 run=${run.id} node=${node.id} missing=${sub.missing.join(",")}`);
+      log(`ラン分岐: パラメータ解決失敗 run=${run.id} node=${node.id} reason=${reason}`);
       return;
     }
     const result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
@@ -1177,9 +1300,167 @@ async function tickRunItem(nodes: Node[]): Promise<void> {
  *  許容する。docs/design.md「チェック時刻はエンジンのメモリ管理」） */
 const aiTriggerLastCheckedAt = new Map<string, number>();
 
-/** script トリガーを1件処理する（判定は schedule.ts）。approval=true（発火前承認）なら
- *  発火の代わりに発火前承認カードを開き、go 回答の1回だけ発火する（trigger.ts 参照） */
+/** 検知スクリプト（impl.command のある script トリガー）の直近チェック時刻。
+ *  aiTriggerLastCheckedAt と同じ in-memory 方式（3.15） */
+const detectTriggerLastCheckedAt = new Map<string, number>();
+
+/** 検知スクリプトの発火 via（"schedule:<schedule原文>"。3.8 の emit プロトコル） */
+function detectVia(trigger: Node): string {
+  return `schedule:${trigger.schedule ?? ""}`;
+}
+
+/**
+ * 検知スクリプトトリガーを1件処理する（docs/design.md 3.8/3.15）。schedule をチェック間隔とし、
+ * 間隔ごとに impl.command を実行して stdout の '{' 始まりの各行を emit イベントとして発火する
+ * （1行=1ラン。空 emit = 今回は発火なし。同じ対象で二重にランを作らない責務は検知スクリプト側）。
+ * approval=true なら emit イベントを1件ずつ発火前承認カードに載せる:
+ * イベント本体は payload.fireEvent 付き status としてスレッドへ積み、go 回答時に
+ * findLatestFireEvent で復元してその値で発火する。**複数イベントは1tickに1件だけ**カードに
+ * 載せる——検知スクリプトは「まだランになっていない対象」を次回も再 emit する前提なので、
+ * 残りは次回の検知で改めて拾われる（カードの多重発行で人間を溺れさせない）。
+ */
+async function tickDetectScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
+  const latestRun = runsForPage[0] ?? null; // list は created 降順
+  if (trigger.pendingRequest) return; // 発火前承認カード等の回答待ち
+  const actor: Actor = { kind: "agent", name: "executor:script" };
+
+  if (trigger.approval) {
+    let messages: Message[];
+    try {
+      ({ messages } = await getThread(trigger.id));
+    } catch (err) {
+      log(`発火前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
+      return;
+    }
+    const gate = findFireGate(messages);
+    if (hasUnconsumedGo(gate, latestRun)) {
+      // go 回答を消費して、カードに対応する検知イベントの値で発火する
+      const event = findLatestFireEvent(messages, latestRun);
+      try {
+        await fireTriggerNode(
+          trigger.id,
+          {
+            via: detectVia(trigger),
+            ...(event?.title ? { title: event.title } : {}),
+            ...(event ? { context: event.context } : {}),
+          },
+          ENGINE_ACTOR,
+        );
+        log(`承認により検知イベントを発火: trigger=${trigger.id} title=${trigger.title}`);
+      } catch (err) {
+        log(`発火に失敗（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
+      }
+      return;
+    }
+    // skip/未発行は下のチェック間隔フローへ（再確認の抑制はチェック間隔のメモリ管理が担う）
+  }
+
+  const now = Date.now();
+  if (
+    !shouldRunDetectScript(
+      trigger.schedule,
+      detectTriggerLastCheckedAt.get(trigger.id) ?? null,
+      new Date(now),
+    )
+  ) {
+    return;
+  }
+  detectTriggerLastCheckedAt.set(trigger.id, now);
+
+  if (!trigger.impl || trigger.impl.type !== "script") return; // isDetectScriptTrigger 済み（型のため）
+  const sub = substituteParams(trigger.impl.command, trigger.impl.params);
+  if (!sub.ok) {
+    await postMessage(
+      trigger.id,
+      { kind: "status", body: `検知スクリプトを実行できません: ${sub.reason}` },
+      actor,
+      VIA,
+    );
+    log(`検知スクリプトのパラメータ解決失敗: trigger=${trigger.id} reason=${sub.reason}`);
+    return;
+  }
+  const result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
+  if (!result.success) {
+    // 非0終了はトリガーのスレッドへ失敗として記録する（3.8）
+    await postMessage(
+      trigger.id,
+      {
+        kind: "status",
+        body: truncate(`検知スクリプトが失敗: ${result.error ?? "不明なエラー"}`, 500),
+      },
+      actor,
+      VIA,
+    );
+    log(`検知スクリプト失敗: trigger=${trigger.id} reason=${result.error}`);
+    return;
+  }
+
+  const parsed = parseDetectEmitLines(result.output);
+  if (parsed.invalidLines.length > 0) {
+    await postMessage(
+      trigger.id,
+      {
+        kind: "status",
+        body: truncate(
+          `検知スクリプトの emit 行を解釈できません: ${parsed.invalidLines.join(" / ")}`,
+          500,
+        ),
+      },
+      actor,
+      VIA,
+    );
+  }
+  if (parsed.events.length === 0) return; // 空 emit = 今回は発火なし
+
+  if (trigger.approval) {
+    // 1tickに1件だけ承認カードへ（残りは次回の検知で再 emit される前提。関数コメント参照）
+    const event = parsed.events[0];
+    try {
+      await postMessage(
+        trigger.id,
+        {
+          kind: "status",
+          body: `検知イベント: ${describeFireEvent(event)}`,
+          payload: { fireEvent: event },
+        },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      await openRequest(trigger.id, buildFireApprovalRequest(trigger, event), ENGINE_ACTOR, VIA);
+      log(`検知イベント→発火前承認カードを開いた: trigger=${trigger.id} event=${describeFireEvent(event)}`);
+    } catch (err) {
+      log(`発火前承認カードを開けなかった（次回の検知で再emit想定）: trigger=${trigger.id} ${String(err)}`);
+    }
+    return;
+  }
+
+  for (const event of parsed.events) {
+    try {
+      await fireTriggerNode(
+        trigger.id,
+        {
+          via: detectVia(trigger),
+          ...(event.title ? { title: event.title } : {}),
+          context: event.context,
+        },
+        ENGINE_ACTOR,
+      );
+      log(`検知イベントにより発火: trigger=${trigger.id} event=${describeFireEvent(event)}`);
+    } catch (err) {
+      log(`発火に失敗（次回の検知で再emit想定）: trigger=${trigger.id} ${String(err)}`);
+    }
+  }
+}
+
+/** script トリガーを1件処理する（判定は schedule.ts）。impl.command があれば検知スクリプト
+ *  （tickDetectScriptTrigger。3.15）、無ければ従来どおりの無条件 cron 発火。
+ *  approval=true（発火前承認）なら発火の代わりに発火前承認カードを開き、
+ *  go 回答の1回だけ発火する（trigger.ts 参照） */
 async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
+  if (isDetectScriptTrigger(trigger)) {
+    await tickDetectScriptTrigger(trigger, runsForPage);
+    return;
+  }
   const latestRun = runsForPage[0] ?? null; // list は created 降順
   if (trigger.pendingRequest) return; // 発火前承認カード等の回答待ち
 
@@ -1233,8 +1514,9 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
 
   if (trigger.approval) {
     let gate: FireGateState;
+    let messages: Message[];
     try {
-      const { messages } = await getThread(trigger.id);
+      ({ messages } = await getThread(trigger.id));
       gate = findFireGate(messages);
     } catch (err) {
       log(`発火前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
@@ -1242,9 +1524,15 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
     }
     if (hasUnconsumedGo(gate, runsForPage[0] ?? null)) {
       // 承認済みの go はその場で消費する（2026-08-08: 以前は実行中ランがあると待たせていたが、
-      // 人間が「開始して」と答えたのに動かないのは事故に見える）
+      // 人間が「開始して」と答えたのに動かないのは事故に見える）。
+      // 発火判定の ##gw マーカー由来の context（payload.fireEvent として保存済み）があれば載せる
+      const event = findLatestFireEvent(messages, runsForPage[0] ?? null);
       try {
-        await fireTriggerNode(trigger.id, { via: "ai" }, ENGINE_ACTOR);
+        await fireTriggerNode(
+          trigger.id,
+          { via: "ai", ...(event ? { context: event.context } : {}) },
+          ENGINE_ACTOR,
+        );
         log(`承認によりAIトリガー発火: trigger=${trigger.id} title=${trigger.title}`);
       } catch (err) {
         log(`AI発火に失敗（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
@@ -1269,21 +1557,48 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
     return;
   }
 
-  const decision = parseAiFireDecision(result.output);
+  // 発火判定の出力に ##gw マーカーがあれば context として fire に渡す（3.15。
+  // 「fire 行 + マーカー行」の形。判定の解釈はマーカーを除いた本文に対して行う）
+  const extraction = extractGwMarkers(result.output);
+  const decision = parseAiFireDecision(extraction.body);
+  if (extraction.invalidLines.length > 0) {
+    log(
+      `AI判定の ##gw マーカーを解釈できません（無視して続行）: trigger=${trigger.id} lines=${extraction.invalidLines.join(" / ")}`,
+    );
+  }
+  const event: DetectEmitEvent | null =
+    Object.keys(extraction.set).length > 0 ? { context: extraction.set, title: null } : null;
   if (decision === "fire") {
     try {
       // 発火判定でAIがツールを使った場合（ログ確認など）、その内訳も発火理由の記録として残す
       await postMessage(
         trigger.id,
-        { kind: "say", body: result.output.trim() || "(理由なし)", payload: withSubSteps(undefined, result) },
+        { kind: "say", body: extraction.body.trim() || "(理由なし)", payload: withSubSteps(undefined, result) },
         actor,
         VIA,
       );
       if (trigger.approval) {
-        await openRequest(trigger.id, buildFireApprovalRequest(trigger), ENGINE_ACTOR, VIA);
+        if (event) {
+          // go 回答時に findLatestFireEvent で復元できるよう、context 本体を payload として積む
+          await postMessage(
+            trigger.id,
+            {
+              kind: "status",
+              body: `検知イベント: ${describeFireEvent(event)}`,
+              payload: { fireEvent: event },
+            },
+            ENGINE_ACTOR,
+            VIA,
+          );
+        }
+        await openRequest(trigger.id, buildFireApprovalRequest(trigger, event), ENGINE_ACTOR, VIA);
         log(`AI判定fire→発火前承認カードを開いた: trigger=${trigger.id} title=${trigger.title}`);
       } else {
-        await fireTriggerNode(trigger.id, { via: "ai" }, actor);
+        await fireTriggerNode(
+          trigger.id,
+          { via: "ai", ...(event ? { context: event.context } : {}) },
+          actor,
+        );
         log(`AI判定により発火: trigger=${trigger.id} title=${trigger.title}`);
       }
     } catch (err) {
