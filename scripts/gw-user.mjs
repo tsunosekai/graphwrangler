@@ -44,6 +44,10 @@ function generatePassword() {
   const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   return Array.from(crypto.randomBytes(16), (b) => chars[b % chars.length]).join("");
 }
+// メール照合はサーバ（packages/server/src/auth.ts）に合わせて case-insensitive
+function sameEmail(a, b) {
+  return typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
+}
 
 const data = load();
 data.users ??= [];
@@ -63,7 +67,7 @@ switch (cmd) {
   }
   case "add": {
     if (!email) throw new Error("email を指定してください");
-    if (data.users.some((u) => u.email === email)) throw new Error(`既に存在します: ${email}`);
+    if (data.users.some((u) => sameEmail(u.email, email))) throw new Error(`既に存在します: ${email}`);
     const password = passwordArg ?? generatePassword();
     data.users.push({ email, ...hashPassword(password), created: new Date().toISOString() });
     save(data);
@@ -73,14 +77,14 @@ switch (cmd) {
   }
   case "remove": {
     const before = data.users.length;
-    data.users = data.users.filter((u) => u.email !== email);
+    data.users = data.users.filter((u) => !sameEmail(u.email, email));
     if (data.users.length === before) throw new Error(`見つかりません: ${email}`);
     save(data);
     console.log(`削除しました: ${email}`);
     break;
   }
   case "passwd": {
-    const u = data.users.find((x) => x.email === email);
+    const u = data.users.find((x) => sameEmail(x.email, email));
     if (!u) throw new Error(`見つかりません: ${email}`);
     const password = passwordArg ?? generatePassword();
     Object.assign(u, hashPassword(password));
@@ -90,7 +94,7 @@ switch (cmd) {
     break;
   }
   case "name": {
-    const u = data.users.find((x) => x.email === email);
+    const u = data.users.find((x) => sameEmail(x.email, email));
     if (!u) throw new Error(`見つかりません: ${email}`);
     if (!passwordArg) throw new Error("表示名を指定してください");
     u.displayName = passwordArg;
@@ -99,7 +103,7 @@ switch (cmd) {
     break;
   }
   case "discord": {
-    const u = data.users.find((x) => x.email === email);
+    const u = data.users.find((x) => sameEmail(x.email, email));
     if (!u) throw new Error(`見つかりません: ${email}`);
     if (!passwordArg) throw new Error("Discord のユーザーID（数字）か off を指定してください");
     if (passwordArg === "off") {
@@ -118,7 +122,7 @@ switch (cmd) {
   }
   case "admin":
   case "disable": {
-    const u = data.users.find((x) => x.email === email);
+    const u = data.users.find((x) => sameEmail(x.email, email));
     if (!u) throw new Error(`見つかりません: ${email}`);
     if (passwordArg !== "on" && passwordArg !== "off") throw new Error("on か off を指定してください");
     const key = cmd === "admin" ? "admin" : "disabled";

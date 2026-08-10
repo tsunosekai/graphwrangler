@@ -148,7 +148,7 @@ const req = await post(`/api/nodes/${axis.id}/request`, {
       { id: "trust", label: "安心", then: "導入実績とサポート体制を前面に。堅い業界に刺さる" },
       { id: "price", label: "価格", then: "最安級を打ち出す。比較サイト経由の流入には強い" },
     ],
-    approval: false,
+    impact: "reversible",
     undo: "構成案の段階なら差し替えは1日で済む",
   },
 });

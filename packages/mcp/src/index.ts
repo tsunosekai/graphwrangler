@@ -8,6 +8,7 @@ import { z } from "zod";
 import { apiGet, apiPost, ApiError } from "./http.js";
 import {
   DecisionRequestSchema,
+  NodeBranchSchema,
   NodeImplSchema,
   NodePatchShape,
   NodeKindSchema,
@@ -168,7 +169,21 @@ server.registerTool(
       lifecycle: LifecycleSchema.optional().describe("draft=審議中/committed=実行対象。既定 draft"),
       status: StatusSchema.optional().describe("既定 pending。unplanned=やり方未定"),
       parents: z.array(z.string()).optional().describe("先行ノードid配列。空=ルート"),
+      parentOptions: z.record(z.string(), z.string()).optional().describe(
+        "どの親decisionのどの枝から生えるか（親decisionId→枝id）。キーは parents に含まれる " +
+          "kind=decision のノード、値はその branches の選択肢id。既定 {}",
+      ),
       group: z.string().nullable().optional().describe("所属ページ(ゴール)のノードid。ページ直下に作るならそのidを渡す"),
+      branches: z.array(NodeBranchSchema).nullable().optional().describe(
+        "kind=decision の選択肢一覧 [{id,label,then?}]（最低2個。elseなし・単一選択）。decision 以外では null",
+      ),
+      schedule: z.string().nullable().optional().describe(
+        "kind=trigger 用の起動方式（\"every 15m\" / \"daily 09:00\" / \"weekly mon 09:00\" 等の自由文字列）。" +
+          "executor=script ならcron的なラン作成判定、executor=ai なら判定間隔として使う。既定 null",
+      ),
+      fixed: z.boolean().optional().describe(
+        "Fixフラグ（ロック）。true=やり方が確定し、AIは impl を書き換えない。既定 false",
+      ),
       impl: NodeImplSchema.optional().describe(
         "実装形態。null=会話段、{type:'doc',text}=手順書、{type:'script',command}=シェルコマンド",
       ),
@@ -316,15 +331,20 @@ server.registerTool(
       "（run.context に反映される）。",
     inputSchema: {
       nodeId: z.string().describe("ランを作るトリガーノードid（kind=trigger）"),
-      via: z.string().min(1).optional().describe("ラン作成の理由の自由文字列。省略時はサーバ既定の \"manual\""),
+      via: z.string().min(1).optional().describe("ラン作成の理由の自由文字列（run.trigger に刻まれる）。省略時は \"mcp\""),
       context: z
         .record(z.string(), z.string())
         .optional()
         .describe("このランの初期コンテキスト（キー→値）。省略時は空。ランの進行中に run_context_set で書き足せる"),
     },
   },
-  safe(async ({ nodeId, ...rest }: { nodeId: string; [key: string]: unknown }) =>
-    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/run`, withMeta(rest)),
+  // via はここでは帰属情報ではなく「ラン作成の理由」（run.trigger の第3要素）。
+  // 呼び出し側の指定が withMeta の既定 "mcp" より優先される
+  safe(async ({ nodeId, via, ...rest }: { nodeId: string; via?: string; [key: string]: unknown }) =>
+    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/run`, {
+      ...withMeta(rest),
+      ...(via !== undefined ? { via } : {}),
+    }),
   ),
 );
 

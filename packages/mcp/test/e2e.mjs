@@ -195,6 +195,51 @@ try {
     taskId = node.id;
   });
 
+  // 5.5 node_add: branches / parentOptions / fixed が入力スキーマを通ってサーバへ届くこと
+  await step("tools/call node_add (decision: branches/parentOptions/fixed)", async () => {
+    const decision = toolResultJson(
+      await rpc("tools/call", {
+        name: "node_add",
+        arguments: {
+          title: "E2Eテスト分岐",
+          kind: "decision",
+          group: goalId,
+          branches: [
+            { id: "go", label: "進む", then: "そのまま進める" },
+            { id: "back", label: "戻す", then: "前段からやり直す" },
+          ],
+          fixed: true,
+        },
+      }),
+    );
+    assert.equal(decision.kind, "decision");
+    assert.equal(decision.fixed, true);
+    assert.deepEqual(
+      (decision.branches ?? []).map((b) => b.id),
+      ["go", "back"],
+      "branches がそのまま保存されている",
+    );
+
+    const child = toolResultJson(
+      await rpc("tools/call", {
+        name: "node_add",
+        arguments: {
+          title: "E2Eテスト分岐の子",
+          group: goalId,
+          parents: [decision.id],
+          parentOptions: { [decision.id]: "go" },
+        },
+      }),
+    );
+    assert.deepEqual(child.parentOptions, { [decision.id]: "go" });
+
+    // 後片付け（fixed 済みの decision は force が要る）
+    toolResultJson(await rpc("tools/call", { name: "node_remove", arguments: { nodeId: child.id } }));
+    toolResultJson(
+      await rpc("tools/call", { name: "node_remove", arguments: { nodeId: decision.id, force: true } }),
+    );
+  });
+
   // 6. state_get: 要約形であること
   await step("tools/call state_get", async () => {
     const result = await rpc("tools/call", { name: "state_get", arguments: {} });
@@ -332,10 +377,17 @@ try {
     const node = toolResultJson(
       await rpc("tools/call", {
         name: "node_add",
-        arguments: { title: "E2Eテスト起点", kind: "trigger", group: pageId, lifecycle: "committed" },
+        arguments: {
+          title: "E2Eテスト起点",
+          kind: "trigger",
+          group: pageId,
+          lifecycle: "committed",
+          schedule: "every 15m",
+        },
       }),
     );
     assert.equal(node.kind, "trigger");
+    assert.equal(node.schedule, "every 15m", "schedule が入力スキーマを通って保存される");
     triggerId = node.id;
   });
 
@@ -363,7 +415,21 @@ try {
     assert.equal(run.procedure, pageId);
     assert.equal(run.status, "running");
     assert.equal(run.items[memberId].status, "pending");
+    // via 省略時は withMeta の既定 "mcp" が run.trigger に刻まれる
+    assert.equal(run.trigger, `trigger:${triggerId}:mcp`);
     runId = run.id;
+  });
+
+  await step("tools/call trigger_run (via指定が既定より優先される)", async () => {
+    const run = toolResultJson(
+      await rpc("tools/call", {
+        name: "trigger_run",
+        arguments: { nodeId: triggerId, via: "e2e-external" },
+      }),
+    );
+    assert.equal(run.trigger, `trigger:${triggerId}:e2e-external`);
+    // 後続の「全アイテムdoneでラン自動完了」を乱さないよう閉じておく
+    toolResultJson(await rpc("tools/call", { name: "run_cancel", arguments: { runId: run.id } }));
   });
 
   await step("tools/call run_list (要約形であること)", async () => {
@@ -397,10 +463,17 @@ try {
   await step("tools/call run_trace (紐づくメッセージが時系列で返る)", async () => {
     const result = toolResultJson(await rpc("tools/call", { name: "run_trace", arguments: { runId } }));
     assert.ok(Array.isArray(result.events) && result.events.length > 0, "trace にイベントがある");
+    // トレースは body 文言ではなく payload.runId で紐づく（server の /api/runs/:id/trace）
     assert.ok(
-      result.events.some((e) => typeof e.body === "string" && e.body.includes(runId)),
-      "イベントにランIDが含まれる",
+      result.events.every((e) => e.payload?.runId === runId),
+      "全イベントがこのランに紐づく",
     );
+    assert.ok(
+      result.events.some((e) => typeof e.body === "string" && e.body.includes("pending → done")),
+      "ワークアイテムの状態遷移がトレースに乗る",
+    );
+    const timestamps = result.events.map((e) => e.ts);
+    assert.deepEqual(timestamps, [...timestamps].sort(), "ts 昇順で返る");
   });
 
   await step("tools/call run_cancel (2本目のランを中断)", async () => {
