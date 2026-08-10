@@ -63,11 +63,13 @@ import {
 import {
   // approval.ts（ランアイテムの実行前承認）と同名だが別物なので、ラン開始承認系として別名で受ける
   buildRunApprovalRequest as buildRunStartApprovalRequest,
+  buildScheduleWarningBody,
   buildTriggerPrompt,
   describeRunEvent,
   findRunGate as findRunStartGate,
   findLatestRunEvent,
   runBaseline,
+  hasScheduleWarning,
   hasUnconsumedGo,
   isDetectScriptTrigger,
   isClosedPage,
@@ -1404,6 +1406,22 @@ async function tickDetectScriptTrigger(trigger: Node, runsForPage: Run[]): Promi
   }
 }
 
+/** schedule を解釈できず「このトリガーは永久にランを作らない」ことを、エンジンログだけでなく
+ *  人の目に入る形にする（2026-08-11。trigger.ts の SCHEDULE_WARNING_MARKER）。
+ *  トリガーのスレッドへ status を1回だけ積む——同じ警告が既に積まれていれば黙る
+ *  （毎tick積むとスレッドが警告で埋まる）。記録に失敗しても実行は続ける */
+async function noteUnresolvedSchedule(trigger: Node): Promise<void> {
+  const body = buildScheduleWarningBody(trigger.schedule);
+  try {
+    const { messages } = await getThread(trigger.id);
+    if (hasScheduleWarning(messages, body)) return;
+    await postMessage(trigger.id, { kind: "status", body }, ENGINE_ACTOR, VIA);
+    log(`scheduleを解釈できないことをトリガーのスレッドへ記録: trigger=${trigger.id} title=${trigger.title}`);
+  } catch (err) {
+    log(`schedule警告の記録に失敗（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
+  }
+}
+
 /** script トリガーを1件処理する（判定は schedule.ts）。impl.command があれば検知スクリプト
  *  （tickDetectScriptTrigger。3.15）、無ければ従来どおりの無条件 cron ラン作成。
  *  approval=true（ラン前承認）ならラン作成の代わりにラン前承認カードを開き、
@@ -1435,6 +1453,7 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
     } else {
       log(`scheduleが無いためscriptトリガーはラン作成しません: trigger=${trigger.id} title=${trigger.title}`);
     }
+    await noteUnresolvedSchedule(trigger);
     return;
   }
   if (!should) return;

@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AI_CHECK_INTERVAL_MS,
   RUN_GATE_MARKER,
+  SCHEDULE_WARNING_MARKER,
   buildRunApprovalRequest,
+  buildScheduleWarningBody,
   buildTriggerPrompt,
   describeRunEvent,
   findRunGate,
+  hasScheduleWarning,
   findLatestRunEvent,
   runBaseline,
   hasUnconsumedGo,
@@ -105,6 +108,55 @@ describe("shouldRunScriptTrigger: script のラン作成判定の流用", () => 
   it("実行中ランがあっても定刻ぶんはランを作る（2026-08-08 修正。旧仕様では常にfalseだった）", () => {
     const now = new Date("2026-01-01T00:20:00Z");
     expect(shouldRunScriptTrigger("every 15m", null, now)).toBe(true);
+  });
+});
+
+// 1.2 schedule を解釈できないトリガーの可視化（2026-08-11）
+describe("buildScheduleWarningBody / hasScheduleWarning: schedule未解決の警告", () => {
+  function statusMessage(id: string, ts: string, body: string): Message {
+    return {
+      id,
+      node: "n-t",
+      ts,
+      author: { kind: "agent", name: "engine" },
+      via: "engine",
+      kind: "status",
+      body,
+      runId: null,
+      payload: null,
+    };
+  }
+
+  it("schedule 原文と未対応である旨・対応書式が本文に載る", () => {
+    const body = buildScheduleWarningBody("every 15");
+    expect(body).toContain(SCHEDULE_WARNING_MARKER);
+    expect(body).toContain('"every 15"');
+    expect(body).toContain("every 15m");
+  });
+
+  it("schedule 未設定はその旨を述べる", () => {
+    expect(buildScheduleWarningBody(null)).toContain("設定されていません");
+  });
+
+  it("同じ警告が既に積まれていれば黙る（毎tick積まない）", () => {
+    const body = buildScheduleWarningBody("every 15");
+    expect(hasScheduleWarning([], body)).toBe(false);
+    expect(hasScheduleWarning([statusMessage("m-1", "2026-01-01T00:00:00Z", body)], body)).toBe(true);
+  });
+
+  it("schedule を書き直してもまだ解釈できないなら、新しい警告として改めて積む", () => {
+    const old = buildScheduleWarningBody("every 15");
+    const next = buildScheduleWarningBody("every 15x");
+    expect(hasScheduleWarning([statusMessage("m-1", "2026-01-01T00:00:00Z", old)], next)).toBe(false);
+  });
+
+  it("警告のあとに別の status が積まれても、最新の警告と一致していれば黙る", () => {
+    const body = buildScheduleWarningBody(null);
+    const msgs = [
+      statusMessage("m-1", "2026-01-01T00:00:00Z", body),
+      statusMessage("m-2", "2026-01-01T01:00:00Z", "検知イベント: …"),
+    ];
+    expect(hasScheduleWarning(msgs, body)).toBe(true);
   });
 });
 

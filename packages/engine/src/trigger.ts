@@ -64,6 +64,37 @@ export function resolveAiCheckIntervalMs(scheduleText: string | null): number {
   return schedule.ms;
 }
 
+// ---- schedule を解釈できないトリガーの可視化（2026-08-11） ----
+// shouldRunScriptTrigger が null（schedule 無し/未対応の書式）のとき、それまではエンジンの
+// 警告ログに毎tick流れるだけだった——UI からは「このルーティーンは永久に動かない」ことが
+// 分からず、黙って止まっているのと区別がつかない。トリガーのスレッドへ status を1回だけ
+// 積んで人の目に入れる（毎tick積まない判定は hasScheduleWarning が担う）。
+
+/** schedule を解決できないことを知らせる status の目印。スレッドから同じ警告を
+ *  見つけ直すのに使う（RUN_GATE_MARKER と同じ「本文にマーカーを埋める」方式） */
+export const SCHEDULE_WARNING_MARKER = "[schedule未解決]";
+
+/** 上の警告の本文（純粋関数）。schedule 原文を本文へ含めるので、書き直しても解釈できない
+ *  ままなら本文が変わり、新しい警告として改めて1回だけ積まれる */
+export function buildScheduleWarningBody(scheduleText: string | null): string {
+  const cause = scheduleText
+    ? `schedule "${scheduleText}" を解釈できません`
+    : "schedule が設定されていません";
+  return (
+    `${SCHEDULE_WARNING_MARKER} ${cause}。このトリガーはランを作りません` +
+    "（対応する書式: every 15m / daily 09:00 / weekly mon 09:00 / cron 5フィールド）"
+  );
+}
+
+/** 同じ警告を既にトリガーのスレッドへ積んでいるか（純粋関数）。最新の schedule 警告と
+ *  本文が一致していれば黙る＝毎tick積まない */
+export function hasScheduleWarning(messages: Message[], body: string): boolean {
+  const latest = [...messages]
+    .reverse()
+    .find((m) => m.kind === "status" && m.body.includes(SCHEDULE_WARNING_MARKER));
+  return latest?.body === body;
+}
+
 // ---- 検知スクリプト（impl.command のある script トリガー。docs/design.md 3.8/3.15） ----
 
 /** script トリガーのうち「検知スクリプト」（impl.command あり）か。無条件 cron のラン作成
