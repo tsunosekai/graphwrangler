@@ -8,7 +8,13 @@ import type { Actor, GraphStore, Node, ThreadStore } from "@graphwrangler/core";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import { chatKeyMissing, completeText } from "./chat.js";
-import { CLI_TIMEOUT_MS, DEFAULT_CLI_TOOLS, killTree, sanitizedClaudeEnv } from "./chat_cli.js";
+import {
+  CLI_TIMEOUT_MS,
+  DEFAULT_CLI_TOOLS,
+  killTree,
+  sanitizeModelOverride,
+  sanitizedClaudeEnv,
+} from "./chat_cli.js";
 import type { SettingsStore } from "./settings.js";
 
 const MAX_THREAD_AI_HISTORY = 20;
@@ -39,6 +45,23 @@ export interface ThreadAiNodeContext {
 export interface ThreadAiHistoryEntry {
   kind: string;
   body: string;
+}
+
+/** Node → プロンプト用のノード文脈。impl は「有無と種類」+ doc の path だけ渡す
+ *  （ThreadAiNodeContext の規約。script の command 等は含めない） */
+export function threadAiNodeContext(
+  node: Pick<Node, "title" | "detail" | "kind" | "executor" | "status" | "impl">,
+): ThreadAiNodeContext {
+  return {
+    title: node.title,
+    detail: node.detail,
+    kind: node.kind,
+    executor: node.executor,
+    status: node.status,
+    impl: node.impl
+      ? { type: node.impl.type, path: node.impl.type === "doc" ? (node.impl.path ?? null) : null }
+      : null,
+  };
 }
 
 export interface BuildThreadReplyPromptInput {
@@ -295,14 +318,7 @@ async function respondInThread(
   const pageTitle = node.group && graph.has(node.group) ? graph.get(node.group).title : null;
 
   const prompt = buildThreadReplyPrompt({
-    node: {
-      title: node.title,
-      detail: node.detail,
-      kind: node.kind,
-      executor: node.executor,
-      status: node.status,
-      impl: node.impl ? { type: node.impl.type } : null,
-    },
+    node: threadAiNodeContext(node),
     parentTitles,
     pageTitle,
     history,
@@ -314,8 +330,16 @@ async function respondInThread(
   let modelLabel: string;
 
   if (chat.mode === "cli") {
-    // ノード側の aiModel/aiEffort が設定の既定より優先（2026-08-07 モデル/エフォート切替）
-    const model = node.aiModel ?? chat.cliModel;
+    // ノード側の aiModel/aiEffort が設定の既定より優先（2026-08-07 モデル/エフォート切替）。
+    // aiModel はスキーマ上自由な文字列（MCP/HTTP の patch で入る）で、Windows は shell:true
+    // 起動＝空白で argv が割れてフラグを注入できるため、chat_cli.ts のモデル上書きと同じ
+    // サニタイズを通し、不正なら設定の既定へ（aiEffort はスキーマの enum で閉じている）
+    const model = sanitizeModelOverride(node.aiModel) ?? chat.cliModel;
+    if (node.aiModel !== null && model !== node.aiModel) {
+      console.warn(
+        `[thread-ai] node ${node.id}: aiModel "${node.aiModel}" は不正な形式のため既定 ${chat.cliModel} を使います`,
+      );
+    }
     const effort = node.aiEffort ?? chat.cliEffort;
     modelLabel = model;
     // attachmentsDir を --add-dir に足す: datadir モードでは添付置き場が cwd の外（chat_cli と同じ）

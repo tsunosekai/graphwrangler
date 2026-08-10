@@ -3,7 +3,12 @@
 // 実行: `pnpm --filter @graphwrangler/server test`
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildThreadReplyPrompt, shouldTriggerThreadAi } from "../src/thread_ai.js";
+import {
+  buildThreadReplyPrompt,
+  shouldTriggerThreadAi,
+  threadAiNodeContext,
+} from "../src/thread_ai.js";
+import { sanitizeModelOverride } from "../src/chat_cli.js";
 
 test("人間の say かつ open な判断リクエストが無ければトリガーする", () => {
   assert.equal(
@@ -68,6 +73,39 @@ test("buildThreadReplyPrompt はノード文脈・履歴・新しい発言を含
   assert.match(prompt, /say: 前回の話/);
   assert.match(prompt, /decision_request: どっちにする？/);
   assert.match(prompt, /人間: この方針で進めていい？/);
+});
+
+test("threadAiNodeContext は doc impl の path をプロンプト文脈へ渡す（AI が Read で読むため）", () => {
+  const base = { title: "t", detail: null, kind: "task", executor: "ai", status: "pending" } as const;
+  const ctx = threadAiNodeContext({ ...base, impl: { type: "doc", path: "docs/手順.md" } });
+  assert.deepEqual(ctx.impl, { type: "doc", path: "docs/手順.md" });
+
+  // プロンプトにも path が出る（path 分岐が生きていることの確認）
+  const prompt = buildThreadReplyPrompt({
+    node: ctx,
+    parentTitles: [],
+    pageTitle: null,
+    history: [],
+    newMessage: "手順どおり？",
+  });
+  assert.match(prompt, /実装\(impl\): あり（doc, path: docs\/手順\.md）/);
+});
+
+test("threadAiNodeContext は script impl の command 等を渡さない（有無と種類だけ）", () => {
+  const base = { title: "t", detail: null, kind: "task", executor: "ai", status: "pending" } as const;
+  const ctx = threadAiNodeContext({ ...base, impl: { type: "script", command: "rm -rf /" } });
+  assert.deepEqual(ctx.impl, { type: "script", path: null });
+  assert.equal(threadAiNodeContext({ ...base, impl: null }).impl, null);
+});
+
+test("ノードの aiModel はサニタイズを通す（空白・フラグ混入は既定モデルへフォールバック）", () => {
+  // Windows は shell:true 起動＝空白で argv が割れるため、フラグを仕込んだモデル名は弾く
+  assert.equal(sanitizeModelOverride("sonnet --dangerously-skip-permissions"), null);
+  assert.equal(sanitizeModelOverride("--effort"), null);
+  assert.equal(sanitizeModelOverride(null), null);
+  // 正常なモデル名はそのまま通る
+  assert.equal(sanitizeModelOverride("claude-sonnet-4-5"), "claude-sonnet-4-5");
+  assert.equal(sanitizeModelOverride("opus"), "opus");
 });
 
 test("buildThreadReplyPrompt は履歴を最大20件に切り詰める", () => {
