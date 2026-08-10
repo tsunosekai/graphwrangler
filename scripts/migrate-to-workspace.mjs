@@ -71,15 +71,24 @@ function writeTextAtomic(file, content) {
 // 旧スキーマ時代の snapshot はこれらのキーを欠いたノードを含みうる。欠いたまま書き出すと、
 // サーバ起動時に zod が補完した状態で「次の1コミット目」に全ノードへ一斉付与される
 // 無関係な全行diffが出る（2026-07-31 整合レビューで検出）ため、移行時点で補完しておく。
+// **正は常に packages/core/src/schema.ts の NodeSchema**——ここは追随するだけの複製なので、
+// 突き合わせやすいよう並び順も NodeSchema の宣言順に揃えてある（id/title/created は
+// ノード側に必ずあるので既定値を持たない）。
 const NODE_DEFAULTS = {
   detail: null,
   impl: null,
+  implTrial: null,
   parents: [],
   group: null,
+  folder: null,
+  folderSection: null,
+  order: null,
   kind: "task",
   executor: "human",
   approval: false,
   autonomy: "normal",
+  aiModel: null,
+  aiEffort: null,
   lifecycle: "draft",
   status: "unplanned",
   fixed: false,
@@ -87,6 +96,7 @@ const NODE_DEFAULTS = {
   schedule: null,
   branches: null,
   choice: null,
+  outputs: null,
   parentOptions: {},
   createdBy: null,
   assignee: null,
@@ -95,7 +105,7 @@ const NODE_DEFAULTS = {
 
 /** 旧スキーマの値を現行スキーマへ正規化する（waiting は pendingRequest からの導出値に、
  *  impact("safe"|"reversible"|"irreversible") は approval(boolean) に変わった。2026-08-03 改名）。
- *  旧フィールド（order/updated 等）はサーバ読込時に zod が捨てるためここでは触らない */
+ *  旧フィールド（updated 等）はサーバ読込時に zod が捨てるためここでは触らない */
 function normalizeNode(n) {
   const out = { ...n };
   if (out.status === "waiting") out.status = "pending";

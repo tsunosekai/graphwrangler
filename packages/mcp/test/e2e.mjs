@@ -5,7 +5,7 @@
 // 使い方: node packages/mcp/test/e2e.mjs
 //   env GW_SERVER_PORT / GW_DATA_DIR / GW_SERVER_CMD で調整可（既定は下記）。
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -31,6 +31,18 @@ function spawnProc(cmd, args, opts) {
   const proc = spawn(cmd, args, { ...opts, shell: process.platform === "win32" });
   proc.stderr.on("data", (d) => process.stderr.write(`[stderr:${cmd}] ${d}`));
   return proc;
+}
+
+/** 起動したサブプロセスを確実に終わらせる。Windows では shell:true 経由なので実体
+ *  （tsx の node）は cmd.exe の下にぶら下がっており、proc.kill() では cmd.exe しか死なず、
+ *  サーバがポートを掴んだまま残る。プロセスツリーごと落とす */
+function killTree(proc) {
+  if (proc.exitCode !== null || !proc.pid) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    proc.kill();
+  }
 }
 
 async function waitFor(predicate, timeoutMs, label) {
@@ -158,6 +170,7 @@ try {
       "request_open",
       "request_answer",
       "trigger_run",
+      "run_context_set",
       "run_list",
       "run_get",
       "run_item_patch",
@@ -453,6 +466,45 @@ try {
     assert.equal(run.snapshot.nodeCount, 3, "ページ自身+trigger+メンバーの3ノードぶん");
   });
 
+  await step("tools/call run_context_set (mergeされ、監査statusがトレースに乗る)", async () => {
+    const first = toolResultJson(
+      await rpc("tools/call", {
+        name: "run_context_set",
+        arguments: { runId, set: { remix: "RMX-1", memo: "初回" } },
+      }),
+    );
+    assert.equal(first.id, runId);
+    assert.deepEqual(first.context, { remix: "RMX-1", memo: "初回" });
+
+    // 同一ラン内は last-write-wins の merge（既存キーは上書き、触れないキーは残る）
+    const merged = toolResultJson(
+      await rpc("tools/call", {
+        name: "run_context_set",
+        arguments: { runId, set: { remix: "RMX-2" }, nodeId: memberId },
+      }),
+    );
+    assert.deepEqual(merged.context, { remix: "RMX-2", memo: "初回" });
+
+    const run = toolResultJson(await rpc("tools/call", { name: "run_get", arguments: { runId } }));
+    assert.deepEqual(run.context, { remix: "RMX-2", memo: "初回" }, "run_get から読み直しても同じ");
+
+    // nodeId 指定ぶんはワークアイテムのスレッドへ積まれるのでラントレースに乗る
+    // （nodeId 省略ぶんはトリガーノード宛＝トレース対象外。server の /api/runs/:id/context）
+    const trace = toolResultJson(await rpc("tools/call", { name: "run_trace", arguments: { runId } }));
+    assert.ok(
+      trace.events.some((e) => e.body === "コンテキスト更新: remix=RMX-2"),
+      "コンテキスト更新の監査statusがトレースに乗る",
+    );
+  });
+
+  await step("tools/call run_context_set (存在しないランは isError)", async () => {
+    const result = await rpc("tools/call", {
+      name: "run_context_set",
+      arguments: { runId: "run-does-not-exist", set: { a: "1" } },
+    });
+    assert.equal(result.isError, true);
+  });
+
   await step("tools/call run_item_patch (全アイテムdoneでラン自動完了)", async () => {
     const run = toolResultJson(
       await rpc("tools/call", {
@@ -538,8 +590,8 @@ try {
     assert.equal(result.removed, true);
   });
 } finally {
-  mcpProc.kill();
-  serverProc.kill();
+  killTree(mcpProc);
+  killTree(serverProc);
 }
 
 if (failures > 0) {
