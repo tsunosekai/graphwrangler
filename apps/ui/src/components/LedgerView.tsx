@@ -78,7 +78,7 @@ function openRunPage(runId: string, nodeId?: string) {
 }
 
 /** parents を辿った層順（トポロジカル順）。同層は created 順 */
-function topoOrder(members: Node[]): Node[] {
+export function topoOrder(members: Node[]): Node[] {
   const idSet = new Set(members.map((n) => n.id));
   const byId = new Map(members.map((n) => [n.id, n] as const));
   const layer = new Map<string, number>();
