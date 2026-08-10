@@ -61,10 +61,11 @@ import {
   selectRunDecisionApprovalAction,
 } from "./decisionRun.js";
 import {
-  buildRunApprovalRequest,
+  // approval.ts（ランアイテムの実行前承認）と同名だが別物なので、ラン開始承認系として別名で受ける
+  buildRunApprovalRequest as buildRunStartApprovalRequest,
   buildTriggerPrompt,
   describeRunEvent,
-  findRunGate,
+  findRunGate as findRunStartGate,
   findLatestRunEvent,
   runBaseline,
   hasUnconsumedGo,
@@ -78,7 +79,7 @@ import {
   shouldRunScriptTrigger,
   shouldRunDetectScript,
   type DetectEmitEvent,
-  type RunGateState,
+  type RunGateState as RunStartGateState,
 } from "./trigger.js";
 import { buildContextEnv, extractGwMarkers } from "./context.js";
 import { runScript } from "./executors/script.js";
@@ -1333,7 +1334,7 @@ async function tickDetectScriptTrigger(trigger: Node, runsForPage: Run[]): Promi
       log(`ラン前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
       return;
     }
-    const gate = findRunGate(messages);
+    const gate = findRunStartGate(messages);
     if (hasUnconsumedGo(gate, latestRun)) {
       // go 回答を消費して、カードに対応する検知イベントの値でランを作る
       const event = findLatestRunEvent(messages, latestRun);
@@ -1427,7 +1428,7 @@ async function tickDetectScriptTrigger(trigger: Node, runsForPage: Run[]): Promi
         ENGINE_ACTOR,
         VIA,
       );
-      await openRequest(trigger.id, buildRunApprovalRequest(trigger, event), ENGINE_ACTOR, VIA);
+      await openRequest(trigger.id, buildRunStartApprovalRequest(trigger, event), ENGINE_ACTOR, VIA);
       log(`検知イベント→ラン前承認カードを開いた: trigger=${trigger.id} event=${describeRunEvent(event)}`);
     } catch (err) {
       log(`ラン前承認カードを開けなかった（次回の検知で再emit想定）: trigger=${trigger.id} ${String(err)}`);
@@ -1465,11 +1466,11 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
   const latestRun = runsForPage[0] ?? null; // list は created 降順
   if (trigger.pendingRequest) return; // ラン前承認カード等の回答待ち
 
-  let gate: RunGateState = { status: "none" };
+  let gate: RunStartGateState = { status: "none" };
   if (trigger.approval) {
     try {
       const { messages } = await getThread(trigger.id);
-      gate = findRunGate(messages);
+      gate = findRunStartGate(messages);
     } catch (err) {
       log(`ラン前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
       return;
@@ -1490,7 +1491,7 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
 
   if (trigger.approval && !hasUnconsumedGo(gate, latestRun)) {
     try {
-      await openRequest(trigger.id, buildRunApprovalRequest(trigger), ENGINE_ACTOR, VIA);
+      await openRequest(trigger.id, buildRunStartApprovalRequest(trigger), ENGINE_ACTOR, VIA);
       log(`ラン前承認カードを開いた: trigger=${trigger.id} title=${trigger.title}`);
     } catch (err) {
       log(`ラン前承認カードを開けなかった（次周に持ち越し）: trigger=${trigger.id} ${String(err)}`);
@@ -1514,11 +1515,11 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   if (trigger.pendingRequest) return; // ラン前承認カード等の回答待ち
 
   if (trigger.approval) {
-    let gate: RunGateState;
+    let gate: RunStartGateState;
     let messages: Message[];
     try {
       ({ messages } = await getThread(trigger.id));
-      gate = findRunGate(messages);
+      gate = findRunStartGate(messages);
     } catch (err) {
       log(`ラン前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
       return;
@@ -1592,7 +1593,7 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
             VIA,
           );
         }
-        await openRequest(trigger.id, buildRunApprovalRequest(trigger, event), ENGINE_ACTOR, VIA);
+        await openRequest(trigger.id, buildRunStartApprovalRequest(trigger, event), ENGINE_ACTOR, VIA);
         log(`AI判定run→ラン前承認カードを開いた: trigger=${trigger.id} title=${trigger.title}`);
       } else {
         await runTriggerNode(
