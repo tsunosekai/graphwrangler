@@ -180,20 +180,21 @@ export function shouldEvaluateAiTrigger(
 
 /**
  * AIの判定出力を run/skip として解釈する（decision.ts の parseBranchChoice と同じ救済方針:
- * 前後に説明が付いていても、行単位で run/skip という単語が現れれば拾う）。
+ * 前後に説明が付いていても行単位で拾う）。
  * どちらとも判定できなければ null（呼び出し側は「出力が不正」として扱い、ランを作らない）。
  * 旧トークン `fire` も run として受ける——プロンプトは新語彙で出すが、学習済みの言い回しや
  * 手順書に残った旧トークンで黙り込むほうが害が大きい（2026-08-09 の語彙統一）。
+ * 判定は保守的に倒す制約がある——ラン作成は副作用のある側なので:
+ * - run/fire は**行全体の完全一致のみ**受ける（「今回は run しない」のような文中の
+ *   run でランを作らない）
+ * - skip は文中の単語一致でも受ける（見送りの過剰検出は安全）
+ * - 両方が現れる混在出力は skip 側に倒す
  */
 export function parseAiRunDecision(output: string): "run" | "skip" | null {
   const trimmed = output.trim().toLowerCase();
-  if (trimmed === "run" || trimmed === "fire") return "run";
-  if (trimmed === "skip") return "skip";
-  for (const line of trimmed.split("\n").map((l) => l.trim())) {
-    if (line === "run" || line === "fire") return "run";
-    if (line === "skip") return "skip";
-  }
-  if (/\brun\b/.test(trimmed) || /\bfire\b/.test(trimmed)) return "run";
+  const lines = trimmed.split("\n").map((l) => l.trim());
+  if (lines.some((l) => l === "skip")) return "skip";
+  if (lines.some((l) => l === "run" || l === "fire")) return "run";
   if (/\bskip\b/.test(trimmed)) return "skip";
   return null;
 }

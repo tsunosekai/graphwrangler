@@ -249,6 +249,21 @@ describe("parseAiRunDecision: run/skipパース", () => {
     expect(parseAiRunDecision("わかりません")).toBeNull();
     expect(parseAiRunDecision("")).toBeNull();
   });
+
+  it("文中の run だけではランを作らない（skip 意図の混在出力。ラン作成は副作用のある側なので完全一致行のみ）", () => {
+    expect(parseAiRunDecision("今回は run しない")).toBeNull();
+    expect(parseAiRunDecision("run するべきではない")).toBeNull();
+  });
+
+  it("文中の skip は拾う（見送り側は過剰検出しても安全）", () => {
+    expect(parseAiRunDecision("今回は skip します")).toBe("skip");
+    expect(parseAiRunDecision("結論: skip（run の条件は未成立）")).toBe("skip");
+  });
+
+  it("run と skip が混在する曖昧な出力は skip 側に倒す", () => {
+    expect(parseAiRunDecision("run\nskip")).toBe("skip");
+    expect(parseAiRunDecision("検討した結果\nskip\nただし明日は run 予定")).toBe("skip");
+  });
 });
 
 // ---- ラン前承認（approval=true のトリガー） ----

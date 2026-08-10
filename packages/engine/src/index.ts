@@ -84,7 +84,12 @@ import {
 import { buildContextEnv, extractGwMarkers } from "./context.js";
 import { runScript } from "./executors/script.js";
 import { substituteParams } from "./params.js";
-import { buildAiPrompt, runClaude, type ClaudeExecutorConfig } from "./executors/claude.js";
+import {
+  buildAiPrompt,
+  runClaude,
+  type ClaudeExecutorConfig,
+  type ExecResult,
+} from "./executors/claude.js";
 import { runApi } from "./executors/api.js";
 import type { Actor, Message, Node, Run, SubStep } from "./types.js";
 
@@ -217,6 +222,7 @@ function withSubSteps(
  *  スレッドの最新メッセージを取得する（全ノード分は叩かない） */
 function candidateIdsNeedingThread(nodes: Node[]): string[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const triggerPages = triggerPageIds(nodes);
   return nodes
     .filter(
       (n) =>
@@ -225,6 +231,9 @@ function candidateIdsNeedingThread(nodes: Node[]): string[] {
         (n.executor === "ai" || n.executor === "script") &&
         n.status === "pending" &&
         !n.pendingRequest &&
+        // ルーティーンメンバー（テンプレート）は selectAction の対象外（実行はラン側の
+        // ワークアイテムが担う。pick.ts の isSchedulableKind と同じ除外）なので取得しない
+        !isRunManagedMember(n, triggerPages) &&
         n.parents.every((pid) => {
           const s = byId.get(pid)?.status;
           return s === "done" || s === "skipped"; // 3.9: skipped も充足扱い（合流ノード対応）
@@ -344,11 +353,38 @@ async function demoteToDraft(node: Node): Promise<void> {
   log(`modify回答により下書きへ戻した: id=${node.id} title=${node.title}`);
 }
 
-async function executeNode(nodes: Node[], node: Node): Promise<void> {
-  await patchNode(node.id, { status: "running" }, ENGINE_ACTOR, VIA);
-  log(`実行開始: id=${node.id} title=${node.title} executor=${node.executor}`);
+// ---- executor 起動の組み立て（script/ai 共通部） ----
+// プロジェクト層（executeNode / tickDecision）とラン層（executeRunItem /
+// executeRunDecisionItem）で同じ組み立てを共用する。文脈ごとの差分（run.context の解決・
+// プロンプトへ渡すゴール/親文脈・失敗の記録先・ログ文言）は引数で受ける。
 
-  let result: { success: boolean; output: string; error?: string; subSteps?: SubStep[] };
+/** ai 実行の actor 名（engine.mode で決まる） */
+function aiExecutorName(): string {
+  return engineMode === "api" ? "executor:api" : "executor:claude";
+}
+
+/** ai 実行の起動。engine.mode で API / claude CLI を切り替える（cwd は workspace root） */
+function runAiExecutor(prompt: string, node: Pick<Node, "aiModel" | "aiEffort">): Promise<ExecResult> {
+  return engineMode === "api"
+    ? runApi(prompt)
+    : runClaude(prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
+}
+
+/** task ノードの script/ai executor 起動を組み立てて実行する。run の有無が層の違い:
+ *  - script: ラン層は run.context を渡して解決し（解決順: context → デフォルト値 →
+ *    未入力エラー。3.15）、実行直前に解決済みの値を RunItem.resolvedParams へ焼き、
+ *    GW_* 環境変数と作業ディレクトリを付ける。プロジェクト層はランが無いので context を
+ *    渡さない（従来どおりデフォルト値のみ）
+ *  - ai: ゴール文脈はラン層=ページノード(run.procedure) / プロジェクト層=group のゴール。
+ *    親の成果はラン層=同一ランの say のみ（parentSayContextForRun）。runContext は
+ *    ラン層でのみプロンプトへ渡す（undefined = プロジェクト層。claude.ts 参照）
+ *  結果の後処理（成功/失敗/QUESTION の記録先）は呼び出し側が層ごとに行う */
+async function launchExecutor(
+  nodes: Node[],
+  node: Node,
+  run: Run | null,
+): Promise<{ result: ExecResult; executorName: string; aiSources: string[] }> {
+  let result: ExecResult;
   let executorName: string;
   let aiSources: string[] = [];
 
@@ -357,21 +393,38 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
     if (!node.impl || node.impl.type !== "script") {
       result = { success: false, output: "", error: "実装がない（impl が script 形式ではない）" };
     } else {
-      // プロジェクト層はランが無いので context を渡さない（従来どおりデフォルト値のみ。3.15）
-      const sub = substituteParams(node.impl.command, node.impl.params);
+      const sub = run
+        ? substituteParams(node.impl.command, node.impl.params, run.context)
+        : substituteParams(node.impl.command, node.impl.params);
       if (!sub.ok) {
         result = { success: false, output: "", error: sub.reason };
+      } else if (run) {
+        // 実行直前に、実際に使った解決済みの値（context 由来+デフォルト値由来の両方）を
+        // ランへ焼く（RunItem.resolvedParams。ランページの引数欄が読み取り専用で表示し、
+        // 現在の run.context とずれたら「古い値で実行済み」バッジを出す。3.15）
+        await patchRunItem(run.id, node.id, { resolvedParams: sub.resolved }, ENGINE_ACTOR, VIA);
+        const runDir = await ensureRunDir(run.id);
+        result = await runScript(sub.command, {
+          cwd: workspaceRoot ?? undefined,
+          env: buildContextEnv(run.id, run.context, node.impl.params, runDir),
+        });
       } else {
         result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
       }
     }
   } else {
-    const goal = node.group ? (nodes.find((n) => n.id === node.group) ?? null) : null;
-    const parentSayMessages = await parentSayContext(node, nodes);
+    const goal = run
+      ? (nodes.find((n) => n.id === run.procedure) ?? null)
+      : node.group
+        ? (nodes.find((n) => n.id === node.group) ?? null)
+        : null;
+    const parentSayMessages = run
+      ? await parentSayContextForRun(node, nodes, run.id)
+      : await parentSayContext(node, nodes);
     const threadContext = await threadContextFor(node.id);
     const resolved = await resolveDocForPrompt(node);
     if (resolved.error) {
-      executorName = engineMode === "api" ? "executor:api" : "executor:claude";
+      executorName = aiExecutorName();
       result = { success: false, output: "", error: resolved.error };
     } else {
       const built = buildAiPrompt({
@@ -380,17 +433,137 @@ async function executeNode(nodes: Node[], node: Node): Promise<void> {
         parentSayMessages,
         autonomy: node.autonomy,
         threadContext,
+        ...(run ? { runContext: run.context } : {}),
       });
       aiSources = built.sources;
-      if (engineMode === "api") {
-        executorName = "executor:api";
-        result = await runApi(built.prompt);
-      } else {
-        executorName = "executor:claude";
-        result = await runClaude(built.prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
-      }
+      executorName = aiExecutorName();
+      result = await runAiExecutor(built.prompt, node);
     }
   }
+
+  return { result, executorName, aiSources };
+}
+
+/** 分岐ノード（kind=decision）の script/ai 実行の文脈差分。失敗の記録先
+ *  （プロジェクト層=失敗リカバリカード / ラン層=アイテムを waiting へ）と決着先
+ *  （decideNode / decideRunItem）、ログ文言を層ごとに渡す */
+interface DecisionExecContext {
+  /** スレッド投稿に載せる payload（ラン層は {runId}。プロジェクト層は undefined） */
+  payload?: Record<string, unknown>;
+  /** ログの主語（"分岐" / "ラン分岐"） */
+  logLabel: string;
+  /** ログの位置表記（"id=..." / "run=... node=..."） */
+  logWhere: string;
+  /** 実行失敗・出力不正時の後処理（status 投稿は共通側が済ませてから呼ぶ） */
+  onFailure: (reason: string) => Promise<void>;
+  /** 枝の決着 */
+  decide: (choice: string, actor: Actor) => Promise<void>;
+}
+
+/** 分岐ノードの script/ai 実行を組み立てて枝の決着まで行う（プロジェクト層・ラン層共通）。
+ *  実行 → 出力を枝 id として解釈（parseBranchChoice）→ decide。失敗はどの段階でも
+ *  status をスレッドへ積んでから ctx.onFailure に渡す */
+async function executeDecisionCore(node: Node, ctx: DecisionExecContext): Promise<void> {
+  const { payload, logLabel, logWhere } = ctx;
+  const withPayload = payload ? { payload } : {};
+
+  if (node.executor === "script") {
+    const actor: Actor = { kind: "agent", name: "executor:script" };
+    if (!node.impl || node.impl.type !== "script") {
+      await postMessage(
+        node.id,
+        { kind: "status", body: "実行失敗: 実装がない（impl が script 形式ではない）", ...withPayload },
+        actor,
+        VIA,
+      );
+      await ctx.onFailure("impl が script 形式ではない");
+      return;
+    }
+    const sub = substituteParams(node.impl.command, node.impl.params);
+    if (!sub.ok) {
+      const reason = sub.reason;
+      await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, ...withPayload }, actor, VIA);
+      await ctx.onFailure(reason);
+      log(`${logLabel}: パラメータ解決失敗 ${logWhere} reason=${reason}`);
+      return;
+    }
+    const result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
+    if (!result.success) {
+      const reason = result.error || "不明なエラー";
+      await postMessage(
+        node.id,
+        { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), ...withPayload },
+        actor,
+        VIA,
+      );
+      await ctx.onFailure(reason);
+      log(`${logLabel}の script 実行失敗: ${logWhere} reason=${reason}`);
+      return;
+    }
+    const choice = parseBranchChoice(node, result.output);
+    if (!choice) {
+      const reason = `script出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
+      await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, ...withPayload }, actor, VIA);
+      await ctx.onFailure(reason);
+      log(`${logLabel}の script 出力が不正: ${logWhere}`);
+      return;
+    }
+    await postMessage(
+      node.id,
+      { kind: "status", body: `分岐: ${choice} を選択（script出力）`, ...withPayload },
+      actor,
+      VIA,
+    );
+    await ctx.decide(choice, actor);
+    log(`${logLabel}確定(script): ${logWhere} choice=${choice}`);
+    return;
+  }
+
+  // executor=ai
+  const actor: Actor = { kind: "agent", name: aiExecutorName() };
+  const prompt = buildDecisionPrompt(node);
+  const result = await runAiExecutor(prompt, node);
+  if (!result.success) {
+    const reason = result.error || "不明なエラー";
+    await postMessage(
+      node.id,
+      { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(payload, result) },
+      actor,
+      VIA,
+    );
+    await ctx.onFailure(reason);
+    log(`${logLabel}の ai 実行失敗: ${logWhere} reason=${reason}`);
+    return;
+  }
+  const choice = parseBranchChoice(node, result.output);
+  if (!choice) {
+    const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
+    await postMessage(
+      node.id,
+      { kind: "status", body: `実行失敗: ${reason}`, payload: withSubSteps(payload, result) },
+      actor,
+      VIA,
+    );
+    await ctx.onFailure(reason);
+    log(`${logLabel}の ai 出力が不正: ${logWhere}`);
+    return;
+  }
+  await postMessage(
+    node.id,
+    { kind: "say", body: result.output.trim(), payload: withSubSteps(payload, result) },
+    actor,
+    VIA,
+  );
+  await ctx.decide(choice, actor);
+  log(`${logLabel}確定(ai): ${logWhere} choice=${choice}`);
+}
+
+async function executeNode(nodes: Node[], node: Node): Promise<void> {
+  await patchNode(node.id, { status: "running" }, ENGINE_ACTOR, VIA);
+  log(`実行開始: id=${node.id} title=${node.title} executor=${node.executor}`);
+
+  // プロジェクト層なので run なし（script は context を渡さずデフォルト値のみ。3.15）
+  const { result, executorName, aiSources } = await launchExecutor(nodes, node, null);
 
   const actor: Actor = { kind: "agent", name: executorName };
 
@@ -542,91 +715,19 @@ async function tickDecision(nodes: Node[]): Promise<boolean> {
       await decideNode(action.node.id, action.choice, ENGINE_ACTOR, VIA);
       log(`分岐確定(human回答): id=${action.node.id} choice=${action.choice}`);
       return true;
-    case "execute-script": {
-      const node = action.node;
-      const actor: Actor = { kind: "agent", name: "executor:script" };
-      if (!node.impl || node.impl.type !== "script") {
-        await postMessage(
-          node.id,
-          { kind: "status", body: "実行失敗: 実装がない（impl が script 形式ではない）" },
-          actor,
-          VIA,
-        );
-              await openRequest(
-          node.id,
-          buildFailureRecoveryRequest(node, "impl が script 形式ではない"),
-          ENGINE_ACTOR,
-          VIA,
-        );
-        return true;
-      }
-      const sub = substituteParams(node.impl.command, node.impl.params);
-      if (!sub.ok) {
-        const reason = sub.reason;
-        await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
-              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
-        log(`分岐: パラメータ解決失敗 id=${node.id} reason=${reason}`);
-        return true;
-      }
-      const result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
-      if (!result.success) {
-        const reason = result.error || "不明なエラー";
-        await postMessage(node.id, { kind: "status", body: truncate(`実行失敗: ${reason}`, 500) }, actor, VIA);
-              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
-        log(`分岐の script 実行失敗: id=${node.id} reason=${reason}`);
-        return true;
-      }
-      const choice = parseBranchChoice(node, result.output);
-      if (!choice) {
-        const reason = `script出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
-        await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}` }, actor, VIA);
-              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
-        log(`分岐の script 出力が不正: id=${node.id}`);
-        return true;
-      }
-      await postMessage(node.id, { kind: "status", body: `分岐: ${choice} を選択（script出力）` }, actor, VIA);
-      await decideNode(node.id, choice, actor, VIA);
-      log(`分岐確定(script): id=${node.id} choice=${choice}`);
-      return true;
-    }
+    case "execute-script":
     case "execute-ai": {
       const node = action.node;
-      const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
-      const prompt = buildDecisionPrompt(node);
-      const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
-      if (!result.success) {
-        const reason = result.error || "不明なエラー";
-        await postMessage(
-          node.id,
-          { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(undefined, result) },
-          actor,
-          VIA,
-        );
-              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
-        log(`分岐の ai 実行失敗: id=${node.id} reason=${reason}`);
-        return true;
-      }
-      const choice = parseBranchChoice(node, result.output);
-      if (!choice) {
-        const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
-        await postMessage(
-          node.id,
-          { kind: "status", body: `実行失敗: ${reason}`, payload: withSubSteps(undefined, result) },
-          actor,
-          VIA,
-        );
-              await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
-        log(`分岐の ai 出力が不正: id=${node.id}`);
-        return true;
-      }
-      await postMessage(
-        node.id,
-        { kind: "say", body: result.output.trim(), payload: withSubSteps(undefined, result) },
-        actor,
-        VIA,
-      );
-      await decideNode(node.id, choice, actor, VIA);
-      log(`分岐確定(ai): id=${node.id} choice=${choice}`);
+      await executeDecisionCore(node, {
+        logLabel: "分岐",
+        logWhere: `id=${node.id}`,
+        onFailure: async (reason) => {
+          await openRequest(node.id, buildFailureRecoveryRequest(node, reason), ENGINE_ACTOR, VIA);
+        },
+        decide: async (choice, actor) => {
+          await decideNode(node.id, choice, actor, VIA);
+        },
+      });
       return true;
     }
   }
@@ -641,58 +742,8 @@ async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void
   await patchRunItem(run.id, node.id, { status: "running" }, ENGINE_ACTOR, VIA);
   log(`ラン実行開始: run=${run.id} node=${node.id} title=${node.title} executor=${node.executor}`);
 
-  let result: { success: boolean; output: string; error?: string; subSteps?: SubStep[] };
-  let executorName: string;
-  let aiSources: string[] = [];
-
-  if (node.executor === "script") {
-    executorName = "executor:script";
-    if (!node.impl || node.impl.type !== "script") {
-      result = { success: false, output: "", error: "実装がない（impl が script 形式ではない）" };
-    } else {
-      // ラン層は run.context を渡して解決する（解決順: context → デフォルト値 → 未入力エラー。3.15）
-      const sub = substituteParams(node.impl.command, node.impl.params, run.context);
-      if (!sub.ok) {
-        result = { success: false, output: "", error: sub.reason };
-      } else {
-        // 実行直前に、実際に使った解決済みの値（context 由来+デフォルト値由来の両方）を
-        // ランへ焼く（RunItem.resolvedParams。ランページの引数欄が読み取り専用で表示し、
-        // 現在の run.context とずれたら「古い値で実行済み」バッジを出す。3.15）
-        await patchRunItem(run.id, node.id, { resolvedParams: sub.resolved }, ENGINE_ACTOR, VIA);
-        const runDir = await ensureRunDir(run.id);
-        result = await runScript(sub.command, {
-          cwd: workspaceRoot ?? undefined,
-          env: buildContextEnv(run.id, run.context, node.impl.params, runDir),
-        });
-      }
-    }
-  } else {
-    const pageNode = nodes.find((n) => n.id === run.procedure) ?? null;
-    const parentSayMessages = await parentSayContextForRun(node, nodes, run.id);
-    const threadContext = await threadContextFor(node.id);
-    const resolved = await resolveDocForPrompt(node);
-    if (resolved.error) {
-      executorName = engineMode === "api" ? "executor:api" : "executor:claude";
-      result = { success: false, output: "", error: resolved.error };
-    } else {
-      const built = buildAiPrompt({
-        node: resolved.node,
-        goal: pageNode,
-        parentSayMessages,
-        autonomy: node.autonomy,
-        threadContext,
-        runContext: run.context,
-      });
-      aiSources = built.sources;
-      if (engineMode === "api") {
-        executorName = "executor:api";
-        result = await runApi(built.prompt);
-      } else {
-        executorName = "executor:claude";
-        result = await runClaude(built.prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
-      }
-    }
-  }
+  // ラン層: script は run.context で解決+resolvedParams 焼き込み、ai は runContext 注入（3.15）
+  const { result, executorName, aiSources } = await launchExecutor(nodes, node, run);
 
   const actor: Actor = { kind: "agent", name: executorName };
   const payload = { runId: run.id };
@@ -1095,30 +1146,11 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
   await patchRunItem(run.id, node.id, { status: "running" }, ENGINE_ACTOR, VIA);
   log(`ラン分岐実行開始: run=${run.id} node=${node.id} title=${node.title} executor=${node.executor}`);
 
-  const payload = { runId: run.id };
-
-  if (node.executor === "script") {
-    const actor: Actor = { kind: "agent", name: "executor:script" };
-    if (!node.impl || node.impl.type !== "script") {
-      await postMessage(
-        node.id,
-        { kind: "status", body: "実行失敗: 実装がない（impl が script 形式ではない）", payload },
-        actor,
-        VIA,
-      );
-      await patchRunItem(
-        run.id,
-        node.id,
-        { status: "waiting", note: "失敗: impl が script 形式ではない" },
-        ENGINE_ACTOR,
-        VIA,
-      );
-      return;
-    }
-    const sub = substituteParams(node.impl.command, node.impl.params);
-    if (!sub.ok) {
-      const reason = sub.reason;
-      await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, payload }, actor, VIA);
+  await executeDecisionCore(node, {
+    payload: { runId: run.id },
+    logLabel: "ラン分岐",
+    logWhere: `run=${run.id} node=${node.id}`,
+    onFailure: async (reason) => {
       await patchRunItem(
         run.id,
         node.id,
@@ -1126,102 +1158,11 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
         ENGINE_ACTOR,
         VIA,
       );
-      log(`ラン分岐: パラメータ解決失敗 run=${run.id} node=${node.id} reason=${reason}`);
-      return;
-    }
-    const result = await runScript(sub.command, { cwd: workspaceRoot ?? undefined });
-    if (!result.success) {
-      const reason = result.error || "不明なエラー";
-      await postMessage(
-        node.id,
-        { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload },
-        actor,
-        VIA,
-      );
-      await patchRunItem(
-        run.id,
-        node.id,
-        { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
-        ENGINE_ACTOR,
-        VIA,
-      );
-      log(`ラン分岐の script 実行失敗: run=${run.id} node=${node.id} reason=${reason}`);
-      return;
-    }
-    const choice = parseBranchChoice(node, result.output);
-    if (!choice) {
-      const reason = `script出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
-      await postMessage(node.id, { kind: "status", body: `実行失敗: ${reason}`, payload }, actor, VIA);
-      await patchRunItem(
-        run.id,
-        node.id,
-        { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
-        ENGINE_ACTOR,
-        VIA,
-      );
-      log(`ラン分岐の script 出力が不正: run=${run.id} node=${node.id}`);
-      return;
-    }
-    await postMessage(
-      node.id,
-      { kind: "status", body: `分岐: ${choice} を選択（script出力）`, payload },
-      actor,
-      VIA,
-    );
-    await decideRunItem(run.id, node.id, choice, actor, VIA);
-    log(`ラン分岐確定(script): run=${run.id} node=${node.id} choice=${choice}`);
-    return;
-  }
-
-  // executor=ai
-  const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
-  const prompt = buildDecisionPrompt(node);
-  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, configFor(node), { cwd: workspaceRoot ?? undefined });
-  if (!result.success) {
-    const reason = result.error || "不明なエラー";
-    await postMessage(
-      node.id,
-      { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(payload, result) },
-      actor,
-      VIA,
-    );
-    await patchRunItem(
-      run.id,
-      node.id,
-      { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
-      ENGINE_ACTOR,
-      VIA,
-    );
-    log(`ラン分岐の ai 実行失敗: run=${run.id} node=${node.id} reason=${reason}`);
-    return;
-  }
-  const choice = parseBranchChoice(node, result.output);
-  if (!choice) {
-    const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
-    await postMessage(
-      node.id,
-      { kind: "status", body: `実行失敗: ${reason}`, payload: withSubSteps(payload, result) },
-      actor,
-      VIA,
-    );
-    await patchRunItem(
-      run.id,
-      node.id,
-      { status: "waiting", note: `失敗: ${truncate(reason, 200)}` },
-      ENGINE_ACTOR,
-      VIA,
-    );
-    log(`ラン分岐の ai 出力が不正: run=${run.id} node=${node.id}`);
-    return;
-  }
-  await postMessage(
-    node.id,
-    { kind: "say", body: result.output.trim(), payload: withSubSteps(payload, result) },
-    actor,
-    VIA,
-  );
-  await decideRunItem(run.id, node.id, choice, actor, VIA);
-  log(`ラン分岐確定(ai): run=${run.id} node=${node.id} choice=${choice}`);
+    },
+    decide: async (choice, actor) => {
+      await decideRunItem(run.id, node.id, choice, actor, VIA);
+    },
+  });
 }
 
 /** プロジェクト側・通常のランタスクに実行候補が無かったとき、ランの分岐アイテムを1件処理する。
@@ -1560,8 +1501,8 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
   aiTriggerLastCheckedAt.set(trigger.id, now);
 
   const prompt = buildTriggerPrompt(trigger, new Date(now));
-  const actor: Actor = { kind: "agent", name: engineMode === "api" ? "executor:api" : "executor:claude" };
-  const result = engineMode === "api" ? await runApi(prompt) : await runClaude(prompt, configFor(trigger), { cwd: workspaceRoot ?? undefined });
+  const actor: Actor = { kind: "agent", name: aiExecutorName() };
+  const result = await runAiExecutor(prompt, trigger);
 
   if (!result.success) {
     log(`AIトリガー判定に失敗（次周に持ち越し）: trigger=${trigger.id} title=${trigger.title} reason=${result.error}`);
