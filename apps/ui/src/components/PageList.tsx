@@ -17,8 +17,10 @@
 //   関与しない。ページの所属は group ではなく folder フィールド（design.md 3.1）
 // - 並びは order（数値）。掴んで（⠿）動かすたびに、動いた入れ物のぶんだけ 0..n-1 へ
 //   詰め直す（差分だけ patch する。lib/rail.ts）
-// - ドラッグはマウスもタッチも pointer events 1本で扱う（モバイルでも並べ替えられる）
-import { useEffect, useMemo, useRef, useState } from "react";
+// - ドラッグの仕掛け（掴む・運ぶ・落とし先の判定）は hooks/useRailDnd.ts
+// - 行ごとの派生値（配下ノード・未読キー）は hooks/... ではなく lib/railIndex.ts の索引から引く。
+//   行ごとに allNodes / threadMeta を舐め直すとページ数ぶん掛け算になるため
+import { useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -41,7 +43,6 @@ import {
   cancelRunWithConfirm,
   hasUnread,
   markKeysRead,
-  readKeysForPage,
   renameRunDialog,
 } from "../lib/actions";
 import { api } from "../lib/api";
@@ -49,11 +50,18 @@ import { focusGoalCapture } from "../lib/capture";
 import { confirmDialog, confirmWithAltDialog, promptDialog } from "../lib/dialogs";
 import { runTrigger } from "../lib/run";
 import { HINT_TEXT } from "../lib/hints";
+import { EXECUTOR_JA, STATUS_JA } from "../lib/labels";
+import { useIdSetPref } from "../hooks/useIdSetPref";
+import type { DragState, DropTarget, Section } from "../hooks/useRailDnd";
+import { ROOT_ROW, useRailDnd } from "../hooks/useRailDnd";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { moveWithin, railPatches, sortRail } from "../lib/rail";
+import type { Dot } from "../lib/railDots";
+import { DOTS_HINT, isSettled, SEAT_ORDER, seatColor, seatOf } from "../lib/railDots";
+import { buildRailIndex } from "../lib/railIndex";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { isRoutinePage } from "../lib/routine";
-import { isUnreadKey, threadKey, unreadCountForNode } from "../lib/unread";
+import { isUnreadKey, threadKey } from "../lib/unread";
 import { colorOf, displayNameOf, effectiveMembers, initialOf, sameEmail, turnIsMine, useTeam } from "../lib/team";
 import { cn } from "../lib/utils";
 import type { Node, Run, Status } from "../types";
@@ -106,35 +114,6 @@ interface Props {
   onRunsMutated: () => void;
 }
 
-const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
-const STATUS_JA: Record<Status, string> = {
-  unplanned: "未計画",
-  pending: "待ち",
-  running: "進行中",
-  waiting: "回答待ち",
-  done: "完了",
-  dropped: "中止",
-  skipped: "スキップ",
-};
-
-/** ドットの「席」（並び順の判定用）。決着済みは末尾へ沈める */
-type Seat = "attention" | "human" | "ai" | "script" | "done";
-function seatOf(status: Status, executor: Node["executor"]): Seat {
-  if (status === "done" || status === "dropped" || status === "skipped") return "done";
-  if (status === "waiting") return "attention";
-  return executor;
-}
-/** 点の色は常に担当(executor)の色。唯一の例外が「あなたの番」= 橙（--attention。
- *  カード右肩の橙点と同じ）。終わったノードは色を塗り替えず、薄く（isSettled → opacity）する
- *  （2026-08-08 本人指定の色ルール明確化。旧: done/dropped 専用の沈み色に塗り替えていて、
- *  何の担当だったかが点から消えていた） */
-function seatColor(status: Status, executor: Node["executor"]): string {
-  if (status === "waiting") return "var(--attention)";
-  return executor === "human" ? "var(--human)" : executor === "ai" ? "var(--ai)" : "var(--script)";
-}
-const isSettled = (st: Status) => st === "done" || st === "dropped" || st === "skipped";
-// 目に入るべき順: あなたの番 → 人間の席 → AI → スクリプト → 完了系
-const SEAT_ORDER: Seat[] = ["attention", "human", "ai", "script", "done"];
 const MAX_DOTS = 16;
 /** ラン子行: 開いたとき一度に見せる行数。超えたら子リスト内スクロール（2026-08-08 本人指定「10件以上はスクロール」） */
 const RUN_ROWS_VISIBLE = 10;
@@ -144,40 +123,10 @@ const RUN_ROWS_VISIBLE = 10;
  *  行側に `group` が要る */
 const ROW_ACTION =
   "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:hidden";
-/** ドットの共通ヒント文。色ルールの正文はここ */
-const DOTS_HINT =
-  "ノード1つ=点1つ。色は担当の色（黄緑=人間 青=AI 灰=スクリプト）で、橙=あなたの番だけ例外。薄い点=完了・中止・スキップ";
-
-// ---- ドラッグ（フォルダ分け + 手動並べ替え。2026-08-05） ----
-/** 節。フォルダはプロジェクト節の中だけの概念で、ルーティーンは節内の並べ替えのみ */
-type Section = "project" | "routine";
-/** 掴んでいるもの */
-interface DragState {
-  id: string;
-  kind: "page" | "folder";
-  section: Section;
-}
-/** 落とし先。into = フォルダの中／節の末尾、before|after = その行の前後 */
-interface DropTarget {
-  id: string;
-  kind: "page" | "folder" | "root";
-  section: Section;
-  pos: "before" | "after" | "into";
-}
-/** 節見出し（＝その節の直下・末尾）を指す擬似 id */
-const ROOT_ROW: Record<Section, string> = { project: "__root__", routine: "__routine__" };
 
 const CLOSED_KEY = "gw.railFolderClosed";
 /** ラン子行を開いているページ（既定は畳み=最新1本だけ）。UI状態なので localStorage */
 const RUNS_OPEN_KEY = "gw.railRunsOpen";
-function loadIdSet(key: string): Set<string> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(key) ?? "[]");
-    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
 
 export function PageList({
   folders,
@@ -196,6 +145,11 @@ export function PageList({
   onRunsMutated,
 }: Props) {
   const [width, startResize] = useResizableWidth("railW", 224, 160, 400);
+  // 行の材料（配下ノード・未読キー）を引く索引。ページ行ごとに allNodes / threadMeta を
+  // 舐め直すと「ページ数 × 全ノード数 × キー数」になるので、1回だけ作って全行で使い回す
+  const rail = useMemo(() => buildRailIndex(allNodes, threadMeta), [allNodes, threadMeta]);
+  /** そのページの直下ノード（旧: allNodes.filter((n) => n.group === f.id)） */
+  const membersOf = (groupId: string) => rail.membersOf(groupId);
   // チーム化（2026-08-04）: 人フィルタとイニシャルバッジ。ロスターが2人未満なら出さない
   const { me, users, enabled: teamEnabled } = useTeam();
   // 人フィルタ: "all"（全員）/ "me"（自分。ログイン中のみ）/ "none"（帰属なし）/
@@ -233,7 +187,7 @@ export function PageList({
   //   帰属を付けて回る作業や拾い漏れの発見に使う
   const byPerson = (f: Node): boolean => {
     if (!teamEnabled || personFilterValue === "all") return true;
-    const eff = effectiveMembers(f, allNodes);
+    const eff = effectiveMembers(f, membersOf(f.id));
     if (personFilterValue === "none") return eff.length === 0;
     const email = personFilterValue === "me" ? me.email : personFilterValue;
     return !!email && eff.some((m) => sameEmail(m, email));
@@ -274,13 +228,13 @@ export function PageList({
   const archivedFolders = sortRail(folders.filter(isArchivedPage));
 
   // ---- 並び・フォルダ分け ----
-  const nodeById = useMemo(() => new Map(allNodes.map((n) => [n.id, n])), [allNodes]);
+  const nodeById = rail.nodeById;
   const folderList = useMemo(() => sortRail(folderNodes), [folderNodes]);
   /** 棚がどちらの節のものか。null = プロジェクト節（既存フォルダの互換。2026-08-08） */
   const shelfSection = (f: Node): Section => (f.folderSection === "routine" ? "routine" : "project");
   const shelvesIn = (section: Section) => folderList.filter((f) => shelfSection(f) === section);
   const shelfById = useMemo(() => new Map(folderNodes.map((f) => [f.id, f])), [folderNodes]);
-  const sectionOf = (f: Node): Section => (isRoutinePage(f, allNodes) ? "routine" : "project");
+  const sectionOf = (f: Node): Section => (isRoutinePage(f, membersOf(f.id)) ? "routine" : "project");
   /** ページの所属フォルダ。次のどちらかなら直下扱いにする:
    *  - 消えたフォルダを指している
    *  - **節の違う棚**を指している（2026-08-09 本人報告の不具合）。ページにトリガーを足すと
@@ -317,121 +271,13 @@ export function PageList({
     sortRail(folders.filter((f) => sectionOf(f) === section && folderOf(f) === folderId)).map((f) => f.id);
 
   // 折り畳み状態（localStorage。UI状態なので正データには混ぜない）
-  const [closedFolders, setClosedFolders] = useState<Set<string>>(() => loadIdSet(CLOSED_KEY));
-  const toggleFolder = (id: string) =>
-    setClosedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      try {
-        localStorage.setItem(CLOSED_KEY, JSON.stringify([...next]));
-      } catch {
-        // 無視
-      }
-      return next;
-    });
+  const [closedFolders, toggleFolder] = useIdSetPref(CLOSED_KEY);
   // ラン子行の開閉（開いているページの id 集合。既定は畳み=最新1本だけ）
-  const [openRunPages, setOpenRunPages] = useState<Set<string>>(() => loadIdSet(RUNS_OPEN_KEY));
-  const toggleRuns = (id: string) =>
-    setOpenRunPages((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      try {
-        localStorage.setItem(RUNS_OPEN_KEY, JSON.stringify([...next]));
-      } catch {
-        // 無視
-      }
-      return next;
-    });
+  const [openRunPages, toggleRuns] = useIdSetPref(RUNS_OPEN_KEY);
 
-  // ---- ドラッグ（掴んで並べ替え・フォルダへ入れる） ----
-  const dragRef = useRef<DragState | null>(null);
-  const dropRef = useRef<DropTarget | null>(null);
-  const draggedAtRef = useRef(0);
-  /** 行ドラッグの「押しただけ」状態（まだ掴んでいない）。少し動いたら掴みに昇格する */
-  const pressRef = useRef<{ st: DragState; x: number; y: number } | null>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
-  const [drop, setDrop] = useState<DropTarget | null>(null);
-
-  /** 座標の下にある行を読んで落とし先を決める（要素の data-rail-* 属性が正）。
-   *  ページ: フォルダ行の上=中へ / 同じ節のページ行の上下半分=その前後。
-   *  フォルダ: フォルダ行の前後だけ（フォルダの入れ子はUIでは扱わない） */
-  const resolveDrop = (x: number, y: number, st: DragState): DropTarget | null => {
-    const el = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>(
-      "[data-rail-row]",
-    );
-    if (!el) return null;
-    const id = el.dataset.railRow!;
-    const kind = el.dataset.railKind as DropTarget["kind"];
-    const section = el.dataset.railSection as Section;
-    if (id === st.id) return null;
-    if (kind === "root") {
-      if (st.kind === "folder") return null; // フォルダは節をまたがない
-      return { id, kind, section, pos: "into" };
-    }
-    const rect = el.getBoundingClientRect();
-    const pos: "before" | "after" = y < rect.top + rect.height / 2 ? "before" : "after";
-    if (st.kind === "folder") {
-      // 棚同士の並べ替えは同じ節の中だけ（2026-08-08。節をまたぐ移動はさせない）
-      return kind === "folder" && section === st.section ? { id, kind, section, pos } : null;
-    }
-    if (kind === "folder") {
-      // 棚へ入れられるのは同じ節のページだけ（プロジェクトをルーティーン棚へ入れない）
-      return section === st.section ? { id, kind, section, pos: "into" } : null;
-    }
-    if (section !== st.section) return null; // プロジェクトとルーティーンは行き来させない
-    return { id, kind, section, pos };
-  };
-
-  const beginDrag = (e: React.PointerEvent, st: DragState) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      // 取っ手の外へ出ても pointermove/up を取りこぼさないための捕捉。
-      // 捕捉できない環境（既にポインタが離れている等）でも掴み自体は続行する
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    } catch {
-      // 無視
-    }
-    dragRef.current = st;
-    setDrag(st);
-  };
-  const moveDrag = (e: React.PointerEvent) => {
-    const st = dragRef.current;
-    if (!st) return;
-    const target = resolveDrop(e.clientX, e.clientY, st);
-    dropRef.current = target;
-    setDrop(target);
-  };
-  const endDrag = (e: React.PointerEvent) => {
-    const st = dragRef.current;
-    const target = dropRef.current;
-    dragRef.current = null;
-    dropRef.current = null;
-    setDrag(null);
-    setDrop(null);
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      // 既に外れている場合は無視
-    }
-    if (!st) return;
-    draggedAtRef.current = Date.now(); // 直後の click でページを開かないための印
-    if (target) void applyDrop(st, target);
-  };
-  // ドラッグ中は画面外へ出た pointerup も拾う（掴んだまま離しても状態が残らないように）
-  useEffect(() => {
-    if (!drag) return;
-    const cancel = () => {
-      dragRef.current = null;
-      dropRef.current = null;
-      setDrag(null);
-      setDrop(null);
-    };
-    window.addEventListener("pointercancel", cancel);
-    return () => window.removeEventListener("pointercancel", cancel);
-  }, [drag]);
+  // ---- ドラッグ（掴んで並べ替え・フォルダへ入れる。仕掛けは hooks/useRailDnd.ts） ----
+  const { drag, dropClass, rowDragHandlers, beginDrag, moveDrag, endDrag, draggedRecently } =
+    useRailDnd((st, target) => applyDrop(st, target));
 
   /** 落とした結果の並びを order（と必要なら folder）へ書き戻す。変わった行だけ patch する */
   const applyOrder = async (orderedIds: string[], folder?: string | null) => {
@@ -527,7 +373,7 @@ export function PageList({
 
   /** ページ名の変更。フォルダ行の✎（renameFolder）と同じ流儀 */
   const renamePage = async (f: Node) => {
-    const name = await promptDialog(isRoutinePage(f, allNodes) ? "ルーティーン名" : "プロジェクト名", {
+    const name = await promptDialog(isRoutinePage(f, membersOf(f.id)) ? "ルーティーン名" : "プロジェクト名", {
       defaultValue: f.title,
       confirmLabel: "変更",
     });
@@ -629,52 +475,6 @@ export function PageList({
     onMutated();
   };
 
-  /** 落とし先の見せ方: 前後は行の縁に線、中へはフォルダ行を縁取る。
-   *  線は inset の box-shadow ではなく絶対配置の擬似要素で描く——box-shadow は行の角丸
-   *  （rounded-sm）に沿って端が丸まり、まっすぐな横線に見えないため（2026-08-06 本人指摘）。
-   *  擬似要素は overflow-hidden が無い限り角丸に切られないので、端まで直線で出る */
-  const dropClass = (id: string) => {
-    if (drop?.id !== id) return undefined;
-    if (drop.pos === "into") return "ring-1 ring-ai";
-    return cn(
-      "relative before:pointer-events-none before:absolute before:inset-x-0 before:h-0.5 before:bg-ai before:content-['']",
-      // 行と行の隙間（gap-px）の中央に置き、どちらの行の線か迷わないようにする
-      drop.pos === "before" ? "before:-top-px" : "before:-bottom-px",
-    );
-  };
-
-  /** 行そのものを掴んでドラッグするためのハンドラ（2026-08-08 本人要望「持ち手アイコンを
-   *  消して普通にドラッグ」）。クリック=選択と共存させるため、押しただけでは掴まず
-   *  5px 動いたら掴みに昇格する。マウス限定——タッチはスクロールと取り合いになる
-   *  （touch-action を行全体に切ると一覧が撫でられなくなる）ため、粗いポインタ環境では
-   *  従来の取っ手（⠿）を残してそちらで掴む */
-  const rowDragHandlers = (st: DragState) => ({
-    onPointerDown: (e: React.PointerEvent) => {
-      if (e.pointerType !== "mouse" || e.button !== 0) return;
-      e.preventDefault(); // ドラッグ中に行のテキストが選択されるのを防ぐ（click はこれでもランを作る）
-      pressRef.current = { st, x: e.clientX, y: e.clientY };
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      const press = pressRef.current;
-      if (press && !dragRef.current) {
-        if (Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) < 5) return;
-        try {
-          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        } catch {
-          // 無視（掴み自体は続行）
-        }
-        dragRef.current = press.st;
-        setDrag(press.st);
-        return;
-      }
-      moveDrag(e);
-    },
-    onPointerUp: (e: React.PointerEvent) => {
-      pressRef.current = null;
-      endDrag(e);
-    },
-  });
-
   /** 掴む取っ手（⠿）。タッチ（粗いポインタ）専用の入口として残す——マウスは行ごと掴める */
   const gripFor = (st: DragState) => (
     <span
@@ -688,13 +488,7 @@ export function PageList({
     </span>
   );
 
-  /** ドット1粒。dim = 終わったノード（色は担当色のまま薄くする） */
-  interface Dot {
-    key: string;
-    title: string;
-    color: string;
-    dim: boolean;
-  }
+  /** ドット1粒の描画（粒の規則そのものは lib/railDots.ts） */
   const dotEl = (d: Dot) => (
     <Hint key={d.key} id="seat-dots" always={d.title} text={DOTS_HINT}>
       <i
@@ -717,7 +511,7 @@ export function PageList({
   const runDotsOf = (run: Run): Dot[] =>
     Object.entries(run.items)
       .map(([nodeId, item]) => {
-        const tmpl = allNodes.find((n) => n.id === nodeId);
+        const tmpl = nodeById.get(nodeId);
         const executor = tmpl?.executor ?? ("script" as const);
         // 他人の番（テンプレートの assignee が他人）の waiting は橙にしない（effStatus と同じ原則）
         const st: Status =
@@ -728,7 +522,7 @@ export function PageList({
           key: nodeId,
           st,
           executor,
-          title: `${tmpl?.title || "（無題）"} — ${EXEC_JA[executor]}の席 / ${STATUS_JA[item.status]}`,
+          title: `${tmpl?.title || "（無題）"} — ${EXECUTOR_JA[executor]}の席 / ${STATUS_JA[item.status]}`,
         };
       })
       .sort(
@@ -747,8 +541,8 @@ export function PageList({
   const renderRunRow = (f: Node, r: Run, pageKeys: string[]) => {
     // このランで未読のノード数。ワークアイテム（トリガーの子孫）だけでなく**ページの全ノード**
     // を見る——「ラン作成」の記録はトリガーのスレッドに載り、トリガーは items に入らないため
-    const runUnread = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)].filter(
-      (id) => isUnread(id, r.id),
+    const runUnread = [f.id, ...membersOf(f.id).map((n) => n.id)].filter((id) =>
+      isUnread(id, r.id),
     ).length;
     const dots = runDotsOf(r);
     const shown = dots.slice(0, MAX_DOTS);
@@ -874,19 +668,19 @@ export function PageList({
   };
 
   const renderRow = (f: Node, archived: boolean, indented = false) => {
-    const routine = isRoutinePage(f, allNodes);
+    const members = membersOf(f.id);
+    const routine = isRoutinePage(f, members);
     // ページ内（ゴール自身 + メンバー）の未読数。数字バッジで行の右端に出す。
     // **テンプレート側の会話 + そのページの全ランぶん**を数える——ランで起きたことも
     // 「このページに新しいことがある」なので、ページ行では拾う（どのランかは下のラン行の
     // バッジが示す。2026-08-08 本人指定「ルーティン自体のバッジはこれで良い / 欄にも出して」）
-    const unreadCount = [f.id, ...allNodes.filter((n) => n.group === f.id).map((n) => n.id)]
-      .map((id) => unreadCountForNode(id, threadMeta, reads))
+    const unreadCount = [f.id, ...members.map((n) => n.id)]
+      .map((id) => rail.unreadCount(id, reads))
       .reduce((a, b) => a + b, 0);
 
     // ページ行のドットはテンプレート（メンバーノード）構成。ルーティーンも同じ規則で、
     // ランの進捗は下のラン子行が持つ（2026-08-08 本人確認済みの分担）
-    const dots: Dot[] = allNodes
-      .filter((n) => n.group === f.id)
+    const dots: Dot[] = members
       .slice()
       .sort(
         (a, b) =>
@@ -895,7 +689,7 @@ export function PageList({
       )
       .map((m) => ({
         key: m.id,
-        title: `${m.title || "（無題）"} — ${EXEC_JA[m.executor]}の席 / ${STATUS_JA[effStatus(m)]}`,
+        title: `${m.title || "（無題）"} — ${EXECUTOR_JA[m.executor]}の席 / ${STATUS_JA[effStatus(m)]}`,
         color: seatColor(effStatus(m), m.executor),
         dim: isSettled(effStatus(m)),
       }));
@@ -904,18 +698,18 @@ export function PageList({
 
     // イニシャルバッジは実効関係者（手動 members + 配下ノードからの自動集計。2026-08-04 追修。
     // 手動だけだと配下に担当者が居てもバッジが出ず「誰のページか」が見えない）
-    const effMembers = teamEnabled ? effectiveMembers(f, allNodes) : [];
+    const effMembers = teamEnabled ? effectiveMembers(f, members) : [];
 
     // ---- 右クリックメニューの材料（2026-08-09） ----
     // ラン作成の対象のトリガー（台帳と同じ created 昇順）。ルーティーン = トリガーを持つページ
     const triggers = routine
-      ? allNodes
-          .filter((n) => n.group === f.id && n.kind === "trigger")
+      ? members
+          .filter((n) => n.kind === "trigger")
           .sort((a, b) => a.created.localeCompare(b.created))
       : [];
     // 「既読にする」の対象キー（このページの全ノード × テンプレート + 全ラン）。
     // ラン子行のメニューはここからそのランのぶんだけ絞る（runsBlock へ渡す）
-    const pageKeys = readKeysForPage(f.id, allNodes, threadMeta);
+    const pageKeys = rail.readKeysForPage(f.id);
     const shelves = shelvesIn(routine ? "routine" : "project");
     const currentFolder = folderOf(f);
 
@@ -944,7 +738,7 @@ export function PageList({
           dropClass(f.id),
         )}
         onClick={() => {
-          if (Date.now() - draggedAtRef.current < 300) return; // ドラッグ直後の click は無視
+          if (draggedRecently()) return; // ドラッグ直後の click は無視
           onSelectPage(f.id);
         }}
         onKeyDown={(e) => {
@@ -1153,7 +947,7 @@ export function PageList({
             dropClass(f.id),
           )}
           onClick={() => {
-            if (Date.now() - draggedAtRef.current < 300) return;
+            if (draggedRecently()) return;
             toggleFolder(f.id);
           }}
           onKeyDown={(e) => {
