@@ -5,6 +5,7 @@
 // 値が無ければそのノードだけが失敗リカバリに落ちる（3.15 の原則）。
 // 純関数: サーバの GET /api/pages/:id/wiring がグラフの現在ノードを渡して呼ぶ。
 import type { Node } from "./schema.js";
+import { referencedParamNames } from "./params.js";
 
 /** 参照矢印の1本（producer の outputs 宣言 → consumer のコマンド中 `{name}`）。
  *  警告の有無に関係なく、宣言と参照の組み合わせを全部返す（UI が破線を描く素材） */
@@ -35,16 +36,6 @@ export interface WiringWarning {
 export interface WiringResult {
   references: WiringReference[];
   warnings: WiringWarning[];
-}
-
-/** コマンドテンプレート中の `{name}` 参照名を出現順・重複なしで抜き出す
- *  （substituteParams と同じ正規表現。式は無し＝名前の単純一致のみ。3.15） */
-function referencedNames(command: string): string[] {
-  const names: string[] = [];
-  for (const m of command.matchAll(/\{([^{}]+)\}/g)) {
-    if (!names.includes(m[1])) names.push(m[1]);
-  }
-  return names;
 }
 
 /**
@@ -114,7 +105,7 @@ export function checkWiring(allNodes: Node[], pageId: string): WiringResult {
   for (const consumer of members) {
     if (consumer.impl?.type !== "script") continue;
     const params = consumer.impl.params ?? [];
-    for (const name of referencedNames(consumer.impl.command)) {
+    for (const name of referencedParamNames(consumer.impl.command)) {
       const producers = producersByName.get(name) ?? [];
       // デフォルト値あり = impl.params の同名宣言に非空 value がある（解決順②。3.15）
       const hasDefault = params.some(

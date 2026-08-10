@@ -1,6 +1,7 @@
 // パラメータ宣言の置換ロジック（docs/design.md 3.5.1）と、ランのコンテキストによる解決（3.15）。
-// packages/server/src/trial.ts の substituteParams と同じ挙動になっていることを確認する
-// （engine 側に複製したロジックのユニットテスト。「変えたら両方直す」の両方が揃っていることの検証）。
+// 実体は packages/core/src/params.ts（engine/src/params.ts はそこからの re-export）。
+// ここでは engine の窓口経由で本走が使う挙動（解決順・missing/unsafe の文言）を検証する。
+// プレースホルダ規約そのもの（何が {name} で何が違うか）は core/test/params.test.ts が正。
 import { describe, expect, it } from "vitest";
 import { missingParamsReason, substituteParams, unsafeContextParamsReason } from "../src/params.js";
 

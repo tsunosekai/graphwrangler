@@ -169,8 +169,8 @@ test("substituteParams: 未入力と成功が混在するときは未入力の�
   assertMissing(substituteParams("cp {src} {dest}", [{ name: "src", value: "a.txt" }]), ["dest"]);
 });
 
-// ---- substituteParams のランコンテキスト解決（3.15。試走は context を渡さないが、
-//      engine 複製と同一ロジックであることの検証をこちらでも持つ） ----
+// ---- substituteParams のランコンテキスト解決（3.15。実体は core/src/params.ts で
+//      engine と共用。試走は context を渡さないが、窓口経由の挙動検証をこちらでも持つ） ----
 
 /** ok:false（unsafe）の検証ヘルパ。reason は GW_PARAM_* への誘導が入っていることだけ見る */
 function assertUnsafe(result: ReturnType<typeof substituteParams>, unsafe: string[]) {

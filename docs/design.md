@@ -260,10 +260,14 @@ fixed ノードは impl 変更の Fix ガードにかかるためファイル化
 **パラメータ宣言**: impl.type==="script" の command は、引数が要る場合 `{name}`
 プレースホルダ入りのテンプレートとして書ける。宣言（`impl.params: {name, label?, example?,
 value?}[]`）は **GraphWrangler AI が書き、値（value）は人間が NodePanel の実装欄で入力する**。
-試走・本走ともに実行直前に `substituteParams(command, params)`（server:
-`packages/server/src/trial.ts`、engine: `packages/engine/src/params.ts` に同一ロジックを複製。
-**変えたら両方直す**）で `{name}` を対応する value へ置換する（値は二重引用符で囲み、内部の
-`"` は `\"` にエスケープ）。宣言に無い `{xxx}` や value 未入力の宣言が残っていれば置換失敗
+試走・本走ともに実行直前に `substituteParams(command, params)`（実体は
+`packages/core/src/params.ts` に1つだけ。server の試走 `trial.ts`・engine の本走
+`params.ts` はそこからの re-export で、3.15 の配線チェックも同じプレースホルダ正規表現を
+共有する）で `{name}` を対応する value へ置換する（値は二重引用符で囲み、内部の
+`"` は `\"` にエスケープ）。プレースホルダの名前は英数字とアンダースコア
+（`[A-Za-z_][A-Za-z0-9_]*`）のみで、直前が `$` のもの（シェルの `${HOME}` 等）は
+プレースホルダ扱いしない——awk の `'{print $1}'` のような素の `{}` をパラメータと
+誤認して実行を止めないため。宣言に無い `{xxx}` や value 未入力の宣言が残っていれば置換失敗
 （missing）とし、**実行しない**: 試走は 400（パネルが「未入力: <名前>」を表示し試走ボタンを
 disabled にする）、engine の本走は既存の失敗→リカバリの器に「パラメータが未入力です」を
 乗せる。implTrial.hash は **command テンプレート**の sha256 のままで、値の変更だけでは
