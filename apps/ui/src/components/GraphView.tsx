@@ -13,18 +13,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Pencil } from "lucide-react";
 import { api } from "../lib/api";
-import {
-  collectDescendants,
-  copyText,
-  deletionOrder,
-  hasUnread,
-  markKeysRead,
-  nodeUrl,
-  readKeysForNode,
-  renameRunDialog,
-} from "../lib/actions";
+import { renameRunDialog } from "../lib/actions";
 import { confirmDialog } from "../lib/dialogs";
-import { TRIAL_CONFIRM_MESSAGE } from "../lib/hints";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { subscribeOpenShortcuts } from "../lib/palette";
 import { pushToast } from "../lib/toast";
@@ -33,6 +23,10 @@ import { isRoutinePage } from "../lib/routine";
 import { isUnreadKey, threadKey } from "../lib/unread";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { usePolling } from "../hooks/usePolling";
+import { useGraphClipboard } from "../hooks/useGraphClipboard";
+import { useGraphShortcuts } from "../hooks/useGraphShortcuts";
+import { useMobilePanZoom } from "../hooks/useMobilePanZoom";
+import { useNodeMenu } from "../hooks/useNodeMenu";
 import type { Node, Run } from "../types";
 import { Badge } from "./ui/badge";
 import { RunStatusIcon } from "./RunStatusIcon";
@@ -43,7 +37,7 @@ import { CutEdge, type CutEdgeData } from "./CutEdge";
 import { RefEdge, type RefEdgeData } from "./RefEdge";
 import { Hint } from "./Hint";
 import { LedgerView } from "./LedgerView";
-import { NodeCard, type NodeCardData, type NodeMenuActions } from "./NodeCard";
+import { NodeCard, type NodeCardData } from "./NodeCard";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import {
   ContextMenu,
@@ -67,49 +61,6 @@ const MAX_ZOOM = 2;
 // どこから合わせても同じ収まり方になる（2026-08-03 本人報告「合わせ方がズレている」の修正）
 const FIT_PADDING = 0.3;
 const FIT_VIEW_OPTIONS = { padding: FIT_PADDING };
-
-// ---- Ctrl+C/Ctrl+V/Ctrl+D 用のアプリ内クリップボード（モジュール変数。ページを跨いでも保持する） ----
-interface ClipboardNode {
-  origId: string;
-  title: string;
-  detail: string | null;
-  impl: Node["impl"];
-  executor: Node["executor"];
-  approval: Node["approval"];
-  autonomy: Node["autonomy"];
-  kind: Node["kind"];
-  /** kind=decision のときの選択肢定義（コピーで引き継ぐ。他kindではnull。docs/design.md 3.9） */
-  branches: Node["branches"];
-  /** ランのコンテキストへの出力宣言（コピーで引き継ぐ。docs/design.md 3.15） */
-  outputs: Node["outputs"];
-  /** コピー元選択内で閉じた依存だけを覚える（外部への parents は貼り付け時に捨てる） */
-  parentOrigIds: string[];
-  /** parentOrigIds のうち親がdecisionのものについて、どの枝から生えるか（親id → 枝id） */
-  parentOptions: Node["parentOptions"];
-  pos: Pos;
-}
-let clipboard: ClipboardNode[] = [];
-
-// 担当を script へ変えるときの試走ゲート確認（NodePanel:108 の同名メッセージと同じ文面。
-// パネルとメニューで別々の言い回しにしないための複製で、値の正本はパネル側）
-/** 入力欄・ダイアログ・ChatDrawer にフォーカスがある間はショートカットを無効にする */
-function isShortcutBlocked(e: KeyboardEvent): boolean {
-  const target = e.target as HTMLElement | null;
-  if (!target) return false;
-  if (
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT" ||
-    target.isContentEditable
-  ) {
-    return true;
-  }
-  // radix Dialog(CommandPalette/SetupModal/ShortcutsDialog等)は role="dialog" を持つ
-  if (target.closest('[role="dialog"]')) return true;
-  // ChatDrawer のルート要素に data-shortcuts-block を付けてある
-  if (target.closest("[data-shortcuts-block]")) return true;
-  return false;
-}
 
 interface Props {
   /** 表示するページ（フォルダ）のメンバーだけが渡される */
@@ -188,10 +139,7 @@ function GraphViewInner({
   // 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  // クリップボード（モジュール変数）の中身の有無。ペインのメニューに「貼り付け」を
-  // 出すかの判定に使う——モジュール変数のままでは Ctrl+C しても再レンダーが起きない
-  const [hasClipboard, setHasClipboard] = useState(clipboard.length > 0);
-  const { fitView, screenToFlowPosition, getNodes, getViewport, setViewport } = useReactFlow();
+  const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
   const isMobile = useIsMobile();
 
   // ヘッダーの⌨ボタンからショートカット一覧を開く（ダイアログ本体はここが持つ）
@@ -286,93 +234,9 @@ function GraphViewInner({
   }, [getNodes]);
   const paneRef = useRef<HTMLDivElement>(null);
 
-  // モバイルの1本指パン: React Flow 標準は「画面ピクセル基準」のパンで、拡大中は
-  // スワイプしてもコンテンツがほとんど進まない。ズームに比例して速くする
-  // （1スワイプ＝同じコンテンツ距離。縮小時は等速のまま＝clamp min 1）ことで、
-  // 拡大倍率に関わらず感覚的に同じだけ動く（2026-08-02 本人要望）。
-  // ReactFlow 側の panOnDrag はモバイルでは無効化し（下の props）、ここが唯一のパン経路。
-  // **2本指ピンチズームもここが唯一の経路**（2026-08-02 修正）。panOnDrag={false} にすると
-  // @xyflow/system の zoom filter が `!panOnDrag && event.type === 'touchstart'` で
-  // touchstart を丸ごと捨てるため、zoomOnPinch が既定 true でも d3-zoom がジェスチャを
-  // 開始できずピンチが死ぬ。自前パンを持った時点でピンチも自前で持つしかない。
-  // ノード/エッジ/ボタン上のタッチはノードドラッグ等の邪魔をしないよう素通しする
-  // （ただしピンチは指がノードに乗っていても効かせる——密なグラフで拾えないと使えないため。
-  //   ノードをドラッグ中だけは横取りしない）
-  useEffect(() => {
-    if (!isMobile) return;
-    const el = paneRef.current;
-    if (!el) return;
-    let last: { x: number; y: number } | null = null;
-    let pinch: { dist: number; cx: number; cy: number } | null = null;
-    const pannable = (t: EventTarget | null) => {
-      const target = t as HTMLElement | null;
-      if (!target?.closest) return false;
-      if (target.closest(".react-flow__node,.react-flow__edge,.react-flow__controls,button,input,textarea,select")) return false;
-      return !!target.closest(".react-flow__pane");
-    };
-    const gap = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-    const mid = (a: Touch, b: Touch) => ({ cx: (a.clientX + b.clientX) / 2, cy: (a.clientY + b.clientY) / 2 });
-    const onStart = (e: TouchEvent) => {
-      if (e.touches.length === 2 && !el.querySelector(".react-flow__node.dragging")) {
-        last = null;
-        pinch = { dist: gap(e.touches[0], e.touches[1]), ...mid(e.touches[0], e.touches[1]) };
-        return;
-      }
-      pinch = null;
-      if (e.touches.length !== 1 || !pannable(e.target)) {
-        last = null;
-        return;
-      }
-      last = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    };
-    const onMove = (e: TouchEvent) => {
-      if (pinch && e.touches.length === 2) {
-        const [a, b] = [e.touches[0], e.touches[1]];
-        const dist = gap(a, b);
-        const { cx, cy } = mid(a, b);
-        if (pinch.dist > 0) {
-          const rect = el.getBoundingClientRect();
-          const vp = getViewport();
-          const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, (vp.zoom * dist) / pinch.dist));
-          // 直前の指の中心にあったグラフ上の点を、新しい指の中心へ置き直す。
-          // これで「指の間が拡大の焦点」になり、2本指のまま動かせばパンにもなる
-          const gx = (pinch.cx - rect.left - vp.x) / vp.zoom;
-          const gy = (pinch.cy - rect.top - vp.y) / vp.zoom;
-          setViewport({ x: cx - rect.left - gx * zoom, y: cy - rect.top - gy * zoom, zoom });
-        }
-        pinch = { dist, cx, cy };
-        e.preventDefault(); // ブラウザのページズームを止める
-        return;
-      }
-      if (!last || e.touches.length !== 1) return;
-      const t = e.touches[0];
-      const dx = t.clientX - last.x;
-      const dy = t.clientY - last.y;
-      last = { x: t.clientX, y: t.clientY };
-      const vp = getViewport();
-      const f = Math.max(1, vp.zoom);
-      setViewport({ x: vp.x + dx * f, y: vp.y + dy * f, zoom: vp.zoom });
-      e.preventDefault(); // ブラウザのスクロール/バウンスを止める
-    };
-    const onEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) pinch = null;
-      // ピンチ→1本指に減ったら、残った指でそのままパンを続けられるよう基準を取り直す
-      last =
-        e.touches.length === 1 && pannable(e.touches[0].target)
-          ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
-          : null;
-    };
-    el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchmove", onMove, { passive: false });
-    el.addEventListener("touchend", onEnd);
-    el.addEventListener("touchcancel", onEnd);
-    return () => {
-      el.removeEventListener("touchstart", onStart);
-      el.removeEventListener("touchmove", onMove);
-      el.removeEventListener("touchend", onEnd);
-      el.removeEventListener("touchcancel", onEnd);
-    };
-  }, [isMobile, getViewport, setViewport]);
+  // モバイルの1本指パン + 2本指ピンチズーム（このペインの唯一のパン/ズーム経路。
+  // ReactFlow 側の panOnDrag はモバイルでは無効化する——下の props）
+  useMobilePanZoom(paneRef, isMobile, MIN_ZOOM, MAX_ZOOM);
 
   // ビューの幅が**狭くなったとき**だけ即座に fit する（本人指定。広がるときは fit しない
   // — ノードが見切れる方向だけ救済すればよく、広がったときに視点が飛ぶのは煩わしい）
@@ -889,122 +753,17 @@ function GraphViewInner({
     if (deleted.length > 0) pushToast(`${deleted.length}件削除しました（Ctrl+Zで戻せます）`, "info");
   }, [getSelectedNodeIds, removeLeafFirst, applySelection, onMutated]);
 
-  // Ctrl+C: 選択ノードをモジュール変数のクリップボードへ（thread は持たない。新規ノードとして貼り付ける）
-  const copySelection = useCallback(() => {
-    const ids = getSelectedNodeIds();
-    if (ids.length === 0) return;
-    const idSet = new Set(ids);
-    const entries: ClipboardNode[] = [];
-    for (const id of ids) {
-      const n = nodes.find((x) => x.id === id);
-      if (!n) continue;
-      entries.push({
-        origId: id,
-        title: n.title,
-        detail: n.detail,
-        impl: n.impl,
-        executor: n.executor,
-        approval: n.approval,
-        autonomy: n.autonomy,
-        kind: n.kind,
-        // kind=decision の選択肢定義はそのまま引き継ぐ（無いと貼り付け時にサーバ検証で弾かれる）
-        branches: n.branches,
-        outputs: n.outputs,
-        // 選択内で閉じた依存だけ覚える。外部への parents は貼り付け時に捨てる
-        parentOrigIds: n.parents.filter((p) => idSet.has(p)),
-        // 同様に、選択内で閉じたdecision親への枝の対応だけ引き継ぐ
-        parentOptions: Object.fromEntries(
-          Object.entries(n.parentOptions).filter(([decisionId]) => idSet.has(decisionId)),
-        ),
-        pos: positionsRef.current.get(id) ?? { x: 0, y: 0 },
-      });
-    }
-    clipboard = entries;
-    setHasClipboard(entries.length > 0);
-    pushToast(`${entries.length}件コピーしました`, "info");
-  }, [nodes, getSelectedNodeIds]);
-
-  // Ctrl+V/Ctrl+D 共通: エントリ群を新規ノードとして作り、選択内で閉じた依存だけ張り替える。
-  // id はサーバ採番なので、まず全部作ってから旧id→新idマップで parents/parentOptions を patch する
-  const materializeClipboard = useCallback(
-    async (entries: ClipboardNode[], label: string) => {
-      if (entries.length === 0) return;
-      const idMap = new Map<string, string>();
-      const createdIds: string[] = [];
-      for (const entry of entries) {
-        const created = await api.addNode({
-          title: entry.title,
-          detail: entry.detail,
-          impl: entry.impl,
-          executor: entry.executor,
-          approval: entry.approval,
-          autonomy: entry.autonomy,
-          kind: entry.kind,
-          branches: entry.branches,
-          outputs: entry.outputs,
-          group: pageNode?.id ?? null,
-          lifecycle: "draft",
-          status: "pending",
-        });
-        idMap.set(entry.origId, created.id);
-        createdIds.push(created.id);
-        // 元の位置+40pxオフセット。次のレイアウト再計算時に一度だけ適用される（handleConnectEnd と同じ仕組み）
-        overridesRef.current.set(created.id, { x: entry.pos.x + 40, y: entry.pos.y + 40 });
-      }
-      for (const entry of entries) {
-        const newParents = entry.parentOrigIds
-          .map((pid) => idMap.get(pid))
-          .filter((x): x is string => !!x);
-        if (newParents.length === 0) continue;
-        const newId = idMap.get(entry.origId);
-        if (!newId) continue;
-        const newParentOptions = Object.fromEntries(
-          Object.entries(entry.parentOptions)
-            .map(([oldDecisionId, branchId]) => [idMap.get(oldDecisionId), branchId] as const)
-            .filter((pair): pair is [string, string] => !!pair[0]),
-        );
-        await api.patchNode(newId, { parents: newParents, parentOptions: newParentOptions });
-      }
-      // 作成したノード群がポーリングで出現したら選択する（App の selectedId は1件しか運べないため）
-      pendingSelectRef.current = new Set(createdIds);
-      onMutated();
-      pushToast(`${createdIds.length}件${label}しました（Ctrl+Zで戻せます）`, "info");
-    },
-    [pageNode, onMutated],
-  );
-
-  const pasteClipboard = useCallback(
-    () => materializeClipboard(clipboard, "貼り付け"),
-    [materializeClipboard],
-  );
-
-  // Ctrl+D: Ctrl+C→Ctrl+V 相当を一発で（モジュール変数のクリップボードは書き換えない）
-  const duplicateSelection = useCallback(() => {
-    const ids = getSelectedNodeIds();
-    if (ids.length === 0) return Promise.resolve();
-    const idSet = new Set(ids);
-    const entries: ClipboardNode[] = ids
-      .map((id) => nodes.find((n) => n.id === id))
-      .filter((n): n is Node => !!n)
-      .map((n) => ({
-        origId: n.id,
-        title: n.title,
-        detail: n.detail,
-        impl: n.impl,
-        executor: n.executor,
-        approval: n.approval,
-        autonomy: n.autonomy,
-        kind: n.kind,
-        branches: n.branches,
-        outputs: n.outputs,
-        parentOrigIds: n.parents.filter((p) => idSet.has(p)),
-        parentOptions: Object.fromEntries(
-          Object.entries(n.parentOptions).filter(([decisionId]) => idSet.has(decisionId)),
-        ),
-        pos: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
-      }));
-    return materializeClipboard(entries, "複製");
-  }, [nodes, getSelectedNodeIds, materializeClipboard]);
+  // Ctrl+C/Ctrl+V/Ctrl+D 用のアプリ内クリップボード（モジュール変数持ち。ページを跨いでも保持する）
+  const { hasClipboard, canPaste, copySelection, pasteClipboard, duplicateSelection } =
+    useGraphClipboard({
+      nodes,
+      pageNode,
+      getSelectedNodeIds,
+      positionsRef,
+      overridesRef,
+      pendingSelectRef,
+      onMutated,
+    });
 
   // F: 選択ノードがあればそれらにズーム、無ければ全体
   const fitSelectionOrAll = useCallback(() => {
@@ -1024,109 +783,21 @@ function GraphViewInner({
     await createNodeAtScreen(cx, cy);
   }, [createNodeAtScreen]);
 
-  // ---- ノードエディタ標準のキーボードショートカット（Houdini/Blender/ComfyUI 準拠）。
-  //      window で一元管理し、入力欄フォーカス中・ダイアログ/ChatDrawer 内では全て無効にする ----
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isShortcutBlocked(e)) return;
-      const mod = e.ctrlKey || e.metaKey;
-      const key = e.key;
-      const keyLower = key.toLowerCase();
-
-      if (mod && keyLower === "z") {
-        e.preventDefault();
-        if (e.shiftKey) void runRedo();
-        else void runUndo();
-        return;
-      }
-      if (key === "Delete" || key === "Backspace") {
-        if (selectedEdgeId) {
-          e.preventDefault();
-          const [source, target_] = selectedEdgeId.split("->");
-          void cutEdge(source, target_);
-        } else if (getSelectedNodeIds().length > 0) {
-          e.preventDefault();
-          void deleteSelectedNodes();
-        }
-        return;
-      }
-      if (mod && keyLower === "a") {
-        e.preventDefault();
-        applySelection(nodes.map((n) => n.id));
-        return;
-      }
-      if (mod && keyLower === "c") {
-        if (getSelectedNodeIds().length === 0) return; // 通常のテキストコピーを邪魔しない
-        // テキストを範囲選択しているときも奪わない（2026-08-07 本人報告「ctrl+c でテキストを
-        // コピーできない」）。チャット欄やパネルの文をマウス選択してもフォーカスは body に
-        // 残るため isShortcutBlocked では拾えない——選択の有無で判定する
-        const textSel = window.getSelection();
-        if (textSel && !textSel.isCollapsed && textSel.toString()) return;
-        e.preventDefault();
-        copySelection();
-        return;
-      }
-      if (mod && keyLower === "v") {
-        if (clipboard.length === 0) return;
-        e.preventDefault();
-        void pasteClipboard();
-        return;
-      }
-      if (mod && keyLower === "d") {
-        if (getSelectedNodeIds().length === 0) return;
-        e.preventDefault();
-        void duplicateSelection();
-        return;
-      }
-      if (!mod && keyLower === "f") {
-        e.preventDefault();
-        fitSelectionOrAll();
-        return;
-      }
-      if (!mod && keyLower === "l") {
-        e.preventDefault();
-        realign();
-        return;
-      }
-      if (key === "F2") {
-        const ids = getSelectedNodeIds();
-        // Fix済み（やり方確定）のノードはF2でのタイトル編集も開始しない
-        // （docs/design.md 3.5 実効化。NodeCard のダブルクリック編集と同じガード）
-        if (ids.length === 1 && !nodes.find((n) => n.id === ids[0])?.fixed) {
-          e.preventDefault();
-          setEditingId(ids[0]);
-        }
-        return;
-      }
-      if (key === "Tab") {
-        e.preventDefault();
-        if (selectedInPage) void createNode(selectedInPage);
-        else void createNodeAtCenter();
-        return;
-      }
-      if (key === "Escape") {
-        applySelection([]);
-        setSelectedEdgeId(null);
-        return;
-      }
-      if (key === "?" || (e.shiftKey && key === "/")) {
-        e.preventDefault();
-        setShortcutsOpen(true);
-        return;
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
+  // ノードエディタ標準のキーボードショートカット（Houdini/Blender/ComfyUI 準拠）
+  useGraphShortcuts({
+    nodes,
     selectedEdgeId,
+    setSelectedEdgeId,
+    setEditingId,
+    setShortcutsOpen,
+    getSelectedNodeIds,
+    applySelection,
     cutEdge,
     runUndo,
     runRedo,
-    nodes,
-    applySelection,
-    getSelectedNodeIds,
     deleteSelectedNodes,
     copySelection,
+    canPaste,
     pasteClipboard,
     duplicateSelection,
     fitSelectionOrAll,
@@ -1134,206 +805,31 @@ function GraphViewInner({
     createNode,
     createNodeAtCenter,
     selectedInPage,
-  ]);
+  });
 
-  // ---- 右クリックメニュー（第0層＝既存操作への近道。docs/design.md 4章の視距離3層に
-  //      新しい階を増やさない）。ここに新しい判断は置かず、上のショートカット処理・
-  //      カードのボタン・パネルと同じ関数を呼ぶだけにする ----
-
-  // 粗いポインタ（タッチ主体）の環境では出さない: このペインのパン/ピンチは自前の touch
-  // ハンドラが持っていて（上の isMobile の useEffect）、Radix の長押しメニューと重なると
-  // 「パンしたつもりでメニューが出る」が起きやすい。右クリックのある環境だけの機能にする。
-  // 幅ではなくポインタ種別で判定する——幅の狭いデスクトップ窓ではメニューを使えるように
-  const contextMenuEnabled = useMemo(
-    () => !window.matchMedia?.("(pointer: coarse)").matches,
-    [],
-  );
+  // 右クリックメニュー（第0層＝既存操作への近道）。新しい判断は置かず、上のショートカット
+  // 処理・カードのボタン・パネルと同じ関数を呼ぶだけ（項目の実体は useNodeMenu）
+  const { contextMenuEnabled, nodeMenu } = useNodeMenu({
+    nodes,
+    pageNode,
+    runView,
+    movePages,
+    threadMeta,
+    reads,
+    onViewed,
+    onMutated,
+    getSelectedNodeIds,
+    applySelection,
+    setEditingId,
+    createNode,
+    duplicateSelection,
+    deleteSelectedNodes,
+    removeLeafFirst,
+  });
 
   // 右クリックした画面座標（ペインの「ここにノードを作る」の作成位置）。Radix は
   // 右クリック位置を渡してくれないので、トリガーの onContextMenu で控えておく
   const paneMenuPointRef = useRef<{ x: number; y: number } | null>(null);
-
-  /** 右クリックしたノードが未選択なら単独選択に切り替える。選択に含まれていればそのまま
-   *  ——選択内での右クリックが選択を壊さないのはノードエディタ共通の流儀で、これにより
-   *  「複製」「削除」が既存の選択ベースのハンドラをそのまま呼べる */
-  const focusNodeForMenu = useCallback(
-    (id: string) => {
-      if (!getSelectedNodeIds().includes(id)) applySelection([id]);
-    },
-    [getSelectedNodeIds, applySelection],
-  );
-
-  // 「ここから下を全部 ▸」を出すかの判定はカードの描画ごとに要るので、ページのノードが
-  // 変わったときにまとめて数えておく
-  const descendantCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const n of nodes) m.set(n.id, collectDescendants(nodes, n.id).size);
-    return m;
-  }, [nodes]);
-
-  // 既読にする（テンプレート + そのノードの全ランぶん）。postReads は投げっぱなしなので、
-  // onViewed（App のローカル上書き）でその場のバッジを消す——左レール・台帳と同じ経路
-  const markNodeRead = useCallback(
-    (id: string) => {
-      markKeysRead(readKeysForNode(id, threadMeta), threadMeta, onViewed);
-    },
-    [threadMeta, onViewed],
-  );
-
-  const copyWithToast = useCallback(async (text: string, label: string) => {
-    const ok = await copyText(text);
-    pushToast(ok ? `${label}をコピーしました` : `${label}をコピーできませんでした`, ok ? "info" : "error");
-  }, []);
-
-  // 担当変更（NodePanel の担当 Select と同じ patch）。script 化のときだけ試走ゲートの確認を
-  // 通す（NodePanel:685-693 の confirmPromotionIfNeeded と同じ趣旨）。実装ハッシュの
-  // 突き合わせ（パネルの implStatus）まではしないので、試走が成功済みでなければ確認する
-  // ＝パネルより安全側に倒れるだけで、素通しにはならない
-  const setNodeExecutor = useCallback(
-    async (id: string, executor: Node["executor"]) => {
-      const n = nodes.find((x) => x.id === id);
-      if (!n || n.executor === executor) return;
-      if (executor === "script") {
-        const verified = n.impl?.type === "script" && n.implTrial?.success === true;
-        if (!verified && !(await confirmDialog(TRIAL_CONFIRM_MESSAGE, { confirmLabel: "続ける" }))) return;
-      }
-      await api.patchNode(id, { executor });
-      onMutated();
-    },
-    [nodes, onMutated],
-  );
-
-  // 別ページへ移動（BulkPanel の「ページへ移動」と同じ group の patch）
-  const moveNodeToPage = useCallback(
-    async (id: string, target: string) => {
-      await api.patchNode(id, { group: target });
-      onMutated();
-      pushToast("ページへ移動しました（Ctrl+Zで戻せます）", "info");
-    },
-    [onMutated],
-  );
-
-  // 「ここから下を全部 → 計画済みにする」: 子孫のうち下書き（lifecycle=draft）だけを確定する。
-  // patch の中身はカードの「計画済みにする」・BulkPanel の commitAll と同じ
-  const commitDescendants = useCallback(
-    async (id: string) => {
-      const ids = collectDescendants(nodes, id);
-      const targets = nodes.filter((n) => ids.has(n.id) && n.lifecycle === "draft");
-      if (targets.length === 0) {
-        pushToast("下書きのノードはありません", "info");
-        return;
-      }
-      let ok = 0;
-      for (const n of targets) {
-        try {
-          // トリガーは進捗を持たない（lifecycle だけ確定する）
-          await api.patchNode(
-            n.id,
-            n.kind === "trigger" ? { lifecycle: "committed" } : { status: "pending", lifecycle: "committed" },
-          );
-          ok++;
-        } catch {
-          // api() 側でトースト表示済み（残りに適用を続ける）
-        }
-      }
-      onMutated();
-      pushToast(`${ok}件を計画済みにしました`, "info");
-    },
-    [nodes, onMutated],
-  );
-
-  // 「ここから下を全部 → 削除」: 子孫 + 自分を葉から順に消す。確認モーダルは通常の削除と
-  // 同じ組み立て（巻き添え・ロック・切り離しの警告 + Ctrl+Z の案内）に件数を足したもの
-  const removeSubtree = useCallback(
-    async (id: string) => {
-      const set = collectDescendants(nodes, id);
-      set.add(id);
-      const ids = deletionOrder(nodes, set);
-      let warnings: string[] = [];
-      try {
-        const state = await api.getState();
-        warnings = removeImpactWarnings(computeRemoveImpact(ids, state.nodes));
-      } catch {
-        // 状態の取り直しに失敗しても削除自体は進める（api() 側でトースト表示済み）
-      }
-      const ok = await confirmDialog(
-        buildRemoveMessage(
-          `このノードと下の ${ids.length - 1} 件、合わせて ${ids.length} 件を削除しますか？（Ctrl+Z で戻せます）`,
-          warnings,
-        ),
-        { danger: true, confirmLabel: "削除" },
-      );
-      if (!ok) return;
-      const deleted = await removeLeafFirst(ids);
-      applySelection([]);
-      onMutated();
-      if (deleted.length > 0) pushToast(`${deleted.length}件削除しました（Ctrl+Zで戻せます）`, "info");
-    },
-    [nodes, removeLeafFirst, applySelection, onMutated],
-  );
-
-  // 試走（NodePanel の試走ボタンと同じ api・同じ文面）
-  const runTrial = useCallback(
-    async (id: string) => {
-      try {
-        const result = await api.trialNode(id);
-        onMutated();
-        pushToast(
-          result.success ? "テスト成功" : `テスト失敗（exit ${result.exitCode ?? "?"}）`,
-          result.success ? "info" : "error",
-        );
-      } catch {
-        // api() 側でトースト表示済み
-      }
-    },
-    [onMutated],
-  );
-
-  const nodeMenu = useMemo<NodeMenuActions | undefined>(() => {
-    if (!contextMenuEnabled) return undefined;
-    return {
-      onOpen: focusNodeForMenu,
-      rename: (id) => setEditingId(id),
-      addChild: (id) => void createNode(id),
-      duplicate: () => void duplicateSelection(),
-      remove: () => void deleteSelectedNodes(),
-      hasUnread: (id) => hasUnread(readKeysForNode(id, threadMeta), threadMeta, reads),
-      markRead: markNodeRead,
-      copyLink: (id) =>
-        void copyWithToast(
-          nodeUrl({ pageId: pageNode?.id ?? null, nodeId: id, runId: runView?.id ?? null }),
-          "リンク",
-        ),
-      copyId: (id) => void copyWithToast(id, "ID"),
-      setExecutor: (id, executor) => void setNodeExecutor(id, executor),
-      // ランのページではテンプレートを書き換えないので移動先も出さない
-      movePages: runView ? [] : movePages.map((p) => ({ id: p.id, title: p.title || "（無題）" })),
-      moveToPage: (id, target) => void moveNodeToPage(id, target),
-      descendantCount: (id) => descendantCounts.get(id) ?? 0,
-      commitDescendants: (id) => void commitDescendants(id),
-      removeSubtree: (id) => void removeSubtree(id),
-      trial: (id) => void runTrial(id),
-    };
-  }, [
-    contextMenuEnabled,
-    focusNodeForMenu,
-    createNode,
-    duplicateSelection,
-    deleteSelectedNodes,
-    threadMeta,
-    reads,
-    markNodeRead,
-    copyWithToast,
-    pageNode,
-    runView,
-    setNodeExecutor,
-    movePages,
-    moveNodeToPage,
-    descendantCounts,
-    commitDescendants,
-    removeSubtree,
-    runTrial,
-  ]);
 
   // メニューの呼び先はカードへ渡す data に載せる。rfNodes を組み立てる effect は
   // この上（既存ハンドラ群の定義より前）にあるので、そこでは載せずにここで足す
