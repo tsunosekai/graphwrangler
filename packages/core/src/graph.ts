@@ -62,6 +62,41 @@ function sortNodesById(nodes: Node[]): Node[] {
   return [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+/** parents が全て done または skipped か（空配列=ルートは真）。存在しない親は「未完了」扱いに
+ *  して安全側に倒す。skipped も充足扱いにするのは分岐(3.9)の合流ノードが片方の枝の skipped で
+ *  止まらないようにするため（「skipped でない親が全て done」と同値。docs/design.md 3.9）。
+ *  engine 側（pick.ts の isFrontier / decision.ts / decisionRun.ts / pickRun.ts）にも同じ述語が
+ *  あるが、engine は core へ**型のみ依存**の方針でランタイム import をしないためミラーになる。
+ *  規則の正はここ。 */
+export function parentsSatisfied(parents: string[], byId: ReadonlyMap<string, Node>): boolean {
+  return parents.every((pid) => {
+    const s = byId.get(pid)?.status;
+    return s === "done" || s === "skipped";
+  });
+}
+
+/** 操作レコード1件を nodes マップへ適用する。GraphStore のインスタンスに依存しない純粋な
+ *  手続きにしてあるのは、静的な畳み込み（foldRecords）が「不完全な GraphStore」を作らずに
+ *  済むようにするため */
+function applyRecord(nodes: Map<string, Node>, record: OpRecord): void {
+  switch (record.op) {
+    case "node.add": {
+      nodes.set(record.payload.node.id, record.payload.node);
+      break;
+    }
+    case "node.patch": {
+      const cur = nodes.get(record.payload.nodeId);
+      if (!cur) throw new GraphError(`node not found: ${record.payload.nodeId}`, 404);
+      nodes.set(cur.id, { ...cur, ...record.payload.patch });
+      break;
+    }
+    case "node.remove": {
+      nodes.delete(record.payload.nodeId);
+      break;
+    }
+  }
+}
+
 /** 正データファイルを読む。存在しない/空なら空グラフ（[]）として扱う（最初のcommitで
  *  ファイルを作る想定）。壊れたファイル（不正JSON・zod不通過）は起動時に明確なエラーにする */
 export function readWorkspaceFile(file: string): Node[] {
@@ -192,12 +227,21 @@ export class GraphStore {
   private mode: StoreMode;
   private opsPath: string;
 
-  constructor(dataDir: string) {
-    this.mode = { kind: "datadir", dataDir };
-    this.opsPath = path.join(dataDir, "ops.jsonl");
-    const snap = readJson<Snapshot>(path.join(dataDir, "snapshot.json"));
-    if (snap) {
-      for (const n of snap.nodes) this.nodes.set(n.id, n);
+  /** 従来どおり data-dir モードで開く（`new GraphStore(dataDir)`）。
+   *  ワークスペースモードは `GraphStore.workspace()` から StoreMode を渡して同じ経路を通る */
+  constructor(dataDir: string);
+  constructor(mode: StoreMode);
+  constructor(arg: string | StoreMode) {
+    this.mode = typeof arg === "string" ? { kind: "datadir", dataDir: arg } : arg;
+    if (this.mode.kind === "workspace") {
+      this.opsPath = path.join(this.mode.sidecarDir, "ops.jsonl");
+      for (const n of readWorkspaceFile(this.mode.canonicalFile)) this.nodes.set(n.id, n);
+    } else {
+      this.opsPath = path.join(this.mode.dataDir, "ops.jsonl");
+      const snap = readJson<Snapshot>(path.join(this.mode.dataDir, "snapshot.json"));
+      if (snap) {
+        for (const n of snap.nodes) this.nodes.set(n.id, n);
+      }
     }
   }
 
@@ -208,13 +252,7 @@ export class GraphStore {
    * 再生しない）を置く。従来の data-dir モードとは完全に別経路で、互換は壊さない
    */
   static workspace(canonicalFile: string, sidecarDir: string): GraphStore {
-    const store = Object.create(GraphStore.prototype) as GraphStore;
-    const raw = store as unknown as { nodes: Map<string, Node>; mode: StoreMode; opsPath: string };
-    raw.nodes = new Map();
-    raw.mode = { kind: "workspace", canonicalFile, sidecarDir };
-    raw.opsPath = path.join(sidecarDir, "ops.jsonl");
-    for (const n of readWorkspaceFile(canonicalFile)) raw.nodes.set(n.id, n);
-    return store;
+    return new GraphStore({ kind: "workspace", canonicalFile, sidecarDir });
   }
 
   /** サーバの GET /api/workspace 用: 現在のモードと関連パスを返す */
@@ -250,10 +288,7 @@ export class GraphStore {
         n.status !== "done" &&
         n.status !== "dropped" &&
         n.status !== "skipped" &&
-        n.parents.every((p) => {
-          const s = this.nodes.get(p)?.status;
-          return s === "done" || s === "skipped";
-        }),
+        parentsSatisfied(n.parents, this.nodes),
     );
   }
 
@@ -406,19 +441,18 @@ export class GraphStore {
     if (node.status === "done" || node.status === "skipped" || node.status === "dropped") {
       throw new GraphError("この分岐は既に決着しています", 409);
     }
-    const frontier = node.parents.every((pid) => {
-      const s = this.nodes.get(pid)?.status;
-      return s === "done" || s === "skipped";
-    });
-    if (!frontier) {
+    if (!parentsSatisfied(node.parents, this.nodes)) {
       throw new GraphError("前のノードが終わっていないため、まだ分岐を選べません", 409);
     }
   }
 
   /**
    * 分岐の選び直し（手戻り。docs/design.md 3.9）: choice を取り消して pending に戻し、
-   * この決着に由来する skip を復元する。skipped ノードのうち「もはや正当化されないもの」
-   * （どの決着済み分岐の負けた枝にも居らず、全親 skipped でもない）を pending に戻す
+   * **この決着に由来する skip**（直接・連鎖とも）だけを復元する。復元対象は
+   * collectSkipsDerivedFrom が集めた集合に限る——手で見送った skipped や他の決着による
+   * skip は「この決着に由来する」ものではないので、走査に混ぜてはいけない。
+   * その集合の中で「もはや正当化されないもの」（どの決着済み分岐の負けた枝にも居らず、
+   * 全親 skipped でもない）を pending に戻す
    * （親の復元が子の復元を解禁するため不動点まで繰り返す）。
    * 下流で既に done/dropped になった作業は戻さない（やり直しの範囲は人間が判断する）。
    */
@@ -430,13 +464,16 @@ export class GraphStore {
     if (node.choice === null) {
       throw new GraphError("この分岐はまだ決着していません", 409);
     }
+    // choice を消す前に集める（負けた枝の判定に決着時の choice が要る）
+    const derived = this.collectSkipsDerivedFrom(nodeId, node.choice);
     this.patchNode(nodeId, { choice: null, status: "pending" }, meta);
 
     let changed = true;
     while (changed) {
       changed = false;
-      for (const n of [...this.nodes.values()]) {
-        if (n.status !== "skipped") continue;
+      for (const id of derived) {
+        const n = this.nodes.get(id);
+        if (!n || n.status !== "skipped") continue;
         if (this.isOnLosingBranch(n.parentOptions)) continue; // 他の決着済み分岐で正当な skip
         const allSkipped =
           n.parents.length > 0 &&
@@ -447,6 +484,31 @@ export class GraphStore {
       }
     }
     return this.get(nodeId);
+  }
+
+  /** 決着（decisionId を choice で確定したこと）に由来する skipped ノードの集合。
+   *  applyDecision の裏返しで、直接規則（この分岐の負けた枝に居る skipped）を種にして、
+   *  連鎖規則（全ての親が skipped、かつ少なくとも1つの親がこの決着由来）で不動点まで広げる */
+  private collectSkipsDerivedFrom(decisionId: string, choice: string): Set<string> {
+    const derived = new Set<string>();
+    for (const n of this.nodes.values()) {
+      if (n.status !== "skipped") continue;
+      const branchId = n.parentOptions[decisionId];
+      if (branchId !== undefined && branchId !== choice) derived.add(n.id);
+    }
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const n of this.nodes.values()) {
+        if (derived.has(n.id) || n.status !== "skipped") continue;
+        if (n.parents.length === 0) continue;
+        if (!n.parents.every((pid) => this.nodes.get(pid)?.status === "skipped")) continue;
+        if (!n.parents.some((pid) => derived.has(pid))) continue;
+        derived.add(n.id);
+        grew = true;
+      }
+    }
+    return derived;
   }
 
   /** 連鎖規則: 全ての親が skipped なノードを skipped にする（不動点まで繰り返す） */
@@ -657,7 +719,7 @@ export class GraphStore {
       ...(undoes ? { undoes } : {}),
       ...op,
     });
-    this.apply(record);
+    applyRecord(this.nodes, record);
     appendJsonl(this.opsPath, record);
     if (this.mode.kind === "workspace") {
       writeWorkspaceFile(this.mode.canonicalFile, [...this.nodes.values()]);
@@ -665,25 +727,6 @@ export class GraphStore {
       writeJsonAtomic(path.join(this.mode.dataDir, "snapshot.json"), {
         nodes: [...this.nodes.values()],
       });
-    }
-  }
-
-  private apply(record: OpRecord): void {
-    switch (record.op) {
-      case "node.add": {
-        this.nodes.set(record.payload.node.id, record.payload.node);
-        break;
-      }
-      case "node.patch": {
-        const cur = this.nodes.get(record.payload.nodeId);
-        if (!cur) throw new GraphError(`node not found: ${record.payload.nodeId}`, 404);
-        this.nodes.set(cur.id, { ...cur, ...record.payload.patch });
-        break;
-      }
-      case "node.remove": {
-        this.nodes.delete(record.payload.nodeId);
-        break;
-      }
     }
   }
 
@@ -709,15 +752,13 @@ export class GraphStore {
     records: OpRecord[],
     until?: string,
   ): { nodes: Map<string, Node>; baseline: Set<string> } {
-    const store = Object.create(GraphStore.prototype) as GraphStore;
     const nodes = new Map<string, Node>();
-    (store as unknown as { nodes: Map<string, Node> }).nodes = nodes;
     const baseline = new Set<string>();
     for (const raw of records) {
       const r = OpRecordSchema.parse(raw);
       if (until !== undefined && r.ts > until) break;
       if (r.op !== "node.add" && !nodes.has(r.payload.nodeId)) continue;
-      store.apply(r);
+      applyRecord(nodes, r);
       if (r.op === "node.add") {
         if (r.system) baseline.add(r.payload.node.id);
         else baseline.delete(r.payload.node.id);

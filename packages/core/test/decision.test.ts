@@ -300,6 +300,38 @@ describe("revertDecision: 分岐の選び直し", () => {
     expect(() => g.revertDecision(d.id)).toThrow(/決着していません/);
   });
 
+  it("この決着と無関係に手でskippedにしたノードは復元しない", () => {
+    const { d } = setupDecided();
+    // 分岐とまったく繋がっていない、人が手で見送ったノード（親なし）
+    const lone = g.addNode({ title: "手で見送り", lifecycle: "committed" });
+    g.patchNode(lone.id, { status: "skipped" });
+    // 完了済みの親を持つ、人が手で見送ったノード（連鎖規則では正当化されない）
+    const pre = g.addNode({ title: "前工程", lifecycle: "committed" });
+    g.patchNode(pre.id, { status: "done" });
+    const manual = g.addNode({ title: "手で見送り2", lifecycle: "committed", parents: [pre.id] });
+    g.patchNode(manual.id, { status: "skipped" });
+
+    g.revertDecision(d.id);
+    expect(g.get(lone.id).status).toBe("skipped");
+    expect(g.get(manual.id).status).toBe("skipped");
+  });
+
+  it("手で見送ったノードの連鎖skipも、この決着に由来しないので復元しない", () => {
+    const { d } = setupDecided();
+    const manual = g.addNode({ title: "手で見送り", lifecycle: "committed" });
+    g.patchNode(manual.id, { status: "skipped" });
+    const downstream = g.addNode({
+      title: "その後続",
+      lifecycle: "committed",
+      parents: [manual.id],
+    });
+    g.patchNode(downstream.id, { status: "skipped" });
+
+    g.revertDecision(d.id);
+    expect(g.get(manual.id).status).toBe("skipped");
+    expect(g.get(downstream.id).status).toBe("skipped");
+  });
+
   it("done になった下流は戻さない", () => {
     const { d, childB } = setupDecided();
     g.revertDecision(d.id);
