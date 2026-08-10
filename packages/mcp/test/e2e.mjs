@@ -446,6 +446,11 @@ try {
     const run = toolResultJson(await rpc("tools/call", { name: "run_get", arguments: { runId } }));
     assert.equal(run.id, runId);
     assert.ok(run.items[memberId], "run_get はitems詳細を含む");
+    // snapshot はページ構成まるごとではなく {capturedAt, nodeCount} の要約で返る
+    assert.ok(run.snapshot, "新しいランには snapshot 要約が付く");
+    assert.equal(run.snapshot.nodes, undefined, "snapshot のノード本体は含まない（要約のみ）");
+    assert.ok(typeof run.snapshot.capturedAt === "string", "capturedAt を含む");
+    assert.equal(run.snapshot.nodeCount, 3, "ページ自身+trigger+メンバーの3ノードぶん");
   });
 
   await step("tools/call run_item_patch (全アイテムdoneでラン自動完了)", async () => {

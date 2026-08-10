@@ -433,10 +433,26 @@ server.registerTool(
       "ラン1件の全フィールドを取得する: procedure(属するページのid)・title・trigger・status(running/done/cancelled)・" +
       "items（テンプレートノードid→{status,note,choice,resolvedParams}の全件。resolvedParams は script" +
       "実行時に解決された{name:値}で未実行なら null）・context（run.context。3.15。Record<string,string>。" +
-      "ラン作成時の初期値+ノードが書き足した現在値）・created。runId は run_list / trigger_run から得る。",
+      "ラン作成時の初期値+ノードが書き足した現在値）・created。snapshot（ラン作成時点のページ構成）は" +
+      "{capturedAt,nodeCount} の要約のみ返す（トークン節約のため。null=この機能より前のラン）。" +
+      "runId は run_list / trigger_run から得る。",
     inputSchema: { runId: z.string().describe("取得したいランid") },
   },
-  safe(async ({ runId }: { runId: string }) => apiGet(`/api/runs/${encodeURIComponent(runId)}`)),
+  safe(async ({ runId }: { runId: string }) => {
+    const run = (await apiGet(`/api/runs/${encodeURIComponent(runId)}`)) as {
+      snapshot?: { capturedAt: unknown; nodes?: unknown[] } | null;
+      [key: string]: unknown;
+    };
+    // snapshot はページ構成まるごと（ページ自身+トリガー+全メンバーの中身）で重いため素通ししない。
+    // 当時の中身が要るときはサーバの GET /api/runs/:id/graph が返す
+    const { snapshot, ...rest } = run;
+    return {
+      ...rest,
+      snapshot: snapshot
+        ? { capturedAt: snapshot.capturedAt, nodeCount: snapshot.nodes?.length ?? 0 }
+        : null,
+    };
+  }),
 );
 
 // ---- 14. run_item_patch ----
