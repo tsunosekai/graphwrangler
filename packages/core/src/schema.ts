@@ -26,7 +26,9 @@ export const ViaSchema = z.string().min(1);
  *  「ルーティーンであること」はページ種別ではなく、trigger ノードを
  *  メンバーに持つかどうかから導出する */
 export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger", "folder"]);
+export type NodeKind = z.infer<typeof NodeKindSchema>;
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
+export type Executor = z.infer<typeof ExecutorSchema>;
 /** AI executor の自律度（2026-08-03 本人指示。UI名「自律度」）。
  *  - high: 人間に判断を仰がず、合理的な仮定を置いて最後まで進む。実行失敗も
  *    まず自動リトライし、尽きて初めて失敗リカバリカードを開く
@@ -36,10 +38,13 @@ export const ExecutorSchema = z.enum(["human", "ai", "script"]);
  *  approval（実行前承認ゲート）は autonomy では外れない（安全装置はノード属性で
  *  無効化できない。ゲートを外したければ approval を false に戻す＝別の明示操作） */
 export const AutonomySchema = z.enum(["high", "normal", "low"]);
+export type Autonomy = z.infer<typeof AutonomySchema>;
 /** 判断リクエスト自身の影響度（5.4）。ノードの approval（実行前承認ゲートの有無）とは
  *  別の軸で、中間の reversible（戻せるが軽くない）を持つ */
 export const RequestImpactSchema = z.enum(["safe", "reversible", "irreversible"]);
+export type RequestImpact = z.infer<typeof RequestImpactSchema>;
 export const LifecycleSchema = z.enum(["draft", "committed"]);
+export type Lifecycle = z.infer<typeof LifecycleSchema>;
 /** unplanned = やり方未定（「ここだけまだ考えてない」）。依存が揃っていても実行エンジンは拾わない。
  *  skipped = 分岐で選ばれなかった枝を通ったため、その回は対象外になった正常状態（dropped=中止とは別物）。
  *  「あなたの番（waiting）」は保存しない: pendingRequest の有無から導出する（open な
@@ -52,11 +57,13 @@ export const StatusSchema = z.enum([
   "dropped",
   "skipped",
 ]);
+export type Status = z.infer<typeof StatusSchema>;
 
 /** スクリプトのパラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1）。
  *  宣言（name/label/example）は GraphWrangler AI が書き、値（value）は人間がパネルで入力する。
- *  command 中の `{name}` プレースホルダに対応する（server: substituteParams / engine: 複製、
- *  UI: NodePanel が同じ規約で表示・編集する）。value が null/空文字のままだと未入力扱い */
+ *  command 中の `{name}` プレースホルダに対応する（置換の実体は core/src/params.ts の
+ *  substituteParams。server/engine はそこからの re-export、UI: NodePanel が同じ規約で
+ *  表示・編集する）。value が null/空文字のままだと未入力扱い */
 export const ScriptParamSchema = z.object({
   name: z.string().min(1),
   label: z.string().nullable().optional(),
@@ -308,6 +315,7 @@ export const DecisionOptionSchema = z.object({
   then: z.string().min(1),
   recommended: z.boolean().optional(),
 });
+export type DecisionOption = z.infer<typeof DecisionOptionSchema>;
 
 export const DecisionRequestSchema = z.object({
   /** 文脈税: 3行以内の平易な要約。専門用語禁止・ゴールの言葉で */
@@ -339,6 +347,7 @@ export const MessageKindSchema = z.enum([
   "status", // 実行ログ（desk の history 相当）
   "artifact", // 成果物への参照
 ]);
+export type MessageKind = z.infer<typeof MessageKindSchema>;
 
 export const MessageSchema = z.object({
   id: z.string(),
