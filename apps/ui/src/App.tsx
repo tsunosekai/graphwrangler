@@ -20,7 +20,7 @@ import { useIsMobile } from "./hooks/useIsMobile";
 import { isRoutinePage } from "./lib/routine";
 import { buildRoute, parseRoute, type RouteState } from "./lib/route";
 import { pushToast } from "./lib/toast";
-import type { Node, Run } from "./types";
+import type { Node, Run, RunGraphNode } from "./types";
 
 /** localStorage の安全な読み書き（UI状態の永続化。2026-07-31 本人要望
  *  「リロードしても開閉や幅を保持」。幅とテーマ・レール開閉は各コンポーネントで保存済み） */
@@ -38,6 +38,45 @@ function saveUiState(key: string, value: string | null): void {
   } catch {
     // 無視（永続化は補助機能）
   }
+}
+
+/** ランのスナップショット由来ノード（RunGraphNode = Partial<Node>）を表示用の Node に整える。
+ *  スナップショットは表示・実行に関わるフィールドしか持たない（packages/core/src/schema.ts
+ *  NodeSnapshotSchema。created/createdBy のような不変値、order/folder のような見せ方だけの
+ *  値は焼かない）ため、欠落フィールドはスキーマの既定値・新規ノードの初期値で埋める。
+ *  created だけは既定が無いので、ラン当時の時刻（GET /runs/:id/graph の at）で代用する */
+function nodeFromRunGraph(n: RunGraphNode, fallbackCreated: string): Node {
+  return {
+    id: n.id,
+    title: n.title,
+    detail: n.detail ?? null,
+    impl: n.impl ?? null,
+    implTrial: n.implTrial ?? null,
+    parents: n.parents ?? [],
+    group: n.group ?? null,
+    folder: n.folder ?? null,
+    folderSection: n.folderSection ?? null,
+    order: n.order ?? null,
+    kind: n.kind ?? "task",
+    executor: n.executor ?? "human",
+    approval: n.approval ?? false,
+    autonomy: n.autonomy ?? "normal",
+    aiModel: n.aiModel ?? null,
+    aiEffort: n.aiEffort ?? null,
+    lifecycle: n.lifecycle ?? "draft",
+    status: n.status ?? "pending",
+    fixed: n.fixed ?? false,
+    pendingRequest: n.pendingRequest ?? null,
+    schedule: n.schedule ?? null,
+    outputs: n.outputs ?? null,
+    branches: n.branches ?? null,
+    choice: n.choice ?? null,
+    parentOptions: n.parentOptions ?? {},
+    createdBy: n.createdBy ?? null,
+    assignee: n.assignee ?? null,
+    members: n.members ?? [],
+    created: n.created ?? fallbackCreated,
+  };
 }
 
 /** sessionStorage 版。リロードは跨ぐが、タブ/アプリを開き直すと消える */
@@ -247,16 +286,9 @@ function AppInner() {
     }
   }, 5000);
   const railRuns = useMemo(() => railRunsData ?? {}, [railRunsData]);
-  const latestRuns = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(railRuns).map(([id, list]) => [id, list[0] ?? null]),
-      ) as Record<string, Run | null>,
-    [railRuns],
-  );
 
   // ---- 実行中ラン一覧（docs/design.md 3.8: トリガー起点のルーティーン。グラフ投影用）。
-  //      「最新ラン」（上の latestRuns。状態不問。PageList のドット用）とは別物。
+  //      「全ページのラン一覧」（上の railRuns。状態不問。PageList のドット・ラン子行用）とは別物。
   //      同じルーティーンは並列で回せる（並行ラン: 同じテンプレートグラフ・別のラン状態）
   //      ため、現在ページの status==="running" を全部持ち、どの並行ランをグラフに投影するかを
   //      projectedRunId で選ぶ（切替UIは GraphView のツールバー。既定は最新の1本） ----
@@ -319,14 +351,14 @@ function AppInner() {
           item?.status === "waiting"
             ? "running" // waiting は保存値に無い派生状態。カードは pendingRequest 側で橙にする
             : (item?.status ?? (n.kind === "trigger" ? "done" : (n.status ?? "pending")));
-        return { ...(n as unknown as Node), status };
+        return { ...nodeFromRunGraph(n, runGraph.at), status };
       });
   }, [openRun, runGraph]);
   /** ランのページのページノード（当時のページ名で見せる）。無ければ現在のページノード */
   const runPageNode = useMemo<Node | null>(() => {
     if (!openRun || !runGraph) return null;
     const forked = runGraph.nodes.find((n) => n.id === openRun.procedure);
-    return (forked as unknown as Node) ?? null;
+    return forked ? nodeFromRunGraph(forked, runGraph.at) : null;
   }, [openRun, runGraph]);
   /** ランのページを見ているか（= ラン専用の表示・編集ロックに切り替える） */
   const inRunPage = !!openRun && runNodes.length > 0;
@@ -343,24 +375,27 @@ function AppInner() {
   }, [selectedId, inRunPage, runNodes, runPageNode, nodes]);
 
   // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
-  // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）
+  // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）。
+  // 同じルーティーンは並列で回せる（並行ラン）ため、各ページの最新1本ではなく
+  // 実行中のラン**全部**を対象にする。key はラン id 込みなので通知の重複防止とも整合する
   const runWaitItems = useMemo<RunWaitItem[]>(() => {
-    if (!latestRuns) return [];
     const items: RunWaitItem[] = [];
-    for (const run of Object.values(latestRuns)) {
-      if (!run || run.status !== "running") continue;
-      for (const [nodeId, item] of Object.entries(run.items)) {
-        if (item.status !== "waiting") continue;
-        const tmpl = nodes.find((n) => n.id === nodeId);
-        // 他人の番（テンプレートの assignee が他人）は自分への通知対象にしない（チーム化 2026-08-04）
-        if (tmpl && !turnIsMine(tmpl.assignee, me.email)) continue;
-        const title = tmpl?.title || "（無題）";
-        const label = item.note ? `[ラン] ${title}（${item.note}）` : `[ラン] ${title}`;
-        items.push({ key: `${run.id}:${nodeId}`, nodeId, label });
+    for (const list of Object.values(railRuns)) {
+      for (const run of list) {
+        if (run.status !== "running") continue;
+        for (const [nodeId, item] of Object.entries(run.items)) {
+          if (item.status !== "waiting") continue;
+          const tmpl = nodes.find((n) => n.id === nodeId);
+          // 他人の番（テンプレートの assignee が他人）は自分への通知対象にしない（チーム化 2026-08-04）
+          if (tmpl && !turnIsMine(tmpl.assignee, me.email)) continue;
+          const title = tmpl?.title || "（無題）";
+          const label = item.note ? `[ラン] ${title}（${item.note}）` : `[ラン] ${title}`;
+          items.push({ key: `${run.id}:${nodeId}`, nodeId, label });
+        }
       }
     }
     return items;
-  }, [latestRuns, nodes, me.email]);
+  }, [railRuns, nodes, me.email]);
 
   // あなたの番が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）。
   // 他人の番（assignee が他人）は通知しない（チーム化 2026-08-04。isMyTurn が判定を一元化）

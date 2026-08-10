@@ -13,10 +13,15 @@ export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number, res
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   const prevJson = useRef<string | null>(null);
+  // 世代カウンタ。取得条件（restartKey / intervalMs）が変わるたびに進み、旧世代で投げた
+  // in-flight の応答は捨てる（古い条件の結果を新しい条件のデータとして載せない）
+  const generation = useRef(0);
 
   const refresh = useCallback(async () => {
+    const gen = generation.current;
     try {
       const result = await fetcherRef.current();
+      if (gen !== generation.current) return;
       const json = JSON.stringify(result);
       if (json !== prevJson.current) {
         prevJson.current = json;
@@ -28,6 +33,7 @@ export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number, res
   }, []);
 
   useEffect(() => {
+    generation.current += 1;
     let cancelled = false;
     const tick = async () => {
       if (!cancelled) await refresh();
