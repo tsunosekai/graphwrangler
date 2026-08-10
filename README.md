@@ -130,7 +130,9 @@ pnpm --filter @graphwrangler/engine start
 node scripts/seed-demo.mjs
 ```
 
-テストは `pnpm test`。
+テストは `pnpm test`、型チェックは `pnpm typecheck`（テストは型を見ないので別に回す）。
+MCP のツールをサーバ込みで通す e2e は `pnpm e2e`。いずれも push と PR で
+GitHub Actions が走る。
 
 ## 複数人で使う（ログイン）
 

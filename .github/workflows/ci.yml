@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # 型は vitest が見ない（テストが緑でも型が壊れていることがある）ので別に回す
+      - run: pnpm typecheck
+
+      - run: pnpm -r test
+
+      # MCP の e2e は実サーバを立てるので、並列スイープと分けて単独で走らせる
+      # （pnpm -r test に混ぜると起動待ちがタイムアウトしうる）
+      - run: pnpm e2e
+
+      - run: pnpm build
