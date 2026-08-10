@@ -11,6 +11,7 @@
 import { spawn } from "node:child_process";
 import { autonomyPromptLines } from "../ask.js";
 import type { Autonomy, Node, SubStep } from "../types.js";
+import { killTree, STDIO_GRACE_MS } from "./script.js";
 import { parseStreamJsonOutput } from "./stream_trace.js";
 
 export interface ExecResult {
@@ -239,15 +240,26 @@ export function runClaude(
     ];
     let stdout = "";
     let stderr = "";
-    let timedOut = false;
+    // close はタイムアウト resolve 後にも遅れて発火しうるため、二重 resolve を防ぐ
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
+    let graceTimer: NodeJS.Timeout | undefined;
+    const settle = (result: ExecResult) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      if (graceTimer !== undefined) clearTimeout(graceTimer);
+      resolve(result);
+    };
 
     // Windows では claude が .cmd シム（cmd.exe 経由でないと直接起動できない）のため、
     // その場合だけ shell:true にする。POSIX 側は argv をそのまま execve する
+    // （detached はプロセスグループを分け、killTree でグループごと止めるため）
     const isWindows = process.platform === "win32";
     let child;
     try {
       child = spawn(config.cliPath, args, {
-        ...(isWindows ? { shell: true } : {}),
+        ...(isWindows ? { shell: true } : { detached: true }),
         ...(cwd ? { cwd } : {}),
         env: sanitizedClaudeEnv(),
       });
@@ -258,9 +270,21 @@ export function runClaude(
     child.stdin?.write(prompt);
     child.stdin?.end();
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill();
+    // close は「プロセス終了 + stdio が全部閉じる」まで発火しない。claude が起動した
+    // 孫プロセスにパイプを握られると kill 後も close が来ないため、タイムアウトでは
+    // ツリーごと殺し、こちら側のストリームを打ち切って、その場で必ず resolve する
+    // （エンジンは1並列なので、ここで待ち続けるとエンジン全体が止まる）
+    timer = setTimeout(() => {
+      killTree(child);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      const parsed = parseStreamJsonOutput(stdout);
+      settle({
+        success: false,
+        output: stdout,
+        error: `タイムアウト（${Math.round(timeoutMs / 60000)}分）`,
+        subSteps: parsed.subSteps.length > 0 ? parsed.subSteps : undefined,
+      });
     }, timeoutMs);
 
     child.stdout?.on("data", (d) => {
@@ -271,33 +295,23 @@ export function runClaude(
     });
 
     child.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ success: false, output: stdout, error: `${config.cliPath} -p 起動失敗: ${String(err)}` });
+      settle({ success: false, output: stdout, error: `${config.cliPath} -p 起動失敗: ${String(err)}` });
     });
 
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      // stream-json を通した以上 stdout は常にパースを試す。タイムアウト・異常終了でも
-      // ここまでに出た tool_use/tool_result は「どこまで進んだか」を示す貴重な情報なので、
+    // 終了コードから結果を確定する（close / exit+猶予 の両経路で共用）
+    const finish = (code: number | null) => {
+      // stream-json を通した以上 stdout は常にパースを試す。異常終了でもここまでに出た
+      // tool_use/tool_result は「どこまで進んだか」を示す貴重な情報なので、
       // 途中で切れていても拾えるだけ拾う（parseStreamJsonOutput は壊れた最終行を読み飛ばす）
       const parsed = parseStreamJsonOutput(stdout);
       const subSteps = parsed.subSteps.length > 0 ? parsed.subSteps : undefined;
-      if (timedOut) {
-        resolve({
-          success: false,
-          output: stdout,
-          error: `タイムアウト（${Math.round(timeoutMs / 60000)}分）`,
-          subSteps,
-        });
-        return;
-      }
       if (code !== 0) {
         // claude CLI はエラーの種類によって stdout/stderr どちらに理由を出すか一定しない
         // （実機確認で判明: 認証エラーは stdout、stdin待ちの警告は stderr に出た）。
         // stream-json が最後まで通っていれば result.result（人間向けの理由文）を優先し、
         // 通っていなければ従来どおり stderr/stdout の生テキストを繋げる
         const reason = parsed.output ?? [stderr.trim(), stdout.trim()].filter(Boolean).join(" / ");
-        resolve({
+        settle({
           success: false,
           output: stdout,
           error: reason.slice(0, 500) || `終了コード ${code}`,
@@ -308,7 +322,7 @@ export function runClaude(
       if (parsed.isError) {
         // 終了コード0でも result.is_error=true は「AIが処理を終えたが失敗として報告した」
         // ケース（権限拒否で何もできなかった等）。exit code だけ見ると成功扱いになってしまう
-        resolve({
+        settle({
           success: false,
           output: stdout,
           error: (parsed.output ?? "AIがエラーを報告しました（詳細不明）").slice(0, 500),
@@ -316,7 +330,24 @@ export function runClaude(
         });
         return;
       }
-      resolve({ success: true, output: parsed.output ?? stdout.trim(), subSteps });
+      settle({ success: true, output: parsed.output ?? stdout.trim(), subSteps });
+    };
+
+    // exit はプロセス本体の終了時に必ず発火する（close と違い stdio の状態に依存しない）。
+    // 通常は直後に close が来て確定するが、claude が起動した孫プロセスにパイプを握られた
+    // まま本体だけ終了した場合は close が来ないため、猶予後にストリームを打ち切って
+    // 終了コードで確定する
+    child.on("exit", (code) => {
+      if (settled) return;
+      graceTimer = setTimeout(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish(code);
+      }, STDIO_GRACE_MS);
+    });
+
+    child.on("close", (code) => {
+      finish(code);
     });
   });
 }
