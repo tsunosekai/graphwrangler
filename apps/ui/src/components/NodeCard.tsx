@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { runTrigger } from "../lib/run";
 import { colorOf, displayNameOf, initialOf, turnIsMine, useTeam } from "../lib/team";
 import { HINT_TEXT } from "../lib/hints";
+import { EXECUTOR_JA, KIND_JA, STATUS_JA } from "../lib/labels";
 import { cn } from "../lib/utils";
 import type { Node, RunItemStatus } from "../types";
 import { Hint } from "./Hint";
@@ -29,29 +30,13 @@ const EXEC_ICON: Record<Node["executor"], "user" | "bot" | "terminal"> = {
   ai: "bot",
   script: "terminal",
 };
-// 種別の文字チップ（本人選定「A+D」）。goal / folder はカードとして描かれないが型のため網羅
-const KIND_CHIP: Record<Node["kind"], string> = {
-  task: "実行",
-  decision: "判断",
-  trigger: "トリガー",
-  goal: "プロジェクト",
-  folder: "フォルダ",
-};
-const STATUS_LABEL: Record<Node["status"], string> = {
-  unplanned: "未計画",
-  pending: "待機",
-  running: "実行中",
-  done: "完了",
-  dropped: "中止",
-  skipped: "スキップ",
-};
+// 種別の文字チップ（本人選定「A+D」）・進捗・担当の日本語は lib/labels.ts が唯一の正
 
 const EXEC_TEXT: Record<Node["executor"], string> = {
   human: "text-human",
   ai: "text-ai",
   script: "text-script",
 };
-const EXEC_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
 
 /** 右クリックメニュー（第0層＝既存操作への近道。docs/design.md 4章の視距離3層に階を
  *  増やさない）から呼ぶ操作。実体は GraphView が持つ既存ハンドラ（F2 / Tab / Ctrl+D /
@@ -440,7 +425,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       >
         {/* 担当アイコンのヒント（2026-08-05 本人指定の最重要ヒント）: 担当=誰が始めるのか。
             id はパネルの「担当」と共有——どちらかで OK すれば両方消える */}
-        <Hint id="executor" always={`担当: ${EXEC_JA[node.executor]}`} text={HINT_TEXT.executor}>
+        <Hint id="executor" always={`担当: ${EXECUTOR_JA[node.executor]}`} text={HINT_TEXT.executor}>
           <span className={cn("inline-flex flex-shrink-0", EXEC_TEXT[node.executor])}>
             <Icon name={EXEC_ICON[node.executor]} />
           </span>
@@ -463,9 +448,9 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
         )}
         {/* 2個目スロットは種別の文字チップ（本人選定「A+D」2026-07-31: アイコンをやめて
             実行/判断/トリガー の文字で誤読ゼロに）。実装(impl)バッジは別軸なのでタイトル右端 */}
-        <Hint id="kind" always={`種別: ${KIND_CHIP[node.kind]}`} text={HINT_TEXT.kind}>
+        <Hint id="kind" always={`種別: ${KIND_JA[node.kind]}`} text={HINT_TEXT.kind}>
           <span className="flex-shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground">
-            {KIND_CHIP[node.kind]}
+            {KIND_JA[node.kind]}
           </span>
         </Hint>
         {data.editing ? (
@@ -551,7 +536,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       </div>
       {(showFoot || phaseAction || runButtons.length > 0) && (
         <div className="mt-1.5 flex items-center gap-2">
-          {showFoot && <span className="text-xs text-muted-foreground">{STATUS_LABEL[node.status]}</span>}
+          {showFoot && <span className="text-xs text-muted-foreground">{STATUS_JA[node.status]}</span>}
           {phaseAction && (
             <Hint
               id="commit-plan"
@@ -730,7 +715,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
                   >
                     {(["human", "ai", "script"] as const).map((ex) => (
                       <ContextMenuRadioItem key={ex} value={ex}>
-                        {EXEC_JA[ex]}
+                        {EXECUTOR_JA[ex]}
                       </ContextMenuRadioItem>
                     ))}
                   </ContextMenuRadioGroup>

@@ -10,6 +10,7 @@ import { X } from "lucide-react";
 import { deletionOrder } from "../lib/actions";
 import { api } from "../lib/api";
 import { confirmDialog } from "../lib/dialogs";
+import { EXECUTOR_JA } from "../lib/labels";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { displayNameOf, useTeam } from "../lib/team";
@@ -32,8 +33,6 @@ interface Props {
   onMutated: () => void;
   onClose: () => void;
 }
-
-const EXECUTOR_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
 
 export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props) {
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);

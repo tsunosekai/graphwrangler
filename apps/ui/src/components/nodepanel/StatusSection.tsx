@@ -5,8 +5,9 @@ import { useState } from "react";
 import { api, type NodePatchInput } from "../../lib/api";
 import { formDialog } from "../../lib/dialogs";
 import { HINT_TEXT } from "../../lib/hints";
+import { STATUS_JA } from "../../lib/labels";
 import { displayNameOf, turnIsMine, useTeam } from "../../lib/team";
-import type { Node, Run, RunItem, RunItemStatus, Status } from "../../types";
+import type { Node, Run, RunItem, RunItemStatus } from "../../types";
 import { Button } from "../ui/button";
 import { Hint } from "../Hint";
 import { StatusCircle } from "../StatusCircle";
@@ -18,16 +19,8 @@ const STATUS_HINT =
 // 人間の語彙: 未計画 →[プラン済みにする]→ 待ち →[着手]→ 進行中 →[完了]。
 // 待ち/進行中は人間ノードでは「やってるかどうかの目印」、AI/スクリプトでは機械が動かす。
 // 中止(dropped)は選択肢から廃止（消すならノード削除。Ctrl+Zで戻せる）。
-// waiting は保存値でなく導出値（pendingRequest あり / ランアイテムの waiting）
-const STATUS_JA: Record<Status, string> = {
-  unplanned: "未計画",
-  pending: "待ち",
-  running: "進行中",
-  waiting: "あなたの番（回答待ち）",
-  done: "完了",
-  dropped: "中止",
-  skipped: "スキップ",
-};
+// waiting は保存値でなく導出値（pendingRequest あり / ランアイテムの waiting）。
+// 進捗の日本語（STATUS_JA）は lib/labels.ts が唯一の正
 
 interface Props {
   node: Node;

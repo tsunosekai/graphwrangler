@@ -16,6 +16,7 @@ import { effortLabel, modelLabel, useAiDefaults } from "../lib/aiDefaults";
 import { api, postReads, type NodePatchInput } from "../lib/api";
 import { confirmDialog, confirmWithAltDialog } from "../lib/dialogs";
 import { HINT_TEXT, TRIAL_CONFIRM_MESSAGE } from "../lib/hints";
+import { EXECUTOR_JA, KIND_JA } from "../lib/labels";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useDraftField } from "../hooks/useDraftField";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -73,16 +74,8 @@ interface Props {
 // 種別はノードの3種のみ（ゴールはページなので選択肢に出さない。現在値がゴール等の時だけ表示）
 const KIND_OPTIONS: Node["kind"][] = ["task", "decision", "trigger"];
 
-const KIND_JA: Record<Node["kind"], string> = {
-  task: "実行",
-  decision: "判断",
-  trigger: "トリガー",
-  goal: "プロジェクト/ルーティーン（ページ）",
-  // 左レールの整理棚（2026-08-05）。パネルからは開かないが型のため網羅
-  folder: "フォルダ",
-};
+// 種別・担当の日本語（KIND_JA / EXECUTOR_JA）は lib/labels.ts が唯一の正
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
-const EXECUTOR_JA: Record<Node["executor"], string> = { human: "人間", ai: "AI", script: "スクリプト" };
 
 /** タブの未読ドット。色はノードカード/レールの未読バッジと同じ bg-ai（青）で、
  *  「あなたの番」の橙(--attention)とは別物であることを色で示す */

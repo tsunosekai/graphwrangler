@@ -2,6 +2,7 @@
 // pending=空円 / running=半分埋まったリング / waiting=中点付き円 / done=塗り円+チェック /
 // dropped=×円 / skipped=薄い円+斜線（dropped の×とは区別。docs/design.md 3.9）
 import { HINT_TEXT } from "../lib/hints";
+import { STATUS_JA } from "../lib/labels";
 import type { Status } from "../types";
 import { Hint } from "./Hint";
 
@@ -13,16 +14,6 @@ const COLOR: Record<Status, string> = {
   done: "var(--ok)",
   dropped: "var(--text-lo)",
   skipped: "var(--text-lo)",
-};
-
-const STATUS_JA: Record<Status, string> = {
-  unplanned: "未計画",
-  pending: "待ち",
-  running: "進行中",
-  waiting: "あなたの番（回答待ち）",
-  done: "完了",
-  dropped: "中止",
-  skipped: "スキップ",
 };
 
 export function StatusCircle({
