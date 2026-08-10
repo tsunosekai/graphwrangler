@@ -158,6 +158,24 @@ describe("RunStore: ワークアイテム更新・一覧・永続化", () => {
     expect(latest.status).toBe("done");
   });
 
+  it("patchItem: done になったランでもアイテムを pending に戻せば running に戻る（再開）", () => {
+    const runs = new RunStore(dir);
+    const { page, trigger, childA } = setupTriggerPage();
+    const run = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id));
+
+    let latest = run;
+    for (const [id, item] of Object.entries(run.items)) {
+      if (item.status === "pending") latest = runs.patchItem(run.id, id, { status: "done" });
+    }
+    expect(latest.status).toBe("done");
+
+    const reopened = runs.patchItem(run.id, childA.id, { status: "pending" });
+    expect(reopened.status).toBe("running");
+    // 再度決着させれば done に戻る
+    const redone = runs.patchItem(run.id, childA.id, { status: "done" });
+    expect(redone.status).toBe("done");
+  });
+
   it("patchItem: 存在しないノードの item は404相当のGraphError", () => {
     const runs = new RunStore(dir);
     const { page, trigger } = setupTriggerPage();

@@ -10,6 +10,7 @@ import {
   RunSchema,
   type RunItem,
   type RunItemStatus,
+  type RunStatus,
 } from "./schema.js";
 import { nextId, nowIso } from "./ids.js";
 import { ensureDir, readJson, writeJsonAtomic } from "./storage.js";
@@ -52,6 +53,19 @@ function toNodeSnapshot(n: Node): NodeSnapshot {
     parentOptions: n.parentOptions,
     assignee: n.assignee,
   };
+}
+
+/**
+ * items からラン全体の status を導く。全アイテムが done/dropped/skipped なら "done"、
+ * 未決着のアイテムがあれば "running"（done 後にアイテムを pending/waiting へ戻して
+ * 再開するケースを含む——status は items から常に再導出する）。cancelled は覆さない。
+ */
+function deriveRunStatus(current: RunStatus, items: Record<string, RunItem>): RunStatus {
+  if (current === "cancelled") return current;
+  const allSettled = Object.values(items).every(
+    (it) => it.status === "done" || it.status === "dropped" || it.status === "skipped",
+  );
+  return allSettled ? "done" : "running";
 }
 
 export interface PatchItemInput {
@@ -164,8 +178,8 @@ export class RunStore {
   }
 
   /**
-   * ワークアイテムを更新する。全アイテムが done/dropped/skipped になったら
-   * ラン全体の status を自動的に "done" にする（cancelled のランは覆さない）。
+   * ワークアイテムを更新する。ラン全体の status は items から再導出する
+   * （全決着で "done"、未決着へ戻れば "running"。deriveRunStatus 参照）。
    */
   patchItem(runId: string, nodeId: string, patch: PatchItemInput): Run {
     const run = this.get(runId);
@@ -181,11 +195,7 @@ export class RunStore {
         patch.resolvedParams !== undefined ? patch.resolvedParams : item.resolvedParams,
     };
     const items = { ...run.items, [nodeId]: updatedItem };
-    const allSettled = Object.values(items).every(
-      (it) => it.status === "done" || it.status === "dropped" || it.status === "skipped",
-    );
-    const status = run.status === "cancelled" ? run.status : allSettled ? "done" : run.status;
-    const updated: Run = { ...run, items, status };
+    const updated: Run = { ...run, items, status: deriveRunStatus(run.status, items) };
     this.write(updated);
     return updated;
   }
@@ -260,11 +270,7 @@ export class RunStore {
       }
     }
 
-    const allSettled = Object.values(items).every(
-      (it) => it.status === "done" || it.status === "dropped" || it.status === "skipped",
-    );
-    const status = run.status === "cancelled" ? run.status : allSettled ? "done" : run.status;
-    const updated: Run = { ...run, items, status };
+    const updated: Run = { ...run, items, status: deriveRunStatus(run.status, items) };
     this.write(updated);
     return updated;
   }
