@@ -751,16 +751,26 @@ export function NodePanel({
   const decisionGateOk =
     node.lifecycle === "committed" && isFrontier && node.status !== "dropped";
 
-  // decision の choice 未確定のときだけ「分岐を選ぶ」を出す（docs/design.md 3.9）
+  // decision の choice 未確定のときだけ「分岐を選ぶ」を出す（docs/design.md 3.9）。
+  // ランのページではラン層のワークアイテムを決着させる（3.9のラン内版。テンプレートの
+  // choice には触らない——テンプレート層へ書くと設計図側が巻き添えで決着してしまう）
   const decide = async (branchId: string, label: string) => {
     try {
-      await api.decide(node.id, branchId);
+      if (runView) {
+        await api.decideRunItem(runView.id, node.id, branchId);
+      } else {
+        await api.decide(node.id, branchId);
+      }
       onMutated();
+      refreshThread();
       pushToast(`${label} に分岐しました`, "info");
     } catch {
       // api() 側でトースト表示済み
     }
   };
+  // ランのページでの決着済み表示はランのアイテムの choice を見る（フォーク側 node.choice は
+  // ラン作成時点の値のままで更新されない）
+  const decidedChoice = runView ? (activeRunItem?.choice ?? null) : node.choice;
 
   // 分岐の選び直し（手戻り。docs/design.md 3.9）: choice を取り消し、この決着に由来する
   // skip を復元する。下流で進んだ作業（done）は戻らないので確認を挟む
@@ -897,13 +907,15 @@ export function NodePanel({
     return source.some((m) => m.ts > (unreadSince ?? "") && inTab(m, t));
   };
 
+  // 区切りも会話の単位（そのラン / テンプレート）に属する: ランのページで押したら
+  // そのランの会話を区切る（テンプレート側のスレッドには触らない）
   const startNewTalk = async () => {
-    await fetch(`/api/nodes/${node.id}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind: "status", body: "―― 新しい会話 ――", payload: { chatBreak: true } }),
-    });
-    refreshThread();
+    try {
+      await api.postChatBreak(node.id, runView?.id ?? null);
+      refreshThread();
+    } catch {
+      // api() 側でトースト表示済み
+    }
   };
   // 開いている判断リクエストは会話の流れではなく「ノード詳細とチャット欄の間」に固定表示する
   // （本人指定 2026-07-31）。タブに関わらず見える（履歴タブでも回答できる）
@@ -1030,10 +1042,11 @@ export function NodePanel({
         (node.status === "done" || node.status === "skipped" ? (
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
             <Icon name="branch" size={13} />
-            選択済み: {node.branches.find((b) => b.id === node.choice)?.label ?? node.choice ?? "-"}
+            選択済み: {node.branches.find((b) => b.id === decidedChoice)?.label ?? decidedChoice ?? "-"}
             <span className="flex-1" />
-            {/* 選び直し（手戻り）。自分が上流の分岐でskipされた場合(choice無し)は対象外 */}
-            {node.status === "done" && node.choice && (
+            {/* 選び直し（手戻り）。自分が上流の分岐でskipされた場合(choice無し)は対象外。
+                ラン層の分岐に選び直しは無い（docs/design.md 3.9。繰り返しは「次のラン」で表現する） */}
+            {!runView && node.status === "done" && node.choice && (
               <Hint
                 id="decision-revert"
                 text="選択を取り消し、スキップされた枝を待ちに戻す（進んだ作業は戻らない）"

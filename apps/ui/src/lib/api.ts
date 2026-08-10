@@ -17,7 +17,9 @@ import { threadKey } from "./unread";
 
 export class ApiError extends Error {}
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** silent: エラートーストを出さず re-throw だけする（一括処理で失敗を集約して
+ *  1回のトーストにまとめたい呼び出し側向け。既定は従来どおりトースト表示） */
+async function request<T>(path: string, init?: RequestInit & { silent?: boolean }): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
@@ -26,7 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch {
     const msg = "サーバに接続できません";
-    pushToast(msg);
+    if (!init?.silent) pushToast(msg);
     throw new ApiError(msg);
   }
 
@@ -45,7 +47,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       data && typeof data === "object" && "error" in data && typeof (data as { error?: unknown }).error === "string"
         ? (data as { error: string }).error
         : `HTTP ${res.status}`;
-    pushToast(msg);
+    if (!init?.silent) pushToast(msg);
     throw new ApiError(msg);
   }
   return data as T;
@@ -350,10 +352,11 @@ export const api = {
       body: JSON.stringify({ path: filePath, ...(opts.overwrite ? { overwrite: true } : {}) }),
     })),
 
-  removeNode: (id: string, opts: { force?: boolean } = {}) =>
+  removeNode: (id: string, opts: { force?: boolean; silent?: boolean } = {}) =>
     request<{ removed: boolean }>(`/nodes/${id}/remove`, {
       method: "POST",
       body: JSON.stringify(opts.force ? { force: true } : {}),
+      silent: opts.silent,
     }),
 
   /** 「ノード内ノードに展開」（実行の内訳 payload.subSteps を素材に、このノードを実ノード連鎖へ
@@ -398,6 +401,19 @@ export const api = {
     withSelfRead(threadKey(id, runId), request<Message>(`/nodes/${id}/messages`, {
       method: "POST",
       body: JSON.stringify({ kind: "say", body, runId: runId ?? null }),
+    })),
+
+  /** 「新しい会話」区切り（payload.chatBreak）。区切りも会話の単位（そのラン / テンプレート）に
+   *  属するので、ランのページから押したときは runId を渡してそのランのスレッドへ打つ */
+  postChatBreak: (id: string, runId?: string | null) =>
+    withSelfRead(threadKey(id, runId), request<Message>(`/nodes/${id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "status",
+        body: "―― 新しい会話 ――",
+        payload: { chatBreak: true },
+        runId: runId ?? null,
+      }),
     })),
 
   answer: (id: string, requestId: string, option: string | null, note: string | null = null) =>
@@ -448,8 +464,6 @@ export const api = {
   /** 全ページのラン一覧を1リクエストで（ページ id → ラン配列。新しい順）。左レール用。
    *  ラン作成時のスナップショットはサーバ側で落とされている（2026-08-08 最適化） */
   listAllRuns: () => request<{ runs: Record<string, Run[]> }>("/runs/summary"),
-
-  getRun: (runId: string) => request<Run>(`/runs/${runId}`),
 
   patchRunItem: (runId: string, nodeId: string, input: { status?: RunItemStatus; note?: string | null }) =>
     // 進捗の記録はそのランのスレッドに載るので、既読もそのランのキーで打つ
@@ -602,40 +616,4 @@ export const api = {
       method: "POST",
       body: "{}",
     }),
-
-  /**
-   * 内蔵チャット（GraphWrangler AI）。UIMessageStream(SSE) の生 body を返す。パースは呼び出し側
-   * (ChatDrawer) が行う — この関数は「api キー未設定 400」だけをエラーとして解釈する。
-   */
-  chatStream: async (
-    messages: unknown[],
-    pageId: string | null,
-    selectedNodeId?: string | null,
-    signal?: AbortSignal,
-  ): Promise<ReadableStream<Uint8Array>> => {
-    let res: Response;
-    try {
-      res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, pageId, selectedNodeId: selectedNodeId ?? null }),
-        signal,
-      });
-    } catch {
-      throw new ApiError("サーバに接続できません");
-    }
-    if (!res.ok) {
-      const text = await res.text();
-      let msg = `HTTP ${res.status}`;
-      try {
-        const data = JSON.parse(text);
-        if (data && typeof data.error === "string") msg = data.error;
-      } catch {
-        /* JSONでなければ既定メッセージのまま */
-      }
-      throw new ApiError(msg);
-    }
-    if (!res.body) throw new ApiError("ストリームを取得できません");
-    return res.body;
-  },
 };
