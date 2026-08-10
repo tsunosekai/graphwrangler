@@ -7,6 +7,7 @@
 // 事前に対象から外して適用件数をトーストで知らせる。
 import { useState } from "react";
 import { X } from "lucide-react";
+import { deletionOrder } from "../lib/actions";
 import { api } from "../lib/api";
 import { confirmDialog } from "../lib/dialogs";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
@@ -122,10 +123,12 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
     })).then(() => onClose());
   };
 
-  // 削除は依存の葉から順に試す（GraphView の Delete キーと同じ方針）。force 付きなので
+  // 削除は葉から順（deletionOrder。GraphView のサブツリー削除と同じ）に1周で消す——
+  // 順序を守れば「ページを先に消して中身が404」のような失敗が起きない。force 付きなので
   // ロック中も消える——巻き添え・切り離し・ロックは確認モーダルの警告行で事前に見せる
   // （2026-08-01 本人指摘「消せないのは違う。ロックはモーダルで確認」。巻き添えの計算には
-  // ページ外の全ノードが要るため /api/state を取り直す）
+  // ページ外の全ノードが要るため /api/state を取り直す）。残る失敗（ネットワーク断など）は
+  // silent で1件ずつのトーストを抑え、末尾の1回に集約する
   const deleteAll = async () => {
     if (busy) return;
     let warnings: string[] = [];
@@ -142,26 +145,24 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
     if (!ok) return;
     setBusy(true);
     try {
-      let remaining = nodes.map((n) => n.id);
-      const deleted: string[] = [];
-      while (remaining.length > 0) {
-        let removedAny = false;
-        const still: string[] = [];
-        for (const id of remaining) {
-          try {
-            await api.removeNode(id, { force: true });
-            deleted.push(id);
-            removedAny = true;
-          } catch {
-            still.push(id);
-          }
+      const ordered = deletionOrder(nodes, new Set(nodes.map((n) => n.id)));
+      let failed = 0;
+      for (const id of ordered) {
+        try {
+          await api.removeNode(id, { force: true, silent: true });
+        } catch {
+          failed++;
         }
-        remaining = still;
-        if (!removedAny) break;
       }
+      const deleted = ordered.length - failed;
       onMutated();
-      pushToast(`${deleted.length}件削除しました（Ctrl+Zで戻せます）`, "info");
-      if (deleted.length === nodes.length) onClose();
+      pushToast(
+        failed > 0
+          ? `${deleted}件削除しました（${failed}件は削除できませんでした）`
+          : `${deleted}件削除しました（Ctrl+Zで戻せます）`,
+        failed > 0 ? "error" : "info",
+      );
+      if (failed === 0) onClose();
     } finally {
       setBusy(false);
     }

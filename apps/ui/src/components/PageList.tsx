@@ -1387,7 +1387,7 @@ export function PageList({
         <>
           <Hint
             id="archive"
-            text="完了・中止になったプロジェクトが入る（ルーティーンは常にアクティブ扱いでここには来ない）"
+            text="完了・中止にしたページが入る（ルーティーンも同じ。戻せばトリガーはまたランを作る）"
           >
             <button
               type="button"

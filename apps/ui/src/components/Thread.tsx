@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
 import { Linkify, mdComponents } from "../lib/linkify";
 import { displayNameOf, useTeam, type TeamUser } from "../lib/team";
+import { threadKey } from "../lib/unread";
 import { cn } from "../lib/utils";
 import { subStepsOf, type MaterializedMessage, type Node, type SubStep } from "../types";
 import { Badge } from "./ui/badge";
@@ -53,7 +54,9 @@ function authorLabel(author: { kind: string; name?: string | null }, users: Team
 }
 
 // 返信下書きの保持。NodePanel は key={node.id} で再マウントされるため React state は
-// ノード切替のたびに消える。モジュールレベルの Map に退避し、戻ってきたら復元する（送信で消す）
+// ノード切替のたびに消える。モジュールレベルの Map に退避し、戻ってきたら復元する（送信で消す）。
+// キーは threadKey（nodeId + runId）——会話はランごとに分かれる（2026-08-08）ので、
+// nodeId だけをキーにするとテンプレートとランの下書きが混ざる
 const replyDrafts = new Map<string, string>();
 
 /** payload が {sources: string[]} の形なら出典配列を返す（出典バッジ） */
@@ -199,14 +202,24 @@ export function Thread({
 }: Props) {
   // 発言者の表示名解決と「自分/他人の human 発言」の描き分け（チーム化 2026-08-04）
   const { me, users } = useTeam();
-  const [reply, setReply] = useState(() => replyDrafts.get(nodeId) ?? "");
+  const draftKey = threadKey(nodeId, runId);
+  const [reply, setReply] = useState(() => replyDrafts.get(draftKey) ?? "");
+  // 同じノードのままテンプレート⇔ランを切り替えても再マウントされない（NodePanel の
+  // key は node.id のみ）ため、キーが変わったら render 中に下書きを差し替える
+  // （derived state の定石。effect 経由だと差し替え前に下の保存 effect が走り、
+  // 古い下書きが新しいキーへ保存されてしまう）
+  const prevDraftKeyRef = useRef(draftKey);
+  if (prevDraftKeyRef.current !== draftKey) {
+    prevDraftKeyRef.current = draftKey;
+    setReply(replyDrafts.get(draftKey) ?? "");
+  }
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (reply.trim()) replyDrafts.set(nodeId, reply);
-    else replyDrafts.delete(nodeId);
-  }, [reply, nodeId]);
+    if (reply.trim()) replyDrafts.set(draftKey, reply);
+    else replyDrafts.delete(draftKey);
+  }, [reply, draftKey]);
 
   // open な判断リクエストは流れに埋めない（表示は NodePanel 側。ここでは聞き返し判定にだけ使う）
   const openRequests = messages.filter(

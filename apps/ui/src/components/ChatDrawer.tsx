@@ -153,37 +153,6 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
     onFinish: () => onMutated(),
   });
 
-  // マウント時にサーバから履歴を読み込む（保存は下の messages 変更 effect が担う。
-  // 読み込み完了までの間に保存しないよう、ロード済みフラグを追跡する）。
-  // 読み込みに失敗したら**成功するまで保存を解禁しない**まま5秒おきに再試行する
-  // （失敗を空履歴と同一視して会話がまっさらに見え、そのまま話し始めると過去の履歴が
-  // 上書きで消えていた——2026-08-07「記憶が無くなる」対策）
-  const loadedRef = useRef(false);
-  useEffect(() => {
-    let cancelled = false;
-    let timer: number | null = null;
-    loadedRef.current = false;
-    const attempt = (first: boolean) => {
-      void loadHistory().then((history) => {
-        if (cancelled) return;
-        if (history === null) {
-          if (first) pushToast("チャット履歴の読み込みに失敗しました。再試行します", "error");
-          timer = window.setTimeout(() => attempt(false), 5000);
-          return;
-        }
-        setMessages(history);
-        loadedRef.current = true;
-      });
-    };
-    attempt(true);
-    return () => {
-      cancelled = true;
-      if (timer !== null) clearTimeout(timer);
-    };
-    // setMessages は useChat の安定参照
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // 「この画面で会話が進んだか」。**進んでいないなら保存しない**——複数タブ・複数端末で
   // 開いているとき、古い履歴しか持たない画面の閉じ際保存が最新の会話を巻き戻していた
   // （last-write-wins。2026-08-07「記憶が無くなる」のもう一つの経路）
@@ -198,6 +167,56 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   useEffect(() => {
     lastMessagesRef.current = messages;
   }, [messages]);
+
+  const busy = status === "submitted" || status === "streaming";
+  // ロード再試行の setTimeout コールバック（下の effect）から最新の busy を読むための控え
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+
+  // マウント時にサーバから履歴を読み込む（保存は下の messages 変更 effect が担う。
+  // 読み込み完了までの間に保存しないよう、ロード済みフラグを追跡する）。
+  // 読み込みに失敗したら**成功するまで保存を解禁しない**まま5秒おきに再試行する
+  // （失敗を空履歴と同一視して会話がまっさらに見え、そのまま話し始めると過去の履歴が
+  // 上書きで消えていた——2026-08-07「記憶が無くなる」対策）。
+  // 再試行の成功時、ロード完了前にこの画面で会話が始まっていることがある（送信は
+  // ロード完了を待たない）。そのまま setMessages(history) すると進行中の会話が
+  // 巻き戻るため、応答の生成中なら差し替えずに読み直しへ回し、会話が進んでいる
+  // （dirty）ならサーバ履歴を前置して合流させる——どちらの会話も失わない
+  const loadedRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+    loadedRef.current = false;
+    const attempt = (first: boolean) => {
+      void loadHistory().then((history) => {
+        if (cancelled) return;
+        if (history === null) {
+          if (first) pushToast("チャット履歴の読み込みに失敗しました。再試行します", "error");
+          timer = window.setTimeout(() => attempt(false), 5000);
+          return;
+        }
+        if (busyRef.current) {
+          // ストリーミング中の差し替えは応答本文ごと消してしまう。落ち着いてから読み直す
+          timer = window.setTimeout(() => attempt(false), 5000);
+          return;
+        }
+        if (dirtyRef.current) {
+          setMessages([...history, ...lastMessagesRef.current]);
+        } else {
+          setMessages(history);
+        }
+        loadedRef.current = true;
+      });
+    };
+    attempt(true);
+    return () => {
+      cancelled = true;
+      if (timer !== null) clearTimeout(timer);
+    };
+    // setMessages は useChat の安定参照
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     return () => {
       if (!loadedRef.current || !dirtyRef.current) return; // ロード前/会話が進んでいない（上書き事故を防ぐ）
@@ -219,8 +238,6 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       cancelled = true;
     };
   }, [tab]);
-
-  const busy = status === "submitted" || status === "streaming";
 
   // 「考え中」の文言を、実行中のツールに応じた進行形にする（2026-07-31 本人要望
   // 「ファイルを読んでます、とか出せない？」）。最後のアシスタントメッセージ末尾から、
