@@ -341,6 +341,36 @@ describe("決着済み分岐の負けた枝への後付けノードは自動skip
     expect(patched.status).toBe("skipped");
   });
 
+  it("patchNode: status だけの patch では負けた枝の skipped から復活できない", () => {
+    const d = makeDecision();
+    const loser = g.addNode({
+      title: "B側",
+      parents: [d.id],
+      parentOptions: { [d.id]: "b" },
+      lifecycle: "committed",
+    });
+    g.applyDecision(d.id, "a");
+    expect(g.get(loser.id).status).toBe("skipped");
+    // pending / unplanned / running どれへ戻そうとしても skipped に矯正される
+    for (const status of ["pending", "unplanned", "running"] as const) {
+      expect(g.patchNode(loser.id, { status }).status).toBe("skipped");
+    }
+    // done / dropped への patch は決着扱いなので通る（連鎖規則と同じく上書きしない対象）
+    expect(g.patchNode(loser.id, { status: "dropped" }).status).toBe("dropped");
+  });
+
+  it("patchNode: 勝った枝のノードは status だけの patch で普通に動かせる", () => {
+    const d = makeDecision();
+    const winner = g.addNode({
+      title: "A側",
+      parents: [d.id],
+      parentOptions: { [d.id]: "a" },
+      lifecycle: "committed",
+    });
+    g.applyDecision(d.id, "a");
+    expect(g.patchNode(winner.id, { status: "running" }).status).toBe("running");
+  });
+
   it("自動skipされた後付けノードも revertDecision で復元される", () => {
     const d = makeDecision();
     g.applyDecision(d.id, "a");

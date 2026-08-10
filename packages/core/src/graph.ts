@@ -321,8 +321,18 @@ export class GraphStore {
       const parentOptions =
         parsed.parentOptions !== undefined ? parsed.parentOptions : current.parentOptions;
       this.validateParentOptions(parents, parentOptions);
-      // 決着済みの分岐の「選ばれなかった枝」へ繋ぎ変えたノードは skipped にする（addNode と同じ理由。
-      // グラフ上で紐を引いて負けた枝のポートへ接続するケースがこちらを通る）
+    }
+    // 決着済みの分岐の「選ばれなかった枝」上のノードは実行可能な status に入れない（addNode と
+    // 同じ理由）。繋ぎ変え（parents/parentOptions 変更）だけでなく status だけの patch も対象
+    // ——素通りさせると skipped が pending に戻って frontier に乗り、エンジンに誤実行される。
+    // 負けた枝からの復帰は revertDecision（choice を先に取り消す）だけが通る正規ルート
+    if (
+      parsed.parentOptions !== undefined ||
+      parsed.parents !== undefined ||
+      parsed.status !== undefined
+    ) {
+      const parentOptions =
+        parsed.parentOptions !== undefined ? parsed.parentOptions : current.parentOptions;
       const nextStatus = parsed.status ?? current.status;
       if (
         (nextStatus === "pending" || nextStatus === "unplanned" || nextStatus === "running") &&
