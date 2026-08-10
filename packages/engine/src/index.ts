@@ -126,13 +126,15 @@ let engineMode: "cli" | "api" = "cli";
 let lastSettingsFetchAt = 0;
 
 /** GET /api/settings から engine executor の設定を反映する。10分未満は何もしない
- *  （force=true なら起動時など強制的に取得する）。取得失敗時は前回値のまま継続する */
+ *  （force=true なら起動時など強制的に取得する）。取得失敗時は前回値のまま継続し、
+ *  次 tick で再試行する（起動直後にサーバがまだ立っていないレースで10分間
+ *  既定値のまま走らないため。refreshWorkspaceInfo と同じ方式） */
 async function refreshEngineConfig(force = false): Promise<void> {
   const now = Date.now();
   if (!force && now - lastSettingsFetchAt < SETTINGS_REFRESH_MS) return;
-  lastSettingsFetchAt = now;
   try {
     const settings = await getSettings();
+    lastSettingsFetchAt = now;
     const modelFromEnv = process.env.GW_ENGINE_CLAUDE_MODEL;
     engineMode = settings.engine.mode === "api" ? "api" : "cli";
     engineConfig = {
@@ -147,7 +149,7 @@ async function refreshEngineConfig(force = false): Promise<void> {
       `エンジン設定を反映: mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)} extraTools=${JSON.stringify(engineConfig.extraTools)} addDirs=${JSON.stringify(engineConfig.addDirs)}`,
     );
   } catch (err) {
-    log(`設定取得に失敗（既定値のまま継続）: ${String(err)}`);
+    log(`設定取得に失敗（前回値のまま継続、次tickで再試行）: ${String(err)}`);
   }
 }
 
@@ -903,15 +905,17 @@ async function tickRunApprovals(nodes: Node[], runs: Run[]): Promise<boolean> {
           ENGINE_ACTOR,
           VIA,
         );
-        log(
-          `不可逆のため承認カードを開いた: run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
-        );
       } catch (err) {
-        // node に既に別のリクエストが開いている等。次周に再試行する
+        // node に既に別のリクエストが開いている等。処理済み扱いにすると失敗が続く限り
+        // 以降のラン処理を全て塞いでしまうため、この周は未処理として譲り、次周に再試行する
         log(
           `承認カードを開けなかった（次周に持ち越し）: run=${action.run.id} node=${action.node.id} ${String(err)}`,
         );
+        return false;
       }
+      log(
+        `不可逆のため承認カードを開いた: run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
+      );
       return true;
     case "execute":
       await executeRunItem(nodes, action.run, action.node);
@@ -999,10 +1003,12 @@ async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> 
       }
       try {
         await openRequest(node.id, buildAiQuestionRequest(node, question, run.id), ENGINE_ACTOR, VIA);
-        log(`AI質問カードを開き直した: run=${run.id} node=${node.id}`);
       } catch (err) {
-        log(`AI質問カードを開けなかった（次周に持ち越し）: run=${run.id} node=${node.id} ${String(err)}`);
+        // 開けなかった（別リクエストが開いている等）。処理済み扱いにせず次の候補へ進む
+        log(`AI質問カードを開けなかった（次候補へ）: run=${run.id} node=${node.id} ${String(err)}`);
+        continue;
       }
+      log(`AI質問カードを開き直した: run=${run.id} node=${node.id}`);
       return true;
     }
 
@@ -1062,14 +1068,17 @@ async function tickRunDecisionApprovals(nodes: Node[], runs: Run[]): Promise<boo
           ENGINE_ACTOR,
           VIA,
         );
-        log(
-          `分岐: 判断リクエストを開いた run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
-        );
       } catch (err) {
+        // 開けなかった（別リクエストが開いている等）。処理済み扱いにすると以降のラン処理を
+        // 塞いでしまうため、この周は未処理として譲り、次周に再試行する
         log(
           `分岐の判断リクエストを開けなかった（次周に持ち越し）: run=${action.run.id} node=${action.node.id} ${String(err)}`,
         );
+        return false;
       }
+      log(
+        `分岐: 判断リクエストを開いた run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
+      );
       return true;
     case "decide":
       await decideRunItem(action.run.id, action.node.id, action.choice, ENGINE_ACTOR, VIA);
@@ -1659,7 +1668,7 @@ async function triggerTick(nodes: Node[]): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  await refreshEngineConfig(); // 起動時+10分ごと（内部で throttle）
+  await refreshEngineConfig(); // 成功後は10分ごと、失敗中は毎tick再試行（内部で throttle）
   await refreshWorkspaceInfo(); // 未取得なら毎tick再試行、取得後は10分ごと（内部で throttle）
 
   // UIの稼働インジケータ用ハートビート（失敗しても実行は続ける）。

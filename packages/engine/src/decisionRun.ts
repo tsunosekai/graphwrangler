@@ -4,7 +4,7 @@
 // 文中のマーカーで束ねる（approval.ts の runGateMarker/findRunGate をそのまま再利用する）。
 // docs/design.md 3.8/3.9。ネットワークI/Oを一切持たない純粋関数のみを置く（vitest でテストする対象）。
 import type { DecisionRequest, Node, Run, RunItem } from "./types.js";
-import { findRunGate, gateKey, runGateMarker, type RunGateState } from "./approval.js";
+import { gateKey, runGateMarker, type RunGateState } from "./approval.js";
 
 /** 分岐の判断リクエストを開いた後、回答待ちの間 item に付ける目印（approval.ts の
  *  APPROVAL_WAITING_NOTE と同じ役割。この文字列を持つ waiting アイテムだけを対象にする） */
