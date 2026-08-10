@@ -209,6 +209,29 @@ describe("操作ログの辻褄合わせ（reconcileLog）", () => {
     expect(fs.readFileSync(path.join(sidecar, "ops.jsonl"), "utf8")).toBe(before);
   });
 
+  it("正データファイルから直接消されたノードは removed で追記され、削除前の時刻なら見える", () => {
+    const { file, sidecar } = externalWorkspace([
+      fixedNode("n-20260101-0001", "残るノード", "2026-01-01T00:00:00.000Z"),
+      fixedNode("n-20260101-0002", "外で消されるノード", "2026-01-01T00:00:00.000Z"),
+    ]);
+    const g1 = GraphStore.workspace(file, sidecar);
+    g1.reconcileLog();
+    // GraphWrangler を止めている間に正データファイルから直接消した、を模す
+    writeWorkspaceFile(file, [fixedNode("n-20260101-0001", "残るノード", "2026-01-01T00:00:00.000Z")]);
+    const g2 = GraphStore.workspace(file, sidecar);
+    expect(g2.reconcileLog()).toEqual({ added: 0, patched: 0, removed: 1 });
+    // 削除の追記は「いまの時刻」を名乗るので、削除前の時刻なら両方見える
+    expect(
+      g2
+        .nodesAt("2026-06-01T00:00:00.000Z")
+        .nodes.map((n) => n.id)
+        .sort(),
+    ).toEqual(["n-20260101-0001", "n-20260101-0002"]);
+    expect(g2.nodesAt("2030-01-01T00:00:00.000Z").nodes.map((n) => n.id)).toEqual(["n-20260101-0001"]);
+    // 2回目は何も追記しない（収束している）
+    expect(g2.reconcileLog()).toEqual({ added: 0, patched: 0, removed: 0 });
+  });
+
   it("外から書き換えられた中身も追記され、辻褄合わせの行は undo の対象にならない", () => {
     const { file, sidecar } = externalWorkspace([
       fixedNode("n-20260101-0001", "最初", "2026-01-01T00:00:00.000Z"),
