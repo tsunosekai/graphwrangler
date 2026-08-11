@@ -12,7 +12,7 @@ workspace 依存を持つ（`src/types.ts` が型を re-export するだけで�
 ## 起動方法
 
 ```bash
-pnpm --filter @graphwrangler/engine start   # tsx src/index.ts
+pnpm --filter @graphwrangler/engine start   # tsx src/main.ts
 # または watch モード
 pnpm --filter @graphwrangler/engine dev
 ```
@@ -30,7 +30,7 @@ pnpm --filter @graphwrangler/engine dev
 起動時と以後10分ごとに `GET /api/settings` を取得し、`engine.mode`（`"cli"` / `"api"`）と
 claude executor の CLI パス（`cliPath`）・モデル（`model`）・思考の深さ（`effort`）・
 追加引数（`extraArgs`）・追加許可ツール（`cliExtraTools`）・追加作業ディレクトリ
-（`ai.addDirs`。三役共通、`--add-dir` に渡す）に反映する（`src/index.ts` の
+（`ai.addDirs`。三役共通、`--add-dir` に渡す）に反映する（`src/settings.ts` の
 `refreshEngineConfig`）。取得に失敗した場合は前回値（初回は既定値 `mode="cli"` /
 `cliPath="claude"` / `model="opus"` / `effort=null` / `extraArgs=[]` / `extraTools=[]` /
 `addDirs=[]`）のまま継続する。`ai` セクションは2026-08-04追加のため、旧サーバ相手では
@@ -38,7 +38,7 @@ claude executor の CLI パス（`cliPath`）・モデル（`model`）・思考�
 
 モデル/エフォートの優先順位は **ノードの `aiModel`/`aiEffort`（2026-08-07 追加） >
 env `GW_ENGINE_CLAUDE_MODEL` > サーバ設定 `engine.model`/`engine.effort` > 既定値
-（`opus`/null）** の順（`src/index.ts` の `configFor`）。`GW_ENGINE_CLAUDE_MODEL` は
+（`opus`/null）** の順（`src/settings.ts` の `configFor`）。`GW_ENGINE_CLAUDE_MODEL` は
 サーバ設定より常に優先（デプロイ側の確実な上書き手段）だが、ノード側で明示的に
 モデルを指定した場合はそちらが最優先になる。
 
@@ -65,6 +65,31 @@ cwd をワークスペースルートにし（AI の Read/Grep/Glob がリポジ
 ようにする）、`impl={type:"doc",path}` は本文が無ければ `GET /api/files` で読んで
 プロンプトへインラインする。`datadir` モード相当では cwd はエンジンプロセスの既定
 （script executor は `os.tmpdir()`）のまま。取得失敗時は `datadir` モード相当で継続する。
+
+## ファイル構成
+
+エントリ（`src/main.ts`）とオーケストレーション（`src/index.ts`）を分けてある。
+`index.ts` は import しても副作用が無い（常駐ループを始めない）ので、tick 系の配線を
+テストから直接呼べる（`test/tick.test.ts`）。
+
+| ファイル | 役割 |
+|---|---|
+| `src/main.ts` | エントリ。起動時の設定読み込み・常駐ループ・プロセス終了（`start` / `dev` の入口） |
+| `src/index.ts` | `tick()`。1周でどの層をどの順に見るか（トリガー → タスク → 分岐 → ラン）だけを持つ |
+| `src/tickTrigger.ts` | トリガー層（script/検知スクリプト/ai によるラン作成・ラン前承認） |
+| `src/tickProject.ts` | プロジェクト層のタスク実行（`executeNode`・承認/失敗リカバリ回答の反映） |
+| `src/tickDecision.ts` | プロジェクト層の分岐ノード |
+| `src/tickRun.ts` | ラン層のワークアイテム（実行・不可逆承認・AI質問の往復） |
+| `src/tickRunDecision.ts` | ラン層の分岐アイテム |
+| `src/executor.ts` | script/ai executor 起動の組み立て（プロジェクト層とラン層の共通部） |
+| `src/settings.ts` | サーバ設定への追随（エンジンAI設定・ワークスペースモード） |
+| `src/threadContext.ts` | スレッドから文脈を集める（親の成果・再実行の経緯・回答の判定材料） |
+| `src/selfRestart.ts` | サーバ版数の変化を見てエンジンも降りる（自動アップデート追随） |
+| `src/actor.ts` / `src/format.ts` / `src/log.ts` | 書き込みの帰属・本文の整形・ログ |
+
+判定そのものを持つ純粋関数層（`pick.ts` / `pickRun.ts` / `approval.ts` / `ask.ts` /
+`decision.ts` / `decisionRun.ts` / `trigger.ts` / `schedule.ts` / `context.ts` / `params.ts`）は
+ネットワークI/Oを持たず、上の tick 系がその結果を API へ書く。
 
 ## やること（1周のループ。`src/index.ts` の `tick()`）
 
