@@ -382,6 +382,14 @@ function GraphViewInner({
         const st = activeRun.items[p]?.status;
         return st === undefined || st === "done" || st === "skipped";
       });
+    // **実測サイズ（measured）を持ち越す**。React Flow はノードオブジェクトが差し替わると
+    // measured をユーザー側オブジェクトから取り直し、measured の無いノードは
+    // handleBounds（エッジの接続位置）ごと捨てて再計測に回す（@xyflow/system の
+    // adoptUserNodes）。持ち越さないと、この effect が走るたびに全エッジが一瞬消え、
+    // 未計測ノードは visibility:hidden になる。再計測が詰まる（パネル展開・操作連打・
+    // タブ非表示等）と「紐が消えた」「ノードごと消えた」が画面に残る（2026-08-11 本人報告。
+    // リロードで直るのは初期化から計測し直すため）
+    const prevMeasured = new Map(getNodes().map((rn) => [rn.id, rn.measured]));
     setRfNodes(
       nodes.map((n) => {
         // 未読バッジ。既読tsは NodePanel がスレッド表示のたびにサーバへ書き込む。
@@ -397,6 +405,8 @@ function GraphViewInner({
           position: positionsRef.current.get(n.id) ?? { x: 0, y: 0 },
           draggable: true,
           selected,
+          // 上のコメント参照。既知の実測サイズを渡して、破棄→再計測のサイクルを起こさない
+          ...(prevMeasured.get(n.id) ? { measured: prevMeasured.get(n.id) } : {}),
           data: {
             node: n,
             selected: n.id === selectedId,
