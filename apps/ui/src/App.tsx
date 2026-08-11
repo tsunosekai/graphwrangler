@@ -123,8 +123,15 @@ function AppInner() {
   // デスクトップ通知の見出しはインスタンスのサイト名（2026-08-08 ブランディング）
   const { siteTitle } = useBranding();
   // 3秒ごとの取得なので、失敗はトーストを出さない（サーバ停止中に数秒おきに積み上がる）。
-  // 失敗時は usePolling が直近の正常な状態を保つ
-  const { data, refresh } = usePolling(() => api.getState({ silent: true }), 3000);
+  // 失敗時は usePolling が直近の正常な状態を保つ。
+  // now（サーバ時刻）はここで落とす——毎回変わる値が混ざると usePolling の
+  // 「内容が変わっていなければ再描画しない」比較が必ず外れ、変化が無くても
+  // 3秒ごとに全カード・全エッジが作り直される（操作中のちらつき・消えの温床。
+  // 2026-08-11 本人報告「操作してると紐やノードの表示が消える」の一因）
+  const { data, refresh } = usePolling(async () => {
+    const { now: _serverNow, ...state } = await api.getState({ silent: true });
+    return state;
+  }, 3000);
   // 初期 hash のルート（2026-08-08）。**ルート付きで開かれたときは localStorage の選択/ページ
   // 復元をスキップする**（hash が勝つ）——復元された旧選択とルートの選択が React Flow の
   // 初期化と同時に走ると、内部選択が合流して「2件選択」で固着する競合があった（実測）

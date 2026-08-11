@@ -505,29 +505,20 @@ export const api = {
   /** 配線チェック（docs/design.md 3.15。ルーティーンページの参照矢印と警告バッジ）。
    *  補助表示なので失敗はトーストせず null へ degrade する（旧サーバ 404 互換。
    *  呼び出し側は「静かに描かない」——コンソール警告だけ残す） */
+  /** 失敗は**投げる**（null に握り潰さない）。ポーリング側が直近の正常な結果を保つので、
+   *  一瞬の失敗で参照矢印（破線）が全部消えて数秒間戻らない、が起きない */
   getPageWiring: async (
     pageId: string,
-  ): Promise<{ references: WiringReference[]; warnings: WiringWarning[] } | null> => {
-    try {
-      const res = await fetch(`/api/pages/${pageId}/wiring`, {
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        console.warn(`配線チェックの取得に失敗しました (HTTP ${res.status})`);
-        return null;
-      }
-      const data = (await res.json()) as {
-        references?: WiringReference[];
-        warnings?: WiringWarning[];
-      };
-      return {
-        references: Array.isArray(data.references) ? data.references : [],
-        warnings: Array.isArray(data.warnings) ? data.warnings : [],
-      };
-    } catch (e) {
-      console.warn("配線チェックの取得に失敗しました", e);
-      return null;
-    }
+    opts: { silent?: boolean } = {},
+  ): Promise<{ references: WiringReference[]; warnings: WiringWarning[] }> => {
+    const data = await request<{ references?: WiringReference[]; warnings?: WiringWarning[] }>(
+      `/pages/${pageId}/wiring`,
+      { silent: opts.silent },
+    );
+    return {
+      references: Array.isArray(data.references) ? data.references : [],
+      warnings: Array.isArray(data.warnings) ? data.warnings : [],
+    };
   },
 
   /** そのランの時点のノード（2026-08-08）。ラン作成時に焼いたスナップショット、無ければ

@@ -277,12 +277,12 @@ function GraphViewInner({
 
   // ---- 配線チェック（docs/design.md 3.15）: ルーティーンページの**テンプレート表示**でだけ
   //      GET /pages/:id/wiring を取り、参照矢印（破線）と警告バッジを描く。ランのページでは
-  //      描かない（その回の記録に配線検査は要らない）。取得失敗は静かに描かない
-  //      （api.getPageWiring が null へ degrade。コンソール警告のみ） ----
+  //      描かない（その回の記録に配線検査は要らない）。取得失敗は**投げる**——
+  //      usePolling が直近の正常な結果を保つので、一瞬の失敗で破線が消えない ----
   const { data: wiring } = usePolling(
     async () => {
       if (!pageNode || !isRoutine || runView) return null;
-      return api.getPageWiring(pageNode.id);
+      return api.getPageWiring(pageNode.id, { silent: true });
     },
     5000,
     `${pageNode?.id ?? ""}:${isRoutine}:${runView?.id ?? ""}`,
