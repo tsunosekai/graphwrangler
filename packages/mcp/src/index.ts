@@ -126,12 +126,10 @@ server.registerTool(
     description: "指定した1ノードの全フィールド（detail/impl を含む）を取得する。ノードidは state_get の一覧から得る。",
     inputSchema: { nodeId: z.string().describe("取得したいノードのid") },
   },
-  safe(async ({ nodeId }: { nodeId: string }) => {
-    const state = (await apiGet("/api/state")) as { nodes: Record<string, unknown>[] };
-    const node = state.nodes.find((n) => n.id === nodeId);
-    if (!node) throw new ApiError(404, `node not found: ${nodeId}`);
-    return node;
-  }),
+  // GET /api/nodes/:id は GET /api/state の nodes 要素と同じ形（同じ Node）を返す。
+  // 存在しないidはサーバが 404 の {error:"node not found: <id>"} を返し、http.ts が
+  // ApiError にする（＝ここで見つからない判定を持たなくてよい）
+  safe(async ({ nodeId }: { nodeId: string }) => apiGet(`/api/nodes/${encodeURIComponent(nodeId)}`)),
 );
 
 // ---- 3. node_add ----

@@ -272,6 +272,15 @@ try {
     assert.equal(node.id, taskId);
     assert.ok("detail" in node, "node_get should include detail");
     assert.ok("created" in node, "node_get should include created");
+
+    // node_get はサーバのノード1件取得（GET /api/nodes/:id）経由。グラフ全体を返す
+    // state_get と同じノードが見えていることを、要約フィールドの一致で確かめる
+    const state = toolResultJson(await rpc("tools/call", { name: "state_get", arguments: {} }));
+    const summary = state.nodes.find((n) => n.id === taskId);
+    assert.ok(summary, "state_get にも同じノードが居る");
+    for (const [key, value] of Object.entries(summary)) {
+      assert.deepEqual(node[key], value, `${key} が state_get の要約と一致する`);
+    }
   });
 
   // 8. node_patch
@@ -371,6 +380,7 @@ try {
   await step("tools/call node_get (存在しないid はisError)", async () => {
     const result = await rpc("tools/call", { name: "node_get", arguments: { nodeId: "n-does-not-exist" } });
     assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("node not found: n-does-not-exist"));
   });
 
   // 12.5 ラン操作系: ルーティーンページ（goal + trigger + committed メンバー）を作ってラン一式を回す

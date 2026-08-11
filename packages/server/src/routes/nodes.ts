@@ -26,6 +26,14 @@ export function nodeRoutes(ctx: AppContext): Hono {
     return c.json(node);
   });
 
+  /** ノード1件を全フィールドで返す。返す形は GET /api/state の nodes 要素と同一
+   *  （どちらも GraphStore の Node をそのまま JSON にしたもの）——MCP の node_get が
+   *  グラフ全体を取って1件を探す代わりにここを叩くので、この同一性が前提になる。
+   *  存在しないidは GraphStore.get が 404 の GraphError を投げる */
+  app.get("/api/nodes/:id", (c) => {
+    return c.json(graph.get(c.req.param("id")));
+  });
+
   app.post("/api/nodes/:id", async (c) => {
     const body = await c.req.json();
     const node = graph.patchNode(c.req.param("id"), NodePatchSchema.parse(body), meta(body));
