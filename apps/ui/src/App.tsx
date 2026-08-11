@@ -151,7 +151,9 @@ function AppInner() {
   const { me } = useTeam();
   // デスクトップ通知の見出しはインスタンスのサイト名（2026-08-08 ブランディング）
   const { siteTitle } = useBranding();
-  const { data, refresh } = usePolling(() => api.getState(), 3000);
+  // 3秒ごとの取得なので、失敗はトーストを出さない（サーバ停止中に数秒おきに積み上がる）。
+  // 失敗時は usePolling が直近の正常な状態を保つ
+  const { data, refresh } = usePolling(() => api.getState({ silent: true }), 3000);
   // 初期 hash のルート（2026-08-08）。**ルート付きで開かれたときは localStorage の選択/ページ
   // 復元をスキップする**（hash が勝つ）——復元された旧選択とルートの選択が React Flow の
   // 初期化と同時に走ると、内部選択が合流して「2件選択」で固着する競合があった（実測）
@@ -261,30 +263,22 @@ function AppInner() {
     return folders.filter((f) => f.id !== pageNode.id && isRoutinePage(f, nodes) === routine);
   }, [folders, pageNode, nodes]);
 
-  const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
-
-  // グラフ（表示中ページ）と選択ノードの食い違いガード: 選択中ノードが表示中ページの
-  // メンバーでもページ自身でもなくなったら選択を落とす。ページ切替に選択が置き去りに
-  // なると「グラフはこっちなのにノード詳細タブは別プロジェクトのノード」という
-  // ねじれになる（2026-08-02 本人報告。localStorage 復元の組み合わせでも起きる）
-  useEffect(() => {
-    if (!selectedNode) return;
-    if (selectedNode.id === pageId || selectedNode.group === pageId) return;
-    setSelectedId(null);
-  }, [selectedNode, pageId]);
+  // 選択ノードの実体と、表示中ページとの食い違いガードは panelNode の定義後にまとめてある
+  // （ランのページではフォーク側を見る必要があり、テンプレートの nodes だけでは決まらない）
 
   // ---- 全ページのラン一覧（PageList の左レール: ドット・ラン子行 + TopBar のラン待ち統合が使う）。
   //      **1リクエスト**でページ id → ラン配列を受け取る（2026-08-08 最適化。旧: ページごとに
   //      GET /pages/:id/runs ＝ ページ数ぶんの往復と、その回数ぶんの全ラン走査）。
   //      ルーティーンだけでなく全ページぶん来る——トリガーを外してプロジェクトへ戻った
   //      ページにも過去ランは残り、レールのラン子行に出すため ----
-  const { data: railRunsData, refresh: refreshRailRuns } = usePolling(async (): Promise<Record<string, Run[]>> => {
-    try {
-      return (await api.listAllRuns()).runs;
-    } catch {
-      return {};
-    }
-  }, 5000);
+  // 取得に失敗したら**何も返さず投げる**（usePolling が直近の正常な一覧を保ち続ける）。
+  // 空を返すと、サーバの再起動やネットワークの一瞬の途切れだけで開いているランを
+  // 見失い、ランのページがテンプレート表示に落ちる（2026-08-11 本人報告
+  // 「操作してたら消えたり、急に消えたり」の主因）
+  const { data: railRunsData, refresh: refreshRailRuns } = usePolling(
+    async (): Promise<Record<string, Run[]>> => (await api.listAllRuns({ silent: true })).runs,
+    5000,
+  );
   const railRuns = useMemo(() => railRunsData ?? {}, [railRunsData]);
 
   // ---- 実行中ラン一覧（docs/design.md 3.8: トリガー起点のルーティーン。グラフ投影用）。
@@ -297,13 +291,10 @@ function AppInner() {
   // 旧: running だけ絞っていたため、終わったランをグラフに投影して見返す手段が無かった）
   const { data: pageRunsData, refresh: refreshActiveRun } = usePolling(async (): Promise<Run[]> => {
     if (!pageId || !isCurrentPageRoutine) return [];
-    try {
-      const { runs } = await api.listRuns(pageId);
-      // listRuns は新しい順（LedgerView と同じ前提）
-      return runs;
-    } catch {
-      return [];
-    }
+    // 失敗は投げる（railRuns と同じ理由。空で塗り潰すと開いているランを見失う）
+    const { runs } = await api.listRuns(pageId, { silent: true });
+    // listRuns は新しい順（LedgerView と同じ前提）
+    return runs;
     // ページが変わったら次の周期を待たず即取り直す（下のリセット effect の refresh と同趣旨）
   }, 3000, `${pageId ?? ""}:${isCurrentPageRoutine}`);
   const pageRuns = useMemo(() => pageRunsData ?? [], [pageRunsData]);
@@ -336,7 +327,7 @@ function AppInner() {
   //      当時を割り出す）。ラン内の進捗（items）を status に載せて、テンプレートとは別の
   //      ノード集合として扱う。ラン中に中身は変わらないので取得は開いたときだけでよい ----
   const { data: runGraph } = usePolling(
-    async () => (projectedRunId ? await api.getRunGraph(projectedRunId) : null),
+    async () => (projectedRunId ? await api.getRunGraph(projectedRunId, { silent: true }) : null),
     60000,
     projectedRunId ?? "",
   );
@@ -360,8 +351,11 @@ function AppInner() {
     const forked = runGraph.nodes.find((n) => n.id === openRun.procedure);
     return forked ? nodeFromRunGraph(forked, runGraph.at) : null;
   }, [openRun, runGraph]);
-  /** ランのページを見ているか（= ラン専用の表示・編集ロックに切り替える） */
-  const inRunPage = !!openRun && runNodes.length > 0;
+  /** ランのページを見ているか（= ラン専用の表示・編集ロックに切り替える）。
+   *  判定は「ランを開いているか」だけで決める——スナップショットの取得が遅れている間に
+   *  テンプレートへ勝手に落ちると、URL はランのままなのに設計図が出る（しかも編集ロックも
+   *  外れる）。取得中はグラフが空になるだけで、どのページに居るかはぶれない */
+  const inRunPage = !!openRun;
 
   /** ノード詳細パネルに出すノード。ランのページではフォーク側（そのランの中身）を見せる。
    *  見つからないノード（ラン後に足されたノード等）はテンプレート側で代替する */
@@ -373,6 +367,21 @@ function AppInner() {
     }
     return nodes.find((n) => n.id === selectedId) ?? null;
   }, [selectedId, inRunPage, runNodes, runPageNode, nodes]);
+
+  /** いま表示しているページ。ランのページではそのランの元ページ（openRun.procedure）が正
+   *  ——ランは別ページから開けるので、テンプレート側の pageId とは一致しないことがある */
+  const shownPageId = inRunPage && openRun ? openRun.procedure : pageId;
+  // グラフ（表示中のページ / ラン）と選択ノードの食い違いガード: 選択中ノードが表示中の
+  // ページのメンバーでもページ自身でもなくなったら選択を落とす。ページ切替に選択が
+  // 置き去りになると「グラフはこっちなのにノード詳細は別プロジェクトのノード」という
+  // ねじれになる（2026-08-02 本人報告。localStorage 復元の組み合わせでも起きる）。
+  // **実体が見つからないときは落とさない**——取得が一瞬遅れただけで選択が消えると、
+  // 開いていたノードのビューが勝手に閉じる（2026-08-11 本人報告）
+  useEffect(() => {
+    if (!panelNode) return;
+    if (panelNode.id === shownPageId || panelNode.group === shownPageId) return;
+    setSelectedId(null);
+  }, [panelNode, shownPageId]);
 
   // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
   // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）。
@@ -570,7 +579,7 @@ function AppInner() {
 
   // モバイルの実効ビュー: 「ノード」ビューで表示できるものが無ければグラフへ倒す
   // （選択解除・削除直後に空画面へ取り残されないように）。デスクトップは null（全ペイン共存）
-  const hasNodeView = selectedIds.length > 1 || selectedNode !== null;
+  const hasNodeView = selectedIds.length > 1 || panelNode !== null;
   const mv: MobileView | null = isMobile ? (mobileView === "node" && !hasNodeView ? "graph" : mobileView) : null;
 
   // --- モバイルのブラウザ「戻る」統合（2026-08-02 本人報告「スマホの戻るで戻りすぎる」） ---
@@ -724,10 +733,10 @@ function AppInner() {
               }}
             />
           ) : (
-            selectedNode && (
+            panelNode && (
               <NodePanel
-                key={`${openRun?.id ?? "template"}:${(panelNode ?? selectedNode).id}`}
-                node={panelNode ?? selectedNode}
+                key={`${openRun?.id ?? "template"}:${panelNode.id}`}
+                node={panelNode}
                 allNodes={inRunPage ? runNodes : nodes}
                 activeRun={activeRun}
                 runView={inRunPage && openRun ? { id: openRun.id, title: openRun.title } : null}
@@ -758,7 +767,7 @@ function AppInner() {
         <MobileNav
           view={mv ?? "graph"}
           nodeEnabled={hasNodeView}
-          nodeLabel={selectedIds.length > 1 ? `${selectedIds.length}件選択` : (selectedNode?.title || null)}
+          nodeLabel={selectedIds.length > 1 ? `${selectedIds.length}件選択` : (panelNode?.title || null)}
           onChange={setMobileView}
         />
       )}

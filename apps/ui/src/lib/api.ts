@@ -331,13 +331,13 @@ export const api = {
 
   // threadMeta: ノードごとの最終メッセージ時刻 / reads: ノードごとの既読時刻。
   // この2つの突き合わせが未読判定（どちらもサーバ持ち＝端末間で一致する）
-  getState: () =>
+  getState: (opts: { silent?: boolean } = {}) =>
     request<{
       nodes: Node[];
       threadMeta: Record<string, string>;
       reads: Record<string, string>;
       now: string;
-    }>("/state"),
+    }>("/state", { silent: opts.silent }),
 
   addNode: (input: NodeCreateInput) =>
     request<Node>("/nodes", { method: "POST", body: JSON.stringify(input) }),
@@ -459,11 +459,13 @@ export const api = {
 
   // ---- ルーティーンページ: ラン（実行インスタンス。docs/design.md 3.8） ----
 
-  listRuns: (pageId: string) => request<{ runs: Run[] }>(`/pages/${pageId}/runs`),
+  listRuns: (pageId: string, opts: { silent?: boolean } = {}) =>
+    request<{ runs: Run[] }>(`/pages/${pageId}/runs`, { silent: opts.silent }),
 
   /** 全ページのラン一覧を1リクエストで（ページ id → ラン配列。新しい順）。左レール用。
    *  ラン作成時のスナップショットはサーバ側で落とされている（2026-08-08 最適化） */
-  listAllRuns: () => request<{ runs: Record<string, Run[]> }>("/runs/summary"),
+  listAllRuns: (opts: { silent?: boolean } = {}) =>
+    request<{ runs: Record<string, Run[]> }>("/runs/summary", { silent: opts.silent }),
 
   patchRunItem: (runId: string, nodeId: string, input: { status?: RunItemStatus; note?: string | null }) =>
     // 進捗の記録はそのランのスレッドに載るので、既読もそのランのキーで打つ
@@ -524,8 +526,10 @@ export const api = {
 
   /** そのランの時点のノード（2026-08-08）。ラン作成時に焼いたスナップショット、無ければ
    *  操作ログの再生、それも無ければ現在の中身。どれを使ったかは各ノードの source に入る */
-  getRunGraph: (runId: string) =>
-    request<{ runId: string; at: string; nodes: RunGraphNode[] }>(`/runs/${runId}/graph`),
+  getRunGraph: (runId: string, opts: { silent?: boolean } = {}) =>
+    request<{ runId: string; at: string; nodes: RunGraphNode[] }>(`/runs/${runId}/graph`, {
+      silent: opts.silent,
+    }),
 
   // ---- 元に戻す / やり直す（操作ログの補償追記） ----
 
