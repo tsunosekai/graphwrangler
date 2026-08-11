@@ -60,7 +60,11 @@ describe("ランへのラン作成時スナップショット（A）", () => {
     expect(g.get(task.id).title).toBe("今のタイトル");
   });
 
-  it("snapshot はランの必須フィールド（欠けたファイルは読めない）", () => {
+  // 2026-08-12 反転: 旧仕様は「snapshot 必須＝欠けたファイルは読めない」だったが、
+  // snapshot 機能追加（2026-08-08）以前の保存済みランが実在し、必須のままだと旧ランの
+  // 読み出し・更新が Required エラーで丸ごと失敗していた。読む側はもともと
+  // run.snapshot?. で防御済みなので、スキーマも optional にして旧ランを読めるようにする
+  it("snapshot の無い旧ランファイルも読める（2026-08-08 以前の保存分）", () => {
     const runs = new RunStore(dir);
     const g = new GraphStore(dir);
     const page = g.addNode({ title: "p", kind: "goal" });
@@ -70,7 +74,7 @@ describe("ランへのラン作成時スナップショット（A）", () => {
     const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
     delete raw.snapshot;
     fs.writeFileSync(file, JSON.stringify(raw), "utf8");
-    expect(() => runs.get(run.id)).toThrow();
+    expect(runs.get(run.id).snapshot).toBeUndefined();
   });
 });
 

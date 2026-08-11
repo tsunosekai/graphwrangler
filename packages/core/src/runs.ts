@@ -96,8 +96,18 @@ export class RunStore {
       .map((f) => f.slice(0, -".json".length));
   }
 
+  /** 旧フィールド名の読み替え（2026-08-12）。保存済みランは移行しないので、rename 前の
+   *  ファイルは読むときに今の名前へ写す: procedure → pageId（2026-07-31 頃の rename 以前）。
+   *  これが無いと旧ランを含むページの一覧・更新が Required エラーで失敗する（実データで踏んだ） */
+  private static normalizeLegacy(raw: unknown): unknown {
+    if (raw && typeof raw === "object" && !("pageId" in raw) && "procedure" in raw) {
+      return { ...(raw as Record<string, unknown>), pageId: (raw as Record<string, unknown>).procedure };
+    }
+    return raw;
+  }
+
   private all(): Run[] {
-    return this.existingIds().map((id) => RunSchema.parse(readJson(this.file(id))));
+    return this.existingIds().map((id) => RunSchema.parse(RunStore.normalizeLegacy(readJson(this.file(id)))));
   }
 
   /**
@@ -175,7 +185,7 @@ export class RunStore {
   get(runId: string): Run {
     const raw = readJson<Run>(this.file(runId));
     if (!raw) throw new GraphError(`run not found: ${runId}`, 404);
-    return RunSchema.parse(raw);
+    return RunSchema.parse(RunStore.normalizeLegacy(raw));
   }
 
   /**

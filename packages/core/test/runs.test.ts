@@ -260,7 +260,10 @@ describe("RunStore: ランのコンテキスト（3.15）", () => {
     expect(() => runs.patchContext(run.id, { "": "x" })).toThrow(GraphError);
   });
 
-  it("context/snapshot の無いランファイルは読めない（必須フィールド）", () => {
+  // 2026-08-12 反転: これらのフィールドは後から追加された（context 08-09 / snapshot 08-08）。
+  // 必須のままだと追加前の保存済みランの読み出し・ワークアイテム更新が Required エラーで
+  // 失敗する（実データで踏んだ）。旧ランは context={} / snapshot=undefined として読める
+  it("context/snapshot の無い旧ランファイルも読める（フィールド追加前の保存分）", () => {
     const runs = new RunStore(dir);
     const runsDir = path.join(dir, "runs");
     fs.mkdirSync(runsDir, { recursive: true });
@@ -277,7 +280,29 @@ describe("RunStore: ランのコンテキスト（3.15）", () => {
       }),
       "utf8",
     );
-    expect(() => runs.get("r-20260101-0001")).toThrow();
+    const run = runs.get("r-20260101-0001");
+    expect(run.context).toEqual({});
+    expect(run.snapshot).toBeUndefined();
+  });
+
+  it("旧フィールド名 procedure のランは pageId として読める（rename 前の保存分）", () => {
+    const runs = new RunStore(dir);
+    const runsDir = path.join(dir, "runs");
+    fs.mkdirSync(runsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runsDir, "r-20260102-0001.json"),
+      JSON.stringify({
+        id: "r-20260102-0001",
+        procedure: "p-1",
+        title: "旧ラン",
+        trigger: "trigger:n-1:manual",
+        status: "done",
+        items: { "n-2": { status: "done", note: null, choice: null } },
+        created: "2026-01-02T00:00:00.000Z",
+      }),
+      "utf8",
+    );
+    expect(runs.get("r-20260102-0001").pageId).toBe("p-1");
   });
 });
 

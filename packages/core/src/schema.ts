@@ -448,29 +448,34 @@ export type RunStatus = z.infer<typeof RunStatusSchema>;
  * 中身をランへ焼いて残す。id と、後から書き換わりうる表示・実行に関わるフィールドだけを持つ
  * （created/createdBy のような不変値、order/folder のような見せ方だけの値は入れない）。
  */
+// 各フィールドに default を持たせる理由（2026-08-12）: フィールドは後から増えてきた
+// （autonomy 08-03 / assignee 08-04 / aiModel・aiEffort 08-07 / outputs 08-09 …）が、
+// 保存済みノードは移行されない。default 無しの必須にすると、**古いノードを含むページの
+// ラン作成・ラン更新が「Required」の羅列で丸ごと失敗する**（実データで踏んだ。
+// スキーマにフィールドを足すときは必ず default を付けること）
 export const NodeSnapshotSchema = z.object({
   id: z.string(),
   title: z.string(),
-  detail: z.string().nullable(),
-  impl: NodeImplSchema.nullable(),
-  parents: z.array(z.string()),
-  group: z.string().nullable(),
+  detail: z.string().nullable().default(null),
+  impl: NodeImplSchema.nullable().default(null),
+  parents: z.array(z.string()).default([]),
+  group: z.string().nullable().default(null),
   kind: NodeKindSchema,
   executor: ExecutorSchema,
-  approval: z.boolean(),
-  autonomy: AutonomySchema,
-  aiModel: z.string().nullable(),
-  aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable(),
+  approval: z.boolean().default(false),
+  autonomy: AutonomySchema.default("normal"),
+  aiModel: z.string().nullable().default(null),
+  aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().default(null),
   lifecycle: LifecycleSchema,
   /** ラン作成時点の**テンプレート**の status（ランの進捗は RunItem.status が持つ） */
   status: StatusSchema,
-  fixed: z.boolean(),
-  schedule: z.string().nullable(),
-  branches: z.array(NodeBranchSchema).nullable(),
+  fixed: z.boolean().default(false),
+  schedule: z.string().nullable().default(null),
+  branches: z.array(NodeBranchSchema).nullable().default(null),
   /** 出力宣言（3.15）。null = 宣言なし */
-  outputs: z.array(OutputParamSchema).nullable(),
-  parentOptions: z.record(z.string(), z.string()),
-  assignee: z.string().nullable(),
+  outputs: z.array(OutputParamSchema).nullable().default(null),
+  parentOptions: z.record(z.string(), z.string()).default({}),
+  assignee: z.string().nullable().default(null),
 });
 export type NodeSnapshot = z.infer<typeof NodeSnapshotSchema>;
 
@@ -487,15 +492,20 @@ export const RunSchema = z.object({
   items: z.record(z.string(), RunItemSchema),
   /** ランのコンテキスト（3.15。2026-08-09）。ラン作成時の初期値が入り、ランの進行中に
    *  ノード（##gw マーカー / 完了フォーム / API）が書き足す。last-write-wins。
-   *  初期値なしのランでは空オブジェクト */
-  context: z.record(z.string(), z.string()),
+   *  初期値なしのランでは空オブジェクト。default はフィールド追加前の保存済みラン用
+   *  （2026-08-12。無いと旧ランの読み出し・更新が Required で失敗する） */
+  context: z.record(z.string(), z.string()).default({}),
   /** ラン作成時点のページ構成（ページ自身 + メンバー全部。トリガーや items に入らないノードも含む）。
-   *  ランは必ずこれを持つ（createFromTrigger が焼く）。当時のグラフを見せる
-   *  GET /api/runs/:id/graph の第一の出どころ */
-  snapshot: z.object({
-    capturedAt: z.string(),
-    nodes: z.array(NodeSnapshotSchema),
-  }),
+   *  新しいランは必ずこれを持つ（createFromTrigger が焼く）。当時のグラフを見せる
+   *  GET /api/runs/:id/graph の第一の出どころ。**optional なのは 2026-08-08 以前の
+   *  保存済みラン（snapshot 機能追加前）のため**——読む側はもともと run.snapshot?. で
+   *  防御済みだったのに、スキーマだけが必須で旧ランの更新を落としていた（2026-08-12 修正） */
+  snapshot: z
+    .object({
+      capturedAt: z.string(),
+      nodes: z.array(NodeSnapshotSchema),
+    })
+    .optional(),
   created: z.string(),
 });
 export type Run = z.infer<typeof RunSchema>;

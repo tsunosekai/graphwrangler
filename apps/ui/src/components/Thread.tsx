@@ -21,6 +21,9 @@ interface Props {
   unreadSince?: string | null;
   /** Task AI が応答生成中か（「考え中」表示。GraphWrangler AI＝ChatDrawer と同じ見た目にする） */
   aiBusy?: boolean;
+  /** 実行AI（エンジン）がこのノードの作業中か（2026-08-12。判断カードに答えた後〜成果が
+   *  届くまでの「考え中」。Task AI とは別系統なので、入力欄の■停止は出さない） */
+  executorBusy?: boolean;
   /** 応答中に書いた分を受けて、終わり次第もう一度応答する予約があるか（2026-08-05） */
   aiQueued?: boolean;
   showReplyBox: boolean;
@@ -190,6 +193,7 @@ export function Thread({
   messages,
   unreadSince,
   aiBusy,
+  executorBusy,
   aiQueued,
   showReplyBox,
   runId = null,
@@ -244,7 +248,7 @@ export function Thread({
     if (!stickToBottomRef.current) return;
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, aiBusy]);
+  }, [messages.length, aiBusy, executorBusy]);
 
   /** ChatComposer から組み立て済み本文（添付行込み）を受けて投稿する */
   const sendReply = async (body: string) => {
@@ -380,9 +384,12 @@ export function Thread({
             右に停止ボタン（2026-08-05 本人要望「AIの会話を止められる機能」）と、送信予約の
             予約表示（応答中に書いた分は捨てず、終わり次第まとめて返事が来る） */}
         {/* 停止は入力欄の■に集約したので、ここにはボタンを置かない（2026-08-08 本人指定） */}
-        {aiBusy && (
+        {aiBusy ? (
           <ThinkingIndicator label={aiQueued ? "考え中（続きの返信は応答後に届きます）" : "考え中"} />
-        )}
+        ) : executorBusy ? (
+          // 実行AI（エンジン）の作業中。回答→成果が届くまでの空白を埋める（2026-08-12）
+          <ThinkingIndicator label="考え中（実行AIが作業しています）" />
+        ) : null}
       </div>
       {/* 入力欄は ChatComposer（GraphWrangler AI=ChatDrawer と共通。2026-08-07 本人要望
           「UI を分けずに同じコンポーネントに」）。応答中の送信はサーバ側が予約して

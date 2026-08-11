@@ -392,6 +392,30 @@ export function NodePanel({
     (m) => m.kind === "decision_request" && m.requestStatus === "open",
   );
 
+  // 実行AI（エンジン）が作業中の「考え中」（2026-08-12 本人報告「カードに答えた後、
+  // 返答が来るまでの間に考え中が出ない」）。thread.aiBusy はスレッドの Task AI 専用で、
+  // 判断カードへの回答後に動くのは実行AI＝別系統のため、アイテム/ノードの状態から導出する:
+  // - running = 実行AIが作業中
+  // - ランのアイテムが waiting のまま open なカードが無い = 答えた直後（エンジンの拾い待ち。
+  //   数秒後に running になる）。ただし「失敗:」ノート（もう一度/飛ばす＝人間の番）は除く
+  const executorBusy =
+    node.executor === "ai" &&
+    (runView
+      ? activeRunItem?.status === "running" ||
+        (activeRunItem?.status === "waiting" &&
+          !(activeRunItem.note ?? "").startsWith("失敗") &&
+          openRequests.length === 0)
+      : node.status === "running");
+
+  // 実行AIの作業中もスレッドを短い間隔で取りにいく（Task AI の「考え中」と同じ理由:
+  // 成果の say が着いてから最大10秒表示が残るのを防ぐ）。アイテム状態の更新自体は
+  // App のラン取得（3秒）が担う
+  useEffect(() => {
+    if (!executorBusy) return;
+    const timer = window.setInterval(() => void refreshThread(), 2000);
+    return () => window.clearInterval(timer);
+  }, [executorBusy, refreshThread]);
+
   return (
     <aside
       data-mobile-panel="right"
@@ -933,6 +957,7 @@ export function NodePanel({
         //  どこから読めばいいかの目印は読み終わるまで要る。2026-08-05）
         unreadSince={unreadSince}
         aiBusy={thread?.aiBusy ?? false}
+        executorBusy={executorBusy}
         aiQueued={thread?.aiQueued ?? false}
         showReplyBox={tab === "talk"}
         // 書き込み先もこのランの会話（テンプレート側の相談とは混ざらない。2026-08-08）
