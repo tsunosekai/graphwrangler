@@ -1,9 +1,7 @@
 // 初回セットアップ + いつでも開ける⚙設定。2026-08-02 本人指示「設定はモーダルじゃなくて
 // 全面表示に」でダイアログから全画面レイヤーへ変更（fixed inset-0。ヘッダー行 + スクロール本体）。
-// 「チャットAI」（GraphWrangler AI）と「実行AI＝エンジン」それぞれについて、まず「接続方式」
-// （APIキー / ヘッドレスエージェントCLI）をドロップダウンで選ばせ、選んだ方式に応じて
-// 入力欄を出し分ける（docs/design.md: LLM選択は「APIキーの差し替え」でなく
-// 「エージェントごと差し替え」。2026-07-29 本人フィードバック「どっちを使う設定か分からない」対応）。
+// 区画ごとの見た目は components/setup/ の各節へ切り出し、ここは
+// 「フォームの状態 + 保存（全体タブの一括保存 / ユーザー設定の即時保存）」だけを持つ。
 import { useEffect, useRef, useState } from "react";
 import {
   api,
@@ -13,14 +11,23 @@ import {
   type UserSettings,
 } from "../lib/api";
 import { DEFAULT_SITE_TITLE, refreshBranding } from "../lib/branding";
-import { hintsEnabled, resetHints, setHintsEnabled, useHintsVersion } from "../lib/hints";
+import { useHintsVersion } from "../lib/hints";
 import { pushToast } from "../lib/toast";
-import { useTheme, type ThemeMode } from "../lib/theme";
+import { useTheme } from "../lib/theme";
 import { Button } from "./ui/button";
 import { X } from "lucide-react";
-import { Input } from "./ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Switch } from "./ui/switch";
+import { BrandingSection } from "./setup/BrandingSection";
+import { ChatAiSection, type ChatMode } from "./setup/ChatAiSection";
+import type { EffortValue } from "./setup/CliSelects";
+import { EngineSection, type EngineMode } from "./setup/EngineSection";
+import { GitSection } from "./setup/GitSection";
+import { HintsSection } from "./setup/HintsSection";
+import { NotifyGlobalSection } from "./setup/NotifyGlobalSection";
+import { NotifyUserSection } from "./setup/NotifyUserSection";
+import { ThemeSection } from "./setup/ThemeSection";
+import { UpdateSection } from "./setup/UpdateSection";
+import { WorkDirsSection } from "./setup/WorkDirsSection";
+import { section } from "./setup/styles";
 
 interface Props {
   settings: SettingsView;
@@ -30,78 +37,6 @@ interface Props {
   onSkip: () => void;
   onClose: () => void;
 }
-
-type ChatMode = "api" | "cli";
-type EngineMode = "cli" | "api";
-
-const CHAT_DEFAULT_MODEL: Record<"anthropic" | "openai", string> = {
-  anthropic: "claude-opus-5",
-  openai: "gpt-5",
-};
-
-// CLI（claude -p）のモデルは選択式（本人指定 2026-07-31。既定は Opus 5）。
-// claude CLI のエイリアス名をそのまま値にする。保存済みの値がリストに無い場合は
-// 「カスタム」として選択肢に足し、既存設定を壊さない
-const CLI_MODELS = [
-  { value: "fable", label: "Fable 5（最高性能）" },
-  { value: "opus", label: "Opus 5（高性能・既定）" },
-  { value: "sonnet", label: "Sonnet 5（標準）" },
-  { value: "haiku", label: "Haiku 4.5（高速）" },
-];
-
-function CliModelSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const isCustom = value !== "" && !CLI_MODELS.some((m) => m.value === value);
-  return (
-    <Select value={value || "opus"} onValueChange={onChange}>
-      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-      <SelectContent>
-        {CLI_MODELS.map((m) => (
-          <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-        ))}
-        {isCustom && <SelectItem value={value}>{value}（カスタム）</SelectItem>}
-      </SelectContent>
-    </Select>
-  );
-}
-
-// エフォート（思考の深さ。claude CLI の --effort）の選択肢（2026-08-07 モデル/エフォート切替）
-const EFFORT_OPTIONS = [
-  // 「既定」とだけ書かず中身を書く（2026-08-07 本人指摘）。null = --effort を渡さない
-  { value: "default", label: "指定なし（CLIの既定で動く）" },
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-  { value: "xhigh", label: "超高" },
-  { value: "max", label: "最大" },
-];
-
-type EffortValue = "low" | "medium" | "high" | "xhigh" | "max" | null;
-
-function EffortSelect({ value, onChange }: { value: EffortValue; onChange: (v: EffortValue) => void }) {
-  return (
-    <Select
-      value={value ?? "default"}
-      onValueChange={(v) => onChange(v === "default" ? null : (v as EffortValue))}
-    >
-      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-      <SelectContent>
-        {EFFORT_OPTIONS.map((o) => (
-          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-const CHAT_MODE_DESC: Record<ChatMode, string> = {
-  api: "APIキーで直接呼び出します。",
-  cli: "claude -p 等のログイン済みCLIを使います。APIキー不要。",
-};
-
-const ENGINE_MODE_DESC: Record<EngineMode, string> = {
-  cli: "claude -p 等のログイン済みCLIを使います。APIキー不要。",
-  api: "APIキーで直接呼び出します（チャットAIで設定したプロバイダ/キーを使用）。",
-};
 
 export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props) {
   const [themeMode, setThemeMode] = useTheme();
@@ -339,11 +274,6 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
     }
   };
 
-  const section = "flex flex-col gap-2 border-t border-border pt-2.5 first:border-t-0 first:pt-0";
-  const heading = "text-xs font-semibold tracking-wide text-muted-foreground";
-  const desc = "text-xs text-text-lo";
-  const field = "flex flex-col gap-1 text-xs text-muted-foreground";
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background">
       <div className="flex flex-shrink-0 items-center gap-2 border-b px-4 py-3">
@@ -380,382 +310,90 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
         )}
 
         {(forced || tab === "global") && (<>
-        <section className={section}>
-          <h3 className={heading}>チャットAI（GraphWrangler AI）</h3>
-          <label className={field}>
-            <span>接続方式</span>
-            <Select value={chatMode} onValueChange={(v) => setChatMode(v as ChatMode)}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="api">APIキー（Anthropic / OpenAI）</SelectItem>
-                <SelectItem value="cli">ヘッドレスエージェント（claude 等のCLI）</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-          <p className={desc}>{CHAT_MODE_DESC[chatMode]}</p>
+        <ChatAiSection
+          chatMode={chatMode}
+          setChatMode={setChatMode}
+          provider={provider}
+          setProvider={setProvider}
+          model={model}
+          setModel={setModel}
+          apiKey={apiKey}
+          setApiKey={setApiKey}
+          editingKey={editingKey}
+          setEditingKey={setEditingKey}
+          removeKey={removeKey}
+          chatCliPath={chatCliPath}
+          setChatCliPath={setChatCliPath}
+          chatCliModel={chatCliModel}
+          setChatCliModel={setChatCliModel}
+          chatCliEffort={chatCliEffort}
+          setChatCliEffort={setChatCliEffort}
+          chatCliExtraTools={chatCliExtraTools}
+          setChatCliExtraTools={setChatCliExtraTools}
+        />
 
-          {chatMode === "api" ? (
-            <>
-              <label className={field}>
-                <span>プロバイダ</span>
-                <Select value={provider} onValueChange={(v) => setProvider(v as "anthropic" | "openai")}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="anthropic">anthropic</SelectItem>
-                    <SelectItem value="openai">openai</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className={field}>
-                <span>モデル</span>
-                <Input
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder={CHAT_DEFAULT_MODEL[provider]}
-                />
-              </label>
-              <label className={field}>
-                <span>APIキー</span>
-                {editingKey ? (
-                  <Input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-..."
-                  />
-                ) : (
-                  <span className="flex items-center gap-2 text-sm text-foreground">
-                    設定済み（●●●）
-                    <Button type="button" variant="outline" size="sm" onClick={() => setEditingKey(true)}>
-                      変更
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={removeKey}>
-                      削除
-                    </Button>
-                  </span>
-                )}
-              </label>
-            </>
-          ) : (
-            <>
-              <label className={field}>
-                <span>CLIパス</span>
-                <Input
-                  value={chatCliPath}
-                  onChange={(e) => setChatCliPath(e.target.value)}
-                  placeholder="claude"
-                />
-              </label>
-              <label className={field}>
-                <span>モデル</span>
-                <CliModelSelect value={chatCliModel} onChange={setChatCliModel} />
-              </label>
-              <label className={field}>
-                <span>思考の深さ</span>
-                <EffortSelect value={chatCliEffort} onChange={setChatCliEffort} />
-              </label>
-              <label className={field}>
-                <span>追加許可ツール</span>
-                <Input
-                  value={chatCliExtraTools}
-                  onChange={(e) => setChatCliExtraTools(e.target.value)}
-                  placeholder="空欄=既定のフルセット。例: mcp__foo__*"
-                />
-              </label>
-              <p className={desc}>
-                GraphWrangler AI / Task AI の --allowedTools に追記するツール（空白区切り）。
-                Bash 含むフルセットが既定で許可済みなので、MCP ツール等を足す用途
-              </p>
-            </>
-          )}
-        </section>
+        <EngineSection
+          engineMode={engineMode}
+          setEngineMode={setEngineMode}
+          cliPath={cliPath}
+          setCliPath={setCliPath}
+          engineModel={engineModel}
+          setEngineModel={setEngineModel}
+          engineEffort={engineEffort}
+          setEngineEffort={setEngineEffort}
+          extraArgs={extraArgs}
+          setExtraArgs={setExtraArgs}
+          engineCliExtraTools={engineCliExtraTools}
+          setEngineCliExtraTools={setEngineCliExtraTools}
+          engineApiModel={engineApiModel}
+          setEngineApiModel={setEngineApiModel}
+        />
 
-        <section className={section}>
-          <h3 className={heading}>実行AI（エンジン）</h3>
-          <label className={field}>
-            <span>接続方式</span>
-            <Select value={engineMode} onValueChange={(v) => setEngineMode(v as EngineMode)}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="cli">ヘッドレスエージェント（CLI）</SelectItem>
-                <SelectItem value="api">APIキー（チャットと同じキーを使用）</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-          <p className={desc}>{ENGINE_MODE_DESC[engineMode]}</p>
+        <WorkDirsSection aiAddDirs={aiAddDirs} setAiAddDirs={setAiAddDirs} />
 
-          {engineMode === "cli" ? (
-            <>
-              <label className={field}>
-                <span>CLIパス</span>
-                <Input value={cliPath} onChange={(e) => setCliPath(e.target.value)} placeholder="claude" />
-              </label>
-              <label className={field}>
-                <span>モデル</span>
-                <CliModelSelect value={engineModel} onChange={setEngineModel} />
-              </label>
-              <label className={field}>
-                <span>思考の深さ</span>
-                <EffortSelect value={engineEffort} onChange={setEngineEffort} />
-              </label>
-              <label className={field}>
-                <span>追加引数</span>
-                <Input
-                  value={extraArgs}
-                  onChange={(e) => setExtraArgs(e.target.value)}
-                  placeholder="--flag value"
-                />
-              </label>
-              <label className={field}>
-                <span>追加許可ツール</span>
-                <Input
-                  value={engineCliExtraTools}
-                  onChange={(e) => setEngineCliExtraTools(e.target.value)}
-                  placeholder="空欄=既定のフルセット。例: mcp__foo__*"
-                />
-              </label>
-              <p className={desc}>
-                実行AIの --allowedTools に追記するツール（空白区切り）。
-                Bash 含むフルセットが既定で許可済みなので、MCP ツール等を足す用途
-              </p>
-            </>
-          ) : (
-            <label className={field}>
-              <span>モデル（任意）</span>
-              <Input
-                value={engineApiModel}
-                onChange={(e) => setEngineApiModel(e.target.value)}
-                placeholder="空欄=チャットAIと同じ既定モデル"
-              />
-            </label>
-          )}
-        </section>
+        <GitSection
+          gitAutoPush={gitAutoPush}
+          setGitAutoPush={setGitAutoPush}
+          gitIntervalSec={gitIntervalSec}
+          setGitIntervalSec={setGitIntervalSec}
+        />
 
-        <section className={section}>
-          <h3 className={heading}>AIの作業範囲</h3>
-          <label className={field}>
-            <span>追加作業ディレクトリ</span>
-            <Input
-              value={aiAddDirs}
-              onChange={(e) => setAiAddDirs(e.target.value)}
-              placeholder="空欄=ワークスペース内のみ。例: /home/ubuntu"
-            />
-          </label>
-          <p className={desc}>
-            三役（GraphWrangler AI / Task AI / 実行AI）共通。claude の --add-dir
-            に渡すディレクトリ（空白区切り）。ファイル操作はワークスペースルートに閉じるのが既定なので、
-            外のリポジトリ等を触らせたいときにここへ足す
-          </p>
-        </section>
+        <UpdateSection
+          updStatus={updStatus}
+          updBusy={updBusy}
+          checkUpdate={checkUpdate}
+          runUpdate={runUpdate}
+          updAutoCheck={updAutoCheck}
+          setUpdAutoCheck={setUpdAutoCheck}
+          updAutoApply={updAutoApply}
+          setUpdAutoApply={setUpdAutoApply}
+          updIntervalMin={updIntervalMin}
+          setUpdIntervalMin={setUpdIntervalMin}
+        />
 
-        <section className={section}>
-          <h3 className={heading}>Git 自動プッシュ</h3>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <Switch checked={gitAutoPush} onCheckedChange={setGitAutoPush} />
-            <span>グラフの変更を自動で commit / push する</span>
-          </label>
-          <p className={desc}>
-            ワークスペースモードのみ。GraphWrangler が書くファイル（workflow.gw.json と
-            .graphwrangler/ のスレッド・チャット履歴）だけを対象に、変更があれば commit して
-            origin へ push します（push 前に pull --rebase。他のファイルは巻き込みません）
-          </p>
-          {gitAutoPush && (
-            <label className={field}>
-              <span>チェック間隔（秒）</span>
-              <Input
-                type="number"
-                min={15}
-                max={3600}
-                value={gitIntervalSec}
-                onChange={(e) => setGitIntervalSec(e.target.value)}
-              />
-            </label>
-          )}
-        </section>
+        <NotifyGlobalSection
+          discordEnabled={discordEnabled}
+          setDiscordEnabled={setDiscordEnabled}
+          editingWebhook={editingWebhook}
+          setEditingWebhook={setEditingWebhook}
+          webhookUrl={webhookUrl}
+          setWebhookUrl={setWebhookUrl}
+          removeWebhook={removeWebhook}
+          testingNotify={testingNotify}
+          testNotify={testNotify}
+          publicUrl={publicUrl}
+          setPublicUrl={setPublicUrl}
+        />
 
-        {/* 本体の自動アップデート（2026-08-05 本人要望。zinsei と stremix で別インスタンスが
-            走っているので、それぞれが自分で追随できるようにする）。
-            取り込みは fast-forward のみ・未コミットの変更があるときは見送り（selfupdate.ts） */}
-        <section className={section}>
-          <h3 className={heading}>アップデート</h3>
-          {updStatus?.unavailableReason ? (
-            <p className={desc}>{updStatus.unavailableReason}</p>
-          ) : (
-            <>
-              <p className={desc}>
-                現在の版: {updStatus?.current ?? "—"}
-                {updStatus?.branch ? `（${updStatus.branch}）` : ""}
-                {updStatus?.currentSubject ? ` ${updStatus.currentSubject}` : ""}
-              </p>
-              <p className={desc}>
-                {updStatus === null
-                  ? "状態を取得中…"
-                  : updStatus.behind > 0
-                    ? `更新が ${updStatus.behind} コミットあります`
-                    : "最新です"}
-                {updStatus?.restartPending && "（更新済み・再起動待ち）"}
-                {updStatus && !updStatus.supervised && " / プロセス管理下ではないので再起動は手動です"}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm" disabled={updBusy} onClick={() => void checkUpdate()}>
-                  今すぐ確認
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={updBusy || !updStatus || updStatus.behind === 0}
-                  onClick={() => void runUpdate()}
-                >
-                  今すぐ更新
-                </Button>
-              </div>
-              {updStatus?.lastResult && <p className={desc}>直近の結果: {updStatus.lastResult}</p>}
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <Switch checked={updAutoCheck} onCheckedChange={setUpdAutoCheck} />
-                <span>更新があるか定期的に確認する</span>
-              </label>
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <Switch checked={updAutoApply} onCheckedChange={setUpdAutoApply} />
-                <span>見つけたら自動で取り込んで再起動する</span>
-              </label>
-              <p className={desc}>
-                git pull（fast-forward のみ）→ 依存の導入 → UI ビルド → 再起動まで自動で行います。
-                アプリのリポジトリに未コミットの変更があるときは何もしません（開発中のツリーを壊さないため）。
-                再起動は systemd / pm2 に任せるので、それらの管理下でないときは取り込みだけ行って停止しません
-              </p>
-              {updAutoCheck && (
-                <label className={field}>
-                  <span>確認の間隔（分）</span>
-                  <Input
-                    type="number"
-                    min={5}
-                    max={1440}
-                    value={updIntervalMin}
-                    onChange={(e) => setUpdIntervalMin(e.target.value)}
-                  />
-                </label>
-              )}
-            </>
-          )}
-        </section>
-
-        {/* 通知（インスタンス全体）: webhook は全員共通のチャンネル設定なのでこちら側。
-            受け取るかどうかの個人設定はユーザータブ（2026-08-07 分離） */}
-        <section className={section}>
-          <h3 className={heading}>通知（Discord・全体）</h3>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <Switch checked={discordEnabled} onCheckedChange={setDiscordEnabled} />
-            <span>Discord 通知を有効にする（インスタンス全体の親スイッチ）</span>
-          </label>
-          <label className={field}>
-            <span>Discord Webhook URL</span>
-            {editingWebhook ? (
-              <Input
-                type="password"
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
-                placeholder="https://discord.com/api/webhooks/..."
-              />
-            ) : (
-              <span className="flex items-center gap-2 text-sm text-foreground">
-                設定済み（●●●）
-                <Button type="button" variant="outline" size="sm" onClick={() => setEditingWebhook(true)}>
-                  変更
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={removeWebhook}>
-                  削除
-                </Button>
-                <Button type="button" variant="outline" size="sm" disabled={testingNotify} onClick={() => void testNotify()}>
-                  テスト送信
-                </Button>
-              </span>
-            )}
-          </label>
-          <p className={desc}>
-            通知先チャンネルの設定 → 連携サービス → ウェブフックで URL を発行して貼り付け、下の「保存」で反映されます。
-            担当者が付いたノードはその人をメンション（ユーザー管理で Discord ID を登録）、担当者なしは
-            @here で全員に届きます。受け取るかどうかの個人設定はユーザータブにあります
-          </p>
-          {/* 公開URL（2026-08-08 本人指示）: 通知からこのインスタンスへ飛ぶリンクの基底。
-              サーバは自分の外向きURLを知らないのでここで教える */}
-          <label className={field}>
-            <span>公開URL（通知のリンク用）</span>
-            <Input
-              value={publicUrl}
-              onChange={(e) => setPublicUrl(e.target.value)}
-              placeholder="http://100.86.224.19:8770"
-            />
-          </label>
-          <p className={desc}>通知に付くリンクの基底。未設定だと通知はリンク無しになります</p>
-        </section>
-
-        {/* 外観（2026-08-08 本人要望）。同じコードで会社と個人の2インスタンスが動くので、
-            見た目の差はコードではなくここに置く。既定は "GraphWrangler" + 同梱アイコン＝
-            何も触らないインスタンスは今までどおり */}
-        <section className={section}>
-          <h3 className={heading}>外観（インスタンス全体）</h3>
-          <label className={field}>
-            <span>サイト名</span>
-            <Input
-              value={siteTitle}
-              onChange={(e) => setSiteTitle(e.target.value)}
-              maxLength={60}
-              placeholder={DEFAULT_SITE_TITLE}
-            />
-          </label>
-          <p className={desc}>
-            ブラウザのタブ・ヘッダー・ログイン画面に出る名前（下の「保存」で反映）。空欄なら
-            {DEFAULT_SITE_TITLE} に戻ります
-          </p>
-          <label className={field}>
-            <span>ファビコン</span>
-            <span className="flex flex-wrap items-center gap-2">
-              <img
-                src={`/favicon.png?v=${faviconVersion}`}
-                alt=""
-                className="size-8 rounded border border-border bg-background object-contain p-0.5"
-              />
-              <span className="text-sm text-foreground">
-                {faviconVersion > 0 ? "この画像を配信中" : "同梱の既定"}
-              </span>
-              <input
-                ref={faviconInputRef}
-                type="file"
-                accept="image/png,image/svg+xml"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void uploadFavicon(file);
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={faviconBusy}
-                onClick={() => faviconInputRef.current?.click()}
-              >
-                画像を選ぶ
-              </Button>
-              {faviconVersion > 0 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={faviconBusy}
-                  onClick={() => void resetFavicon()}
-                >
-                  既定に戻す
-                </Button>
-              )}
-            </span>
-          </label>
-          <p className={desc}>
-            PNG または SVG（512KB まで）。選んだ時点で保存され、タブのアイコンがその場で
-            差し替わります（他の人のブラウザは開き直すか強制リロードで切り替わります）
-          </p>
-        </section>
+        <BrandingSection
+          siteTitle={siteTitle}
+          setSiteTitle={setSiteTitle}
+          faviconVersion={faviconVersion}
+          faviconBusy={faviconBusy}
+          faviconInputRef={faviconInputRef}
+          uploadFavicon={uploadFavicon}
+          resetFavicon={resetFavicon}
+        />
 
         <section className={section}>
           <Button
@@ -771,83 +409,16 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
         </>)}
 
         {!forced && tab === "user" && (<>
-        <section className={section}>
-          <h3 className={heading}>表示</h3>
-          {/* テーマはヘッダーのアイコンから設定内へ移動（2026-08-02 本人指示
-              「ライト、ダークは設定の中に含めて。レスポンシブじゃなくても」）。
-              選択は即時反映+localStorage 永続化（useTheme） */}
-          <label className="flex items-center justify-between gap-2 text-sm text-foreground">
-            <span>テーマ</span>
-            <Select value={themeMode} onValueChange={(v) => setThemeMode(v as ThemeMode)}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="light">ライト</SelectItem>
-                <SelectItem value="dark">ダーク</SelectItem>
-                <SelectItem value="system">システムに合わせる</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-        </section>
+        <ThemeSection themeMode={themeMode} setThemeMode={setThemeMode} />
 
-        <section className={section}>
-          <h3 className={heading}>ヒント</h3>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <Switch checked={hintsEnabled()} onCheckedChange={setHintsEnabled} />
-            <span>マウスオーバーで説明の吹き出しを表示</span>
-          </label>
-          <p className={desc}>
-            各ヒントの「OK」を押すと、そのヒントは以後表示されません（この端末のみ）
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="self-start"
-            onClick={() => {
-              resetHints();
-              pushToast("OKで消したヒントを再表示します", "info");
-            }}
-          >
-            OKで消したヒントを再表示
-          </Button>
-        </section>
+        <HintsSection />
 
-        {/* 通知（あなた宛）: 自分だけに効く受け取り設定（2026-08-07 分離）。
-            Discord の2つはサーバのユーザー別設定で、切り替えの瞬間に保存される */}
-        <section className={section}>
-          <h3 className={heading}>通知（あなた宛）</h3>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <Switch checked={notifyEnabled} onCheckedChange={toggleNotify} />
-            <span>あなたの番が来たらデスクトップ通知</span>
-          </label>
-          <p className={desc}>デスクトップ通知はこのブラウザのタブが開いている間だけ届きます</p>
-          {mySettings ? (
-            <>
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <Switch
-                  checked={mySettings.discordTurnNotify}
-                  onCheckedChange={(v) => patchMySettings({ discordTurnNotify: v })}
-                />
-                <span>自分の番が来たら Discord に通知（メンション付き）</span>
-              </label>
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <Switch
-                  checked={mySettings.discordAiReplies}
-                  onCheckedChange={(v) => patchMySettings({ discordAiReplies: v })}
-                />
-                <span>Task AI がスレッドに返信し終えたときも通知</span>
-              </label>
-              <p className={desc}>
-                切り替えは即時保存されます。届くには全体タブで Discord 通知（親スイッチ）と
-                Webhook URL が設定されている必要があります
-              </p>
-            </>
-          ) : (
-            <p className={desc}>Discord の個人設定を読み込み中…</p>
-          )}
-        </section>
+        <NotifyUserSection
+          notifyEnabled={notifyEnabled}
+          toggleNotify={toggleNotify}
+          mySettings={mySettings}
+          patchMySettings={patchMySettings}
+        />
         </>)}
 
         <div className="flex justify-end gap-2 pt-1.5">
