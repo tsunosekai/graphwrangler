@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { parseSchedule, shouldCreateScheduledRun } from "../src/schedule.js";
 
 describe("parseSchedule", () => {
+  // every の amount/unit は 2026-08-12 追加（UI の構造化スケジュール入力がフォーム初期値に使う。
+  // パースの正本は core/src/schedule.ts へ移動）
   it("'every 15m' を15分間隔としてパースする", () => {
-    expect(parseSchedule("every 15m")).toEqual({ type: "every", ms: 15 * 60 * 1000, raw: "every 15m" });
+    expect(parseSchedule("every 15m")).toEqual({ type: "every", ms: 15 * 60 * 1000, amount: 15, unit: "m", raw: "every 15m" });
   });
 
   it("'every 2h' を2時間間隔としてパースする", () => {
-    expect(parseSchedule("every 2h")).toEqual({ type: "every", ms: 2 * 60 * 60 * 1000, raw: "every 2h" });
+    expect(parseSchedule("every 2h")).toEqual({ type: "every", ms: 2 * 60 * 60 * 1000, amount: 2, unit: "h", raw: "every 2h" });
   });
 
   it("'daily 09:00' を日次9:00としてパースする", () => {
@@ -18,6 +20,8 @@ describe("parseSchedule", () => {
     expect(parseSchedule("every 3d")).toEqual({
       type: "every",
       ms: 3 * 24 * 60 * 60 * 1000,
+      amount: 3,
+      unit: "d",
       raw: "every 3d",
     });
   });
@@ -33,7 +37,7 @@ describe("parseSchedule", () => {
   });
 
   it("前後の空白は無視する", () => {
-    expect(parseSchedule("  every 5m  ")).toEqual({ type: "every", ms: 5 * 60 * 1000, raw: "  every 5m  " });
+    expect(parseSchedule("  every 5m  ")).toEqual({ type: "every", ms: 5 * 60 * 1000, amount: 5, unit: "m", raw: "  every 5m  " });
   });
 
   it("不正な書式(単位なし・範囲外時刻・無関係な文字列)はnull", () => {

@@ -1,152 +1,17 @@
-// script トリガーの node.schedule（自由文字列）を解釈し、新しいランを自動生成すべきか
+// script トリガーの node.schedule（自由文字列）から、新しいランを自動生成すべきかを
 // 判定する。ネットワークI/Oを一切持たない純粋関数のみを置く（vitest でユニットテストする対象）。
 // docs/design.md 3.8「トリガー起点のルーティーン」。
 //
-// 対応する書式（それ以外は無視して警告ログ。呼び出し側=index.ts の責務）:
-//   - "every <N>m" / "every <N>h" / "every <N>d" … 最新ランの created から N 経過していたら新ラン
-//   - "daily <HH:MM>"                              … 今日その時刻を過ぎていて、今日の分の
-//                                                     ランがまだ無ければ新ラン
-//   - "weekly <mon|tue|wed|thu|fri|sat|sun> <HH:MM>" … 今週その曜日時刻を過ぎていて、
-//                                                       今週分のランがまだ無ければ新ラン
-//   - cron 5フィールド（"*/15 9-23 * * *" 等）      … 現在の分がマッチしたら新ラン
-//     （2026-08-07 追加——人もAIも自然に cron で書くのに未対応で、書いたトリガーが黙って
-//     動かない事故が多発していた。* / 数値 / a-b / */n / a-b/n / カンマ区切りに対応。
-//     判定は「今この分がマッチしているか」なので、その分にエンジンが落ちていた場合の
-//     追い付きラン作成はしない——every/daily と違い任意条件の遡り計算が高くつくため）
+// 文法のパース（parseSchedule / parseCron / matchesCron）は 2026-08-12 に
+// @graphwrangler/core の schedule.ts へ移動した——UI の構造化スケジュール入力が同じ文法で
+// 検証・組み立てをするため。ここに残るのはラン作成の判定（いつ作るか）だけ。
+// 既存の import 先を保つため、パース系はここから再エクスポートする。
 
-export const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
-export type Weekday = (typeof WEEKDAYS)[number];
+import { parseSchedule, WEEKDAYS, matchesCron } from "@graphwrangler/core";
+import type { ParsedSchedule, Weekday } from "@graphwrangler/core";
 
-/** cron の1フィールド。null = "*"（無条件）、Set = マッチする値の集合 */
-export type CronField = Set<number> | null;
-
-export interface CronFields {
-  minute: CronField;
-  hour: CronField;
-  /** 日（1-31）。dom/dow の両方が指定されている場合は cron 慣例どおり OR で判定する */
-  dayOfMonth: CronField;
-  month: CronField; // 1-12
-  dayOfWeek: CronField; // 0-6（7 は 0=日曜へ正規化）
-}
-
-export type ParsedSchedule =
-  | { type: "every"; ms: number; raw: string }
-  | { type: "daily"; hour: number; minute: number; raw: string }
-  | { type: "weekly"; weekday: Weekday; hour: number; minute: number; raw: string }
-  | { type: "cron"; fields: CronFields; raw: string };
-
-const EVERY_RE = /^every\s+(\d+)\s*(m|h|d)$/i;
-const DAILY_RE = /^daily\s+(\d{1,2}):(\d{2})$/i;
-const WEEKLY_RE = /^weekly\s+(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2}):(\d{2})$/i;
-
-const MS_PER_MINUTE = 60 * 1000;
-const MS_PER_HOUR = 60 * MS_PER_MINUTE;
-const MS_PER_DAY = 24 * MS_PER_HOUR;
-
-// cron の1フィールドをパースする（"*" / "5" / "1-5" / ステップ付き（＊/15 や 1-9/2）/
-// "1,3,5" の組み合わせ。ここを JSDoc にしないのは、ステップ表記の「アスタリスク+スラッシュ」が
-// ブロックコメントを閉じてしまうため）。不正なら undefined（フィールド全体を不成立にする）
-function parseCronField(text: string, min: number, max: number, normalize?: (v: number) => number): CronField | undefined {
-  if (text === "*") return null;
-  const values = new Set<number>();
-  for (const part of text.split(",")) {
-    const m = /^(\*|\d+(?:-\d+)?)(?:\/(\d+))?$/.exec(part);
-    if (!m) return undefined;
-    const step = m[2] !== undefined ? Number(m[2]) : 1;
-    if (step <= 0) return undefined;
-    let lo: number;
-    let hi: number;
-    if (m[1] === "*") {
-      lo = min;
-      hi = max;
-    } else if (m[1].includes("-")) {
-      const [a, b] = m[1].split("-").map(Number);
-      lo = a;
-      hi = b;
-    } else {
-      lo = Number(m[1]);
-      // 単一値 + step（"5/2" 形）は cron 的には「5 から末尾まで」だが紛らわしいので単一値扱い
-      hi = m[2] !== undefined ? max : lo;
-    }
-    if (Number.isNaN(lo) || Number.isNaN(hi) || lo > hi) return undefined;
-    for (let v = lo; v <= hi; v += step) {
-      const nv = normalize ? normalize(v) : v;
-      if (nv < min || nv > max) return undefined;
-      values.add(nv);
-    }
-  }
-  return values;
-}
-
-/** 5フィールドの cron 式をパースする。式でなければ null */
-export function parseCron(text: string): CronFields | null {
-  const parts = text.trim().split(/\s+/);
-  if (parts.length !== 5) return null;
-  const minute = parseCronField(parts[0], 0, 59);
-  const hour = parseCronField(parts[1], 0, 23);
-  const dayOfMonth = parseCronField(parts[2], 1, 31);
-  const month = parseCronField(parts[3], 1, 12);
-  const dayOfWeek = parseCronField(parts[4], 0, 6, (v) => (v === 7 ? 0 : v)); // 7 = 日曜
-  if (
-    minute === undefined ||
-    hour === undefined ||
-    dayOfMonth === undefined ||
-    month === undefined ||
-    dayOfWeek === undefined
-  ) {
-    return null;
-  }
-  return { minute, hour, dayOfMonth, month, dayOfWeek };
-}
-
-/** now（ローカル時刻）が cron 式にマッチするか。dom と dow が両方指定されているときは
- *  cron 慣例どおり OR（どちらかが合えば日付条件を満たす） */
-export function matchesCron(fields: CronFields, now: Date): boolean {
-  const ok = (f: CronField, v: number) => f === null || f.has(v);
-  if (!ok(fields.minute, now.getMinutes())) return false;
-  if (!ok(fields.hour, now.getHours())) return false;
-  if (!ok(fields.month, now.getMonth() + 1)) return false;
-  const domOk = ok(fields.dayOfMonth, now.getDate());
-  const dowOk = ok(fields.dayOfWeek, now.getDay());
-  if (fields.dayOfMonth !== null && fields.dayOfWeek !== null) return domOk || dowOk;
-  return domOk && dowOk;
-}
-
-/** schedule 文字列をパースする。対応外の書式は null（呼び出し側で警告ログを出す） */
-export function parseSchedule(text: string): ParsedSchedule | null {
-  const trimmed = text.trim();
-
-  const everyMatch = EVERY_RE.exec(trimmed);
-  if (everyMatch) {
-    const amount = Number(everyMatch[1]);
-    if (amount <= 0) return null;
-    const unit = everyMatch[2].toLowerCase();
-    const ms = unit === "h" ? amount * MS_PER_HOUR : unit === "d" ? amount * MS_PER_DAY : amount * MS_PER_MINUTE;
-    return { type: "every", ms, raw: text };
-  }
-
-  const dailyMatch = DAILY_RE.exec(trimmed);
-  if (dailyMatch) {
-    const hour = Number(dailyMatch[1]);
-    const minute = Number(dailyMatch[2]);
-    if (hour > 23 || minute > 59) return null;
-    return { type: "daily", hour, minute, raw: text };
-  }
-
-  const weeklyMatch = WEEKLY_RE.exec(trimmed);
-  if (weeklyMatch) {
-    const weekday = weeklyMatch[1].toLowerCase() as Weekday;
-    const hour = Number(weeklyMatch[2]);
-    const minute = Number(weeklyMatch[3]);
-    if (hour > 23 || minute > 59) return null;
-    return { type: "weekly", weekday, hour, minute, raw: text };
-  }
-
-  const cron = parseCron(trimmed);
-  if (cron) return { type: "cron", fields: cron, raw: text };
-
-  return null;
-}
+export { parseSchedule, parseCron, matchesCron, WEEKDAYS } from "@graphwrangler/core";
+export type { ParsedSchedule, CronField, CronFields, Weekday } from "@graphwrangler/core";
 
 /** 2つの Date がローカル暦で同じ日か */
 function isSameLocalDay(a: Date, b: Date): boolean {

@@ -9,6 +9,7 @@
 // - NodeMenu.tsx    右クリックメニュー（第0層）
 import { useState } from "react";
 import { Handle, Position } from "@xyflow/react";
+import { describeSchedule, parseSchedule } from "@graphwrangler/core/schedule";
 import { api } from "../lib/api";
 import { runTrigger } from "../lib/run";
 import { HINT_TEXT } from "../lib/hints";
@@ -189,14 +190,20 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           {node.schedule ? (
             <Hint
               id="schedule"
-              text="スクリプト・トリガーの自動開始条件（書式: every 15m / daily 09:00 / weekly mon 09:00 / cron 5フィールド）"
+              text="スクリプト・トリガーの自動開始条件。パネルの起動方式欄（間隔ごと / 毎日 / 毎週 / cron式）で変更する"
             >
-              <span className="text-muted-foreground">{node.schedule}</span>
+              {/* 読み下し（describeSchedule）を優先。解釈できない値は原文を赤で出す
+                  （エンジンが無視する＝自動で動かないトリガーであることを示す。3.8 の schedule 警告と同旨） */}
+              {describeSchedule(node.schedule) ? (
+                <span className="text-muted-foreground">{describeSchedule(node.schedule)}</span>
+              ) : (
+                <span className="text-destructive">{node.schedule}（解釈不能）</span>
+              )}
             </Hint>
           ) : (
             <Hint
               id="schedule"
-              text="設定するまで手動▶でしか開始しない。パネルの起動方式欄に every 15m / daily 09:00 / weekly mon 09:00 か cron 5フィールドで書く"
+              text="設定するまで手動▶でしか開始しない。パネルの起動方式欄（間隔ごと / 毎日 / 毎週 / cron式）で設定する"
             >
               <span className="text-destructive">起動条件が未設定</span>
             </Hint>
@@ -209,7 +216,12 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           text="AIに開始要否を判定させる間隔（every のみ解釈、無指定は1時間）。開始の条件自体は概要や手順書に書く"
         >
           <div className="mt-1.5 text-xs text-muted-foreground">
-            チェック間隔: {node.schedule || "every 1h"}
+            {/* AIトリガーは every（間隔）だけ解釈する（3.8）。それ以外が書いてあっても
+                エンジンは既定1時間で動くので、見た目もそれに合わせる */}
+            チェック間隔:{" "}
+            {node.schedule && parseSchedule(node.schedule)?.type === "every"
+              ? describeSchedule(node.schedule)
+              : "1時間ごと（既定）"}
           </div>
         </Hint>
       )}

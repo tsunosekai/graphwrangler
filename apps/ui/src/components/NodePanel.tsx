@@ -29,7 +29,6 @@ import { cn } from "../lib/utils";
 import type { Node, Run } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
@@ -44,6 +43,7 @@ import { HistoryTab } from "./nodepanel/HistoryTab";
 import { ImplSection } from "./nodepanel/ImplSection";
 import { MembersSection } from "./nodepanel/MembersSection";
 import { OutputsSection } from "./nodepanel/OutputsSection";
+import { ScheduleSection } from "./nodepanel/ScheduleSection";
 import { StatusSection } from "./nodepanel/StatusSection";
 import { findLastBreak, inTab, splitSessions, type PanelTab } from "./nodepanel/messageFilters";
 import { useImplStatus } from "./nodepanel/useImplStatus";
@@ -207,9 +207,6 @@ export function NodePanel({
 
   const detail = useDraftField(node.detail ?? "");
 
-  // kind=trigger 用: 起動方式の記述（docs/design.md 3.8）
-  const schedule = useDraftField(node.schedule ?? "");
-
   // 試走ゲート（docs/design.md 3.5.1）の鮮度。実装セクションの表示と昇格時警告の両方で使う
   const implStatus = useImplStatus(node);
 
@@ -253,10 +250,6 @@ export function NodePanel({
     if (detail.draft !== (node.detail ?? "")) await patch({ detail: detail.draft || null });
   };
 
-  const saveSchedule = async () => {
-    schedule.setFocused(false);
-    if (schedule.draft !== (node.schedule ?? "")) await patch({ schedule: schedule.draft || null });
-  };
 
   // ノード複製。作成後は新規ノードを選択する。
   // parents は複製元と同じ集合のままなので parentOptions（decision分岐の対応）もそのまま引き継げる。
@@ -589,21 +582,7 @@ export function NodePanel({
             (node.executor === "human" ? (
               <p className="text-xs text-muted-foreground">手動開始のみ（ノードの ▶ から開始）</p>
             ) : (
-              <Input
-                placeholder={
-                  node.executor === "ai"
-                    ? "チェック間隔: every 1h（条件は detail や手順書に書く）"
-                    : "every 15m / daily 09:00 / weekly mon 09:00"
-                }
-                value={schedule.draft}
-                disabled={contentLocked}
-                onFocus={() => schedule.setFocused(true)}
-                onChange={(e) => schedule.setDraft(e.target.value)}
-                onBlur={saveSchedule}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                }}
-              />
+              <ScheduleSection node={node} contentLocked={contentLocked} patch={patch} />
             ))}
 
           <div className="grid grid-cols-2 gap-2">
