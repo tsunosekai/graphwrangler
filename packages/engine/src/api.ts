@@ -65,12 +65,22 @@ export async function patchNode(
   return (await request("POST", `/api/nodes/${id}`, { ...patch, actor, via })) as Node;
 }
 
-/** ノードのスレッドを**全スコープ**（?run=all）で取得する。エンジンはゲート照合
- *  （findRunGate の [ラン <id>] マーカー）でラン横断にスレッドを読む——判断カードと回答が
- *  runId 付きで積まれるようになった（2026-08-12）ため、既定のテンプレートスコープで読むと
- *  answered になったラン側カードが視界から消え、ゲートが none に戻って二重にカードを開く */
-export async function getThread(id: string): Promise<{ messages: Message[] }> {
-  return (await request("GET", `/api/nodes/${id}/thread?run=all`)) as { messages: Message[] };
+/** ノードのスレッドを取得する。scope で「どの会話を見るか」を用途ごとに選ぶ（2026-08-12。
+ *  判断カードと回答が runId 付きで積まれるようになったため、一律の読み方だと壊れる）:
+ *  - "all"  … 全スコープ。**ゲート照合**（findRunGate の [ラン <id>] マーカー）用。
+ *             テンプレートスコープで読むと answered になったラン側カードが視界から消え、
+ *             ゲートが none に戻って二重にカードを開く
+ *  - ランid … そのランの会話だけ。**実行AIの経緯**用。ランは独立した世界線なので、
+ *             別ランのQ&A（「質問不要」等）が新しいランの実行文脈へ漏れてはいけない
+ *             （2026-08-12 本人報告「必ず質問することと書いてるのに質問しない」の原因）
+ *  - null   … テンプレート側の会話 + open なカード（サーバ既定）。プロジェクト層の
+ *             回答検出・文脈用（ランの記録が混ざらない、従来どおりの見え方） */
+export async function getThread(
+  id: string,
+  scope: string | "all" | null = null,
+): Promise<{ messages: Message[] }> {
+  const query = scope ? `?run=${encodeURIComponent(scope)}` : "";
+  return (await request("GET", `/api/nodes/${id}/thread${query}`)) as { messages: Message[] };
 }
 
 /** スレッドへ投稿する。runId を渡すとそのランの記録として帰属する（省略/null =

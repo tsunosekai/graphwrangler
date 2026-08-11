@@ -243,7 +243,8 @@ async function fetchGateStates(
   const gateStates: Record<string, RunGateState> = {};
   for (const { run, node } of pending) {
     try {
-      const { messages } = await getThread(node.id);
+      // ゲート照合はラン横断（"all"）: runId 付きで積まれた承認カード・回答を見失わない
+      const { messages } = await getThread(node.id, "all");
       gateStates[gateKey(run.id, node.id)] = findRunGate(messages, run.id);
     } catch (err) {
       log(`承認ゲートのスレッド取得に失敗（この周は保留）: run=${run.id} node=${node.id} ${String(err)}`);
@@ -337,7 +338,8 @@ async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> 
   for (const { run, node } of pending) {
     let messages: Message[];
     try {
-      ({ messages } = await getThread(node.id));
+      // ゲート照合はラン横断（"all"）: runId 付きの質問カード・回答を見失わない
+      ({ messages } = await getThread(node.id, "all"));
     } catch (err) {
       log(`AI質問のスレッド取得に失敗（この周は保留）: run=${run.id} node=${node.id} ${String(err)}`);
       continue;

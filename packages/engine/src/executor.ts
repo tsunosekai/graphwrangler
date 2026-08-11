@@ -121,7 +121,8 @@ export async function launchExecutor(
     const parentSayMessages = run
       ? await parentSayContextForRun(node, nodes, run.id)
       : await parentSayContext(node, nodes);
-    const threadContext = await threadContextFor(node.id);
+    // ラン実行の経緯は**そのラン**の会話だけ（別ランのQ&Aを新しい世界線へ漏らさない）
+    const threadContext = await threadContextFor(node.id, run?.id ?? null);
     const resolved = await resolveDocForPrompt(node);
     if (resolved.error) {
       executorName = aiExecutorName();

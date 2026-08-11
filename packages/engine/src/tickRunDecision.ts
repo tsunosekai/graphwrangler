@@ -23,7 +23,8 @@ async function fetchRunDecisionGateStates(
   const gateStates: Record<string, RunGateState> = {};
   for (const { run, node } of pending) {
     try {
-      const { messages } = await getThread(node.id);
+      // ゲート照合はラン横断（"all"）: runId 付きの分岐カード・回答を見失わない
+      const { messages } = await getThread(node.id, "all");
       gateStates[gateKey(run.id, node.id)] = findRunGate(messages, run.id);
     } catch (err) {
       log(`分岐ゲートのスレッド取得に失敗（この周は保留）: run=${run.id} node=${node.id} ${String(err)}`);
