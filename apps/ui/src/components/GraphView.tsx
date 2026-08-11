@@ -65,6 +65,10 @@ const FIT_VIEW_OPTIONS = { padding: FIT_PADDING };
 interface Props {
   /** 表示するページ（フォルダ）のメンバーだけが渡される */
   nodes: Node[];
+  /** ランのページで、そのランのスナップショットがまだ届いていない（= nodes が空なのは
+   *  「ノードが無い」ではなく「取得中」）。素の空キャンバスを出すと、ツールバーには
+   *  ランの名前が出ているのにノードだけ消えたように見える（2026-08-11 本人報告の一因） */
+  snapshotLoading?: boolean;
   /** ページ自身のノード（パンくず表示・新規ノードの所属先） */
   pageNode: Node | null;
   selectedId: string | null;
@@ -107,6 +111,7 @@ interface Props {
 
 function GraphViewInner({
   nodes,
+  snapshotLoading,
   pageNode,
   selectedId,
   threadMeta,
@@ -854,6 +859,13 @@ function GraphViewInner({
     // isolate: ツールバー（absolute + z-10）のスタッキングをこのペイン内に閉じ込め、
     // 幅が狭いときに右のパネル群（NodePanel/BulkPanel/ChatDrawer）へ被らないようにする
     <div ref={paneRef} className={`graph-pane relative isolate min-w-0 flex-1${realigning ? " realigning" : ""}`}>
+      {snapshotLoading && nodes.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <span className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+            このランの記録を読み込んでいます…
+          </span>
+        </div>
+      )}
       {/* 2段構成（2026-08-08 本人指定「＋ノード以降を二段目に」）: 1段目=どこを見ているか
           （ページ名・グラフ/実行一覧・表示するラン・ラン名変更）、2段目=このページへの操作。
           max-md: 右端も止めて折り返す（モバイルでボタンが画面外へはみ出さないように。2026-08-02） */}

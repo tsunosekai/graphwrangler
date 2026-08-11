@@ -285,6 +285,9 @@ function AppInner() {
    *  テンプレートへ勝手に落ちると、URL はランのままなのに設計図が出る（しかも編集ロックも
    *  外れる）。取得中はグラフが空になるだけで、どのページに居るかはぶれない */
   const inRunPage = !!openRun;
+  /** ランのページなのにそのランのスナップショットがまだ揃っていない（取得中・再試行中）。
+   *  この間 runNodes は空なので、グラフには「ノードが無い」ではなく取得中だと出す */
+  const runSnapshotLoading = inRunPage && (!runGraph || runGraph.runId !== openRun?.id);
 
   /** ノード詳細パネルに出すノード。ランのページではフォーク側（そのランの中身）を見せる。
    *  見つからないノード（ラン後に足されたノード等）はテンプレート側で代替する */
@@ -490,6 +493,7 @@ function AppInner() {
         <div className={cn("contents", mv !== null && mv !== "graph" && "hidden")}>
           <GraphView
             nodes={inRunPage ? runNodes : pageNodes}
+            snapshotLoading={runSnapshotLoading}
             pageNode={inRunPage ? (runPageNode ?? pageNode) : pageNode}
             runView={
               inRunPage && openRun
