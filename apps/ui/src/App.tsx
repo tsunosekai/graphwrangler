@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { BulkPanel } from "./components/BulkPanel";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { DialogHost } from "./components/DialogHost";
@@ -8,37 +8,24 @@ import { NodePanel } from "./components/NodePanel";
 import { PageList } from "./components/PageList";
 import { SetupModal } from "./components/SetupModal";
 import { ToastHost } from "./components/ToastHost";
-import { TopBar, type RunWaitItem } from "./components/TopBar";
+import { TopBar } from "./components/TopBar";
 import { MobileNav, type MobileView } from "./components/MobileNav";
 import { LoginScreen } from "./components/LoginScreen";
-import { api, postReads, type Me, type SettingsView, type TeamUser } from "./lib/api";
+import { api, type Me, type SettingsView, type TeamUser } from "./lib/api";
 import { refreshBranding, useBranding } from "./lib/branding";
-import { TeamContext, isMyTurn, turnIsMine, useTeam, type Team } from "./lib/team";
+import { TeamContext, useTeam, type Team } from "./lib/team";
 import { cn } from "./lib/utils";
 import { usePolling } from "./hooks/usePolling";
 import { useIsMobile } from "./hooks/useIsMobile";
+import { loadTabState, loadUiState, saveTabState, saveUiState } from "./hooks/uiState";
+import { useReadState } from "./hooks/useReadState";
+import { useDesktopNotify } from "./hooks/useDesktopNotify";
+import { useUrlRouting } from "./hooks/useUrlRouting";
+import { useMobileBackNav } from "./hooks/useMobileBackNav";
 import { isRoutinePage } from "./lib/routine";
-import { buildRoute, parseRoute, type RouteState } from "./lib/route";
+import { parseRoute, type RouteState } from "./lib/route";
 import { pushToast } from "./lib/toast";
 import type { Node, Run, RunGraphNode } from "./types";
-
-/** localStorage の安全な読み書き（UI状態の永続化。2026-07-31 本人要望
- *  「リロードしても開閉や幅を保持」。幅とテーマ・レール開閉は各コンポーネントで保存済み） */
-function loadUiState(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function saveUiState(key: string, value: string | null): void {
-  try {
-    if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-  } catch {
-    // 無視（永続化は補助機能）
-  }
-}
 
 /** ランのスナップショット由来ノード（RunGraphNode = Partial<Node>）を表示用の Node に整える。
  *  スナップショットは表示・実行に関わるフィールドしか持たない（packages/core/src/schema.ts
@@ -77,22 +64,6 @@ function nodeFromRunGraph(n: RunGraphNode, fallbackCreated: string): Node {
     members: n.members ?? [],
     created: n.created ?? fallbackCreated,
   };
-}
-
-/** sessionStorage 版。リロードは跨ぐが、タブ/アプリを開き直すと消える */
-function loadTabState(key: string): string | null {
-  try {
-    return sessionStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function saveTabState(key: string, value: string): void {
-  try {
-    sessionStorage.setItem(key, value);
-  } catch {
-    // 無視（永続化は補助機能）
-  }
 }
 
 /** 内蔵ログインのゲート（2026-08-03）。サーバの users.json にユーザーが居る運用
@@ -186,14 +157,6 @@ function AppInner() {
   useEffect(() => saveUiState("gw.pageId", pageIdRaw), [pageIdRaw]);
   useEffect(() => saveUiState("gw.chatOpen", chatOpen ? "1" : "0"), [chatOpen]);
 
-  // ---- ハッシュベース URL ルーティング（2026-08-08 本人指示。Discord 通知等のリンクから
-  //      特定ページ / ノード / ラン / チャットを直接開けるようにする。lib/route.ts が正本） ----
-  // 初期 hash はノード一覧のロード後でないとページ解決できないため、いったん「保留ルート」に
-  // 置き、nodes が非空になった最初のタイミングで適用する（適用 effect は selectNode 定義の後方）
-  const pendingRouteRef = useRef<RouteState | null>(initialRoute);
-  // 保留ルートを適用し終わるまで URL への書き戻しを止める（初期 hash を localStorage 由来の
-  // 状態で潰さないため）。初期 hash にルーティング情報が無ければ最初から書いてよい
-  const routeReadyRef = useRef(initialRoute === null);
   // ノードエディタ標準の複数選択: 選択中の id 一覧。2件以上で一括編集パネル（BulkPanel）を出す
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const nodes = useMemo(() => data?.nodes ?? [], [data]);
@@ -202,42 +165,8 @@ function AppInner() {
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
   const serverReads = useMemo(() => data?.reads ?? {}, [data]);
 
-  // 既読のローカル上書き（2026-08-05 本人指示「見たら即」。旧: 1秒待ち）。
-  // NodePanel がスレッドを表示すると onViewed が呼ばれ、サーバの reads が次の
-  // ポーリング（最大3秒）で追いつくのを待たずにバッジを消す。マージは新しいほう勝ち
-  const [readOverrides, setReadOverrides] = useState<Record<string, string>>({});
-  const reads = useMemo(() => {
-    const merged = { ...serverReads };
-    for (const [id, ts] of Object.entries(readOverrides)) {
-      if (!merged[id] || merged[id] < ts) merged[id] = ts;
-    }
-    return merged;
-  }, [serverReads, readOverrides]);
-  // lastTs（スレッド最終メッセージ＝サーバ発行の時刻）があればそれを使う。端末の時計が
-  // サーバより遅れていると、クライアント時刻の上書きでは未読が消えないため（2026-08-05）
-  // key は会話の単位（"<ノードid>" or "<ノードid>@<ランid>"。lib/unread.ts の threadKey）
-  const markViewed = useCallback((key: string, lastTs: string | null) => {
-    setReadOverrides((prev) => ({ ...prev, [key]: lastTs ?? new Date().toISOString() }));
-  }, []);
-
-  // 旧 localStorage 既読（gw.read.<id>）を一度だけサーバへ引き継ぐ。これをやらないと
-  // 移行した瞬間に「今まで読んだ全ノードが未読」になって使い物にならない
-  useEffect(() => {
-    if (loadUiState("gw.readsMigrated") === "1") return;
-    const marks: Record<string, string> = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key?.startsWith("gw.read.")) continue;
-        const value = localStorage.getItem(key);
-        if (value) marks[key.slice("gw.read.".length)] = value;
-      }
-    } catch {
-      return; // 読めない環境では移行を諦める（サーバ側が空のまま始まるだけ）
-    }
-    if (Object.keys(marks).length > 0) postReads(marks);
-    saveUiState("gw.readsMigrated", "1");
-  }, []);
+  // 既読（サーバ値 + ローカルの即時上書き、旧 localStorage 既読の移行）は hooks/useReadState.ts
+  const { reads, markViewed } = useReadState(serverReads);
 
   // ページ = フォルダ（kind=goal、またはメンバーを持つノード）。zinsei desk の左レール方式。
   // kind=folder（左レールの整理棚。2026-08-05）はページではないので除く——棚はページを
@@ -383,56 +312,8 @@ function AppInner() {
     setSelectedId(null);
   }, [panelNode, shownPageId]);
 
-  // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
-  // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）。
-  // 同じルーティーンは並列で回せる（並行ラン）ため、各ページの最新1本ではなく
-  // 実行中のラン**全部**を対象にする。key はラン id 込みなので通知の重複防止とも整合する
-  const runWaitItems = useMemo<RunWaitItem[]>(() => {
-    const items: RunWaitItem[] = [];
-    for (const list of Object.values(railRuns)) {
-      for (const run of list) {
-        if (run.status !== "running") continue;
-        for (const [nodeId, item] of Object.entries(run.items)) {
-          if (item.status !== "waiting") continue;
-          const tmpl = nodes.find((n) => n.id === nodeId);
-          // 他人の番（テンプレートの assignee が他人）は自分への通知対象にしない（チーム化 2026-08-04）
-          if (tmpl && !turnIsMine(tmpl.assignee, me.email)) continue;
-          const title = tmpl?.title || "（無題）";
-          const label = item.note ? `[ラン] ${title}（${item.note}）` : `[ラン] ${title}`;
-          items.push({ key: `${run.id}:${nodeId}`, nodeId, label });
-        }
-      }
-    }
-    return items;
-  }, [railRuns, nodes, me.email]);
-
-  // あなたの番が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）。
-  // 他人の番（assignee が他人）は通知しない（チーム化 2026-08-04。isMyTurn が判定を一元化）
-  const inboxItemsRef = useRef<{ id: string; title: string }[] | null>(null);
-  useEffect(() => {
-    const combined: { id: string; title: string }[] = [
-      ...nodes
-        .filter((n) => isMyTurn(n, me.email))
-        .map((n) => ({ id: n.id, title: n.title || "（無題）" })),
-      ...runWaitItems.map((item) => ({ id: item.key, title: item.label })),
-    ];
-    const prev = inboxItemsRef.current;
-    if (prev) {
-      const prevIds = new Set(prev.map((i) => i.id));
-      const added = combined.filter((i) => !prevIds.has(i.id));
-      if (
-        added.length > 0 &&
-        localStorage.getItem("gw.notify") === "1" &&
-        document.visibilityState !== "visible" &&
-        typeof Notification !== "undefined" &&
-        Notification.permission === "granted"
-      ) {
-        const latest = added[added.length - 1];
-        new Notification(siteTitle, { body: `あなたの番: ${latest.title}` });
-      }
-    }
-    inboxItemsRef.current = combined;
-  }, [nodes, runWaitItems, me.email, siteTitle]);
+  // あなたの番が増えたときのデスクトップ通知（対象の集計込み）は hooks/useDesktopNotify.ts
+  useDesktopNotify({ nodes, railRuns, myEmail: me.email, siteTitle });
 
   // ---- AI設定（初回セットアップ + いつでも開ける⚙） ----
   const [settings, setSettings] = useState<SettingsView | null>(null);
@@ -516,112 +397,29 @@ function AppInner() {
     [nodes, folders, isMobile, selectedId],
   );
 
-  // --- URL ルートの適用（2026-08-08）。保留ルート（初期 hash）と hashchange の両方で使う ---
-  const applyRoute = useCallback(
-    (r: RouteState) => {
-      if (r.nodeId && nodes.some((n) => n.id === r.nodeId)) {
-        // ノード指定はページ切替 + 選択（パネルが開く）を selectNode に一任する
-        selectNode(r.nodeId);
-      } else if (r.pageId) {
-        // ノードが見つからない・ノード指定なしのときはページだけ適用
-        setPageId(r.pageId);
-      }
-      // ラン指定は URL を正とする（ラン指定が無ければテンプレートのページ）。リンクを踏んだのに
-      // 前に見ていたランが残っていると、URL の見た目と画面が食い違う（2026-08-08）
-      setProjectedRunId(r.runId);
-      if (r.chat) setChatOpen(true);
-    },
-    [nodes, selectNode],
-  );
-
-  // 保留ルートの適用: nodes が非空になった最初のタイミングで一度だけ。適用後は URL への
-  // 書き戻し（下の effect）を解禁する
-  useEffect(() => {
-    const r = pendingRouteRef.current;
-    if (!r || nodes.length === 0) return;
-    pendingRouteRef.current = null;
-    routeReadyRef.current = true;
-    applyRoute(r);
-  }, [nodes, applyRoute]);
-
-  // hashchange（リンクの再クリック・手打ち編集）でも同じ適用処理を通す。この時点では
-  // 通常 nodes は読み込み済みだが、万一空なら保留ルートに積んで上の effect に任せる
-  useEffect(() => {
-    const onHashChange = () => {
-      const r = parseRoute(window.location.hash);
-      if (!r) return;
-      if (nodes.length === 0) {
-        pendingRouteRef.current = r;
-        return;
-      }
-      applyRoute(r);
-    };
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, [nodes, applyRoute]);
-
-  // 状態 → URL: 選択状態が変わるたび hash に反映する。hashchange を発火させないため
-  // replaceState を使う（pushState だと履歴も汚れる）。既存のモバイル「戻る」統合が
-  // history.state（gwView 等）を使っているので、state は現在値を維持して渡す
-  useEffect(() => {
-    if (!routeReadyRef.current) return; // 保留ルート適用前は書かない（初期 hash を潰さない）
-    const url = buildRoute({
-      pageId,
-      nodeId: selectedId,
-      // テンプレート表示（null）は URL に載せない
-      runId: projectedRunId,
-      chat: chatOpen,
-    });
-    if (window.location.hash !== url) {
-      window.history.replaceState(window.history.state, "", url);
-    }
-  }, [pageId, selectedId, projectedRunId, chatOpen]);
+  // ハッシュベース URL ルーティングの同期（初期 hash の保留適用・hashchange・状態→URL の
+  // 書き戻し）は hooks/useUrlRouting.ts
+  useUrlRouting({
+    initialRoute,
+    nodes,
+    pageId,
+    selectedId,
+    projectedRunId,
+    chatOpen,
+    selectNode,
+    setPageId,
+    setProjectedRunId,
+    setChatOpen,
+  });
 
   // モバイルの実効ビュー: 「ノード」ビューで表示できるものが無ければグラフへ倒す
   // （選択解除・削除直後に空画面へ取り残されないように）。デスクトップは null（全ペイン共存）
   const hasNodeView = selectedIds.length > 1 || panelNode !== null;
   const mv: MobileView | null = isMobile ? (mobileView === "node" && !hasNodeView ? "graph" : mobileView) : null;
 
-  // --- モバイルのブラウザ「戻る」統合（2026-08-02 本人報告「スマホの戻るで戻りすぎる」） ---
-  // SPA なので履歴が1件も積まれず、戻る=即アプリ外に出てしまっていた。ビュー切替と
-  // 設定画面を history に積み、戻るは「1つ前のビューへ」になる（履歴を遡り切ったら
-  // 従来どおりページを離れる）
-  const popNavRef = useRef(false);
-  const firstViewPushRef = useRef(true);
-  const settingsOpenRef = useRef(false);
-  useEffect(() => {
-    if (!isMobile) return;
-    if (firstViewPushRef.current) {
-      // 初期エントリに現在ビューを刻む（戻り切ったときの復元先）
-      firstViewPushRef.current = false;
-      window.history.replaceState({ gwView: mobileView }, "");
-      return;
-    }
-    if (popNavRef.current) {
-      popNavRef.current = false; // popstate 由来の setMobileView では積まない
-      return;
-    }
-    window.history.pushState({ gwView: mobileView }, "");
-  }, [mobileView, isMobile]);
-  useEffect(() => {
-    settingsOpenRef.current = settingsOpen;
-    if (!isMobile || !settingsOpen) return;
-    window.history.pushState({ gwSettings: true }, "");
-  }, [settingsOpen, isMobile]);
-  useEffect(() => {
-    if (!isMobile) return;
-    const onPop = (e: PopStateEvent) => {
-      if (settingsOpenRef.current) {
-        setSettingsOpen(false); // 設定が開いていたら「戻る」はまず設定を閉じる
-        return;
-      }
-      const st = e.state as { gwView?: MobileView } | null;
-      popNavRef.current = true;
-      setMobileView(st?.gwView ?? "graph");
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, [isMobile]);
+  // モバイルのブラウザ「戻る」統合（ビュー切替・設定画面を history に積む）は
+  // hooks/useMobileBackNav.ts
+  useMobileBackNav({ isMobile, mobileView, setMobileView, settingsOpen, setSettingsOpen });
 
   return (
     // 背景色は body が持つ（格子と一体）。ここに不透明背景を敷くと格子が隠れる
