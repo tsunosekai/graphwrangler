@@ -311,6 +311,37 @@ server.registerTool(
   ),
 );
 
+// ---- 9.5 discord_post ----
+// 「このノードの実行として、指定チャンネルへ連絡する」口（2026-08-11 本人要望
+// 「AIが人間とコミュニケーションする必要のあるタスクは積極的に Discord を使ってほしい」）。
+// GW を通すことで、ノードURL・関係者メンション・スレッドへの記録が自動で付く
+// （AI が Discord へ直に投げると、どれも付かず後から辿れない）。
+
+server.registerTool(
+  "discord_post",
+  {
+    description:
+      "このノードの実行として Discord の指定チャンネルへ連絡を投稿する。" +
+      "**手順書（impl の doc）に投稿先チャンネルが書かれているときだけ使うこと**——" +
+      "書かれていないのに投稿してはいけない（通知が増えるほど人はそのチャンネルを信用しなくなる）。" +
+      "人間に判断を仰ぎたいときはこれではなく request_open を使う（それが「あなたの番」になる）。" +
+      "body には連絡の本文だけを書く。出し元の [Graph Wrangler]・関係者へのメンション・" +
+      "ページ名/ノード名・ノードURLはサーバが自動で付けるので、本文に書かないこと。" +
+      "投稿内容はノードのスレッドにも記録として残る。",
+    inputSchema: {
+      nodeId: z.string().describe("どのノードの実行としての連絡か（URLと関係者の解決に使う）"),
+      channel: z
+        .string()
+        .describe("投稿先チャンネル。手順書に書かれた名前をそのまま（例: \"#運営一般\"）。チャンネルIDでも可"),
+      body: z.string().min(1).describe("連絡の本文だけ。宛先・URL・出し元は自動で付く"),
+      runId: z.string().nullable().optional().describe("どのランの実行としての連絡か。既定 null"),
+    },
+  },
+  safe(async ({ nodeId, ...rest }: { nodeId: string; [key: string]: unknown }) =>
+    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/discord`, withMeta(rest)),
+  ),
+);
+
 // ---- 10. trigger_run ----
 // トリガーノード（kind=trigger）から手動でランを1本作る。docs/design.md 3.4/3.8/3.9。
 // run=ページから生成される1回分の実行インスタンス（ワークアイテムごとに進捗状態を持つ）。

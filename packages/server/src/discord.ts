@@ -1,22 +1,31 @@
 // Discord Webhook 通知（2026-08-07 本人要望「あなたの番をディスコードでメンション通知」）。
 // Bot ではなく Webhook を選んだ: チャンネル設定（連携サービス→ウェブフック）で発行した URL へ
 // POST するだけで、トークン管理も常駐プロセスも要らない（gitpushlog と同じ方式）。
-// メンションは本文の <@ユーザーID>（users.json の discordId）。担当者なしの「全員の番」は
-// @here（2026-08-07 本人指定）。担当者ありで discordId 未登録なら鳴らさず名前を書くだけ
-// （他人の番で @here を鳴らすのは誤爆のため）。
 //
 // 本文フォーマットは3行構成（2026-08-08 本人指示——本文引用が長すぎたため簡略化 + リンク化）:
-//   1行目: 種別（「あなたの番です」「AIが返信」。メンションは行頭）
+//   1行目: メンション + 「あなたの番です」
 //   2行目: 「<ページ名> - <ノード名>」（ランがあれば末尾に（ラン: <ラン名>））
-//   3行目: ノードへのリンク（notify.publicUrl 設定時のみ。UI 側の #/n/<id> ルーティングが開く）
+//   3行目: ノードへのリンク（**必須**。2026-08-11 本人要望「何の話か分からないから
+//          ノードURLは絶対にのせるようにしたい」——publicUrl 未設定なら通知そのものを出さない。
+//          鳴るのに辿れない通知はチャンネルの信用を落とすだけなので、黙るほうを選ぶ）
 //
-// 「あなたの番」の発生源はサーバに2つだけ（デスクトップ通知と同じ定義。App.tsx 参照）:
-//   ① POST /nodes/:id/request … 判断リクエストが開く（pendingRequest セット）
+// **このチャンネルに出るのは「グラフのボールが人間に渡った瞬間」だけ**（2026-08-11 本人指示
+// 「あなたの番がグラフ通知になるようにしたい。ノードの進捗で機械的に決まるのがこの
+// チャンネルの通知だから」）。発生源はサーバに2つ:
+//   ① POST /nodes/:id/request … 判断リクエストが開く（pendingRequest セット）。
+//      AI実行中の質問（engine の QUESTION プロトコル）・承認ゲート・失敗リカバリ・分岐も
+//      すべてここを通る
 //   ② POST /runs/:id/items/:nodeId … ランのワークアイテムが waiting へ遷移
-// どちらも UI・エンジン・MCP の全経路がこの API を通るので、ここで拾えば漏れない
-// （クライアント側のデスクトップ通知はタブが開いている間しか鳴らない——それを補うのが本機能）。
+// 手順書に書かれた業務連絡（「営業担当者に報告」等）は**グラフの進行ではなくノードの実行成果**
+// なので、この口ではなく指定チャンネルへ出す（別系統）。
+//
+// 旧「Task AI がスレッドへ返信した」通知は廃止（2026-08-11 本人指示「グラフ通知出し過ぎだな。
+// ページ見てる間は出さなくていい」「GW上でチャットしてて返信が来た奴にいちいちとりあえず
+// Discord 通知飛ばさないでほしい」）——返信は GW を開けば読めるので、鳴らす理由が無い。
+// AI が会話中に本当に人間の判断を要したときは QUESTION プロトコルで①へ乗る。
 
-/** users.json の1件のうち通知に要る部分（auth.ts の User から） */
+/** users.json の1件のうち通知に要る部分（auth.ts の User から）。
+ *  宛先の解決は recipients.ts（assignee → createdBy → ページの関係者 → スレッド発言者） */
 export interface NotifyUser {
   email: string;
   displayName?: string;
@@ -50,10 +59,10 @@ function subjectLine(t: NotifyTarget): string {
   return t.runTitle ? `${base}（ラン: ${t.runTitle}）` : base;
 }
 
-/** 3行目のノードリンク。publicUrl 未設定なら null（行ごと省略）。
+/** 3行目のノードリンク。publicUrl 未設定なら null（＝通知を出さない。呼び出し側が判定する）。
  *  末尾スラッシュは除去してから UI のハッシュルート（lib/route.ts）を連結する。
  *  ラン経由の通知は `/#/r/<ランid>/n/<ノードid>`＝ランのページ、それ以外は `/#/n/<ノードid>` */
-function nodeLink(
+export function nodeLink(
   publicUrl: string | null | undefined,
   nodeId: string,
   runId?: string | null,
@@ -63,44 +72,46 @@ function nodeLink(
   return runId ? `${origin}/#/r/${runId}/n/${nodeId}` : `${origin}/#/n/${nodeId}`;
 }
 
-/** 1〜3行を組む共通処理。link が null なら3行目を出さない */
-function composeContent(firstLine: string, target: NotifyTarget, publicUrl: string | null | undefined): string {
-  const lines = [firstLine, subjectLine(target)];
-  const link = nodeLink(publicUrl, target.nodeId, target.runId);
-  if (link) lines.push(link);
-  return lines.join("\n");
+/**
+ * 宛先からメンション部分を組み立てる（純粋関数）。
+ * - discordId 登録済み → `<@id>` で実際に鳴らす
+ * - 未登録            → 「名前さん」と**文字で書くだけ**（鳴らないが、誰宛かは分かる）
+ * - 宛先が1人も解決できなかった → `@here`（本当の意味の「全員の番」だけが全体を鳴らす）
+ */
+export function mentionOf(recipients: NotifyUser[]): { text: string; allowed: DiscordMessage["allowed_mentions"] } {
+  if (recipients.length === 0) return { text: "@here", allowed: { parse: ["everyone"] } };
+  const ids: string[] = [];
+  const parts = recipients.map((u) => {
+    if (u.discordId) {
+      ids.push(u.discordId);
+      return `<@${u.discordId}>`;
+    }
+    return `${u.displayName ?? u.email}さん`;
+  });
+  return { text: parts.join(" "), allowed: ids.length > 0 ? { users: ids } : { parse: [] } };
+}
+
+/** 1〜3行を組む共通処理。link は必須（URL の無い通知は出さない方針） */
+function composeContent(firstLine: string, target: NotifyTarget, link: string): string {
+  return [firstLine, subjectLine(target), link].join("\n");
 }
 
 /**
  * 「あなたの番」メッセージを組み立てる（純粋関数。vitest 対象）。
- * - assignee あり + discordId 登録済み → その人だけをメンション
- * - assignee あり + 未登録            → メンションなしで担当名を書く
- * - assignee なし（全員の番）         → @here
- * 旧フォーマットの extra（質問文の引用）は廃止（2026-08-08 本人指示——長すぎるため）
+ * 宛先は recipients.ts が解決済みのものを受け取る——ここは「並べて鳴らす」だけを担う。
+ * publicUrl が無ければ **null を返す**（＝送らない。2026-08-11 URL 必須化）
  */
 export function buildTurnMessage(
-  assignee: string | null | undefined,
-  users: NotifyUser[],
+  recipients: NotifyUser[],
   target: NotifyTarget,
   publicUrl: string | null | undefined,
-): DiscordMessage {
-  if (assignee) {
-    const u = users.find((x) => x.email.toLowerCase() === assignee.toLowerCase());
-    if (u?.discordId) {
-      return {
-        content: composeContent(`<@${u.discordId}> あなたの番です`, target, publicUrl),
-        allowed_mentions: { users: [u.discordId] },
-      };
-    }
-    const name = u?.displayName ?? assignee;
-    return {
-      content: composeContent(`${name} さんの番です`, target, publicUrl),
-      allowed_mentions: { parse: [] },
-    };
-  }
+): DiscordMessage | null {
+  const link = nodeLink(publicUrl, target.nodeId, target.runId);
+  if (!link) return null;
+  const { text, allowed } = mentionOf(recipients);
   return {
-    content: composeContent("@here あなたの番です", target, publicUrl),
-    allowed_mentions: { parse: ["everyone"] }, // @here は everyone 系の parse 許可で鳴る
+    content: composeContent(`${text} あなたの番です`, target, link),
+    allowed_mentions: allowed,
   };
 }
 
@@ -118,58 +129,52 @@ export async function sendDiscordWebhook(webhookUrl: string, message: DiscordMes
   }
 }
 
+/** 直近に送った本文 → 送った時刻。**まったく同じ通知**が短時間に繰り返されたときだけ間引く
+ *  （2026-08-11）。「同じノードは N 分に1回」という素朴なクールダウンにしなかったのは、
+ *  AIが質問 → 人間が答える → AIがまた質問、という正当な連続を黙らせてしまうため。
+ *  本文が1文字でも違えば別の用件なので通す */
+const recentlySent = new Map<string, number>();
+const DUPLICATE_WINDOW_MS = 5 * 60 * 1000;
+
+/** 同じ本文を直近に送っていれば true（送るなら送信時刻を記録する）。
+ *  ついでに古い記録を捨てる——通知は多くても数十件/日で、専用の掃除は要らない */
+function isDuplicate(content: string, now: number): boolean {
+  for (const [key, ts] of recentlySent) {
+    if (now - ts > DUPLICATE_WINDOW_MS) recentlySent.delete(key);
+  }
+  const last = recentlySent.get(content);
+  if (last !== undefined && now - last <= DUPLICATE_WINDOW_MS) return true;
+  recentlySent.set(content, now);
+  return false;
+}
+
+/** テスト用に間引きの記録を捨てる */
+export function clearDuplicateGuard(): void {
+  recentlySent.clear();
+}
+
 /** 通知の投げっぱなし版（リクエスト処理をブロックしない。失敗はログのみ——
- *  通知は補助機能で、本体の操作を失敗させる理由にはならない） */
+ *  通知は補助機能で、本体の操作を失敗させる理由にはならない）。
+ *  publicUrl 未設定は**黙って落とさず警告を出す**——設定漏れに気付けないと、
+ *  「通知が来ない」の調査が settings まで辿り着かない */
 export function notifyTurn(
   cfg: { discordEnabled: boolean; discordWebhookUrl: string | null; publicUrl: string | null },
-  users: NotifyUser[],
-  notice: { assignee: string | null | undefined; target: NotifyTarget },
+  recipients: NotifyUser[],
+  target: NotifyTarget,
 ): void {
   if (!cfg.discordEnabled || !cfg.discordWebhookUrl) return;
-  const message = buildTurnMessage(notice.assignee, users, notice.target, cfg.publicUrl);
+  const message = buildTurnMessage(recipients, target, cfg.publicUrl);
+  if (!message) {
+    console.warn(
+      "[discord] 通知を見送りました: 設定の notify.publicUrl が未設定です（ノードURLの無い通知は出さない方針）",
+    );
+    return;
+  }
+  if (isDuplicate(message.content, Date.now())) {
+    console.warn(`[discord] 同じ通知を直近に送っているため間引きました: ${message.content.split("\n")[1]}`);
+    return;
+  }
   void sendDiscordWebhook(cfg.discordWebhookUrl, message).catch((err) => {
     console.error(`[discord] 通知に失敗: ${String(err)}`);
-  });
-}
-
-/**
- * 「Task AI が返信し終えた」通知（2026-08-07「Discord 通知が来ない」対応）。
- * 「あなたの番」（判断リクエスト・ラン待ち）だけだと、相談中心の使い方では通知の機会が
- * ほぼ無い——AI に相談を投げて離席したら、返信が来たことを知る手段が要る。
- * メンションは担当者の discordId があるときだけ（@here は使わない。返信のたびに全員を
- * 鳴らすのは過剰で、「あなたの番」との重みの差を保つ）。
- * 旧フォーマットの snippet（返信本文の先頭引用）は廃止（2026-08-08 本人指示——
- * 長すぎるため。本文はリンク先のノードで読む）
- */
-export function buildAiReplyMessage(
-  assignee: string | null | undefined,
-  users: NotifyUser[],
-  target: NotifyTarget,
-  publicUrl: string | null | undefined,
-): DiscordMessage {
-  const u = assignee ? users.find((x) => x.email.toLowerCase() === assignee.toLowerCase()) : undefined;
-  if (u?.discordId) {
-    return {
-      content: composeContent(`<@${u.discordId}> AIが返信`, target, publicUrl),
-      allowed_mentions: { users: [u.discordId] },
-    };
-  }
-  return {
-    content: composeContent("AIが返信", target, publicUrl),
-    allowed_mentions: { parse: [] },
-  };
-}
-
-/** Task AI 返信通知の投げっぱなし版。discordEnabled（全体設定）が親スイッチ。
- *  受け取るかどうかの個人設定（user_settings.ts の discordAiReplies）は呼び出し側が見る */
-export function notifyAiReply(
-  cfg: { discordEnabled: boolean; discordWebhookUrl: string | null; publicUrl: string | null },
-  users: NotifyUser[],
-  notice: { assignee: string | null | undefined; target: NotifyTarget },
-): void {
-  if (!cfg.discordEnabled || !cfg.discordWebhookUrl) return;
-  const message = buildAiReplyMessage(notice.assignee, users, notice.target, cfg.publicUrl);
-  void sendDiscordWebhook(cfg.discordWebhookUrl, message).catch((err) => {
-    console.error(`[discord] Task AI 返信通知に失敗: ${String(err)}`);
   });
 }

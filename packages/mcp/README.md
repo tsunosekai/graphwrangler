@@ -54,6 +54,7 @@ claude mcp add graphwrangler -- npx tsx D:/VSCodeProject/infra-tools/graphwrangl
 | `message_post` | スレッドへの投稿（say/status/artifact） |
 | `request_open` | 判断リクエストを開く（pendingRequest がセットされ、ボールが人間に渡る） |
 | `request_answer` | 判断リクエストへの回答（option=null でラリー継続） |
+| `discord_post` | **ノードの実行として** Discord の指定チャンネルへ連絡を投稿する（手順書に投稿先が書かれているときだけ使う。人間に判断を仰ぐなら `request_open`）。出し元の `[Graph Wrangler]`・関係者メンション・ページ名/ノード名・**ノードURL**はサーバが付ける。投稿はスレッドにも status として残る |
 | `trigger_run` | トリガーノード（kind=trigger）を手動で起動し、その group（所属ページ）でランを1本作成する。`context`（このランの初期コンテキスト。3.15）も指定可 |
 | `run_context_set` | ランのコンテキスト（run.context。3.15）へキー→値を merge する（同一ラン内は last-write-wins）。script executor の `##gw` マーカーと同じ効果を持つ、エンジン外からの書き込み経路 |
 | `run_list` | ページの過去のラン一覧（要約: id/title/status/trigger/created/context + ワークアイテム状態内訳カウント） |

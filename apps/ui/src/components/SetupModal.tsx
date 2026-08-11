@@ -142,6 +142,10 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [webhookUrl, setWebhookUrl] = useState("");
   // 公開URL（通知に付くリンクの基底。2026-08-08 本人指示）。空欄 = リンク無しで通知
   const [publicUrl, setPublicUrl] = useState(settings.notify?.publicUrl ?? "");
+  // 業務連絡（手順書で指定したチャンネルへの投稿）用。トークンは Webhook URL と同じ
+  // 書き込み専用の扱い（有無だけ受け取り、値は入力中のときだけ送る）。2026-08-11
+  const [botToken, setBotToken] = useState("");
+  const [guildId, setGuildId] = useState(settings.notify?.discordGuildId ?? "");
 
   // ユーザーごとの設定（2026-08-07「設定はユーザーごとと全体で分けて」）。
   // 読み込みはマウント時、書き込みはトグルの瞬間に即時反映（「保存」を経由しない＝
@@ -186,6 +190,18 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
     try {
       const next = await api.updateSettings({ notify: { discordWebhookUrl: null } });
       setEditingWebhook(true);
+      onSaved(next);
+    } catch {
+      // api() 側でトースト表示済み
+    }
+  };
+  const [editingBotToken, setEditingBotToken] = useState(
+    !(settings.notify?.hasDiscordBotToken ?? false),
+  );
+  const removeBotToken = async () => {
+    try {
+      const next = await api.updateSettings({ notify: { discordBotToken: null } });
+      setEditingBotToken(true);
       onSaved(next);
     } catch {
       // api() 側でトースト表示済み
@@ -240,7 +256,11 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           intervalMin: Math.min(1440, Math.max(5, parseInt(updIntervalMin, 10) || 60)),
         },
         // publicUrl は末尾スラッシュを落として保存（リンク組み立て時の // を防ぐ）。空欄 = null（2026-08-08）
-        notify: { discordEnabled, publicUrl: publicUrl.trim().replace(/\/+$/, "") || null },
+        notify: {
+          discordEnabled,
+          publicUrl: publicUrl.trim().replace(/\/+$/, "") || null,
+          discordGuildId: guildId.trim() || null,
+        },
         // 空欄で保存したら既定名へ戻す（min(1) のサーバ検証で弾かれないように畳んでおく）
         branding: { siteTitle: siteTitle.trim() || DEFAULT_SITE_TITLE },
         setupDone: true,
@@ -250,11 +270,16 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
       if (editingWebhook && webhookUrl.trim()) {
         patch.notify = { ...patch.notify, discordWebhookUrl: webhookUrl.trim() };
       }
+      if (editingBotToken && botToken.trim()) {
+        patch.notify = { ...patch.notify, discordBotToken: botToken.trim() };
+      }
       const next = await api.updateSettings(patch);
       setApiKey("");
       setEditingKey(!next.chat.hasApiKey);
       setWebhookUrl("");
       setEditingWebhook(!next.notify.hasDiscordWebhook);
+      setBotToken("");
+      setEditingBotToken(!next.notify.hasDiscordBotToken);
       void refreshBranding(); // サイト名の変更をヘッダーとタブへ即反映
       onSaved(next);
     } catch {
@@ -383,6 +408,13 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           testNotify={testNotify}
           publicUrl={publicUrl}
           setPublicUrl={setPublicUrl}
+          editingBotToken={editingBotToken}
+          setEditingBotToken={setEditingBotToken}
+          botToken={botToken}
+          setBotToken={setBotToken}
+          removeBotToken={removeBotToken}
+          guildId={guildId}
+          setGuildId={setGuildId}
         />
 
         <BrandingSection

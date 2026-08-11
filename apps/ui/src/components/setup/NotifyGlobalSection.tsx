@@ -19,6 +19,14 @@ interface Props {
   testNotify: () => void;
   publicUrl: string;
   setPublicUrl: (v: string) => void;
+  /** 業務連絡（手順書で指定されたチャンネルへの投稿）用。2026-08-11 */
+  editingBotToken: boolean;
+  setEditingBotToken: (v: boolean) => void;
+  botToken: string;
+  setBotToken: (v: string) => void;
+  removeBotToken: () => void;
+  guildId: string;
+  setGuildId: (v: string) => void;
 }
 
 export function NotifyGlobalSection({
@@ -33,6 +41,13 @@ export function NotifyGlobalSection({
   testNotify,
   publicUrl,
   setPublicUrl,
+  editingBotToken,
+  setEditingBotToken,
+  botToken,
+  setBotToken,
+  removeBotToken,
+  guildId,
+  setGuildId,
 }: Props) {
   return (
     <section className={section}>
@@ -42,7 +57,7 @@ export function NotifyGlobalSection({
         <span>Discord 通知を有効にする（インスタンス全体の親スイッチ）</span>
       </label>
       <label className={field}>
-        <span>Discord Webhook URL</span>
+        <span>グラフ通知チャンネルの Webhook URL</span>
         {editingWebhook ? (
           <Input
             type="password"
@@ -66,21 +81,67 @@ export function NotifyGlobalSection({
         )}
       </label>
       <p className={desc}>
-        通知先チャンネルの設定 → 連携サービス → ウェブフックで URL を発行して貼り付け、下の「保存」で反映されます。
-        担当者が付いたノードはその人をメンション（ユーザー管理で Discord ID を登録）、担当者なしは
-        @here で全員に届きます。受け取るかどうかの個人設定はユーザータブにあります
+        「あなたの番」だけがここへ流れます（判断リクエスト・AIの質問・承認ゲート・失敗リカバリ・
+        分岐・ランの待ち）。通知先チャンネルの設定 → 連携サービス → ウェブフックで URL を発行して
+        貼り付け、下の「保存」で反映されます。宛先は関係者から解決してメンションします
+        （担当 → ノードの作成者 → ページの関係者 → 直近の会話相手の順。ユーザー管理で Discord ID
+        を登録した人だけが実際に鳴ります）。受け取るかどうかの個人設定はユーザータブにあります
       </p>
       {/* 公開URL（2026-08-08 本人指示）: 通知からこのインスタンスへ飛ぶリンクの基底。
-          サーバは自分の外向きURLを知らないのでここで教える */}
+          サーバは自分の外向きURLを知らないのでここで教える。
+          2026-08-11 から**必須**（未設定なら通知を出さない） */}
       <label className={field}>
-        <span>公開URL（通知のリンク用）</span>
+        <span>公開URL（通知のリンク用・必須）</span>
         <Input
           value={publicUrl}
           onChange={(e) => setPublicUrl(e.target.value)}
           placeholder="http://100.86.224.19:8770"
         />
       </label>
-      <p className={desc}>通知に付くリンクの基底。未設定だと通知はリンク無しになります</p>
+      <p className={desc}>
+        通知に付くノードURLの基底。<strong>未設定だと通知そのものが出ません</strong>
+        （何の話か分からない通知は出さない方針）
+      </p>
+
+      {/* 業務連絡（2026-08-11 本人要望）: 手順書に「#運営一般 に報告」と書かれたノードで、
+          AI がその実行としてチャンネルへ投げるための口。グラフ通知とは別系統で、
+          チャンネルごとに Webhook を発行して回らずに済むよう Bot トークン + 名前解決にした */}
+      <h4 className="mt-4 text-sm font-medium text-foreground">業務連絡（手順書で指定したチャンネルへ）</h4>
+      <label className={field}>
+        <span>Discord Bot トークン</span>
+        {editingBotToken ? (
+          <Input
+            type="password"
+            value={botToken}
+            onChange={(e) => setBotToken(e.target.value)}
+            placeholder="Bot トークンを貼り付け"
+          />
+        ) : (
+          <span className="flex items-center gap-2 text-sm text-foreground">
+            設定済み（●●●）
+            <Button type="button" variant="outline" size="sm" onClick={() => setEditingBotToken(true)}>
+              変更
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={removeBotToken}>
+              削除
+            </Button>
+          </span>
+        )}
+      </label>
+      <label className={field}>
+        <span>サーバーID（guild ID）</span>
+        <Input
+          value={guildId}
+          onChange={(e) => setGuildId(e.target.value)}
+          placeholder="123456789012345678"
+        />
+      </label>
+      <p className={desc}>
+        手順書に「#運営一般 に報告」のようにチャンネル名を書いておくと、AI がその実行として
+        そこへ投稿します（ノードURL・関係者メンション・出し元の [Graph Wrangler] はサーバが自動で
+        付けます）。Bot はそのサーバーに参加していてチャンネル一覧を読める必要があります。
+        手順書に書かれていないチャンネルへは投稿されません
+      </p>
     </section>
   );
 }

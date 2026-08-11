@@ -4,7 +4,15 @@
 // 「open な判断リクエストが無いノードへの普通の相談」だけを相手にする。
 // 呼び出し元は index.ts の POST /api/nodes/:id/messages（メッセージ保存レスポンスを
 // 返した直後、await せずに maybeTriggerThreadAi を呼ぶ）。
-import type { Actor, GraphStore, Node, ThreadStore } from "@graphwrangler/core";
+import {
+  type Actor,
+  type AiQuestion,
+  type GraphStore,
+  type Node,
+  QUESTION_PROTOCOL_LINES,
+  type ThreadStore,
+  parseAiQuestion,
+} from "@graphwrangler/core";
 import { type ChildProcess, spawn } from "node:child_process";
 import os from "node:os";
 import { chatKeyMissing, completeText } from "./chat.js";
@@ -86,6 +94,14 @@ export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): stri
     "話題は以下のタスクノードそのもの。作業ディレクトリのソースコードやリポジトリの話はしない。",
     "実装(impl)の path やドキュメントに言及するときは、読んでいいか確認を求めず Read で先に読んでから答えること。",
     "メッセージ中の「[添付ファイル: <パス>]」はユーザーが添付したファイル。確認を求めず Read で読んで内容を踏まえること。",
+    "",
+    // QUESTION プロトコル（core/ask.ts。engine の AI executor と同じ規約を会話にも通す。
+    // 2026-08-11）。これを出すと Discord の「あなたの番」が鳴って人間を呼び出すので、
+    // **普通の聞き返しには使わせない**——乱発されると、返信ごとに鳴っていた旧仕様に逆戻りする
+    ...QUESTION_PROTOCOL_LINES,
+    "ただしこれは**人間を呼び出す**合図で、Discord に「あなたの番」の通知が飛びます。" +
+      "会話の中の軽い確認・聞き返し・提案の同意取りには使わず、普通の返信として書いてください。" +
+      "使うのは「人間が決めないとこの先へ進めない」ときだけです。",
     "",
     `ノード: ${node.title || "（無題）"}`,
   ];
@@ -292,7 +308,7 @@ async function respondInThread(
   settings: SettingsStore,
   node: Node,
   signal: AbortSignal,
-  onReply?: (node: Node, replyText: string) => void,
+  onQuestion?: (node: Node, question: AiQuestion, runId: string | null) => void,
   attachmentsDir?: string,
   // どのランの会話に返すか（2026-08-08「会話もフォーク」）。null = テンプレート側
   runId: string | null = null,
@@ -384,6 +400,16 @@ async function respondInThread(
   if (!replyText) return;
   if (signal.aborted) return; // 止めた後に届いた応答は書き込まない
 
+  // QUESTION プロトコル（2026-08-11）: AI が「人間が決めないと進めない」に当たったときは、
+  // 普通の返信として書かず判断リクエストを開く＝ボールが人間へ渡り、「あなたの番」として
+  // Discord が鳴る。say は投げない——判断リクエストのカードがスレッドに残り、質問文も
+  // 選択肢もそこに出るので、同じ内容を二重に置くことになるため
+  const question = onQuestion ? parseAiQuestion(replyText) : null;
+  if (question) {
+    onQuestion?.(node, question, runId);
+    return;
+  }
+
   threads.post(node.id, {
     kind: "say",
     body: replyText,
@@ -391,8 +417,8 @@ async function respondInThread(
     via: "chat",
     runId,
   });
-  // Discord 等への「返信が来た」通知（2026-08-07。設定・宛先解決は呼び出し側=index.ts が持つ）
-  onReply?.(node, replyText);
+  // 「返信が来た」の Discord 通知はここから外した（2026-08-11 本人指示——チャット中に
+  // 1往復ごとに鳴っていた。返信は GW を開けば読める）
 }
 
 /**
@@ -415,14 +441,16 @@ export function maybeTriggerThreadAi(params: {
   nodeId: string;
   kind: string;
   actor: Actor;
-  /** 返信を書き終えたときに呼ばれる（Discord 通知等。2026-08-07）。失敗は無視してよい */
-  onReply?: (node: Node, replyText: string) => void;
+  /** AI が QUESTION プロトコルで人間の判断を求めたときに呼ばれる（2026-08-11）。
+   *  呼び出し側（routes/threads.ts）が判断リクエストを開き、「あなたの番」を Discord へ流す。
+   *  未指定なら QUESTION も普通の返信として投稿される（判定自体を行わない） */
+  onQuestion?: (node: Node, question: AiQuestion, runId: string | null) => void;
   /** 添付ファイル置き場（--add-dir に足して Read で読めるようにする。2026-08-07） */
   attachmentsDir?: string;
   /** どのランの会話への投稿か（2026-08-08「会話もフォーク」）。null/未指定 = テンプレート側 */
   runId?: string | null;
 }): void {
-  const { graph, threads, settings, nodeId, kind, actor, onReply, attachmentsDir } = params;
+  const { graph, threads, settings, nodeId, kind, actor, onQuestion, attachmentsDir } = params;
   const runId = params.runId ?? null;
   if (!graph.has(nodeId)) return;
   const node = graph.get(nodeId);
@@ -435,7 +463,7 @@ export function maybeTriggerThreadAi(params: {
 
   const controller = new AbortController();
   runningThreadAi.set(key, controller);
-  respondInThread(graph, threads, settings, node, controller.signal, onReply, attachmentsDir, runId)
+  respondInThread(graph, threads, settings, node, controller.signal, onQuestion, attachmentsDir, runId)
     .catch((err) => {
       if (controller.signal.aborted) return;
       console.error(`[thread-ai] node ${nodeId}: 予期しないエラー: ${String(err)}`);

@@ -1,10 +1,12 @@
 // ノードスレッド（会話・判断リクエスト・Task AI）のルート（旧 index.ts から移設）
 import { Hono } from "hono";
 import { z } from "zod";
-import { DecisionRequestSchema, GraphError } from "@graphwrangler/core";
+import { DecisionRequestSchema, GraphError, buildAiQuestionRequest } from "@graphwrangler/core";
 import { loadUsers } from "../auth.js";
-import { notifyAiReply, notifyTurn } from "../discord.js";
+import { buildReportMessage, resolveChannelId, sendBotMessage } from "../discord_bot.js";
 import { notifyTargetOf } from "../notify_target.js";
+import { openHumanRequest } from "../open_request.js";
+import { resolveRecipients } from "../recipients.js";
 import {
   cancelThreadAi,
   isThreadAiFollowUpQueued,
@@ -15,7 +17,9 @@ import { meta } from "../request_meta.js";
 import type { AppContext } from "../app_context.js";
 
 export function threadRoutes(ctx: AppContext): Hono {
-  const { graph, threads, settings, userSettings, usersFile, attachmentsDir } = ctx;
+  // 通知（宛先の解決・Discord 送信）に要る settings / userSettings / usersFile は
+  // openHumanRequest が ctx ごと受け取る（2026-08-11 に経路を1本化した）
+  const { graph, threads, settings, attachmentsDir } = ctx;
   const app = new Hono();
 
   /**
@@ -77,15 +81,21 @@ export function threadRoutes(ctx: AppContext): Hono {
       runId: input.runId,
       attachmentsDir, // [添付ファイル: <パス>] を Task AI が Read で読めるように
 
-      // Task AI の返信完了を Discord へ（2026-08-07「通知が来ない」対応。discord.ts 参照）。
-      // 受け取るかどうかは個人設定（担当者、未割当なら default 枠）で決める。
-      // 返信本文の引用（snippet）は廃止し、ページ名 + リンクの簡略フォーマットへ（2026-08-08 本人指示）
-      onReply: (node) => {
-        if (!userSettings.get(node.assignee ?? null).discordAiReplies) return;
-        notifyAiReply(settings.get().notify, loadUsers(usersFile), {
-          assignee: node.assignee,
-          target: notifyTargetOf(graph, node),
-        });
+      // 「Task AI が返信した」の Discord 通知は廃止（2026-08-11 本人指示——GW でチャット中に
+      // 1往復ごとに鳴っていた。返信は開けば読めるので鳴らす理由が無い）。代わりに、AI が
+      // 会話中に**本当に人間の判断を要した**ときだけ QUESTION プロトコルでここへ来て、
+      // 判断リクエスト＝「あなたの番」として鳴る（2026-08-11「AIが人間に本当に問い合わせを
+      // したい時だけグラフ通知チャンネルに通知を出して」）。
+      // 既に open なリクエストがあるノードはそもそも Task AI が起動しない
+      // （shouldTriggerThreadAi）ので、ここでの重複は起きない
+      onQuestion: (node, question, runId) => {
+        openHumanRequest(
+          ctx,
+          node.id,
+          buildAiQuestionRequest(node.title, question),
+          { author: { kind: "agent", name: "task-ai" }, via: "chat" },
+          runId,
+        );
       },
     });
     return c.json(message);
@@ -102,27 +112,74 @@ export function threadRoutes(ctx: AppContext): Hono {
     const body = await c.req.json();
     const m = meta(body);
     const request = DecisionRequestSchema.parse(body.request);
-    const message = threads.openRequest(
-      id,
-      request,
-      { author: m.actor.kind === "human" ? { kind: "agent" } : m.actor, via: m.via },
-    );
-    graph.patchNode(
-      id,
-      { pendingRequest: message.id },
-      { actor: { kind: "system" }, via: m.via },
-    );
-    // Discord 通知（あなたの番の発生源①: ボールが人間へ渡った瞬間。discord.ts 参照）。
-    // 投げっぱなし＝リクエスト処理をブロックしない。担当者が居るときはその人の
-    // 個人設定（discordTurnNotify）を尊重する（2026-08-07 ユーザー別設定）。
-    // 質問文の引用（extra）は廃止し、ページ名 + リンクの簡略フォーマットへ（2026-08-08 本人指示）
-    if (!node.assignee || userSettings.get(node.assignee).discordTurnNotify) {
-      notifyTurn(settings.get().notify, loadUsers(usersFile), {
-        assignee: node.assignee,
-        target: notifyTargetOf(graph, node),
-      });
-    }
+    // pendingRequest のセットと「あなたの番」の Discord 通知は open_request.ts が一手に持つ
+    // （AI実行中の QUESTION・承認ゲート・失敗リカバリ・分岐が全部この経路を通る）
+    const message = openHumanRequest(ctx, id, request, {
+      author: m.actor.kind === "human" ? { kind: "agent" } : m.actor,
+      via: m.via,
+    });
     return c.json(message);
+  });
+
+  /**
+   * 業務連絡の Discord 投稿（2026-08-11。MCP の discord_post から呼ばれる）。
+   * **グラフ通知ではない**——手順書に「#運営一般 に報告」と書かれたノードで、AI がその
+   * 実行としてチャンネルへ投げる口（discord_bot.ts の系統。軸の説明もそこ）。
+   *
+   * サーバ側で機械的に付けるもの: 出し元の [Graph Wrangler]（共用 Bot のため）/ 関係者の
+   * メンション / ページ名 + ノード名 / **ノードURL（必須）**。AI が書くのは本文だけ。
+   * これで「AI が openclaw で直接投げる」経路（URLも記録も付かない）を GW 側へ寄せられる。
+   *
+   * 投稿内容はスレッドにも status として残す——後から「いつ何をどこへ報告したか」を
+   * ノードだけで辿れるようにするため。
+   */
+  const DiscordPostSchema = z.object({
+    channel: z.string().min(1),
+    body: z.string().min(1),
+    runId: z.string().nullable().default(null),
+  });
+
+  app.post("/api/nodes/:id/discord", async (c) => {
+    const id = c.req.param("id");
+    const node = graph.get(id);
+    const input = DiscordPostSchema.parse(await c.req.json());
+    const n = settings.get().notify;
+    if (!n.discordEnabled) throw new GraphError("Discord 通知が設定で無効です", 400);
+    if (!n.discordBotToken || !n.discordGuildId) {
+      throw new GraphError(
+        "Discord の Bot トークン / サーバーID が未設定です（⚙→通知）。チャンネル指定の投稿にはこの2つが要ります",
+        400,
+      );
+    }
+    const target = notifyTargetOf(graph, node);
+    const message = buildReportMessage(
+      input.body,
+      resolveRecipients(graph, threads, loadUsers(ctx.usersFile), node, input.runId),
+      target,
+      n.publicUrl,
+    );
+    if (!message) {
+      throw new GraphError(
+        "通知リンクの基底URL（⚙→通知の publicUrl）が未設定です。ノードURLの無い投稿は出しません",
+        400,
+      );
+    }
+    let posted: { id: string };
+    try {
+      const channelId = await resolveChannelId(n.discordBotToken, n.discordGuildId, input.channel);
+      posted = await sendBotMessage(n.discordBotToken, channelId, message);
+    } catch (err) {
+      throw new GraphError(String(err instanceof Error ? err.message : err), 502);
+    }
+    threads.post(id, {
+      kind: "status",
+      body: `Discord ${input.channel} へ投稿:\n${input.body.trim()}`,
+      payload: { discordMessageId: posted.id, channel: input.channel },
+      runId: input.runId,
+      author: { kind: "agent" },
+      via: "discord",
+    });
+    return c.json({ ok: true, messageId: posted.id, content: message.content });
   });
 
   const AnswerSchema = z.object({

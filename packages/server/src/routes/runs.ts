@@ -13,6 +13,7 @@ import {
 import { loadUsers } from "../auth.js";
 import { notifyTurn } from "../discord.js";
 import { notifyTargetOf } from "../notify_target.js";
+import { resolveRecipients } from "../recipients.js";
 import { meta } from "../request_meta.js";
 import type { AppContext } from "../app_context.js";
 
@@ -209,16 +210,20 @@ export function runRoutes(ctx: AppContext): Hono {
     // Discord 通知（あなたの番の発生源②: ワークアイテムが waiting へ遷移した瞬間。
     // エンジンが人間タスクの順番到達で waiting を付ける経路もここを通る）。
     // 担当者ありならその人の個人設定を尊重（2026-08-07 ユーザー別設定）。
-    // ラン名は target.runTitle として渡す（簡略フォーマット化 2026-08-08 本人指示）
+    // ラン名は target.runTitle として渡す（簡略フォーマット化 2026-08-08 本人指示）。
+    // 宛先は assignee 1本ではなく関係者まで広げて解決する（2026-08-11。recipients.ts）——
+    // 会話の材料はこのランのスレッドに絞る（テンプレート側の昔の会話で鳴らさない）
     if (
       fromStatus !== "waiting" &&
       toStatus === "waiting" &&
       (!node.assignee || userSettings.get(node.assignee).discordTurnNotify)
     ) {
-      notifyTurn(settings.get().notify, loadUsers(usersFile), {
-        assignee: node.assignee,
-        target: notifyTargetOf(graph, node, run),
-      });
+      const users = loadUsers(usersFile);
+      notifyTurn(
+        settings.get().notify,
+        resolveRecipients(graph, threads, users, node, runId),
+        notifyTargetOf(graph, node, run),
+      );
     }
     return c.json(run);
   });

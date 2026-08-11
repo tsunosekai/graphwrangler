@@ -142,8 +142,14 @@ export interface SettingsView {
   notify: {
     discordEnabled: boolean;
     hasDiscordWebhook: boolean;
-    /** 通知リンクの基底URL（2026-08-08）。null = リンク無しで通知する */
+    /** 通知リンクの基底URL。**未設定だと通知そのものを出さない**（2026-08-11 URL 必須化）
+     *  ——鳴るのに辿れない通知はチャンネルの信用を落とすだけなので黙るほうを選ぶ */
     publicUrl: string | null;
+    /** 業務連絡（手順書で指定したチャンネルへの投稿）用の Bot トークンが設定済みか。
+     *  トークン自体は apiKey / Webhook URL と同じく書き込み専用で返らない（2026-08-11） */
+    hasDiscordBotToken: boolean;
+    /** 同じく業務連絡用。チャンネル名 → ID の解決に使うサーバー（guild）のID */
+    discordGuildId: string | null;
   };
   /** インスタンスのブランディング（2026-08-08）。会社/個人の2インスタンスで見た目を分ける。
    *  faviconVersion はサーバ管理（アップロードで +1／既定に戻すと 0）で、patch からは書けない */
@@ -157,10 +163,9 @@ export interface SettingsView {
 /** GET/PUT /api/me/settings（ユーザーごとの設定。2026-08-07「設定はユーザーごとと全体で分けて」）。
  *  未ログイン運用では "default" 1枠に畳まれる。書き込みは即時反映（保存ボタン不要） */
 export interface UserSettings {
-  /** 自分の番（判断リクエスト・ラン待ち）の Discord メンション通知を受け取るか */
+  /** 自分の番（判断リクエスト・ラン待ち）の Discord メンション通知を受け取るか。
+   *  Task AI の返信ごとの通知（旧 discordAiReplies）は廃止（2026-08-11） */
   discordTurnNotify: boolean;
-  /** Task AI がスレッドへ返信し終えたときの Discord 通知を受け取るか */
-  discordAiReplies: boolean;
 }
 
 /** GET /api/update（packages/server/src/selfupdate.ts の UpdateStatus と同形） */
@@ -206,8 +211,15 @@ export interface SettingsPatch {
   ai?: { addDirs?: string[] };
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
-  /** discordWebhookUrl は apiKey と同じ書き込み専用3値（undefined=維持 / null=削除 / string=設定） */
-  notify?: { discordEnabled?: boolean; discordWebhookUrl?: string | null; publicUrl?: string | null };
+  /** discordWebhookUrl / discordBotToken は apiKey と同じ書き込み専用3値
+   *  （undefined=維持 / null=削除 / string=設定） */
+  notify?: {
+    discordEnabled?: boolean;
+    discordWebhookUrl?: string | null;
+    publicUrl?: string | null;
+    discordBotToken?: string | null;
+    discordGuildId?: string | null;
+  };
   /** ファビコンは画像なので別口（uploadFavicon / resetFavicon）。ここはサイト名だけ */
   branding?: { siteTitle?: string };
   setupDone?: boolean;

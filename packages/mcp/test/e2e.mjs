@@ -168,6 +168,7 @@ try {
       "message_post",
       "request_open",
       "request_answer",
+      "discord_post",
       "trigger_run",
       "run_context_set",
       "run_list",

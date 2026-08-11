@@ -85,13 +85,26 @@ export const UpdateSettingsSchema = z.object({
  *  秘密情報なので、apiKey と同じく GET では有無だけ返す */
 export const NotifySettingsSchema = z.object({
   discordEnabled: z.boolean().default(false),
-  /** 書き込み専用。undefined=維持 / null=削除 / string=設定（apiKey と同じ扱い） */
+  /** 「あなたの番」を流すグラフ通知チャンネルの Webhook URL。
+   *  書き込み専用。undefined=維持 / null=削除 / string=設定（apiKey と同じ扱い） */
   discordWebhookUrl: z.string().nullable().default(null),
-  /** 通知リンクの基底URL。例 http://100.86.224.19:8770。未設定ならリンク無し
-   *  （2026-08-08 本人指示——通知3行目に `<publicUrl>/#/n/<nodeId>` を付けるため） */
+  /** 通知リンクの基底URL。例 http://100.86.224.19:8770。
+   *  **未設定なら通知そのものを出さない**（2026-08-11 本人要望「何の話か分からないから
+   *  ノードURLは絶対にのせるようにしたい」——3行目を省いて鳴らすより黙るほうを選ぶ） */
   publicUrl: z.string().nullable().default(null),
-  // Task AI 返信通知の個別スイッチはユーザーごとの設定（user_settings.ts の
-  // discordAiReplies）へ移動した（2026-08-07「設定はユーザーごとと全体で分けて」）
+
+  // ---- 業務連絡（ノードの実行成果としての Discord 投稿。2026-08-11）----
+  // グラフ通知（上の Webhook）とは別系統: 手順書に「#運営一般 に報告」と書かれたノードで、
+  // AI がその指定チャンネルへ投げるための口（discord_bot.ts / MCP の discord_post）。
+  // チャンネルごとに Webhook を発行して回るのをやめ、Bot トークン1本 + チャンネル名解決に
+  // した（2026-08-11 本人指定「B」）——手順書に `#運営一般` と**名前で**書けるようにするため。
+  // 送信だけなので常駐は不要（REST を叩くだけ。受信＝双方向にすると常駐が要るが、
+  // 対話は GW 上でやると決めた 2026-08-11）
+  /** Bot トークン。書き込み専用（apiKey / Webhook URL と同じ扱い）。
+   *  他のアプリと共用の Bot なので、投稿本文の先頭に [Graph Wrangler] を付けて出し元を示す */
+  discordBotToken: z.string().nullable().default(null),
+  /** Bot が投稿するサーバー（guild）のID。チャンネル名 → チャンネルID の解決に使う */
+  discordGuildId: z.string().nullable().default(null),
 });
 
 /** インスタンス単位のブランディング（実装は branding.ts。2026-08-08 本人要望——
@@ -173,11 +186,16 @@ export class SettingsStore {
       notify: {
         ...this.cache.notify,
         ...patch.notify,
-        // Webhook URL は apiKey と同じ書き込み専用3値（undefined=維持 / null=削除 / string=設定）
+        // Webhook URL / Bot トークンは apiKey と同じ書き込み専用3値
+        // （undefined=維持 / null=削除 / string=設定）
         discordWebhookUrl:
           patch.notify && "discordWebhookUrl" in patch.notify
             ? (patch.notify.discordWebhookUrl ?? null)
             : this.cache.notify.discordWebhookUrl,
+        discordBotToken:
+          patch.notify && "discordBotToken" in patch.notify
+            ? (patch.notify.discordBotToken ?? null)
+            : this.cache.notify.discordBotToken,
       },
       branding: { ...this.cache.branding, ...patch.branding },
       setupDone: patch.setupDone ?? this.cache.setupDone,
@@ -243,6 +261,9 @@ export class SettingsStore {
         discordEnabled: this.cache.notify.discordEnabled,
         hasDiscordWebhook: this.cache.notify.discordWebhookUrl !== null,
         publicUrl: this.cache.notify.publicUrl,
+        // トークンは apiKey / Webhook URL と同じく有無だけ返す（書き込み専用）
+        hasDiscordBotToken: this.cache.notify.discordBotToken !== null,
+        discordGuildId: this.cache.notify.discordGuildId,
       },
       branding: {
         siteTitle: this.cache.branding.siteTitle,

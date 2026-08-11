@@ -124,3 +124,20 @@ test("buildThreadReplyPrompt は履歴を最大20件に切り詰める", () => {
   assert.doesNotMatch(prompt, /msg4\b/);
   assert.doesNotMatch(prompt, /msg0\b/);
 });
+
+// --- QUESTION プロトコル（2026-08-11。会話の Task AI も engine と同じ規約で人間を呼ぶ） ---
+
+test("buildThreadReplyPrompt は QUESTION プロトコルと『乱発するな』の歯止めを含める", () => {
+  // 「返信のたびに Discord が鳴る」旧仕様を廃止した代わりの経路なので、規約だけ入れて
+  // 歯止めを入れないと、軽い聞き返しのたびに人間を呼び出して元の木阿弥になる
+  const prompt = buildThreadReplyPrompt({
+    node: { title: "t", detail: null, kind: "task", executor: "ai", status: "pending", impl: null },
+    parentTitles: [],
+    pageTitle: null,
+    history: [],
+    newMessage: "どう思う？",
+  });
+  assert.match(prompt, /QUESTION: <人間への質問（1行）>/);
+  assert.match(prompt, /\*\*人間を呼び出す\*\*合図/);
+  assert.match(prompt, /人間が決めないとこの先へ進めない/);
+});

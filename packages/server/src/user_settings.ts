@@ -9,11 +9,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
+// discordAiReplies（Task AI の返信ごとの通知）は廃止（2026-08-11 本人指示——GW でチャット中に
+// 1往復ごとに鳴っていた。オプトアウトで消す設定ではなく、機能そのものを落とした）。
+// 既存の user-settings.json に残っていても zod が黙って捨てるので移行は不要
 export const UserPrefsSchema = z.object({
   /** 自分の番（判断リクエスト・ラン待ち）の Discord メンション通知を受け取るか */
   discordTurnNotify: z.boolean().default(true),
-  /** Task AI がスレッドへ返信し終えたときの Discord 通知を受け取るか */
-  discordAiReplies: z.boolean().default(true),
 });
 export type UserPrefs = z.infer<typeof UserPrefsSchema>;
 

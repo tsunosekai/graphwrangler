@@ -35,17 +35,12 @@ export function NotifyUserSection({
             />
             <span>自分の番が来たら Discord に通知（メンション付き）</span>
           </label>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <Switch
-              checked={mySettings.discordAiReplies}
-              onCheckedChange={(v) => patchMySettings({ discordAiReplies: v })}
-            />
-            <span>Task AI がスレッドに返信し終えたときも通知</span>
-          </label>
           <p className={desc}>
-            切り替えは即時保存されます。届くには全体タブで Discord 通知（親スイッチ）と
-            Webhook URL が設定されている必要があります
+            切り替えは即時保存されます。届くには全体タブで Discord 通知（親スイッチ）・
+            Webhook URL・通知リンクの基底URL が設定されている必要があります
           </p>
+          {/* 「Task AI がスレッドに返信し終えたときも通知」のスイッチは廃止（2026-08-11
+              本人指示——チャット中に1往復ごとに鳴っていた。返信は開けば読める） */}
         </>
       ) : (
         <p className={desc}>Discord の個人設定を読み込み中…</p>
