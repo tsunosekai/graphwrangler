@@ -48,15 +48,7 @@ export async function parentSayContext(node: Node, nodes: Node[]): Promise<strin
   return out;
 }
 
-/** メッセージの帰属ラン id。既存データ互換のためフィールド → payload の順に見る
- *  （core の runIdOf と同じ規則。engine は HTTP API のみを統合点にするためここに再実装） */
-function runIdOf(m: Message): string | null {
-  if (m.runId) return m.runId;
-  const payload = m.payload as { runId?: unknown } | null;
-  return payload && typeof payload.runId === "string" ? payload.runId : null;
-}
-
-/** parentSayContext のラン層版: 同じランに属する say（runIdOf === runId）だけを拾う。
+/** parentSayContext のラン層版: 同じランに属する say（Message.runId === runId）だけを拾う。
  *  テンプレートのスレッドには複数の並列ランの記録が混ざるため、フィルタ無しで末尾を
  *  拾うと別ランの成果を文脈として渡してしまう（従来はラン層で [] 固定＝親の成果が
  *  全く渡っていなかった穴の修復。2026-08-09） */
@@ -65,7 +57,7 @@ export async function parentSayContextForRun(node: Node, nodes: Node[], runId: s
   for (const pid of node.parents) {
     try {
       const { messages } = await getThread(pid);
-      const say = [...messages].reverse().find((m) => m.kind === "say" && runIdOf(m) === runId);
+      const say = [...messages].reverse().find((m) => m.kind === "say" && m.runId === runId);
       if (say) {
         const title = nodes.find((n) => n.id === pid)?.title ?? pid;
         out.push(`${title}: ${say.body}`);

@@ -111,12 +111,12 @@ describe("RunStore.createFromTrigger", () => {
     expect(withVia.trigger).toBe(`trigger:${trigger.id}:schedule:every 1m`);
   });
 
-  it("procedure フィールドには pageId が入る", () => {
+  it("pageId フィールドにはランが属するページのidが入る", () => {
     const runs = new RunStore(dir);
     const { page, trigger } = setupTriggerPage();
     expect(graph.get(page.id).kind).toBe("goal");
     const run = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id));
-    expect(run.procedure).toBe(page.id);
+    expect(run.pageId).toBe(page.id);
     expect(runs.list(page.id).map((r) => r.id)).toEqual([run.id]);
   });
 });
@@ -214,7 +214,7 @@ describe("RunStore: ワークアイテム更新・一覧・永続化", () => {
 
     const list = runs.list(page.id);
     expect(list.map((r) => r.id)).toEqual([second.id, first.id]);
-    expect(list.every((r) => r.procedure === page.id)).toBe(true);
+    expect(list.every((r) => r.pageId === page.id)).toBe(true);
   });
 
   it("永続化ラウンドトリップ: 新しい RunStore インスタンスからも get/list できる", () => {
@@ -260,17 +260,16 @@ describe("RunStore: ランのコンテキスト（3.15）", () => {
     expect(() => runs.patchContext(run.id, { "": "x" })).toThrow(GraphError);
   });
 
-  it("旧ランファイル互換: context/snapshot/resolvedParams の無いファイルが parse できる（default が効く）", () => {
+  it("context/snapshot の無いランファイルは読めない（必須フィールド）", () => {
     const runs = new RunStore(dir);
-    // この機能より前のランファイルを模して、新フィールド抜きの JSON を直接置く
     const runsDir = path.join(dir, "runs");
     fs.mkdirSync(runsDir, { recursive: true });
     fs.writeFileSync(
       path.join(runsDir, "r-20260101-0001.json"),
       JSON.stringify({
         id: "r-20260101-0001",
-        procedure: "p-1",
-        title: "旧ラン",
+        pageId: "p-1",
+        title: "ラン",
         trigger: "trigger:n-1:manual",
         status: "done",
         items: { "n-2": { status: "done", note: null, choice: null } },
@@ -278,10 +277,7 @@ describe("RunStore: ランのコンテキスト（3.15）", () => {
       }),
       "utf8",
     );
-    const run = runs.get("r-20260101-0001");
-    expect(run.context).toEqual({});
-    expect(run.snapshot).toBeNull();
-    expect(run.items["n-2"].resolvedParams).toBeNull();
+    expect(() => runs.get("r-20260101-0001")).toThrow();
   });
 });
 

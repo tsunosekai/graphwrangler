@@ -133,7 +133,7 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
     expect(bytes1).toBe(bytes2);
   });
 
-  it("手書きの正データファイルを読み込める", () => {
+  it("手書きの正データファイルを読み込める（既定値のあるフィールドは省略できる）", () => {
     const handwritten = {
       format: "graphwrangler-workspace",
       version: 1,
@@ -147,8 +147,7 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
           group: null,
           kind: "task",
           executor: "human",
-          // 旧フィールド名のまま（2026-08-03 改名前のデータ互換テスト: impact → approval に読み替わる）
-          impact: "irreversible",
+          approval: true,
           lifecycle: "draft",
           status: "pending",
           fixed: false,
@@ -167,17 +166,20 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
     fs.writeFileSync(canonicalFile, JSON.stringify(handwritten, null, 2), "utf8");
     const g = GraphStore.workspace(canonicalFile, sidecarDir);
     expect(g.get("n-20260101-0001").title).toBe("手書きノード");
-    // 旧 impact:"irreversible" が approval:true として読める（互換レイヤ）
     expect(g.get("n-20260101-0001").approval).toBe(true);
+    // 書かれていないフィールドは既定値で埋まる
+    expect(g.get("n-20260101-0001").autonomy).toBe("normal");
+    expect(g.get("n-20260101-0001").implTrial).toBeNull();
+    expect(g.get("n-20260101-0001").members).toEqual([]);
   });
 
-  it("impl.doc は path だけでも通る（text 必須を外した後方互換）", () => {
+  it("impl.doc は path だけでも通る", () => {
     const g = GraphStore.workspace(canonicalFile, sidecarDir);
     const n = g.addNode({ title: "手順書", impl: { type: "doc", path: "docs/how-to.md" } });
     expect(n.impl).toEqual({ type: "doc", path: "docs/how-to.md" });
   });
 
-  it("既存データ（text だけの doc）はそのまま通る", () => {
+  it("impl.doc は text だけでも通る", () => {
     const g = GraphStore.workspace(canonicalFile, sidecarDir);
     const n = g.addNode({ title: "手順書", impl: { type: "doc", text: "手順本文" } });
     expect(n.impl).toEqual({ type: "doc", text: "手順本文" });

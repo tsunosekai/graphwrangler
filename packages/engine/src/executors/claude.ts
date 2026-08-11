@@ -8,7 +8,7 @@
 // packages/core/src/schema.ts の SubStep がその契約型、パースは stream_trace.ts）。
 // 素の -p（テキスト出力）に比べて stdout は増えるが、成功時の output は従来どおり
 // 最終テキストのみ（stream_trace.parseStreamJsonOutput が result 行から取り出す）。
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { autonomyPromptLines } from "../ask.js";
 import type { Autonomy, Node, SubStep } from "../types.js";
 import { killTree, STDIO_GRACE_MS } from "./script.js";
@@ -256,7 +256,7 @@ export function runClaude(
     // その場合だけ shell:true にする。POSIX 側は argv をそのまま execve する
     // （detached はプロセスグループを分け、killTree でグループごと止めるため）
     const isWindows = process.platform === "win32";
-    let child;
+    let child: ChildProcess;
     try {
       child = spawn(config.cliPath, args, {
         ...(isWindows ? { shell: true } : { detached: true }),

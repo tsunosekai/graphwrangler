@@ -75,7 +75,7 @@ export function runAiExecutor(prompt: string, node: Pick<Node, "aiModel" | "aiEf
  *    未入力エラー。3.15）、実行直前に解決済みの値を RunItem.resolvedParams へ焼き、
  *    GW_* 環境変数と作業ディレクトリを付ける。プロジェクト層はランが無いので context を
  *    渡さない（従来どおりデフォルト値のみ）
- *  - ai: ゴール文脈はラン層=ページノード(run.procedure) / プロジェクト層=group のゴール。
+ *  - ai: ゴール文脈はラン層=ページノード(run.pageId) / プロジェクト層=group のゴール。
  *    親の成果はラン層=同一ランの say のみ（parentSayContextForRun）。runContext は
  *    ラン層でのみプロンプトへ渡す（undefined = プロジェクト層。claude.ts 参照）
  *  結果の後処理（成功/失敗/QUESTION の記録先）は呼び出し側が層ごとに行う */
@@ -114,7 +114,7 @@ export async function launchExecutor(
     }
   } else {
     const goal = run
-      ? (nodes.find((n) => n.id === run.procedure) ?? null)
+      ? (nodes.find((n) => n.id === run.pageId) ?? null)
       : node.group
         ? (nodes.find((n) => n.id === node.group) ?? null)
         : null;
@@ -148,7 +148,10 @@ export async function launchExecutor(
  *  （プロジェクト層=失敗リカバリカード / ラン層=アイテムを waiting へ）と決着先
  *  （decideNode / decideRunItem）、ログ文言を層ごとに渡す */
 interface DecisionExecContext {
-  /** スレッド投稿に載せる payload（ラン層は {runId}。プロジェクト層は undefined） */
+  /** 帰属ラン（ラン層のみ。プロジェクト層は undefined＝テンプレート側の記録） */
+  runId?: string;
+  /** スレッド投稿に載せる payload（ラン層は {runId}。プロジェクト層は undefined）。
+   *  帰属は ctx.runId が正で、payload.runId は server の GET /api/runs/:id/trace 用の併記 */
   payload?: Record<string, unknown>;
   /** ログの主語（"分岐" / "ラン分岐"） */
   logLabel: string;
@@ -165,7 +168,8 @@ interface DecisionExecContext {
  *  status をスレッドへ積んでから ctx.onFailure に渡す */
 export async function executeDecisionCore(node: Node, ctx: DecisionExecContext): Promise<void> {
   const { payload, logLabel, logWhere } = ctx;
-  const withPayload = payload ? { payload } : {};
+  const withRun = ctx.runId ? { runId: ctx.runId } : {};
+  const withPayload = payload ? { payload, ...withRun } : withRun;
 
   if (node.executor === "script") {
     const actor: Actor = { kind: "agent", name: "executor:script" };
@@ -227,7 +231,12 @@ export async function executeDecisionCore(node: Node, ctx: DecisionExecContext):
     const reason = result.error || "不明なエラー";
     await postMessage(
       node.id,
-      { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(payload, result) },
+      {
+        kind: "status",
+        body: truncate(`実行失敗: ${reason}`, 500),
+        payload: withSubSteps(payload, result),
+        ...withRun,
+      },
       actor,
       VIA,
     );
@@ -240,7 +249,7 @@ export async function executeDecisionCore(node: Node, ctx: DecisionExecContext):
     const reason = `AI出力が枝idと一致しません(出力="${truncate(result.output, 200)}")`;
     await postMessage(
       node.id,
-      { kind: "status", body: `実行失敗: ${reason}`, payload: withSubSteps(payload, result) },
+      { kind: "status", body: `実行失敗: ${reason}`, payload: withSubSteps(payload, result), ...withRun },
       actor,
       VIA,
     );
@@ -250,7 +259,7 @@ export async function executeDecisionCore(node: Node, ctx: DecisionExecContext):
   }
   await postMessage(
     node.id,
-    { kind: "say", body: result.output.trim(), payload: withSubSteps(payload, result) },
+    { kind: "say", body: result.output.trim(), payload: withSubSteps(payload, result), ...withRun },
     actor,
     VIA,
   );

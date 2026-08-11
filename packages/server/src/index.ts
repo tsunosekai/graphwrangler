@@ -240,7 +240,7 @@ pruneAttachments();
 setInterval(pruneAttachments, 24 * 60 * 60 * 1000).unref?.();
 
 // ---- GraphWrangler AI 会話履歴の保存/取得（UIMessage[] スナップショット。UI は 2026-08-02 から
-// キー "global" の1本だけを使う。エンドポイントはキー汎用のまま=旧ページ単位ファイルも読める） ----
+// キー "global" の1本だけを使う。エンドポイントはキー汎用のまま） ----
 
 function chatHistoryPath(pageId: string): string | null {
   // ファイル名に使うのはノードid（n-... 形式）か "global" のみ。パス脱出を構造で防ぐ

@@ -213,10 +213,8 @@ export function shouldEvaluateAiTrigger(
  * AIの判定出力を run/skip として解釈する（decision.ts の parseBranchChoice と同じ救済方針:
  * 前後に説明が付いていても行単位で拾う）。
  * どちらとも判定できなければ null（呼び出し側は「出力が不正」として扱い、ランを作らない）。
- * 旧トークン `fire` も run として受ける——プロンプトは新語彙で出すが、学習済みの言い回しや
- * 手順書に残った旧トークンで黙り込むほうが害が大きい（2026-08-09 の語彙統一）。
  * 判定は保守的に倒す制約がある——ラン作成は副作用のある側なので:
- * - run/fire は**行全体の完全一致のみ**受ける（「今回は run しない」のような文中の
+ * - run は**行全体の完全一致のみ**受ける（「今回は run しない」のような文中の
  *   run でランを作らない）
  * - skip は文中の単語一致でも受ける（見送りの過剰検出は安全）
  * - 両方が現れる混在出力は skip 側に倒す
@@ -225,7 +223,7 @@ export function parseAiRunDecision(output: string): "run" | "skip" | null {
   const trimmed = output.trim().toLowerCase();
   const lines = trimmed.split("\n").map((l) => l.trim());
   if (lines.some((l) => l === "skip")) return "skip";
-  if (lines.some((l) => l === "run" || l === "fire")) return "run";
+  if (lines.some((l) => l === "run")) return "run";
   if (/\bskip\b/.test(trimmed)) return "skip";
   return null;
 }
@@ -236,14 +234,10 @@ export function parseAiRunDecision(output: string): "run" | "skip" | null {
  *  ゲート状態を復元するのに使う（approval.ts の runGateMarker と同じ方式） */
 export const RUN_GATE_MARKER = "[ラン前承認]";
 
-/** 旧マーカー（2026-08-09 の語彙統一より前に開いたカード）。**読むときだけ**使う。
- *  未回答のまま残っているカードを見失うと、承認を待っていたランが二重に確認を出す */
-export const LEGACY_RUN_GATE_MARKER = "[発火前承認]";
-
 /** ラン作成の許可を求める判断リクエスト（task の buildIrreversibleGateRequest のラン版）。
  *  event（検知スクリプトの emit / ai トリガーの ##gw 由来）があれば人間向けの内容を文面へ足す。
  *  機械可読な {context, title} 本体は、カードを開く直前に payload.runEvent 付きの status として
- *  トリガーのスレッドへ積んでおき（index.ts）、go 回答時に findLatestRunEvent で復元する
+ *  トリガーのスレッドへ積んでおき（tickTrigger.ts）、go 回答時に findLatestRunEvent で復元する
  *  （DecisionRequest スキーマは固定形でスキーマ外フィールドを持てないため、保持はメッセージ
  *  payload 側が担う） */
 export function buildRunApprovalRequest(
@@ -264,19 +258,17 @@ export function buildRunApprovalRequest(
   };
 }
 
+/** メッセージ payload から検知イベント本体（payload.runEvent）を取り出す */
+function readRunEventPayload(payload: unknown): unknown {
+  return (payload as { runEvent?: unknown } | null)?.runEvent ?? null;
+}
+
 /**
- * トリガーのスレッドから、ラン前承認カードに対応する検知イベント（payload.runEvent。旧 fireEvent も読む）を
- * 復元する（純粋関数）。エンジンはカードを開く直前に status として積む（index.ts の
+ * トリガーのスレッドから、ラン前承認カードに対応する検知イベント（payload.runEvent）を
+ * 復元する（純粋関数）。エンジンはカードを開く直前に status として積む（tickTrigger.ts の
  * 検知スクリプト / ai トリガー処理）。latestRun 以前の ts のものは前回のラン作成で消費済みと
  * みなして使わない（hasUnconsumedGo と同じ「ラン作成で消費」の流儀）。
  */
-/** メッセージ payload から検知イベント本体を取り出す。**旧キー `fireEvent` も読む**
- *  （2026-08-09 の語彙統一より前に積まれた status が残っているため。書くのは新キーだけ） */
-function readRunEventPayload(payload: unknown): unknown {
-  const p = payload as { runEvent?: unknown; fireEvent?: unknown } | null;
-  return p?.runEvent ?? p?.fireEvent ?? null;
-}
-
 export function findLatestRunEvent(
   messages: Message[],
   latestRun: { created: string } | null,
@@ -302,11 +294,7 @@ export type RunGateState =
 export function findRunGate(messages: Message[]): RunGateState {
   const req = [...messages]
     .reverse()
-    .find(
-      (m) =>
-        m.kind === "decision_request" &&
-        (m.body.includes(RUN_GATE_MARKER) || m.body.includes(LEGACY_RUN_GATE_MARKER)),
-    );
+    .find((m) => m.kind === "decision_request" && m.body.includes(RUN_GATE_MARKER));
   if (!req) return { status: "none" };
   if (req.requestStatus !== "answered") return { status: "open" };
   const answer = [...messages]
@@ -350,7 +338,7 @@ export function hasUnconsumedGo(
  * ai トリガー向けのプロンプトを組み立てる（純粋関数）。ランを作る条件は title/detail/impl(doc全文)
  * に書かれている想定（docs/design.md「条件は detail / impl(doc) に書かれている」）。
  * outputs 宣言があれば、run 時に ##gw マーカーで context も出せることを指示する（3.15。
- * run 行 + マーカー行の形。マーカーは index.ts が extractGwMarkers で取り出してラン作成へ渡す）。
+ * run 行 + マーカー行の形。マーカーは tickTrigger.ts が extractGwMarkers で取り出してラン作成へ渡す）。
  */
 export function buildTriggerPrompt(
   node: Pick<Node, "title" | "detail" | "impl" | "outputs">,

@@ -2,8 +2,7 @@
 // 2026-08-03 チーム運用のため per-user 化。docs/design.md 3.11）
 //
 // ファイル形式 v2: { version: 2, shared: {nodeId: ts}, users: { email: {nodeId: ts} } }
-// - shared  … ログイン無し（匿名）運用の既読置き場。旧フラット形式はここへ読み替える
-//             （zinsei の一人運用は従来どおり「端末をまたいで共有」の挙動のまま）
+// - shared  … ログイン無し（匿名）運用の既読置き場（一人運用は「端末をまたいで共有」の挙動）
 // - users   … ログインユーザーごとの既読。ユーザーの見る既読 = shared と自分の max マージ
 //             （per-user 化の導入時に、それまで共有だった既読が急に未読へ戻らないため）
 // 書き込みは、匿名なら shared へ、ログイン中なら自分のバケツへ。
@@ -23,24 +22,21 @@ export function sanitizeMarks(v: unknown): Record<string, string> {
     : {};
 }
 
-/** パース済み JSON を ReadsFile（v2 形式）へ読み替える。旧フラット形式 {nodeId: ts} は
- *  shared として読み替え（次回保存で v2 になる）。形が壊れていれば空から始める */
+/** パース済み JSON を ReadsFile（v2 形式）へ読み替える。v2 でない・壊れている中身は
+ *  空から始める（既読は補助情報なので、読めなければ捨てて作り直す） */
 export function parseReadsFile(parsed: unknown): ReadsFile {
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    const o = parsed as Record<string, unknown>;
-    if (o.version === 2) {
-      const users: Record<string, Record<string, string>> = {};
-      for (const [email, marks] of Object.entries(
-        o.users && typeof o.users === "object" ? (o.users as Record<string, unknown>) : {},
-      )) {
-        users[email] = sanitizeMarks(marks);
-      }
-      return { shared: sanitizeMarks(o.shared), users };
-    }
-    // 旧フラット形式 {nodeId: ts} → shared として読み替え（次回保存で v2 になる）
-    return { shared: sanitizeMarks(parsed), users: {} };
+  const o =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  if (!o || o.version !== 2) return { shared: {}, users: {} };
+  const users: Record<string, Record<string, string>> = {};
+  for (const [email, marks] of Object.entries(
+    o.users && typeof o.users === "object" ? (o.users as Record<string, unknown>) : {},
+  )) {
+    users[email] = sanitizeMarks(marks);
   }
-  return { shared: {}, users: {} };
+  return { shared: sanitizeMarks(o.shared), users };
 }
 
 /** 操作者から見た既読 = shared と自分のバケツの max マージ（匿名は shared のみ） */

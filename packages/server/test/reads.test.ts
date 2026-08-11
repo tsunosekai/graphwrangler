@@ -45,16 +45,15 @@ test("parseReadsFile は v2 形式を shared/users に読み分ける", () => {
   assert.deepEqual(file, { shared: { n1: T1 }, users: { "a@example.com": { n2: T2 } } });
 });
 
-test("parseReadsFile は旧フラット形式 {nodeId: ts} を shared として読み替える", () => {
-  assert.deepEqual(parseReadsFile({ n1: T1, n2: T2 }), {
-    shared: { n1: T1, n2: T2 },
-    users: {},
-  });
-});
-
 test("parseReadsFile は壊れた中身を空から始める", () => {
   assert.deepEqual(parseReadsFile(null), { shared: {}, users: {} });
   assert.deepEqual(parseReadsFile([1, 2]), { shared: {}, users: {} });
+});
+
+test("parseReadsFile は v2 でない中身を空から始める", () => {
+  // version の無いフラットな {nodeId: ts} は既読として読まない
+  assert.deepEqual(parseReadsFile({ n1: T1, n2: T2 }), { shared: {}, users: {} });
+  assert.deepEqual(parseReadsFile({ version: 1, shared: { n1: T1 } }), { shared: {}, users: {} });
 });
 
 test("parseReadsFile は v2 の users 配下の不正な値も落とす", () => {
@@ -176,11 +175,11 @@ test("ReadsStore は巻き戻す markRead で false を返しファイルを書�
   assert.equal(fs.readFileSync(file, "utf8"), before);
 });
 
-test("ReadsStore は旧フラット形式のファイルを shared として引き継ぐ", () => {
+test("ReadsStore は v2 でないファイルを空の既読として読む", () => {
   const file = tmpReadsFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ n1: T1 }), "utf8");
   const store = new ReadsStore(file);
-  assert.deepEqual(store.loadReads(null), { n1: T1 });
-  assert.deepEqual(store.loadReads("a@example.com"), { n1: T1 });
+  assert.deepEqual(store.loadReads(null), {});
+  assert.deepEqual(store.loadReads("a@example.com"), {});
 });

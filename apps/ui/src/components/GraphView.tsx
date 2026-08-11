@@ -447,6 +447,7 @@ function GraphViewInner({
     commitTitle,
     fitView,
     getNodes,
+    measuredSizes,
     reportSelection,
     onSelectionIdsChange,
   ]);
@@ -676,7 +677,7 @@ function GraphViewInner({
       fitView({ padding: FIT_PADDING, duration: 300 });
       setTimeout(() => setRealigning(false), 400);
     });
-  }, [nodes, fitView]);
+  }, [nodes, fitView, measuredSizes]);
 
   // ---- 元に戻す/やり直す（操作ログの補償追記） ----
   const runUndo = useCallback(async () => {

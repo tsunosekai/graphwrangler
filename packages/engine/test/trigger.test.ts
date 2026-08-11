@@ -292,9 +292,9 @@ describe("parseAiRunDecision: run/skipパース", () => {
     expect(parseAiRunDecision("検討した結果\nrun\nとします")).toBe("run");
   });
 
-  it("旧トークン fire も run として受ける（2026-08-09 の語彙統一。手順書に残った書き方で黙らない）", () => {
-    expect(parseAiRunDecision("fire")).toBe("run");
-    expect(parseAiRunDecision("検討した結果\nfire\nとします")).toBe("run");
+  it("run/skip 以外の語ではランを作らない（受け付けるのは run/skip だけ）", () => {
+    expect(parseAiRunDecision("fire")).toBeNull();
+    expect(parseAiRunDecision("検討した結果\nfire\nとします")).toBeNull();
   });
 
   it("run/skipのどちらでもない出力はnull（不正出力）", () => {
@@ -360,7 +360,7 @@ describe("buildRunApprovalRequest", () => {
     expect(req.context).toContain("毎週月曜9時");
   });
 
-  it("検知イベントがあれば内容を文面に含める（機械可読な本体は payload.fireEvent 側）", () => {
+  it("検知イベントがあれば内容を文面に含める（機械可読な本体は payload.runEvent 側）", () => {
     const req = buildRunApprovalRequest(
       { title: "新着検知", detail: null },
       { context: { remix: "RMX-1" }, title: "作品A" },
@@ -372,7 +372,7 @@ describe("buildRunApprovalRequest", () => {
 });
 
 describe("findLatestRunEvent: 承認カードに対応する検知イベントの復元", () => {
-  function runEventMessage(id: string, ts: string, fireEvent: unknown): Message {
+  function runEventMessage(id: string, ts: string, runEvent: unknown): Message {
     return {
       id,
       node: "n-t",
@@ -382,11 +382,11 @@ describe("findLatestRunEvent: 承認カードに対応する検知イベント�
       kind: "status",
       body: "検知イベント: …",
       runId: null,
-      payload: { fireEvent },
+      payload: { runEvent },
     };
   }
 
-  it("payload.fireEvent 付きの最新メッセージから復元する", () => {
+  it("payload.runEvent 付きの最新メッセージから復元する", () => {
     const msgs = [
       runEventMessage("m-1", "2026-01-01T00:00:00Z", { context: { a: "1" }, title: "古い" }),
       runEventMessage("m-2", "2026-01-02T00:00:00Z", { context: { a: "2" }, title: "新しい" }),
@@ -400,7 +400,7 @@ describe("findLatestRunEvent: 承認カードに対応する検知イベント�
     expect(findLatestRunEvent(msgs, { created: "2026-01-01T00:00:00Z" })).toBeNull(); // 同時刻も消費済み
   });
 
-  it("fireEvent が無ければ null。形が壊れていても null", () => {
+  it("runEvent が無ければ null。形が壊れていても null", () => {
     expect(findLatestRunEvent([], null)).toBeNull();
     const broken = [runEventMessage("m-1", "2026-01-01T00:00:00Z", { context: [1, 2] })];
     expect(findLatestRunEvent(broken, null)).toBeNull();
@@ -482,7 +482,7 @@ describe("hasUnconsumedGo: go 回答はラン1本で消費される", () => {
 });
 
 describe("buildTriggerPrompt", () => {
-  it("title/detail/impl(doc全文)と現在時刻、fire/skip指示を含む", () => {
+  it("title/detail/impl(doc全文)と現在時刻、run/skip指示を含む", () => {
     const n = node({
       title: "毎朝の在庫確認",
       detail: "在庫が閾値を割ったら発火",

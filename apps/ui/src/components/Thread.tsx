@@ -47,7 +47,7 @@ function authorLabel(author: { kind: string; name?: string | null }, users: Team
   if (author.kind === "human") return author.name ? displayNameOf(author.name, users) : "人間";
   if (author.kind === "system") return "system";
   const n = author.name ?? "";
-  if (n.startsWith("task-ai") || n.startsWith("thread")) return "Task AI"; // thread: は改名前の旧帰属名
+  if (n.startsWith("task-ai")) return "Task AI";
   if (n.startsWith("chat") || n === "mcp") return "GraphWrangler AI";
   if (n.startsWith("executor") || n === "engine") return "実行AI";
   return n || "AI";

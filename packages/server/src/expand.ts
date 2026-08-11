@@ -74,9 +74,7 @@ export function expandNode(
   }
   const isWired =
     Object.keys(node.parentOptions).length > 0 ||
-    allNodes.some(
-      (n) => n.id !== id && Object.prototype.hasOwnProperty.call(n.parentOptions, id),
-    );
+    allNodes.some((n) => n.id !== id && Object.hasOwn(n.parentOptions, id));
   if (isWired) {
     throw new GraphError("分岐の配線対象になっているため展開できない", 409);
   }

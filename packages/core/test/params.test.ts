@@ -5,6 +5,26 @@
 // re-export 経由で担う（利用側の窓口が壊れていないことの検証を兼ねるため残している）。
 import { describe, expect, it } from "vitest";
 import { referencedParamNames, substituteParams } from "../src/params.js";
+import { ScriptParamSchema } from "../src/schema.js";
+
+describe("ScriptParamSchema.name（宣言できる名前 = 参照できる名前）", () => {
+  it("英字/アンダースコア始まりの英数字とアンダースコアを通す", () => {
+    for (const name of ["src", "_x", "A_B", "a1"]) {
+      expect(ScriptParamSchema.parse({ name }).name).toBe(name);
+    }
+  });
+
+  it("`{name}` で参照できない名前は宣言できない", () => {
+    for (const name of ["", "1st", "with space", "kebab-case", "dot.name", "日本語"]) {
+      expect(() => ScriptParamSchema.parse({ name })).toThrow();
+    }
+  });
+
+  it("通る名前は referencedParamNames でも参照名として拾える（規則が1つであることの確認）", () => {
+    const name = ScriptParamSchema.parse({ name: "out_dir" }).name;
+    expect(referencedParamNames(`ls {${name}}`)).toEqual([name]);
+  });
+});
 
 describe("referencedParamNames（プレースホルダ規約）", () => {
   it("{name} 参照を出現順・重複なしで抜き出す", () => {

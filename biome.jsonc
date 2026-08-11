@@ -1,0 +1,69 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": ["**", "!**/node_modules", "!**/dist", "!**/data", "!**/*.tsbuildinfo", "!pnpm-lock.yaml"]
+  },
+  // 設定は既存コードの実測に合わせてある（2スペース / ダブルクォート / セミコロン /
+  // 末尾カンマ）。lineWidth=110 は「この設定で全ファイルを整形したときの差分が最小」に
+  // なる幅を実測して決めた。既存ファイルの一括整形はしていないので、`pnpm format` を
+  // 全体にかけると大きな差分が出る（触ったファイル単位でかけるのが前提）
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 110
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "jsxQuoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  // apps/ui は Tailwind v4（@theme / @custom-variant）を使う
+  "css": {
+    "parser": { "tailwindDirectives": true }
+  },
+  // import の並べ替え等の自動整理は入れない（既存の並びを尊重する）
+  "assist": { "enabled": false },
+  // 方針: 「実際のバグ・危険なパターン」を捕まえる群だけを有効にし、
+  // スタイル系（style / complexity / a11y）は切る
+  "linter": {
+    "enabled": true,
+    "domains": { "react": "recommended" },
+    "rules": {
+      "preset": "none",
+      "correctness": {
+        "preset": "recommended",
+        "useExhaustiveDependencies": {
+          "level": "error",
+          // 「余計な依存を挙げている」側は報告しない。このリポジトリでは
+          // 「この値が変わったら effect を回す」ための意図的な依存指定（pageId /
+          // restartKey / messages.length など）が多く、ほぼ全件が誤検知になる。
+          // 「依存の書き忘れ」（stale closure）側だけを見る
+          "options": { "reportUnnecessaryDependencies": false }
+        }
+      },
+      "suspicious": {
+        "preset": "recommended",
+        // NodeBranch.then / DecisionOption.then はドメイン用語（分岐の「そうしたら」）で、
+        // thenable として await されることはない
+        "noThenProperty": "off",
+        // params のテストが `${HOME}` を素の文字列として持つのが仕様（プレースホルダ規約の
+        // 対象外であることのテスト）
+        "noTemplateCurlyInString": "off",
+        // 添付・メッセージパート・リンク断片など、並べ替えの起きない配列に対する
+        // index キーが既存実装の前提（OutputsSection はコメント付きで意図的に index）
+        "noArrayIndexKey": "off"
+      },
+      "security": { "preset": "recommended" },
+      "performance": { "preset": "recommended" },
+      "complexity": { "preset": "none" },
+      "style": { "preset": "none" },
+      "a11y": { "preset": "none" }
+    }
+  }
+}

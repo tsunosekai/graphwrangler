@@ -1,9 +1,6 @@
 // 未読バッジの既読管理。サーバ持ちの既読（2026-08-02 localStorage からサーバへ移した
-// ＝PC で読めばスマホでも既読）にローカルの即時上書きを重ね、旧 localStorage 既読の
-// 引き継ぎもここで面倒を見る。
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { postReads } from "../lib/api";
-import { loadUiState, saveUiState } from "./uiState";
+// ＝PC で読めばスマホでも既読）に、ローカルの即時上書きを重ねる。
+import { useCallback, useMemo, useState } from "react";
 
 export interface ReadState {
   /** ノード（会話）ごとの既読時刻。サーバ値とローカル上書きを新しいほう勝ちでマージ済み */
@@ -29,25 +26,6 @@ export function useReadState(serverReads: Record<string, string>): ReadState {
   // key は会話の単位（"<ノードid>" or "<ノードid>@<ランid>"。lib/unread.ts の threadKey）
   const markViewed = useCallback((key: string, lastTs: string | null) => {
     setReadOverrides((prev) => ({ ...prev, [key]: lastTs ?? new Date().toISOString() }));
-  }, []);
-
-  // 旧 localStorage 既読（gw.read.<id>）を一度だけサーバへ引き継ぐ。これをやらないと
-  // 移行した瞬間に「今まで読んだ全ノードが未読」になって使い物にならない
-  useEffect(() => {
-    if (loadUiState("gw.readsMigrated") === "1") return;
-    const marks: Record<string, string> = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key?.startsWith("gw.read.")) continue;
-        const value = localStorage.getItem(key);
-        if (value) marks[key.slice("gw.read.".length)] = value;
-      }
-    } catch {
-      return; // 読めない環境では移行を諦める（サーバ側が空のまま始まるだけ）
-    }
-    if (Object.keys(marks).length > 0) postReads(marks);
-    saveUiState("gw.readsMigrated", "1");
   }, []);
 
   return { reads, markViewed };

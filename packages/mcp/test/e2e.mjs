@@ -85,15 +85,14 @@ let nextId = 1;
 
 mcpProc.stdout.on("data", (chunk) => {
   buf += chunk.toString("utf8");
-  let idx;
-  while ((idx = buf.indexOf("\n")) >= 0) {
+  for (let idx = buf.indexOf("\n"); idx >= 0; idx = buf.indexOf("\n")) {
     const line = buf.slice(0, idx);
     buf = buf.slice(idx + 1);
     if (!line.trim()) continue;
     let msg;
     try {
       msg = JSON.parse(line);
-    } catch (err) {
+    } catch {
       log("failed to parse line:", line);
       continue;
     }
@@ -435,7 +434,7 @@ try {
     const run = toolResultJson(
       await rpc("tools/call", { name: "trigger_run", arguments: { nodeId: triggerId } }),
     );
-    assert.equal(run.procedure, pageId);
+    assert.equal(run.pageId, pageId);
     assert.equal(run.status, "running");
     assert.equal(run.items[memberId].status, "pending");
     // via 省略時は withMeta の既定 "mcp" が run.trigger に刻まれる

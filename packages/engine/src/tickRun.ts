@@ -27,11 +27,11 @@ import { truncate, withSubSteps } from "./format.js";
 import { log } from "./log.js";
 import { selectRunAction } from "./pickRun.js";
 import { tickRunDecision } from "./tickRunDecision.js";
-import type { Actor, Node, Run } from "./types.js";
+import type { Actor, Message, Node, Run } from "./types.js";
 
 /** ランのワークアイテムを実行する。プロンプト文脈はページノードの title/detail +
  *  テンプレートの title/detail/impl（claude.ts の buildAiPrompt を "goal=ページノード" として再利用）。
- *  実行ログ・成果はテンプレートノードのスレッドへ payload {runId} 付きで投稿する */
+ *  実行ログ・成果はテンプレートノードのスレッドへ、そのランの記録として投稿する */
 export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promise<void> {
   await patchRunItem(run.id, node.id, { status: "running" }, ENGINE_ACTOR, VIA);
   log(`ラン実行開始: run=${run.id} node=${node.id} title=${node.title} executor=${node.executor}`);
@@ -40,6 +40,8 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
   const { result, executorName, aiSources } = await launchExecutor(nodes, node, run);
 
   const actor: Actor = { kind: "agent", name: executorName };
+  // 帰属ランは Message.runId（postMessage の runId）が正。payload.runId はそれとは別に、
+  // server の GET /api/runs/:id/trace が payload.runId でしか記録を拾えないため併記する
   const payload = { runId: run.id };
   const retryKey = gateKey(run.id, node.id);
 
@@ -56,6 +58,7 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
           kind: "say",
           body: result.output.trim(),
           payload: { ...payload, sources: aiSources, aiQuestion: question },
+          runId: run.id,
         },
         actor,
         VIA,
@@ -96,6 +99,7 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
               500,
             ),
             payload,
+            runId: run.id,
           },
           actor,
           VIA,
@@ -114,6 +118,7 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
             500,
           ),
           payload,
+          runId: run.id,
         },
         actor,
         VIA,
@@ -122,7 +127,12 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
     const summary = truncate(extraction.body || "(出力なし)", 500);
     await postMessage(
       node.id,
-      { kind: "status", body: `実行成功: ${summary}`, payload: withSubSteps(payload, result) },
+      {
+        kind: "status",
+        body: `実行成功: ${summary}`,
+        payload: withSubSteps(payload, result),
+        runId: run.id,
+      },
       actor,
       VIA,
     );
@@ -130,7 +140,12 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
     const sayPayload = node.executor === "ai" ? { ...payload, sources: aiSources } : payload;
     await postMessage(
       node.id,
-      { kind: "say", body: extraction.body.trim() || "(結果なし)", payload: sayPayload },
+      {
+        kind: "say",
+        body: extraction.body.trim() || "(結果なし)",
+        payload: sayPayload,
+        runId: run.id,
+      },
       actor,
       VIA,
     );
@@ -152,6 +167,7 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
         kind: "status",
         body: truncate(`実行失敗（自律リトライ ${count}/${MAX_AUTO_RETRIES}）: ${reason}`, 500),
         payload: withSubSteps(payload, result),
+        runId: run.id,
       },
       actor,
       VIA,
@@ -170,7 +186,12 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
   autoRetryCounts.delete(retryKey);
   await postMessage(
     node.id,
-    { kind: "status", body: truncate(`実行失敗: ${reason}`, 500), payload: withSubSteps(payload, result) },
+    {
+      kind: "status",
+      body: truncate(`実行失敗: ${reason}`, 500),
+      payload: withSubSteps(payload, result),
+      runId: run.id,
+    },
     actor,
     VIA,
   );
@@ -313,7 +334,7 @@ function collectPendingAiQuestions(nodes: Node[], runs: Run[]): Array<{ run: Run
 async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> {
   const pending = collectPendingAiQuestions(nodes, runs);
   for (const { run, node } of pending) {
-    let messages;
+    let messages: Message[];
     try {
       ({ messages } = await getThread(node.id));
     } catch (err) {
@@ -331,7 +352,7 @@ async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> 
         .find(
           (m) =>
             m.kind === "say" &&
-            (m.payload as { runId?: string; aiQuestion?: AiQuestion } | null)?.runId === run.id &&
+            m.runId === run.id &&
             (m.payload as { aiQuestion?: AiQuestion } | null)?.aiQuestion,
         );
       const question = (say?.payload as { aiQuestion?: AiQuestion } | null)?.aiQuestion;

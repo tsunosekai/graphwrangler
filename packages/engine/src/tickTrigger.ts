@@ -282,7 +282,7 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
     if (hasUnconsumedGo(gate, runsForPage[0] ?? null)) {
       // 承認済みの go はその場で消費する（2026-08-08: 以前は実行中ランがあると待たせていたが、
       // 人間が「開始して」と答えたのに動かないのは事故に見える）。
-      // ラン作成判定の ##gw マーカー由来の context（payload.runEvent。旧 fireEvent も読む）があれば載せる
+      // ラン作成判定の ##gw マーカー由来の context（payload.runEvent）があれば載せる
       const event = findLatestRunEvent(messages, runsForPage[0] ?? null);
       try {
         await runTriggerNode(

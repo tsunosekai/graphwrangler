@@ -79,7 +79,7 @@ export interface PatchItemInput {
 export class RunStore {
   private runsDir: string;
 
-  constructor(private dataDir: string) {
+  constructor(dataDir: string) {
     this.runsDir = path.join(dataDir, "runs");
   }
 
@@ -111,8 +111,8 @@ export class RunStore {
    *   自動実行」の原則は engine 側で維持）
    * - status=unplanned（やり方未定）のテンプレートは item.status を "skipped" にする
    *
-   * pageId は run.procedure（＝ランが属するページ）に記録するid。トリガーノードの group が
-   * 通常これにあたる（呼び出し側=server が渡す）。
+   * 引数 pageId はランが属するページのid。トリガーノードの group が通常これにあたる
+   * （呼び出し側=server が渡す）。
    */
   createFromTrigger(
     pageId: string,
@@ -139,7 +139,7 @@ export class RunStore {
     const snapshotSource = opts.pageNode ? [opts.pageNode, ...allMembers] : allMembers;
     const run: Run = RunSchema.parse({
       id: nextId("r", this.existingIds()),
-      procedure: pageId,
+      pageId,
       title: opts.title ?? `ラン ${ts}`,
       trigger: `trigger:${triggerId}:${via}`,
       status: "running",
@@ -155,16 +155,17 @@ export class RunStore {
   /** pageId に属するラン一覧。created 降順（新しい順） */
   list(pageId: string): Run[] {
     return this.all()
-      .filter((r) => r.procedure === pageId)
+      .filter((r) => r.pageId === pageId)
       .sort((a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0));
   }
 
-  /** 全ランをページ(procedure)ごとに束ねて返す。各配列は created 降順。
+  /** 全ランをページ(pageId)ごとに束ねて返す。各配列は created 降順。
    *  左レールが全ページぶんのランを1リクエストで取るため（2026-08-08。旧: ページごとに
    *  list() を呼ぶ＝ページ数ぶんのリクエストと、その回数ぶんの全ラン走査） */
   listByPage(): Record<string, Run[]> {
     const byPage: Record<string, Run[]> = {};
-    for (const r of this.all()) (byPage[r.procedure] ??= []).push(r);
+    // biome-ignore lint/suspicious/noAssignInExpressions: ??= で束を作りつつ push する定石（誤記ではない）
+    for (const r of this.all()) (byPage[r.pageId] ??= []).push(r);
     for (const list of Object.values(byPage)) {
       list.sort((a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0));
     }

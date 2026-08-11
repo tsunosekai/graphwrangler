@@ -183,6 +183,7 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   // 巻き戻るため、応答の生成中なら差し替えずに読み直しへ回し、会話が進んでいる
   // （dirty）ならサーバ履歴を前置して合流させる——どちらの会話も失わない
   const loadedRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setMessages は useChat の安定参照（マウント時1回）
   useEffect(() => {
     let cancelled = false;
     let timer: number | null = null;
@@ -213,8 +214,6 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
       cancelled = true;
       if (timer !== null) clearTimeout(timer);
     };
-    // setMessages は useChat の安定参照
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -375,14 +374,14 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   };
 
   // 応答が終わったら、溜まっていた送信予約を送る
+  // （合図は busy の立ち下がりだけ。queued は ref で読む＝送信のたびの再実行を避ける）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: submit は毎レンダ作り直されるので入れない
   useEffect(() => {
     if (busy) return;
     const text = queuedRef.current;
     if (!text) return;
     setQueued(null);
     submit(text);
-    // submit / busy 以外に依存しない（queued は ref で読む＝送信のたびの再実行を避ける）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy]);
 
   /** ChatComposer から組み立て済み本文（添付行込み）を受けて送る。応答中は予約に足し、

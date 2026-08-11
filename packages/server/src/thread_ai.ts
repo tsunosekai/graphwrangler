@@ -5,7 +5,7 @@
 // 呼び出し元は index.ts の POST /api/nodes/:id/messages（メッセージ保存レスポンスを
 // 返した直後、await せずに maybeTriggerThreadAi を呼ぶ）。
 import type { Actor, GraphStore, Node, ThreadStore } from "@graphwrangler/core";
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import os from "node:os";
 import { chatKeyMissing, completeText } from "./chat.js";
 import {
@@ -158,7 +158,7 @@ export function runPlainClaude(
       ...addDirs.filter((d) => !d.startsWith("-")).flatMap((d) => ["--add-dir", d]),
     ];
     const isWindows = process.platform === "win32";
-    let child;
+    let child: ChildProcess;
     try {
       // cwd 明示: サーバの cwd のまま起動すると claude が graphwrangler リポジトリを
       // 自分のプロジェクトと誤認する（chat_cli.ts と同じ対策。2026-07-31 実測）

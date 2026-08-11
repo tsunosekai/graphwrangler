@@ -66,5 +66,5 @@ export async function refreshBranding(): Promise<void> {
   }
   current = next;
   apply(next);
-  listeners.forEach((l) => l());
+  for (const l of listeners) l();
 }

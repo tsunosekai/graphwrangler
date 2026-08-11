@@ -165,7 +165,7 @@ function AppInner() {
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
   const serverReads = useMemo(() => data?.reads ?? {}, [data]);
 
-  // 既読（サーバ値 + ローカルの即時上書き、旧 localStorage 既読の移行）は hooks/useReadState.ts
+  // 既読（サーバ値 + ローカルの即時上書き）は hooks/useReadState.ts
   const { reads, markViewed } = useReadState(serverReads);
 
   // ページ = フォルダ（kind=goal、またはメンバーを持つノード）。zinsei desk の左レール方式。
@@ -263,7 +263,7 @@ function AppInner() {
   const runNodes = useMemo<Node[]>(() => {
     if (!openRun || !runGraph || runGraph.runId !== openRun.id) return [];
     return runGraph.nodes
-      .filter((n) => n.id !== openRun.procedure) // ページ自身はメンバーではない
+      .filter((n) => n.id !== openRun.pageId) // ページ自身はメンバーではない
       .map((n) => {
         const item = openRun.items[n.id];
         // トリガーはランのワークアイテムを持たない＝ランが在る時点で作成済み（完了）
@@ -277,7 +277,7 @@ function AppInner() {
   /** ランのページのページノード（当時のページ名で見せる）。無ければ現在のページノード */
   const runPageNode = useMemo<Node | null>(() => {
     if (!openRun || !runGraph) return null;
-    const forked = runGraph.nodes.find((n) => n.id === openRun.procedure);
+    const forked = runGraph.nodes.find((n) => n.id === openRun.pageId);
     return forked ? nodeFromRunGraph(forked, runGraph.at) : null;
   }, [openRun, runGraph]);
   /** ランのページを見ているか（= ラン専用の表示・編集ロックに切り替える）。
@@ -297,9 +297,9 @@ function AppInner() {
     return nodes.find((n) => n.id === selectedId) ?? null;
   }, [selectedId, inRunPage, runNodes, runPageNode, nodes]);
 
-  /** いま表示しているページ。ランのページではそのランの元ページ（openRun.procedure）が正
+  /** いま表示しているページ。ランのページではそのランの元ページ（openRun.pageId）が正
    *  ——ランは別ページから開けるので、テンプレート側の pageId とは一致しないことがある */
-  const shownPageId = inRunPage && openRun ? openRun.procedure : pageId;
+  const shownPageId = inRunPage && openRun ? openRun.pageId : pageId;
   // グラフ（表示中のページ / ラン）と選択ノードの食い違いガード: 選択中ノードが表示中の
   // ページのメンバーでもページ自身でもなくなったら選択を落とす。ページ切替に選択が
   // 置き去りになると「グラフはこっちなのにノード詳細は別プロジェクトのノード」という
@@ -486,8 +486,7 @@ function AppInner() {
                     id: openRun.id,
                     title: openRun.title,
                     status: openRun.status,
-                    // 旧サーバのランファイルには context が無い（3.15 より前）ので空へ倒す
-                    context: openRun.context ?? {},
+                    context: openRun.context,
                   }
                 : null
             }

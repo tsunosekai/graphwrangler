@@ -69,9 +69,17 @@ export async function getThread(id: string): Promise<{ messages: Message[] }> {
   return (await request("GET", `/api/nodes/${id}/thread`)) as { messages: Message[] };
 }
 
+/** スレッドへ投稿する。runId を渡すとそのランの記録として帰属する（省略/null =
+ *  テンプレート（設計図）側の会話）。帰属ランは Message.runId が正——読む側は
+ *  payload ではなくこのフィールドを見る（core の runIdOf / server の listScoped と同じ規則） */
 export async function postMessage(
   id: string,
-  input: { kind: "say" | "status" | "artifact"; body: string; payload?: unknown },
+  input: {
+    kind: "say" | "status" | "artifact";
+    body: string;
+    payload?: unknown;
+    runId?: string | null;
+  },
   actor: Actor,
   via: string,
 ): Promise<Message> {

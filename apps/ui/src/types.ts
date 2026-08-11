@@ -197,8 +197,8 @@ export type RunStatus = "running" | "done" | "cancelled";
 
 export interface Run {
   id: string;
-  /** ランが属するページ(group)のid。既存ランファイルとの互換のためキー名は procedure のまま */
-  procedure: string;
+  /** ランが属するページ(group)のid */
+  pageId: string;
   title: string;
   /** ラン作成元の記録。"trigger:<triggerノードid>:<via>" の形（via は "manual" /
    *  "schedule:<原文>" / "ai" 等の自由文字列） — 固定書式を仮定せず生表示する */

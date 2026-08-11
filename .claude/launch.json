@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "graphwrangler",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@graphwrangler/server", "start"],
+      "port": 8770
+    }
+  ]
+}

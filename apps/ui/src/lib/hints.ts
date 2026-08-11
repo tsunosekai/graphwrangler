@@ -30,7 +30,7 @@ let version = 0;
 const listeners = new Set<() => void>();
 function emit() {
   version++;
-  listeners.forEach((l) => l());
+  for (const l of listeners) l();
 }
 function subscribe(cb: () => void) {
   listeners.add(cb);

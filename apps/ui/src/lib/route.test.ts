@@ -23,9 +23,9 @@ describe("parseRoute", () => {
     expect(parseRoute("#/r/run1/n/xyz")).toEqual({ ...empty, runId: "run1", nodeId: "xyz" });
   });
 
-  it("旧形式 ?run=<runId> を #/r/<runId> と同じ意味で受ける（既存リンク互換）", () => {
-    expect(parseRoute("#/p/abc?run=run1")).toEqual({ ...empty, pageId: "abc", runId: "run1" });
-    expect(parseRoute("#?run=run1")).toEqual({ ...empty, runId: "run1" });
+  it("?run=<runId> はランとして解釈しない（ランは #/r/<runId> の一本）", () => {
+    expect(parseRoute("#/p/abc?run=run1")).toEqual({ ...empty, pageId: "abc" });
+    expect(parseRoute("#?run=run1")).toBeNull();
   });
 
   it("#/chat と ?chat=1 でチャットドロワーを開く（ページ指定と併用可）", () => {

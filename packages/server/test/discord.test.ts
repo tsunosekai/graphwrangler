@@ -65,8 +65,8 @@ test("link: publicUrl があれば3行目に <publicUrl>/#/n/<nodeId> が付く"
   );
 });
 
-test("link: ラン経由の通知は ?run=<ランid> まで付ける（そのランの進捗ごと開かせる）", () => {
-  // ページを開いた既定がテンプレート表示になったため（2026-08-08）、run を載せないと
+test("link: ラン経由の通知は #/r/<ランid>/n/<ノードid>（そのランの進捗ごと開かせる）", () => {
+  // ページを開いた既定がテンプレート表示になったため（2026-08-08）、ランを載せないと
   // リンクを踏んでも「あなたの番」の回答導線（ランのワークアイテム）に着地しない
   const m = buildTurnMessage(
     null,
@@ -74,7 +74,7 @@ test("link: ラン経由の通知は ?run=<ランid> まで付ける（そのラ
     { ...TARGET, runTitle: "第3回", runId: "r-20260808-0003" },
     "http://example.com",
   );
-  assert.ok(m.content.endsWith("\nhttp://example.com/#/n/n1?run=r-20260808-0003"));
+  assert.ok(m.content.endsWith("\nhttp://example.com/#/r/r-20260808-0003/n/n1"));
 });
 
 test("link: publicUrl の末尾スラッシュは除去して連結する", () => {

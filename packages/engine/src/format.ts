@@ -7,7 +7,7 @@ export function truncate(text: string, limit: number): string {
 }
 
 /** 実行結果の subSteps（実行の内訳）を postMessage 用 payload にする。空/無ければ
- *  base をそのまま返す（status メッセージに subSteps が無いケースを既存互換で保つ） */
+ *  base をそのまま返す（空配列の subSteps キーを作らない） */
 export function withSubSteps(
   base: Record<string, unknown> | undefined,
   result: { subSteps?: SubStep[] },

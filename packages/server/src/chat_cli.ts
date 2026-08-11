@@ -3,7 +3,7 @@
 // tool-calling（chat.ts の add_node 等）ではなく、自前の MCP サーバ（packages/mcp）を
 // CLI に接続して行わせる。そのため via は "mcp"（actor:{kind:"agent",name:"mcp"}）になる。「チャットAI＝via:chat」という慣例からは外れるが、
 // CLI 経由の唯一の操作口が MCP である以上この帰属が実態を正しく表しているので許容する。
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -463,7 +463,7 @@ function runCli(
 
     // Windows では claude が .cmd シム（cmd.exe 経由でないと直接起動できない）のため、
     // その場合だけ shell:true にする（packages/engine/src/executors/claude.ts と同型）
-    let child;
+    let child: ChildProcess;
     try {
       // cwd を明示する: サーバの cwd（graphwrangler リポジトリ）のまま起動すると、
       // claude がそのリポジトリを自分のプロジェクトだと思い込み、画面のグラフでなく

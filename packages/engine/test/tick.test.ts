@@ -98,13 +98,13 @@ function run(items: Record<string, RunItem>, partial: Partial<Run> = {}): Run {
   runSeq += 1;
   return {
     id: partial.id ?? `r-${runSeq}`,
-    procedure: partial.procedure ?? "page-1",
+    pageId: partial.pageId ?? "page-1",
     title: partial.title ?? `ラン ${runSeq}`,
     trigger: partial.trigger ?? "manual",
     status: partial.status ?? "running",
     items,
     context: partial.context ?? {},
-    snapshot: partial.snapshot ?? null,
+    snapshot: partial.snapshot ?? { capturedAt: "2026-01-01T00:00:00Z", nodes: [] },
     created: partial.created ?? `2026-01-01T01:00:${String(runSeq).padStart(2, "0")}Z`,
   };
 }
@@ -225,8 +225,9 @@ describe("tick: プロジェクト層とラン層の書き先", () => {
     expect(api.patchNode).toHaveBeenCalledWith("t1", { status: "running" }, ENGINE_ACTOR, "engine");
     expect(api.patchNode).toHaveBeenCalledWith("t1", { status: "done" }, ENGINE_ACTOR, "engine");
     expect(api.patchRunItem).not.toHaveBeenCalled();
-    // プロジェクト層の投稿にランの帰属は付かない
+    // プロジェクト層の投稿にランの帰属は付かない（テンプレート側の記録になる）
     for (const call of api.postMessage.mock.calls) {
+      expect(call[1].runId).toBeUndefined();
       expect((call[1].payload as { runId?: string } | undefined)?.runId).toBeUndefined();
     }
   });
@@ -262,10 +263,12 @@ describe("tick: プロジェクト層とラン層の書き先", () => {
       "engine",
     );
     expect(api.patchNode).not.toHaveBeenCalled();
-    // 実行ログ・成果はテンプレートノードのスレッドへ、ラン帰属(runId)付きで投稿する
+    // 実行ログ・成果はテンプレートノードのスレッドへ、ラン帰属(Message.runId)付きで投稿する。
+    // payload.runId は server の /api/runs/:id/trace 用の併記（帰属の正はフィールド側）
     expect(api.postMessage).toHaveBeenCalled();
     for (const call of api.postMessage.mock.calls) {
       expect(call[0]).toBe("m1");
+      expect(call[1].runId).toBe("r1");
       expect((call[1].payload as { runId?: string }).runId).toBe("r1");
     }
   });

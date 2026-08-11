@@ -245,7 +245,7 @@ test("resolveItemNode: snapshot も無い旧ランでは 404 を投げず中立�
   const { graph } = harness();
   const legacyRun = {
     id: "r-legacy",
-    procedure: "n-page",
+    pageId: "n-page",
     title: "旧ラン",
     trigger: "trigger:n-t:manual",
     status: "running",

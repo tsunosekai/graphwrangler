@@ -134,6 +134,13 @@ node scripts/seed-demo.mjs
 MCP のツールをサーバ込みで通す e2e は `pnpm e2e`。いずれも push と PR で
 GitHub Actions が走る。
 
+lint と整形は Biome 1本（設定は `biome.jsonc`）。`pnpm lint` がチェック、
+`pnpm format` が整形の書き込み。CI で走るのは `pnpm lint` だけで、整形は強制しない
+（既存ファイルをまだ一括整形していないため。`pnpm format` をリポジトリ全体にかけると
+大きな差分になる——触ったファイルだけにかけるのが今の運用）。設定は既存コードの実測に
+合わせてある（2スペース / ダブルクォート / セミコロン / 末尾カンマ / 幅110）。
+ルールは「実際のバグ・危険なパターン」中心で、スタイル系は切ってある。
+
 ## 複数人で使う（ログイン）
 
 一人で使うぶんにはアカウント不要。`node scripts/gw-user.mjs <users.json> add <email>` で

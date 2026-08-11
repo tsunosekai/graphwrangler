@@ -197,7 +197,7 @@ export function runRoutes(ctx: AppContext): Hono {
       via: m.via,
     });
     if (before.status !== "done" && run.status === "done") {
-      threads.post(run.procedure, {
+      threads.post(run.pageId, {
         kind: "status",
         body: `ラン完了: ${run.title}`,
         payload: { runId },
@@ -237,10 +237,10 @@ export function runRoutes(ctx: AppContext): Hono {
     const body = await c.req.json();
     const { choice } = DecideRunItemSchema.parse(body);
     const m = meta(body);
-    const current = graph.state().nodes.filter((n) => n.group === run.procedure);
+    const current = graph.state().nodes.filter((n) => n.group === run.pageId);
     const currentIds = new Set(current.map((n) => n.id));
     const fromSnapshot = (run.snapshot?.nodes ?? [])
-      .filter((n) => n.group === run.procedure && !currentIds.has(n.id))
+      .filter((n) => n.group === run.pageId && !currentIds.has(n.id))
       .map((n) => snapshotTemplate(n, run.snapshot?.capturedAt ?? run.created));
     const templates = [...current, ...fromSnapshot];
     const updated = runs.applyItemDecision(runId, nodeId, choice, templates);
@@ -254,7 +254,7 @@ export function runRoutes(ctx: AppContext): Hono {
       via: m.via,
     });
     if (run.status !== "done" && updated.status === "done") {
-      threads.post(run.procedure, {
+      threads.post(run.pageId, {
         kind: "status",
         body: `ラン完了: ${run.title}`,
         payload: { runId },
@@ -341,10 +341,10 @@ export function runRoutes(ctx: AppContext): Hono {
     // 出す対象: 当時のページ構成（スナップショット）∪ 再生結果のうち同じページのもの
     // ∪ ワークアイテムのノード（テンプレートが消えていても行としては見せる）
     const ids = new Set<string>([
-      run.procedure,
+      run.pageId,
       ...snapshots.keys(),
       ...Object.keys(run.items),
-      ...replayed.nodes.filter((n) => n.group === run.procedure).map((n) => n.id),
+      ...replayed.nodes.filter((n) => n.group === run.pageId).map((n) => n.id),
     ]);
     const nodes: Array<Record<string, unknown> & { id: string; source: string }> = [];
     for (const id of ids) {
@@ -373,7 +373,7 @@ export function runRoutes(ctx: AppContext): Hono {
   app.get("/api/runs/:id/trace", (c) => {
     const runId = c.req.param("id");
     const run = runs.get(runId);
-    const nodeIds = [run.procedure, ...Object.keys(run.items)];
+    const nodeIds = [run.pageId, ...Object.keys(run.items)];
     const events: Array<ReturnType<typeof threads.list>[number] & { nodeTitle: string }> = [];
     for (const nodeId of nodeIds) {
       // テンプレートが消えていてもランの記録は辿れる（GET /runs/:id/graph が

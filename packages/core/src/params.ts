@@ -8,8 +8,15 @@
 import type { ScriptParam } from "./schema.js";
 
 /**
- * `{name}` プレースホルダの正規表現。name は英数字とアンダースコア
- * （`[A-Za-z_][A-Za-z0-9_]*`。GW_PARAM_<NAME> 環境変数名への大文字化とも整合する）。
+ * パラメータ名として許される形。英数字とアンダースコアのみで、先頭は数字にできない
+ * （GW_PARAM_<NAME> 環境変数名への大文字化とも整合する）。宣言側（schema.ts の
+ * ScriptParamSchema.name）と参照側（下の PARAM_PLACEHOLDER_RE）で同じ規則を共有するため、
+ * ここに1つだけ置く——ズレると「宣言できるが `{name}` では参照できない名前」が生まれる。
+ */
+export const PARAM_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * `{name}` プレースホルダの正規表現。name の規則は PARAM_NAME_RE と同じ。
  * 直前が `$` の `{...}` は除外（負の後読み）——シェルの `${HOME}` や awk の `{print $1}` を
  * パラメータと誤認して実行を止めないため。
  * g フラグ付きだが lastIndex は共有しない: replace は完了時に 0 へ戻し、

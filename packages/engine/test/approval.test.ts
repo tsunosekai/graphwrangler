@@ -61,13 +61,13 @@ function run(items: Record<string, RunItem>, partial: Partial<Run> = {}): Run {
   runSeq += 1;
   return {
     id: partial.id ?? `r-${runSeq}`,
-    procedure: partial.procedure ?? "proc-1",
+    pageId: partial.pageId ?? "proc-1",
     title: partial.title ?? `ラン ${runSeq}`,
     trigger: partial.trigger ?? "manual",
     status: partial.status ?? "running",
     items,
     context: partial.context ?? {},
-    snapshot: partial.snapshot ?? null,
+    snapshot: partial.snapshot ?? { capturedAt: "2026-01-01T00:00:00Z", nodes: [] },
     created: partial.created ?? `2026-01-01T01:00:${String(runSeq).padStart(2, "0")}Z`,
   };
 }

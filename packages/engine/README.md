@@ -103,7 +103,7 @@ cwd をワークスペースルートにし（AI の Read/Grep/Glob がリポジ
      `POST /api/nodes/:id/run` でランを作る。未対応の書式は無視して警告ログのみ
    - **ai** = `schedule` を「AIにラン作成の要否を判定させる間隔」として使う（`every` 系のみ解釈、
      無指定は既定1時間）。間隔が経過したら `buildTriggerPrompt` を AI に渡し、
-     出力を `run`/`skip` として解釈する（パーサは旧トークン `fire` も受け付ける）。
+     出力を `run`/`skip` として解釈する。
      `run` ならスレッドへ理由を残してランを作り、`skip` はエンジンログのみ。
      チェック時刻はエンジンのメモリ管理
    - **human** = エンジンは何もしない（手動 `/run` のみ）
@@ -153,7 +153,7 @@ cwd をワークスペースルートにし（AI の Read/Grep/Glob がリポジ
   アイテム `status=pending` × テンプレート `kind=task` / `executor: ai|script` /
   `lifecycle=committed` × **ラン内依存**（テンプレートの parents のうち同じランの items に
   存在するもの）が全て done/skipped。ラン created 昇順 → ラン内はテンプレート created 昇順。
-  結果はテンプレートノードのスレッドへ `payload:{runId}` 付きで記録する。
+  結果はテンプレートノードのスレッドへ、そのランの記録（`Message.runId`）として記録する。
   実行失敗は `{status:"waiting", note:"失敗: <理由>"}` に倒す——エンジンは waiting を
   拾わないため、リトライ/見送りは UI（ノードパネルの「もう一度 / このランでは飛ばす」）が担う
 - **不可逆アイテムの承認連携**（`src/approval.ts`）: `approval=true` のアイテムは

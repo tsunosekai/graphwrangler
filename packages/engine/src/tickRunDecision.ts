@@ -79,6 +79,7 @@ async function executeRunDecisionItem(run: Run, node: Node): Promise<void> {
   log(`ラン分岐実行開始: run=${run.id} node=${node.id} title=${node.title} executor=${node.executor}`);
 
   await executeDecisionCore(node, {
+    runId: run.id,
     payload: { runId: run.id },
     logLabel: "ラン分岐",
     logWhere: `run=${run.id} node=${node.id}`,

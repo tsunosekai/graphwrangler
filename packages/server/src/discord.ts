@@ -31,9 +31,9 @@ export interface NotifyTarget {
   nodeTitle: string;
   /** ラン経由の通知だけが持つ（発生源②）。「（ラン: X）」として subject に付く */
   runTitle?: string | null;
-  /** 同じくラン経由の通知だけが持つ。リンクに ?run= を載せて「そのランのそのノード」を開かせる
-   *  （2026-08-08。ページを開いた既定がテンプレート表示になったため、これが無いとリンクを
-   *  踏んでもランの進捗＝あなたの番の回答導線に着地しない） */
+  /** 同じくラン経由の通知だけが持つ。リンクを #/r/<ランid>/n/<ノードid> にして
+   *  「そのランのそのノード」を開かせる（2026-08-08。ページを開いた既定がテンプレート表示に
+   *  なったため、これが無いとリンクを踏んでもランの進捗＝あなたの番の回答導線に着地しない） */
   runId?: string | null;
 }
 
@@ -51,16 +51,16 @@ function subjectLine(t: NotifyTarget): string {
 }
 
 /** 3行目のノードリンク。publicUrl 未設定なら null（行ごと省略）。
- *  末尾スラッシュは除去してから `/#/n/<id>` を連結（UI 側のハッシュルーティングが開く）。
- *  ラン経由の通知は `?run=<ランid>` まで付けて、そのランの進捗ごと開かせる */
+ *  末尾スラッシュは除去してから UI のハッシュルート（lib/route.ts）を連結する。
+ *  ラン経由の通知は `/#/r/<ランid>/n/<ノードid>`＝ランのページ、それ以外は `/#/n/<ノードid>` */
 function nodeLink(
   publicUrl: string | null | undefined,
   nodeId: string,
   runId?: string | null,
 ): string | null {
   if (!publicUrl) return null;
-  const base = `${publicUrl.replace(/\/+$/, "")}/#/n/${nodeId}`;
-  return runId ? `${base}?run=${runId}` : base;
+  const origin = publicUrl.replace(/\/+$/, "");
+  return runId ? `${origin}/#/r/${runId}/n/${nodeId}` : `${origin}/#/n/${nodeId}`;
 }
 
 /** 1〜3行を組む共通処理。link が null なら3行目を出さない */

@@ -20,6 +20,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # lint（Biome）は一番安く落ちるので先頭に置く。整形の是正は含めない
+      # （biome.jsonc の formatter は導入済みだが、既存ファイルへの一括適用はまだ）
+      - run: pnpm lint
+
       # 型は vitest が見ない（テストが緑でも型が壊れていることがある）ので別に回す
       - run: pnpm typecheck
 

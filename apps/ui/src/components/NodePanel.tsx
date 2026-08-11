@@ -181,6 +181,9 @@ export function NodePanel({
   // 「ここから未読」の区切り線だけは開いている間ずっと残す——どこから読めばいいかの目印で、
   // 消えてしまうと開いた意味が無い（次に開いたときは既読が進んでいるので自然に消える）
   const [seenTabs, setSeenTabs] = useState<Set<string>>(() => new Set());
+  // thread 自体はポーリングのたびに別オブジェクトになる。依存に入れると毎周 onViewed が飛ぶので
+  // 「null かどうか」だけを依存にする
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 上記のとおり thread 実体には依存させない
   useEffect(() => {
     if (!thread) return;
     setSeenTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));

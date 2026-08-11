@@ -1,5 +1,6 @@
 // データモデルの正。docs/design.md セクション5 と対応を保つこと。
 import { z } from "zod";
+import { PARAM_NAME_RE } from "./params.js";
 
 // ---- 共通 ----
 
@@ -63,9 +64,13 @@ export type Status = z.infer<typeof StatusSchema>;
  *  宣言（name/label/example）は GraphWrangler AI が書き、値（value）は人間がパネルで入力する。
  *  command 中の `{name}` プレースホルダに対応する（置換の実体は core/src/params.ts の
  *  substituteParams。server/engine はそこからの re-export、UI: NodePanel が同じ規約で
- *  表示・編集する）。value が null/空文字のままだと未入力扱い */
+ *  表示・編集する）。value が null/空文字のままだと未入力扱い。
+ *  name は `{name}` で参照できる形（PARAM_NAME_RE）に限る——参照できない名前を宣言できると
+ *  「入力欄はあるのに値が届かない」宣言が作れてしまうため */
 export const ScriptParamSchema = z.object({
-  name: z.string().min(1),
+  name: z
+    .string()
+    .regex(PARAM_NAME_RE, "パラメータ名は英字/アンダースコア始まりの英数字とアンダースコアのみ"),
   label: z.string().nullable().optional(),
   example: z.string().nullable().optional(),
   value: z.string().nullable().optional(),
@@ -88,11 +93,10 @@ export type OutputParam = z.infer<typeof OutputParamSchema>;
  *  - doc: 手順書。AI executor がこれを読んで実行する。text はインライン本文、path は
  *    ワークスペースモード（ワークスペース=1ファイル化）でリポジトリ内ファイルを指す相対パス
  *    （docs/design.md 「ワークスペース=1ファイル化」仕様）。どちらか片方があれば良く、
- *    両方あるときは text を優先する（engine 側の規約）。両方 null は実装未記入と同義で、
- *    既存データ（text だけ）はそのまま通る後方互換を維持する
+ *    両方あるときは text を優先する（engine 側の規約）。両方 null は実装未記入と同義
  *  - script: 決定的スクリプト（シェルコマンド）。script executor が実行する。command は
  *    パラメータ宣言があれば `{name}` プレースホルダ入りのテンプレートになる。params は
- *    無し/空配列/未指定のいずれでも旧データ互換で通る（既存データに params フィールドは無い） */
+ *    省略可（無し/空配列/未指定はどれも「引数なしのコマンド」を意味する） */
 export const NodeImplSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("doc"),
@@ -129,6 +133,14 @@ export const NodeBranchSchema = z.object({
 });
 export type NodeBranch = z.infer<typeof NodeBranchSchema>;
 
+/**
+ * ノードの正。
+ *
+ * 各フィールドの `.default(...)` は「手書きの正データファイル（workflow.gw.json）で
+ * 省略できる」ことを表す仕様——ワークスペースモードでは人間や別のエージェントが
+ * このファイルを直接書くため、意味のある既定値を持つフィールドは書かなくても通す。
+ * GraphWrangler 自身が書き出すノードは常に全フィールドを持つ（addNode が埋める）。
+ */
 export const NodeSchema = z.object({
   id: z.string(),
   /** 空文字を許す（UIの「作って即リネーム」フローが空タイトルで作成するため。表示側は「（無題）」） */
@@ -137,7 +149,7 @@ export const NodeSchema = z.object({
   /** 実装形態（3.5 Fixライフサイクル）。null = 会話段 */
   impl: NodeImplSchema.nullable(),
   /** impl.type==="script" の試走記録（試走ゲート。docs/design.md 3.5 近く）。
-   *  既存データ互換のため default null（旧データには無いフィールド） */
+   *  省略時は null = 未試走 */
   implTrial: ImplTrialSchema.default(null),
   /** 先行ノードid。DAG。空=ルート。依存（順序）を表す */
   parents: z.array(z.string()),
@@ -147,27 +159,25 @@ export const NodeSchema = z.object({
   /** 左レールの整理用フォルダ（kind=folder ノードの id）。null = 直下（フォルダ無し）。
    *  包含(group)・依存(parents)とは独立した「見せ方だけ」の軸で、実行にもラン生成にも
    *  関与しない（2026-08-05 追加）。ページ（kind=goal）とフォルダ自身が持ちうる
-   *  （フォルダの入れ子も型としては可能。UIは現状1階層で使う）。既存データ互換で default null */
+   *  （フォルダの入れ子も型としては可能。UIは現状1階層で使う）。省略時は null */
   folder: z.string().nullable().default(null),
-  /** kind=folder のみ意味を持つ「どの節の棚か」（左レール）。null = プロジェクト節
-   *  （既存フォルダの互換）。2026-08-08 本人要望「ルーティーンにもフォルダを作れるように」 */
+  /** kind=folder のみ意味を持つ「どの節の棚か」（左レール）。null = プロジェクト節（省略時）。
+   *  2026-08-08 本人要望「ルーティーンにもフォルダを作れるように」 */
   folderSection: z.enum(["project", "routine"]).nullable().default(null),
   /** 左レールでの手動並び順（昇順。同じ入れ物の中でだけ意味を持つ）。null = 未指定で、
    *  指定済みより後ろに落ちて created 昇順で並ぶ。整数を詰め直す運用（UI が並べ替えのたびに
-   *  変わったノードだけ patch する）。既存データ互換で default null */
+   *  変わったノードだけ patch する）。省略時は null */
   order: z.number().nullable().default(null),
   kind: NodeKindSchema,
   executor: ExecutorSchema,
   /** 実行前承認（trigger ではラン前承認）。true = 実行の直前に人間の承認ゲートを通る。
-   *  旧名 impact("safe"|"irreversible")（2026-08-03 改名。impl と紛らわしい・
-   *  「承認ゲートの有無」の実態と名前がズレていた・判断リクエストの impact と同名衝突、
-   *  の3点を解消。旧データは *CompatSchema の読み替えレイヤで受ける） */
+   *  判断リクエスト自身の影響度（RequestImpact）とは別の軸なので名前も分ける */
   approval: z.boolean().default(false),
-  /** AI executor の自律度。既存データ互換のため default "normal"（旧データには無いフィールド） */
+  /** AI executor の自律度。省略時は "normal" */
   autonomy: AutonomySchema.default("normal"),
   /** このノードのAI（実行AI・Task AI）が使うモデルの上書き（例: "opus" "sonnet" "haiku"）。
    *  null = 設定（engine.model / chat.cliModel）の既定に従う（2026-08-07 本人要望
-   *  「AI実行ノードとAI会話のモデルとエフォートを切り替えられるように」）。既存データ互換で default null */
+   *  「AI実行ノードとAI会話のモデルとエフォートを切り替えられるように」）。省略時は null */
   aiModel: z.string().nullable().default(null),
   /** 同エフォート（思考の深さ。claude CLI の --effort）。null = 設定の既定に従う */
   aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().default(null),
@@ -191,14 +201,14 @@ export const NodeSchema = z.object({
   /** 決定済みの枝id（プロジェクト層。kind=decision が完了すると入る）。ラン側は RunItem.choice */
   choice: z.string().nullable().default(null),
   /** ランのコンテキストへの出力宣言（3.15）。null=宣言なし。trigger ではラン作成フォームの
-   *  項目 / emit 契約になる。既存データ互換で default null */
+   *  項目 / emit 契約になる。省略時は null */
   outputs: z.array(OutputParamSchema).nullable().default(null),
   /** 子側: どの親decisionのどの枝から生えるか（親decisionId → 枝id）。
    *  検証: キーが parents に含まれ、その親が kind=decision であること。値がその親の branches に存在すること */
   parentOptions: z.record(z.string(), z.string()).default({}),
   /** 作成者（ログインユーザーのメール）。作成時にサーバが刻む不変の記録で、以後 patch しない。
    *  ログイン無し運用・エンジン/MCP 経由（操作者メール不明）では null（docs/design.md 3.11）。
-   *  既存データ互換のため default null */
+   *  省略時は null */
   createdBy: z.string().nullable().default(null),
   /** 担当者（メール）。executor=human のノードで「人間の誰がやるか」。単数・nullable
    *  （null = 未割当 = 全員宛。Linear の assignee と同じ思想で、複数人で分ける作業は
@@ -250,37 +260,16 @@ export const NodePatchSchema = NodeSchema.omit({
 }).partial();
 export type NodePatch = z.infer<typeof NodePatchSchema>;
 
-// ---- 旧フィールド互換（2026-08-03 impact → approval 改名） ----
-
-/** 旧 impact("safe"|"irreversible") を approval(boolean) へ読み替える。保存済みノード・
- *  過去の ops.jsonl・古いクライアントの入力を無停止で受けるための互換レイヤ。
- *  approval が明示されていればそちらが勝ち、余った impact キーは zod が落とす */
-function legacyApprovalPreprocess(v: unknown): unknown {
-  if (v && typeof v === "object" && !Array.isArray(v)) {
-    const o = v as Record<string, unknown>;
-    if (!("approval" in o) && (o.impact === "irreversible" || o.impact === "safe")) {
-      return { ...o, approval: o.impact === "irreversible" };
-    }
-  }
-  return v;
-}
-
-/** 保存データ・opsログ・API入力の読み込みにはこちらを使う（出力型は素のスキーマと同じ）。
- *  素の NodeSchema/NodePatchSchema は .omit/.shape 派生用に ZodObject のまま残す */
-export const NodeCompatSchema = z.preprocess(legacyApprovalPreprocess, NodeSchema);
-export const NodeInputCompatSchema = z.preprocess(legacyApprovalPreprocess, NodeInputSchema);
-export const NodePatchCompatSchema = z.preprocess(legacyApprovalPreprocess, NodePatchSchema);
-
 // ---- 操作ログ（ops.jsonl の1行） ----
 
 export const OpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("node.add"),
-    payload: z.object({ node: NodeCompatSchema }),
+    payload: z.object({ node: NodeSchema }),
   }),
   z.object({
     op: z.literal("node.patch"),
-    payload: z.object({ nodeId: z.string(), patch: NodePatchCompatSchema }),
+    payload: z.object({ nodeId: z.string(), patch: NodePatchSchema }),
   }),
   z.object({
     op: z.literal("node.remove"),
@@ -365,14 +354,15 @@ export const MessageSchema = z.object({
    * null = テンプレート（設計図）側の会話。ランのページで書いた発言・そのランの実行記録は
    * ここにラン id が入り、テンプレートの会話とは混ざらない。
    *
-   * 既存データ互換: この機能より前のラン記録は payload.runId にだけ入っている。
-   * 読み出し側は runIdOf(message) を使うこと（フィールド → payload の順に見る）。
+   * ただし engine 経由の実行記録は今も payload.runId にしか入らない
+   * （engine の postMessage はこのフィールドを送らず payload {runId} だけを載せる）。
+   * 読み出し側は必ず runIdOf(message) を使うこと（フィールド → payload の順に見る）。
    */
   runId: z.string().nullable().default(null),
 });
 export type Message = z.infer<typeof MessageSchema>;
 
-/** メッセージの所属ラン。旧データ（payload.runId だけ持つ）も拾う */
+/** メッセージの所属ラン。payload.runId にしか入っていない記録（engine 経由）も拾う */
 export function runIdOf(m: Pick<Message, "runId" | "payload">): string | null {
   if (m.runId) return m.runId;
   const payload = m.payload as { runId?: unknown } | null;
@@ -442,7 +432,7 @@ export const RunItemSchema = z.object({
   choice: z.string().nullable().default(null),
   /** script 実行時に実際に解決された {name: 値}（3.15。2026-08-09）。ランページの
    *  引数欄はこの値入り（読み取り専用）で表示し、現在の run.context とずれていたら
-   *  「古い値で実行済み」を出す。null = 未実行 / この機能より前の記録 */
+   *  「古い値で実行済み」を出す。null = 未実行（script 以外のアイテムでも常に null） */
   resolvedParams: z.record(z.string(), z.string()).nullable().default(null),
 });
 export type RunItem = z.infer<typeof RunItemSchema>;
@@ -477,8 +467,8 @@ export const NodeSnapshotSchema = z.object({
   fixed: z.boolean(),
   schedule: z.string().nullable(),
   branches: z.array(NodeBranchSchema).nullable(),
-  /** 出力宣言（3.15）。この機能より前のランのスナップショットには無いため default null */
-  outputs: z.array(OutputParamSchema).nullable().default(null),
+  /** 出力宣言（3.15）。null = 宣言なし */
+  outputs: z.array(OutputParamSchema).nullable(),
   parentOptions: z.record(z.string(), z.string()),
   assignee: z.string().nullable(),
 });
@@ -486,8 +476,8 @@ export type NodeSnapshot = z.infer<typeof NodeSnapshotSchema>;
 
 export const RunSchema = z.object({
   id: z.string(),
-  /** ランが属するページ(group)のid。既存ランファイルとの互換のためキー名は procedure のまま */
-  procedure: z.string(),
+  /** ランが属するページ(group)のid */
+  pageId: z.string(),
   title: z.string().min(1),
   /** ラン作成元の記録。"trigger:<triggerノードid>:<via>" の形
    *  （via は "manual" / "schedule:<原文>" / "ai" 等の自由文字列） */
@@ -497,18 +487,15 @@ export const RunSchema = z.object({
   items: z.record(z.string(), RunItemSchema),
   /** ランのコンテキスト（3.15。2026-08-09）。ラン作成時の初期値が入り、ランの進行中に
    *  ノード（##gw マーカー / 完了フォーム / API）が書き足す。last-write-wins。
-   *  旧ランファイル互換で default {} */
-  context: z.record(z.string(), z.string()).default({}),
+   *  初期値なしのランでは空オブジェクト */
+  context: z.record(z.string(), z.string()),
   /** ラン作成時点のページ構成（ページ自身 + メンバー全部。トリガーや items に入らないノードも含む）。
-   *  null = この機能より前のラン。その場合は ops.jsonl の再生で当時を復元する
-   *  （GraphStore.nodesAt。サーバの GET /api/runs/:id/graph が両者を束ねる） */
-  snapshot: z
-    .object({
-      capturedAt: z.string(),
-      nodes: z.array(NodeSnapshotSchema),
-    })
-    .nullable()
-    .default(null),
+   *  ランは必ずこれを持つ（createFromTrigger が焼く）。当時のグラフを見せる
+   *  GET /api/runs/:id/graph の第一の出どころ */
+  snapshot: z.object({
+    capturedAt: z.string(),
+    nodes: z.array(NodeSnapshotSchema),
+  }),
   created: z.string(),
 });
 export type Run = z.infer<typeof RunSchema>;
@@ -521,6 +508,6 @@ export type Run = z.infer<typeof RunSchema>;
 export const WorkspaceFileSchema = z.object({
   format: z.literal("graphwrangler-workspace"),
   version: z.literal(1),
-  nodes: z.array(NodeCompatSchema),
+  nodes: z.array(NodeSchema),
 });
 export type WorkspaceFile = z.infer<typeof WorkspaceFileSchema>;

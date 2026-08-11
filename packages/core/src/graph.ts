@@ -13,10 +13,9 @@ import {
   type Node,
   type NodeBranch,
   type NodeImpl,
-  NodeInputCompatSchema,
+  NodeInputSchema,
   type NodeInput,
   NodePatchSchema,
-  NodePatchCompatSchema,
   type NodePatch,
   type OpRecord,
   OpRecordSchema,
@@ -300,8 +299,7 @@ export class GraphStore {
   // ---- 書き込み（すべて操作ログ経由） ----
 
   addNode(input: NodeInput, meta: OpMeta = {}): Node {
-    // Compat: 旧クライアントの impact("safe"|"irreversible") を approval に読み替えて受ける
-    const parsed = NodeInputCompatSchema.parse(input);
+    const parsed = NodeInputSchema.parse(input);
     this.validateParents(null, parsed.parents);
     this.validateTriggerHasNoParents(parsed.kind, parsed.parents);
     this.validateGroup(null, parsed.group);
@@ -336,7 +334,7 @@ export class GraphStore {
 
   patchNode(id: string, patch: NodePatch, meta: OpMeta = {}): Node {
     const current = this.get(id);
-    const parsed = NodePatchCompatSchema.parse(patch);
+    const parsed = NodePatchSchema.parse(patch);
     assertPatchAllowedWhileFixed(current, parsed, FIXED_PATCH_MESSAGE);
     if (parsed.parents) this.validateParents(id, parsed.parents);
     if (parsed.group !== undefined) this.validateGroup(id, parsed.group ?? null);
@@ -959,8 +957,8 @@ export class GraphStore {
         if (this.nodes.has(id)) {
           throw new GraphError(`undo できません: ${id} は既に再作成されています`, 409);
         }
-        // 削除前に fixed だったノードの復活も拒否（現行の removeNode は fixed を消せないため
-        // 通常は起こらないが、過去ログ互換のための保険。docs/design.md 3.5 実効化）
+        // 削除前に fixed だったノードの復活も拒否（removeNode は force=true で fixed も消すので
+        // その undo がここに来る。docs/design.md 3.5 実効化）
         if (prev.fixed) {
           throw new GraphError(FIXED_UNDO_MESSAGE, 409);
         }

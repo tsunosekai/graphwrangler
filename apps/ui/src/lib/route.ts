@@ -10,7 +10,6 @@
 //                             ランはテンプレートとは別物として表示する（グラフ・ノードの中身・
 //                             会話・実行履歴すべてそのランのもの）
 //   #/r/<runId>/n/<nodeId>  … ランのページの中のノード
-//   ?run=<runId>            … 旧形式。#/r/<runId> と同じ意味として受ける（既存リンク互換）
 //   #/chat または ?chat=1   … AI チャットドロワーを開く（ページ指定と併用可）
 
 export interface RouteState {
@@ -29,7 +28,7 @@ function safeDecode(text: string): string {
   }
 }
 
-/** "#/p/x/n/y?run=z&chat=1" を寛容にパースする。先頭 # の有無・前後スラッシュの揺れを許し、
+/** "#/p/x/n/y?chat=1" を寛容にパースする。先頭 # の有無・前後スラッシュの揺れを許し、
  *  未知セグメントは無視する。ルーティング情報が何も無ければ null（= hash は関与しない）。 */
 export function parseRoute(hash: string): RouteState | null {
   const raw = hash.startsWith("#") ? hash.slice(1) : hash;
@@ -63,11 +62,6 @@ export function parseRoute(hash: string): RouteState | null {
 
   // query は URLSearchParams がデコードまで面倒を見る
   const params = new URLSearchParams(query);
-  const run = params.get("run");
-  if (run) {
-    state.runId = run;
-    found = true;
-  }
   if (params.get("chat") === "1") {
     state.chat = true;
     found = true;

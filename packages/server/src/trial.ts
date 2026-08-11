@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import os from "node:os";
-import type { Node, ScriptParam } from "@graphwrangler/core";
+import type { Node } from "@graphwrangler/core";
 import { GraphError } from "@graphwrangler/core";
 
 /** command 文字列の sha256 hex（implTrial.hash の鮮度チェックに使う。UI 側は

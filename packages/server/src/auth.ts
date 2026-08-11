@@ -98,8 +98,7 @@ export function passwordVersion(user: User): string {
 }
 
 /** セッショントークン: base64url({email, exp, v}) + "." + HMAC 署名。
- *  v = パスワード版数（2026-08-04 追加。旧形式の v 無しトークンは検証で落ちる＝
- *  この変更の配備時に全員一度だけ再ログインになる） */
+ *  v = パスワード版数（必須。v を持たないトークンは verifySession で落ちる） */
 export function createSession(
   email: string,
   pwVersion: string,

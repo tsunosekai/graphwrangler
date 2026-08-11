@@ -428,7 +428,7 @@ server.registerTool(
   "run_get",
   {
     description:
-      "ラン1件の全フィールドを取得する: procedure(属するページのid)・title・trigger・status(running/done/cancelled)・" +
+      "ラン1件の全フィールドを取得する: pageId(属するページのid)・title・trigger・status(running/done/cancelled)・" +
       "items（テンプレートノードid→{status,note,choice,resolvedParams}の全件。resolvedParams は script" +
       "実行時に解決された{name:値}で未実行なら null）・context（run.context。3.15。Record<string,string>。" +
       "ラン作成時の初期値+ノードが書き足した現在値）・created。snapshot（ラン作成時点のページ構成）は" +

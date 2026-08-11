@@ -60,18 +60,17 @@ describe("ランへのラン作成時スナップショット（A）", () => {
     expect(g.get(task.id).title).toBe("今のタイトル");
   });
 
-  it("スナップショットの無い旧ランもそのまま読める（default null）", () => {
+  it("snapshot はランの必須フィールド（欠けたファイルは読めない）", () => {
     const runs = new RunStore(dir);
     const g = new GraphStore(dir);
     const page = g.addNode({ title: "p", kind: "goal" });
     const trigger = g.addNode({ title: "t", kind: "trigger", group: page.id });
     const run = runs.createFromTrigger(page.id, trigger.id, [trigger]);
-    // 旧データを模して snapshot キーごと落とす
     const file = path.join(dir, "runs", `${run.id}.json`);
     const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
     delete raw.snapshot;
     fs.writeFileSync(file, JSON.stringify(raw), "utf8");
-    expect(runs.get(run.id).snapshot).toBeNull();
+    expect(() => runs.get(run.id)).toThrow();
   });
 });
 
@@ -262,10 +261,10 @@ describe("会話・実行履歴のフォーク（ThreadStore.listScoped）", () 
     expect(threads.list("n-1")).toHaveLength(3); // 保存は1ノード1ストリームのまま
   });
 
-  it("旧データ（payload.runId だけ持つ記録）もそのランの側に出る", async () => {
+  it("payload.runId だけ持つ記録（engine 経由の実行ログ）もそのランの側に出る", async () => {
     const { ThreadStore } = await import("../src/index.js");
     const threads = new ThreadStore(dir);
-    // この機能より前の実行記録の形（runId フィールドが無く payload にだけ入っている）
+    // engine の postMessage は runId フィールドを送らず payload にだけ載せる
     threads.post("n-2", { kind: "status", body: "収集: pending → done", payload: { runId: "r-9" } });
     expect(threads.listScoped("n-2", null)).toEqual([]);
     expect(threads.listScoped("n-2", "r-9").map((m) => m.body)).toEqual(["収集: pending → done"]);
