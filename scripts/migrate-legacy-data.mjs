@@ -106,35 +106,39 @@ const nodeById = new Map(migratedNodes.map((n) => [n.id, n]));
 
 /** ラン作成時のグラフが無い旧ラン向けに、現在のテンプレートから snapshot を合成する。
  *  旧実装が snapshot 不在時に「現在の中身」を見せていたのと同じ意味（当時の姿は復元できない） */
+/** スナップショット1ノードを現行の NodeSnapshot の形に整える。既に焼かれている古い
+ *  スナップショットにも使う——後から足されたフィールド（outputs 等）は当時のランには
+ *  無く、既定が外れて必須になったぶんをここで埋める（当時の値は復元できないので既定値） */
+function normalizeSnapshotNode(n) {
+  return {
+    id: n.id,
+    title: n.title,
+    detail: n.detail ?? null,
+    impl: n.impl ?? null,
+    parents: n.parents ?? [],
+    group: n.group ?? null,
+    kind: n.kind,
+    executor: n.executor,
+    approval: n.approval ?? (n.impact === "irreversible"),
+    autonomy: n.autonomy ?? "normal",
+    aiModel: n.aiModel ?? null,
+    aiEffort: n.aiEffort ?? null,
+    lifecycle: n.lifecycle,
+    status: n.status,
+    fixed: n.fixed ?? false,
+    schedule: n.schedule ?? null,
+    branches: n.branches ?? null,
+    outputs: n.outputs ?? null,
+    parentOptions: n.parentOptions ?? {},
+    assignee: n.assignee ?? null,
+  };
+}
+
 function snapshotFromCurrent(pageId, capturedAt) {
   const page = nodeById.get(pageId);
   const members = migratedNodes.filter((n) => n.group === pageId);
   const source = page ? [page, ...members] : members;
-  return {
-    capturedAt,
-    nodes: source.map((n) => ({
-      id: n.id,
-      title: n.title,
-      detail: n.detail ?? null,
-      impl: n.impl ?? null,
-      parents: n.parents ?? [],
-      group: n.group ?? null,
-      kind: n.kind,
-      executor: n.executor,
-      approval: n.approval ?? false,
-      autonomy: n.autonomy ?? "normal",
-      aiModel: n.aiModel ?? null,
-      aiEffort: n.aiEffort ?? null,
-      lifecycle: n.lifecycle,
-      status: n.status,
-      fixed: n.fixed ?? false,
-      schedule: n.schedule ?? null,
-      branches: n.branches ?? null,
-      outputs: n.outputs ?? null,
-      parentOptions: n.parentOptions ?? {},
-      assignee: n.assignee ?? null,
-    })),
-  };
+  return { capturedAt, nodes: source.map(normalizeSnapshotNode) };
 }
 
 const runsDir = path.join(layout.sidecar, "runs");
@@ -144,6 +148,7 @@ const convertedRuns = [];
 let renamedRuns = 0;
 let filledContext = 0;
 let synthesizedSnapshots = 0;
+let normalizedSnapshots = 0;
 if (fs.existsSync(runsDir)) {
   for (const file of fs.readdirSync(runsDir).filter((f) => f.endsWith(".json"))) {
     const full = path.join(runsDir, file);
@@ -166,6 +171,14 @@ if (fs.existsSync(runsDir)) {
       next = { ...next, snapshot: snapshotFromCurrent(next.pageId, next.created) };
       synthesizedSnapshots += 1;
       dirty = true;
+    } else {
+      // 既に焼かれているスナップショットも、後から必須になったフィールドを埋める
+      const nodes = next.snapshot.nodes.map(normalizeSnapshotNode);
+      if (JSON.stringify(nodes) !== JSON.stringify(next.snapshot.nodes)) {
+        next = { ...next, snapshot: { ...next.snapshot, nodes } };
+        normalizedSnapshots += 1;
+        dirty = true;
+      }
     }
     // 現行スキーマに無い旧キー（updated 等）は落とす
     for (const key of Object.keys(next)) {
@@ -186,6 +199,8 @@ if (renamedRuns) changes.push(`ラン: procedure → pageId を ${renamedRuns} �
 if (filledContext) changes.push(`ラン: context の欠落を ${filledContext} 件補完`);
 if (synthesizedSnapshots)
   changes.push(`ラン: snapshot の無い旧ラン ${synthesizedSnapshots} 件を現在のテンプレートから合成`);
+if (normalizedSnapshots)
+  changes.push(`ラン: 既存 snapshot ${normalizedSnapshots} 件に、後から必須になったフィールドを補完`);
 
 // ---- 4. スレッド: 旧キー・旧マーカー ----
 
