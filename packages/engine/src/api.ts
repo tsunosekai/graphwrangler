@@ -65,8 +65,12 @@ export async function patchNode(
   return (await request("POST", `/api/nodes/${id}`, { ...patch, actor, via })) as Node;
 }
 
+/** ノードのスレッドを**全スコープ**（?run=all）で取得する。エンジンはゲート照合
+ *  （findRunGate の [ラン <id>] マーカー）でラン横断にスレッドを読む——判断カードと回答が
+ *  runId 付きで積まれるようになった（2026-08-12）ため、既定のテンプレートスコープで読むと
+ *  answered になったラン側カードが視界から消え、ゲートが none に戻って二重にカードを開く */
 export async function getThread(id: string): Promise<{ messages: Message[] }> {
-  return (await request("GET", `/api/nodes/${id}/thread`)) as { messages: Message[] };
+  return (await request("GET", `/api/nodes/${id}/thread?run=all`)) as { messages: Message[] };
 }
 
 /** スレッドへ投稿する。runId を渡すとそのランの記録として帰属する（省略/null =
