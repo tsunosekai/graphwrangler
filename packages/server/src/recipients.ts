@@ -67,8 +67,14 @@ export function resolveRecipientEmails(input: ResolveRecipientsInput): string[] 
 
 /** メールを users.json の登録内容へ引き当てる。**未登録のメールも落とさず返す**——
  *  落とすと「宛先は居るのに誰も出てこない通知」になり、宛先不明と区別が付かなくなる。
- *  discordId が無ければ通知本文には名前だけが出る（メンションは鳴らない） */
+ *  discordId が無ければ通知本文には名前だけが出る（メンションは鳴らない）。
+ *
+ *  例外: **ロスター（users.json）が空＝ログイン無しの一人運用**では [] を返す＝呼び出し側で
+ *  @here に落ちる（2026-08-12 zinsei で実測——誰の discordId も引けないため、全通知が
+ *  「メールさん」の鳴らない文字列になっていた。一人運用の「あなたの番」は常にその一人の番
+ *  なので、解決を試みる意味が無く、@here で鳴らすのが従来どおりの正しい挙動） */
 export function toRecipients(emails: string[], users: NotifyUser[]): NotifyUser[] {
+  if (users.length === 0) return [];
   return emails.map(
     (email) => users.find((u) => u.email.toLowerCase() === email.toLowerCase()) ?? { email },
   );

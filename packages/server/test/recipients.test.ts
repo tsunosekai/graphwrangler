@@ -97,3 +97,10 @@ test("humanAuthorsOf: 人間の発言者だけを重複なしで拾う（AI・�
 test("humanAuthorsOf: 名前の無い human は宛先にできないので落とす", () => {
   assert.deepEqual(humanAuthorsOf([msg("human")]), []);
 });
+
+test("toRecipients: ロスターが空（ログイン無しの一人運用）なら [] ＝ @here に落とす", () => {
+  // zinsei で実測（2026-08-12）: users.json が無いと誰の discordId も引けず、
+  // 全通知が「メールさん」の鳴らない文字列になっていた。一人運用の「あなたの番」は
+  // 常にその一人の番なので、@here で鳴らすのが正しい
+  assert.deepEqual(toRecipients(["ghost@example.com"], []), []);
+});
