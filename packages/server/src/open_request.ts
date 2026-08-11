@@ -8,7 +8,7 @@
 //   - POST /api/nodes/:id/request … agent/engine から（AI実行中の QUESTION・承認ゲート・
 //     失敗リカバリ・分岐が全部ここへ来る）
 //   - スレッドの Task AI … 会話中に QUESTION プロトコルで人間の判断を求めたとき（thread_ai.ts）
-import type { Actor, DecisionRequest, GraphStore, Message, ThreadStore } from "@graphwrangler/core";
+import type { Actor, DecisionRequest, GraphStore, Message, RunStore, ThreadStore } from "@graphwrangler/core";
 import { loadUsers } from "./auth.js";
 import { notifyTurn } from "./discord.js";
 import { notifyTargetOf } from "./notify_target.js";
@@ -16,9 +16,25 @@ import { resolveRecipients } from "./recipients.js";
 import type { SettingsStore } from "./settings.js";
 import type { UserSettingsStore } from "./user_settings.js";
 
+/**
+ * このノードの「あなたの番」が既に通知済みか（純粋関数。vitest ではなく node:test 対象）。
+ * ランアイテムが waiting へ遷移した瞬間に発生源②（routes/runs.ts）がラン付きリンクで
+ * 鳴らしている。エンジンの2段構え（waiting に倒す → 判断カードを開く。AI質問・承認ゲート・
+ * ラン内分岐が全部この形）では②→①が数秒差で連続するため、①（判断カードを開く側）は
+ * これが true なら鳴らさない（2026-08-12 本人報告「同じタイミングで通知が2個来る。1つでいい」
+ * ——同一の用件が run リンク版とテンプレートリンク版の2通になっていた）
+ */
+export function isTurnAlreadyAnnounced(
+  pageRuns: Array<{ status: string; items: Record<string, { status: string }> }>,
+  nodeId: string,
+): boolean {
+  return pageRuns.some((r) => r.status === "running" && r.items[nodeId]?.status === "waiting");
+}
+
 export interface OpenRequestDeps {
   graph: GraphStore;
   threads: ThreadStore;
+  runs: RunStore;
   settings: SettingsStore;
   userSettings: UserSettingsStore;
   usersFile: string;
@@ -42,18 +58,29 @@ export function openHumanRequest(
    *  ランごとに分かれていないため（ランへの紐付けは question 内の `[ラン <id>]` マーカーが担う） */
   recipientRunId: string | null = null,
 ): Message {
-  const { graph, threads, settings, userSettings, usersFile } = deps;
+  const { graph, threads, runs, settings, userSettings, usersFile } = deps;
   const node = graph.get(nodeId);
   const message = threads.openRequest(nodeId, request, { author: meta.author, via: meta.via });
   graph.patchNode(nodeId, { pendingRequest: message.id }, { actor: { kind: "system" }, via: meta.via });
 
+  const announced = isTurnAlreadyAnnounced(node.group ? runs.list(node.group) : [], node.id);
+
   // 担当者が居るときはその人の受け取り設定を尊重する（2026-08-07 ユーザー別設定）。
   // 宛先は assignee 1本ではなく関係者まで広げて解決する（2026-08-11。recipients.ts）
-  if (!node.assignee || userSettings.get(node.assignee).discordTurnNotify) {
+  if (!announced && (!node.assignee || userSettings.get(node.assignee).discordTurnNotify)) {
+    // ラン文脈の質問（Task AI がランの会話で QUESTION したとき等）はリンクをランのページへ
+    // 向ける——回答導線はランの進捗側にある（発生源②と同じ理由。2026-08-12）。
+    // 実在しない runId は黙ってテンプレートリンクに落とす（通知は補助機能）
+    let run: { id: string; title: string } | undefined;
+    if (recipientRunId) {
+      try {
+        run = runs.get(recipientRunId);
+      } catch {}
+    }
     notifyTurn(
       settings.get().notify,
       resolveRecipients(graph, threads, loadUsers(usersFile), node, recipientRunId),
-      notifyTargetOf(graph, node),
+      notifyTargetOf(graph, node, run),
     );
   }
   return message;
