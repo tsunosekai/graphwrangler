@@ -97,17 +97,22 @@ export async function decideNode(
   return (await request("POST", `/api/nodes/${id}/decide`, { choice, actor, via })) as Node;
 }
 
-/** 判断リクエストを開く。ノードは server 側で自動的に waiting + pendingRequest になる */
+/** 判断リクエストを開く。ノードは server 側で自動的に waiting + pendingRequest になる。
+ *  runId を渡すとカード（decision_request）がそのランの会話に属する——ランのページは
+ *  そのランのメッセージだけを見せるため、これが無いと通知リンクでランのページを開いても
+ *  カードが出ず回答できない（2026-08-12 本人報告の不具合。回答・宛先解決にも使われる） */
 export async function openRequest(
   id: string,
   decisionRequest: DecisionRequest,
   actor: Actor,
   via: string,
+  runId?: string | null,
 ): Promise<Message> {
   return (await request("POST", `/api/nodes/${id}/request`, {
     request: decisionRequest,
     actor,
     via,
+    ...(runId ? { runId } : {}),
   })) as Message;
 }
 

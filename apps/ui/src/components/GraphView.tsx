@@ -5,6 +5,8 @@ import {
   ReactFlowProvider,
   applyNodeChanges,
   useReactFlow,
+  useStoreApi,
+  useUpdateNodeInternals,
   type Connection,
   type Edge as RFEdge,
   type Node as RFNode,
@@ -144,8 +146,11 @@ function GraphViewInner({
   // 選択中の依存エッジ（Delete/Backspace か✂ボタンで切断できる）
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
+  const { fitView, screenToFlowPosition, getNodes, getViewport, setViewport } = useReactFlow();
   const isMobile = useIsMobile();
+  // 計測ウォッチドッグ用（下の effect。内部 lookup を読むだけで購読はしない）
+  const rfStore = useStoreApi();
+  const updateNodeInternals = useUpdateNodeInternals();
 
   // ヘッダーの⌨ボタンからショートカット一覧を開く（ダイアログ本体はここが持つ）
   useEffect(() => subscribeOpenShortcuts(() => setShortcutsOpen(true)), []);
@@ -243,30 +248,45 @@ function GraphViewInner({
   // ReactFlow 側の panOnDrag はモバイルでは無効化する——下の props）
   useMobilePanZoom(paneRef, isMobile, MIN_ZOOM, MAX_ZOOM);
 
-  // ビューの幅が**狭くなったとき**だけ即座に fit する（本人指定。広がるときは fit しない
-  // — ノードが見切れる方向だけ救済すればよく、広がったときに視点が飛ぶのは煩わしい）
+  // ビューの形・幅が変わったとき（パネル開閉・ウィンドウリサイズ）は**中心アンカー**:
+  // ビュー中央に見えていたグラフ上の点を中央に保ったまま、ズームは変えない
+  // （Figma / tldraw 等の pan-zoom キャンバスの標準挙動。左右の余白だけが増減し、
+  //   カメラが飛ばない。2026-08-12、旧「狭くなったら全体フィット」を置き換え）。
+  // ResizeObserver の tick ごとに同期で追従させるので、パネルのドラッグリサイズ中も
+  // 内容が中央に据わったまま滑らかに動く
   useEffect(() => {
     const el = paneRef.current;
     if (!el) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let prevWidth = el.getBoundingClientRect().width;
+    const first = el.getBoundingClientRect();
+    let prevW = first.width;
+    let prevH = first.height;
     const ro = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width ?? prevWidth;
-      const shrank = width < prevWidth - 1;
-      // 非表示（幅0）→表示への復帰もフィット対象（モバイルのタブ切替で「グラフを開いた
-      // とき」に全体が見えるように。2026-08-02 本人要望）
-      const revealed = prevWidth < 5 && width >= 5;
-      prevWidth = width;
-      if (!shrank && !revealed) return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => fitView({ padding: FIT_PADDING, duration: 0 }), 80);
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      const dx = (rect.width - prevW) / 2;
+      const dy = (rect.height - prevH) / 2;
+      // 非表示（幅0）→表示への復帰だけは全体フィット（モバイルのタブ切替で「グラフを
+      // 開いたとき」に全体が見えるように。2026-08-02 本人要望）
+      const revealed = prevW < 5 && rect.width >= 5;
+      const hidden = rect.width < 5;
+      prevW = rect.width;
+      prevH = rect.height;
+      if (revealed) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => fitView({ padding: FIT_PADDING, duration: 0 }), 80);
+        return;
+      }
+      if (hidden || (dx === 0 && dy === 0)) return;
+      const vp = getViewport();
+      setViewport({ x: vp.x + dx, y: vp.y + dy, zoom: vp.zoom });
     });
     ro.observe(el);
     return () => {
       if (timer) clearTimeout(timer);
       ro.disconnect();
     };
-  }, [fitView]);
+  }, [fitView, getViewport, setViewport]);
 
   // ルーティーンページだけ「グラフ / 台帳」の表示切替を持つ（docs/design.md 3.8）。
   // 「ルーティーンであること」は trigger ノードがメンバーにいるかどうかから導出する
@@ -466,6 +486,44 @@ function GraphViewInner({
     reportSelection,
     onSelectionIdsChange,
   ]);
+
+  // ---- 計測ウォッチドッグ（2026-08-12 本人報告「ランのページでノードが出ない・線も出ない・
+  //      リロードしても直らない」の修正）----
+  // コールドロード直後は nodes が「テンプレート → 空（ランの取得中） → ランのフォーク」と
+  // 短時間に差し替わり、React Flow が ResizeObserver の初回計測を取り逃がすことがある。
+  // 取り逃がすと**再計測は二度と走らない**（サイズが変わらない限り ResizeObserver は再発火せず、
+  // adoptUserNodes も measured の無いノードを待つだけ）ため、ノードは visibility:hidden・
+  // エッジは handleBounds 無しで非表示のまま固着する。実測で確認済み（DOM 上は 220px で
+  // レイアウト済みなのに internal の measured が undefined のまま静止する）。
+  // 対処: rfNodes が変わるたび少し待って内部 lookup を覗き、未計測 / handleBounds 欠落の
+  // ノードを公開APIの useUpdateNodeInternals（force 再計測）で計測し直す。健全なら何もしない。
+  // 数回で打ち切る（本当に描画できないノードで無限に叩き続けない）
+  useEffect(() => {
+    if (rfNodes.length === 0) return;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      const { nodeLookup } = rfStore.getState();
+      const stuck: string[] = [];
+      for (const rn of rfNodes) {
+        const internal = nodeLookup.get(rn.id);
+        if (!internal) continue;
+        if (
+          internal.measured?.width == null ||
+          internal.measured?.height == null ||
+          internal.internals.handleBounds === undefined
+        ) {
+          stuck.push(rn.id);
+        }
+      }
+      tries += 1;
+      if (stuck.length === 0 || tries > 8) {
+        window.clearInterval(timer);
+        return;
+      }
+      updateNodeInternals(stuck);
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [rfNodes, rfStore, updateNodeInternals]);
 
   // 依存の切断。子ノードの parents から source を除く（Ctrl+Zで戻せる: undo は既存の操作ログ経由）。
   // source が decision の枝だった場合、parentOptions からも該当エントリを削除する（docs/design.md 3.9）

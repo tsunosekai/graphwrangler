@@ -112,12 +112,22 @@ export function threadRoutes(ctx: AppContext): Hono {
     const body = await c.req.json();
     const m = meta(body);
     const request = DecisionRequestSchema.parse(body.request);
+    // ラン文脈のカード（エンジンの承認ゲート・AI質問・ラン内分岐）は runId 付きで開く——
+    // カードがそのランの会話に属し、ランのページ（#/r/…）から見え・答えられるようにする
+    // （2026-08-12 本人報告「通知リンクから開いたら質問に返信しても動かない」の修正）
+    const runId = typeof body.runId === "string" && body.runId ? body.runId : null;
     // pendingRequest のセットと「あなたの番」の Discord 通知は open_request.ts が一手に持つ
     // （AI実行中の QUESTION・承認ゲート・失敗リカバリ・分岐が全部この経路を通る）
-    const message = openHumanRequest(ctx, id, request, {
-      author: m.actor.kind === "human" ? { kind: "agent" } : m.actor,
-      via: m.via,
-    });
+    const message = openHumanRequest(
+      ctx,
+      id,
+      request,
+      {
+        author: m.actor.kind === "human" ? { kind: "agent" } : m.actor,
+        via: m.via,
+      },
+      runId,
+    );
     return c.json(message);
   });
 

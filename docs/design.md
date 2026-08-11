@@ -1021,6 +1021,14 @@ artifact。
 文脈と排他もノード×ランの単位）。既存データは `payload.runId` にだけラン id を持つので、
 読み出しは `runIdOf(message)`（フィールド → payload の順に見る）を通す。
 
+**open な判断カードだけはスコープを問わず見せる**（2026-08-12）: pendingRequest はノード単位の
+状態（＝ボールは1個）なので、テンプレート表示でもどのランのページでも、open なカードは出て
+答えられる。runId で切ると「橙（あなたの番）は付くのにカードが無い」画面ができ、実際に
+通知リンクからランのページを開いた本人が質問に答えられなかった（本人報告）。エンジンがランの
+ために開くカード（AI質問・承認ゲート・ラン内分岐）は runId 付きで積まれ（POST /nodes/:id/request
+の runId）、answered になれば自分のランのスコープにだけ残る。回答（decision_answer）は
+質問と同じ runId を継承する。
+
 ### 5.4 判断リクエスト（kind=decision_request の payload）
 
 ```jsonc

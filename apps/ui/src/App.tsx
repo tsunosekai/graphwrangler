@@ -142,7 +142,12 @@ function AppInner() {
   const [pageIdRaw, setPageId] = useState<string | null>(() =>
     initialRoute ? null : loadUiState("gw.pageId"),
   );
-  const [chatOpen, setChatOpen] = useState(() => loadUiState("gw.chatOpen") === "1");
+  // ルート付きで開かれたとき（通知リンク等）は selectedId/pageId と同じく localStorage 復元を
+  // スキップして URL に従う（2026-08-12）。前回開きっぱなしだったドロワーが通知リンクの着地画面に
+  // 覆い被さり、URL にも ?chat=1 が書き戻されて「リンクと違う画面が開く」原因になっていた
+  const [chatOpen, setChatOpen] = useState(() =>
+    initialRoute ? initialRoute.chat : loadUiState("gw.chatOpen") === "1",
+  );
   // モバイル（<768px）はヘッダー+下部タブバーを除き、一覧/グラフ/ノード/チャットの
   // どれか1つが画面を専有する（2026-08-02 本人指定）。
   // 表示中のビューは **sessionStorage** に置く（2026-08-02 本人要望「レスポンシブ画面でも

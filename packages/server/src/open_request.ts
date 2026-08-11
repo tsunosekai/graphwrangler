@@ -53,14 +53,23 @@ export function openHumanRequest(
   nodeId: string,
   request: DecisionRequest,
   meta: { author: Actor; via: string },
-  /** 宛先解決で「直近の会話の当事者」を探すときに見るランの会話（recipients.ts の段4）。
-   *  リクエスト自体は常にテンプレート側に開く——pendingRequest はノード単位の状態で、
-   *  ランごとに分かれていないため（ランへの紐付けは question 内の `[ラン <id>]` マーカーが担う） */
+  /** カードが属するランの会話（2026-08-12 からカードの runId としても焼き込む——ランのページで
+   *  カードを見え・答えられるようにするため）。宛先解決の「直近の会話の当事者」を探す範囲
+   *  （recipients.ts の段4）と通知リンクの向き先にも使う。pendingRequest はノード単位の状態の
+   *  まま（ランごとに分かれない）で、エンジンのゲート照合は従来どおり question 内の
+   *  `[ラン <id>]` マーカーが担う */
   recipientRunId: string | null = null,
 ): Message {
   const { graph, threads, runs, settings, userSettings, usersFile } = deps;
   const node = graph.get(nodeId);
-  const message = threads.openRequest(nodeId, request, { author: meta.author, via: meta.via });
+  // カードはラン文脈なら runId 付きで積む——ランのページ（#/r/…）はそのランのメッセージだけを
+  // 見せるため、これが無いと通知リンクから開いてもカードが出ず回答できない（2026-08-12 修正。
+  // 回答（decision_answer）は core 側で質問と同じ runId を継承する）
+  const message = threads.openRequest(nodeId, request, {
+    author: meta.author,
+    via: meta.via,
+    runId: recipientRunId,
+  });
   graph.patchNode(nodeId, { pendingRequest: message.id }, { actor: { kind: "system" }, via: meta.via });
 
   const announced = isTurnAlreadyAnnounced(node.group ? runs.list(node.group) : [], node.id);

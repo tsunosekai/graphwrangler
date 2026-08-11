@@ -62,9 +62,19 @@ export class ThreadStore {
    * ラン単位に切り出したスレッド（2026-08-08「会話や実行履歴もフォーク」）。
    * runId=null はテンプレート（設計図）側の会話だけ、ラン id ならそのランの会話と実行記録だけ。
    * 1ノード1ファイルのまま、所属ランで切って見せる（保存の形は変えない）。
+   *
+   * **open な判断カード（decision_request）だけはどのスコープでも見せる**（2026-08-12）:
+   * pendingRequest はノード単位の状態（＝ボールは1個）なので、どの画面で見ていても
+   * カードが出て答えられるべき。runId で切ると「橙（あなたの番）は付くのにカードが無い」
+   * 画面ができる——テンプレート側カードをランのページで（2026-08-12 本人報告）、逆に
+   * ラン側カードをテンプレートで、見失う。answered になれば自分のスコープにだけ残る。
    */
   listScoped(nodeId: string, runId: string | null): MaterializedMessage[] {
-    return this.list(nodeId).filter((m) => runIdOf(m) === runId);
+    return this.list(nodeId).filter(
+      (m) =>
+        runIdOf(m) === runId ||
+        (m.kind === "decision_request" && m.requestStatus === "open"),
+    );
   }
 
   /** 会話・実行ログ・成果物の投稿 */

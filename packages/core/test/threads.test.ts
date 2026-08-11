@@ -78,4 +78,26 @@ describe("ThreadStore", () => {
     expect(t.list("n-1")).toHaveLength(1);
     expect(t.list("n-2")).toHaveLength(1);
   });
+
+  // 2026-08-12: ボール（pendingRequest）はノード単位に1個なので、open なカードはどの
+  // スコープから見ても出す。runId で切ると「橙は付くのにカードが無い」画面ができる
+  // （通知リンクからランのページを開いたら質問に答えられなかった、の修正）
+  describe("listScoped と判断カード", () => {
+    it("runId 付きで開いたカードはそのランの会話に属する（回答も同じランに落ちる）", () => {
+      const req = t.openRequest("n-1", REQ, { runId: "r-1" });
+      expect(t.listScoped("n-1", "r-1").map((m) => m.id)).toContain(req.id);
+      const { message: ans } = t.answerRequest("n-1", { requestId: req.id, option: "go", note: null });
+      expect(ans.runId).toBe("r-1");
+      // answered 後は自分のスコープにだけ残る
+      expect(t.listScoped("n-1", null).map((m) => m.id)).not.toContain(req.id);
+      expect(t.listScoped("n-1", "r-1").map((m) => m.id)).toContain(req.id);
+    });
+
+    it("open なカードはスコープを問わず見える（テンプレート側カード⇄ランのページの相互）", () => {
+      const req = t.openRequest("n-1", REQ); // runId なし＝テンプレート側
+      expect(t.listScoped("n-1", "r-1").map((m) => m.id)).toContain(req.id);
+      const req2 = t.openRequest("n-2", REQ, { runId: "r-9" });
+      expect(t.listScoped("n-2", null).map((m) => m.id)).toContain(req2.id);
+    });
+  });
 });

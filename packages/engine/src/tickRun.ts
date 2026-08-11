@@ -71,7 +71,7 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
         VIA,
       );
       try {
-        await openRequest(node.id, buildAiQuestionRequest(node, question, run.id), ENGINE_ACTOR, VIA);
+        await openRequest(node.id, buildAiQuestionRequest(node, question, run.id), ENGINE_ACTOR, VIA, run.id);
         log(`AIが人間へ質問(ラン): run=${run.id} node=${node.id} question=${truncate(question.question, 100)}`);
       } catch (err) {
         log(`AI質問カードを開けなかった（次周に持ち越し）: run=${run.id} node=${node.id} ${String(err)}`);
@@ -270,6 +270,7 @@ async function tickRunApprovals(nodes: Node[], runs: Run[]): Promise<boolean> {
           buildRunApprovalRequest(action.node, action.run),
           ENGINE_ACTOR,
           VIA,
+          action.run.id,
         );
       } catch (err) {
         // node に既に別のリクエストが開いている等。処理済み扱いにすると失敗が続く限り
@@ -368,7 +369,7 @@ async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> 
         return true;
       }
       try {
-        await openRequest(node.id, buildAiQuestionRequest(node, question, run.id), ENGINE_ACTOR, VIA);
+        await openRequest(node.id, buildAiQuestionRequest(node, question, run.id), ENGINE_ACTOR, VIA, run.id);
       } catch (err) {
         // 開けなかった（別リクエストが開いている等）。処理済み扱いにせず次の候補へ進む
         log(`AI質問カードを開けなかった（次候補へ）: run=${run.id} node=${node.id} ${String(err)}`);
