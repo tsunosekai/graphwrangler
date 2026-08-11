@@ -9,10 +9,50 @@
 // 素の -p（テキスト出力）に比べて stdout は増えるが、成功時の output は従来どおり
 // 最終テキストのみ（stream_trace.parseStreamJsonOutput が result 行から取り出す）。
 import { type ChildProcess, spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { autonomyPromptLines } from "../ask.js";
 import type { Autonomy, Node, SubStep } from "../types.js";
 import { killTree, STDIO_GRACE_MS } from "./script.js";
 import { parseStreamJsonOutput } from "./stream_trace.js";
+
+// packages/engine/src/executors → repoRoot
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
+
+/** 実行AIに許可する GraphWrangler MCP ツール（2026-08-11）。
+ *  **discord_post ただ1つ**に絞る——手順書に「#運営一般 に報告」と書かれたノードで、
+ *  AI がその実行として連絡を投げられるようにするため（本人要望「AIが人間とコミュニケーション
+ *  する必要のあるタスクは積極的に Discord を使ってほしい」）。
+ *  グラフ操作（node_add / node_remove / undo …）は渡さない: 実行AIの仕事は「ノードを実行する」
+ *  ことで、グラフを組み替えることではない。人間へ判断を仰ぐ経路は MCP ではなく
+ *  QUESTION プロトコル（ask.ts）が既に担っているので、request_open も要らない */
+const ALLOWED_MCP_TOOLS = ["mcp__graphwrangler__discord_post"];
+
+/** claude -p に渡す一時 mcp-config を書く（server 側 chat_cli.ts の writeMcpConfig と同型）。
+ *  GraphWrangler の HTTP API の場所は api.ts と同じ env の見方で MCP サーバへ渡す */
+function writeMcpConfig(): string {
+  const config = {
+    mcpServers: {
+      graphwrangler: {
+        command: "npx",
+        args: ["tsx", mcpEntry],
+        env: {
+          GRAPHWRANGLER_URL: (process.env.GRAPHWRANGLER_URL ?? "http://localhost:8770").replace(
+            /\/+$/,
+            "",
+          ),
+        },
+      },
+    },
+  };
+  const file = path.join(os.tmpdir(), `graphwrangler-engine-mcp-${randomUUID()}.json`);
+  fs.writeFileSync(file, JSON.stringify(config, null, 2), "utf8");
+  return file;
+}
 
 export interface ExecResult {
   success: boolean;
@@ -220,6 +260,19 @@ export function runClaude(
 ): Promise<ExecResult> {
   const { timeoutMs = CLAUDE_TIMEOUT_MS, cwd } = opts;
   return new Promise((resolve) => {
+    // MCP 設定（2026-08-11）。これが無いと --allowedTools に mcp__* を並べても接続自体が
+    // 無いので呼べない（実測: 手順書に投稿先を書いても discord_post に手が届かなかった）。
+    // 書き出しに失敗しても実行そのものは続ける——MCP は「連絡できる」ぶんの追加機能で、
+    // ノードの実行を止める理由にはならない
+    let mcpConfigFile: string | null = null;
+    try {
+      mcpConfigFile = writeMcpConfig();
+    } catch (err) {
+      console.error(`[claude] MCP設定の書き出しに失敗（MCPなしで続行）: ${String(err)}`);
+    }
+    const isWindowsShell = process.platform === "win32";
+    const q = (s: string) => (isWindowsShell ? `"${s.replace(/"/g, '\\"')}"` : s);
+
     // プロンプトは argv ではなく **stdin** で渡す。Windows の shell:true は cmd.exe を経由し、
     // cmd.exe は改行を含む引数を黙って切り捨てる（2026-07-29 に chat_cli 側で実測）。
     // buildAiPrompt は常に複数行なので、argv 渡しだと Windows で先頭行しか届かない。
@@ -229,7 +282,9 @@ export function runClaude(
       config.model,
       ...(config.effort ? ["--effort", config.effort] : []),
       ...sanitizeExtraArgs(config.extraArgs),
+      ...(mcpConfigFile ? ["--mcp-config", q(mcpConfigFile)] : []),
       "--allowedTools",
+      ...(mcpConfigFile ? ALLOWED_MCP_TOOLS : []),
       ...ALLOWED_TOOLS,
       ...sanitizeExtraTools(config.extraTools),
       ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", d]),
@@ -249,6 +304,14 @@ export function runClaude(
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
       if (graceTimer !== undefined) clearTimeout(graceTimer);
+      // 一時 MCP 設定の後始末。ノード実行のたびに1つ作るので、消さないと tmp に溜まり続ける
+      if (mcpConfigFile) {
+        try {
+          fs.unlinkSync(mcpConfigFile);
+        } catch {
+          // 掃除に失敗しても致命的ではない（chat_cli.ts と同じ扱い）
+        }
+      }
       resolve(result);
     };
 
