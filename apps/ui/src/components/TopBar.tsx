@@ -189,7 +189,7 @@ export function TopBar({ chatOpen, onToggleChat, onOpenSettings, onUndo, onCaptu
   // エンジン稼働インジケータ（5秒毎ポーリング）。平常時は何も出さず、
   // 「AIが動いていない」ときだけ警告として表示する（2026-07-31 本人指示。
   // ノード数バッジも同時に廃止: 常時出る情報バッジは圧になるだけ）
-  const { data: engineStatus } = usePolling(() => api.getEngineStatus(), 5000);
+  const { data: engineStatus } = usePolling(() => api.getEngineStatus({ silent: true }), 5000);
   const engineDown = engineStatus != null && !engineStatus.alive;
   // 本体の更新（selfupdate.ts。2026-08-05）。エンジン停止表示と同じ流儀で、
   // 「更新がある」ときだけ小さく出す（クリックで設定の「アップデート」節へ）。

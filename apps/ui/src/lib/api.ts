@@ -17,8 +17,12 @@ import { threadKey } from "./unread";
 
 export class ApiError extends Error {}
 
-/** silent: エラートーストを出さず re-throw だけする（一括処理で失敗を集約して
- *  1回のトーストにまとめたい呼び出し側向け。既定は従来どおりトースト表示） */
+/** silent: エラートーストを出さず re-throw だけする。用途は2つ:
+ *  - 一括処理で失敗を集約して1回のトーストにまとめたい呼び出し側
+ *  - **ポーリング**（数秒おきの取得。失敗のたびにトーストを出すと、サーバの再起動中に
+ *    エラーが積み上がって画面を覆う）。呼び出し側は握り潰さず投げ直すこと——
+ *    usePolling が直近の正常なデータを保って再試行する
+ *  既定は従来どおりトースト表示（人が押した操作の失敗は黙らせない） */
 async function request<T>(path: string, init?: RequestInit & { silent?: boolean }): Promise<T> {
   let res: Response;
   try {
@@ -384,9 +388,10 @@ export const api = {
    *  aiQueued: 応答中に書いた送信予約を受けて、終わり次第もう一度応答する予約があるか */
   /** runId を渡すと**そのランの会話・実行記録だけ**を返す（2026-08-08「会話や実行履歴も
    *  フォーク」）。省略/null はテンプレート（設計図）側の会話だけ */
-  getThread: (id: string, runId?: string | null) =>
+  getThread: (id: string, runId?: string | null, opts: { silent?: boolean } = {}) =>
     request<{ messages: MaterializedMessage[]; aiBusy?: boolean; aiQueued?: boolean }>(
       runId ? `/nodes/${id}/thread?run=${encodeURIComponent(runId)}` : `/nodes/${id}/thread`,
+      { silent: opts.silent },
     ),
 
   /** Task AI の応答を止める（2026-08-05）。予約されていた送信予約の再応答も取り消す */
@@ -477,7 +482,8 @@ export const api = {
   cancelRun: (runId: string) =>
     request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
 
-  getRunTrace: (runId: string) => request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`),
+  getRunTrace: (runId: string, opts: { silent?: boolean } = {}) =>
+    request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`, { silent: opts.silent }),
 
   /** ランのコンテキストへ merge（docs/design.md 3.15 実行時の書き）。nodeId を渡すと
    *  「コンテキスト更新: …」の status がそのノードのスレッド（このラン）へ積まれる
@@ -545,7 +551,8 @@ export const api = {
 
   // ---- エンジン稼働インジケータ ----
 
-  getEngineStatus: () => request<{ alive: boolean; lastSeen: string | null }>("/engine/status"),
+  getEngineStatus: (opts: { silent?: boolean } = {}) =>
+    request<{ alive: boolean; lastSeen: string | null }>("/engine/status", { silent: opts.silent }),
 
   // ---- AI設定 ----
 

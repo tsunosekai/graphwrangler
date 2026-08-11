@@ -135,7 +135,7 @@ export function NodePanel({
   // 会話・実行履歴はランごと（2026-08-08「会話や実行履歴もフォーク」）。
   // ランのページならそのランの分だけ、テンプレートなら設計図側の分だけが返る
   const { data: thread, refresh: refreshThread } = usePolling(
-    () => api.getThread(node.id, runView?.id ?? null),
+    () => api.getThread(node.id, runView?.id ?? null, { silent: true }),
     10000,
     `${node.id}:${runView?.id ?? ""}`,
   );

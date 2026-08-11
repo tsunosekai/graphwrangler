@@ -147,7 +147,7 @@ export function LedgerView({
   const [menuTarget, setMenuTarget] = useState<{ runId: string; nodeId: string | null } | null>(null);
 
   const { data: runsData, refresh: refreshRuns } = usePolling(
-    () => api.listRuns(page.id),
+    () => api.listRuns(page.id, { silent: true }),
     5000,
   );
   const runs = runsData?.runs ?? [];
@@ -156,7 +156,7 @@ export function LedgerView({
   const { data: traceData, refresh: refreshTrace } = usePolling(
     () =>
       selectedRunId
-        ? api.getRunTrace(selectedRunId)
+        ? api.getRunTrace(selectedRunId, { silent: true })
         : Promise.resolve<{ events: TraceEvent[] }>({ events: [] }),
     5000,
   );
