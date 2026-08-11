@@ -1083,6 +1083,13 @@ function GraphViewInner({
                 maxZoom={MAX_ZOOM}
                 // モバイルは panOnDrag=false（パンもピンチも上の自前タッチ処理が持つ）
                 panOnDrag={!isMobile}
+                // キーボード削除は useGraphShortcuts に一本化する。React Flow の既定は
+                // Backspace で、放っておくと同じ打鍵で「アプリの確認付き削除」と
+                // 「React Flow 内部の deleteElements」の二重に走る。後者はサーバを見ず
+                // onNodesChange(remove) でカードを消すだけなので、確認モーダルで
+                // キャンセルするとサーバは変わらないまま画面からカードだけが消え、
+                // ポーリングは内容が同じで setData しない＝リロードするまで戻らない
+                deleteKeyCode={null}
                 selectionKeyCode="Shift"
                 multiSelectionKeyCode={["Shift", "Control", "Meta"]}
                 fitView

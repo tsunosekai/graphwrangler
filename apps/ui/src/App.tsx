@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BulkPanel } from "./components/BulkPanel";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { DialogHost } from "./components/DialogHost";
@@ -305,12 +305,23 @@ function AppInner() {
   // 置き去りになると「グラフはこっちなのにノード詳細は別プロジェクトのノード」という
   // ねじれになる（2026-08-02 本人報告。localStorage 復元の組み合わせでも起きる）。
   // **実体が見つからないときは落とさない**——取得が一瞬遅れただけで選択が消えると、
-  // 開いていたノードのビューが勝手に閉じる（2026-08-11 本人報告）
+  // 開いていたノードのビューが勝手に閉じる（2026-08-11 本人報告）。
+  // ただし「一度は実体を見つけていた選択」が消えたなら、それは削除された＝落としてよい
+  // （落とさないと URL に死んだノードidが残り続ける）。作った直後のノードは
+  // まだ一覧に届いていないだけで一度も見つかっていないので、この条件では落ちない
+  const resolvedSelectionRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!panelNode) return;
-    if (panelNode.id === shownPageId || panelNode.group === shownPageId) return;
-    setSelectedId(null);
-  }, [panelNode, shownPageId]);
+    if (panelNode) {
+      resolvedSelectionRef.current = panelNode.id;
+      if (panelNode.id === shownPageId || panelNode.group === shownPageId) return;
+      setSelectedId(null);
+      return;
+    }
+    if (selectedId && resolvedSelectionRef.current === selectedId) {
+      resolvedSelectionRef.current = null;
+      setSelectedId(null);
+    }
+  }, [panelNode, shownPageId, selectedId]);
 
   // あなたの番が増えたときのデスクトップ通知（対象の集計込み）は hooks/useDesktopNotify.ts
   useDesktopNotify({ nodes, railRuns, myEmail: me.email, siteTitle });
