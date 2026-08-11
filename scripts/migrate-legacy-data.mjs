@@ -15,7 +15,9 @@
 //      ——旧実装が snapshot 不在時に「現在の中身」へフォールバックしていたのと同じ意味
 //   4. スレッドの旧キー payload.fireEvent → runEvent、旧マーカー "[発火前承認]" → "[ラン前承認]"
 //   5. 既読の旧フラット形式 {nodeId: ts} → {version:2, shared:{...}, users:{}}
-//   6. 操作ログ（ops.jsonl）のノード payload も 1 と同じ読み替え（履歴の再生で承認が落ちないように）
+//   6. 操作ログ（ops.jsonl）のノード payload も 1 と同じ読み替え（履歴の再生で承認が落ちないように）。
+//      あわせて保存されなくなった status="waiting"（現在は pendingRequest から導出）を running へ
+//      ——これが残っているとサーバが起動時の操作ログ読み込みで落ちる
 //
 // 変換後、現行の zod スキーマで検証して結果を出す（通らなければ非ゼロ終了）。
 // 元ファイルは <name>.bak-<日時> に退避する（--dry-run なら書き込まない）。
@@ -26,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 // スキーマは本体の正（コピーを持つと必ずドリフトする）。TypeScript を読むので tsx で起動すること:
 //   pnpm --filter @graphwrangler/server exec tsx scripts/migrate-legacy-data.mjs <対象>
-const { NodeSchema, RunSchema } = await import(
+const { NodeSchema, OpSchema, RunSchema } = await import(
   pathToFileURL(path.join(here, "..", "packages", "core", "src", "schema.ts")).href
 );
 
@@ -254,33 +256,48 @@ if (fs.existsSync(readsFile)) {
 // ---- 6. 操作ログ: ノード payload の impact → approval ----
 
 const opsFile = path.join(layout.sidecar, "ops.jsonl");
+const opsProblems = [];
 if (fs.existsSync(opsFile)) {
-  const raw = fs.readFileSync(opsFile, "utf8");
-  if (raw.includes('"impact"')) {
-    const out = [];
-    let converted = 0;
-    for (const line of raw.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      let rec;
-      try {
-        rec = JSON.parse(trimmed);
-      } catch {
-        continue;
-      }
-      for (const key of ["node", "before", "after", "patch"]) {
-        if (rec[key] && typeof rec[key] === "object" && "impact" in rec[key]) {
-          rec[key] = migrateNode(rec[key]);
-          converted += 1;
-        }
-      }
-      out.push(JSON.stringify(rec));
+  const out = [];
+  let convertedImpact = 0;
+  let convertedWaiting = 0;
+  for (const [i, line] of fs.readFileSync(opsFile, "utf8").split("\n").entries()) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let rec;
+    try {
+      rec = JSON.parse(trimmed);
+    } catch {
+      continue; // 壊れた行は落とす（本体の readJsonl と同じ扱い）
     }
-    if (converted > 0) {
-      writeText(opsFile, `${out.join("\n")}\n`);
-      changes.push(`操作ログ: ノード payload の impact → approval を ${converted} 件`);
-      touched += 1;
+    // ノードの実体は payload.node（追加）と payload.patch（更新）に入る
+    for (const key of ["node", "patch"]) {
+      const body = rec.payload?.[key];
+      if (!body || typeof body !== "object") continue;
+      if ("impact" in body) {
+        rec.payload[key] = migrateNode(body);
+        convertedImpact += 1;
+      }
+      // waiting は「あなたの番」の導出値になり、保存する status から外れた。
+      // 当時この値で記録された patch は、実行中（running）として残す
+      if (rec.payload[key].status === "waiting") {
+        rec.payload[key].status = "running";
+        convertedWaiting += 1;
+      }
     }
+    const parsed = OpSchema.safeParse(rec);
+    if (!parsed.success) {
+      opsProblems.push(
+        `操作ログ ${i + 1}行目 (${rec.op}): ${parsed.error.issues.map((s) => `${s.path.join(".")} ${s.message}`).join(" / ")}`,
+      );
+    }
+    out.push(JSON.stringify(rec));
+  }
+  if (convertedImpact > 0 || convertedWaiting > 0) {
+    writeText(opsFile, `${out.join("\n")}\n`);
+    if (convertedImpact) changes.push(`操作ログ: ノード payload の impact → approval を ${convertedImpact} 件`);
+    if (convertedWaiting) changes.push(`操作ログ: 保存されなくなった status="waiting" を running へ ${convertedWaiting} 件`);
+    touched += 1;
   }
 }
 
@@ -301,6 +318,7 @@ if (changes.length === 0) console.log("  変換の必要はありませんでし
 for (const c of changes) console.log(`  - ${c}`);
 if (!dryRun && touched > 0) console.log(`  元ファイルは *.bak-${stamp} に退避しました`);
 
+problems.push(...opsProblems);
 if (problems.length > 0) {
   console.error(`\n現行スキーマで通らないデータが ${problems.length} 件あります:`);
   for (const p of problems.slice(0, 20)) console.error(`  ! ${p}`);
