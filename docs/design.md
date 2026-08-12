@@ -46,7 +46,16 @@ ball 所有・承認ゲート(approval)・「確定させてから実行」の�
 危険な操作の歯止めはツールの出し渋りではなく、**実行前承認（approval）・自律度
 （QUESTION プロトコル）・試走（--dry-run）**の層で担保する（3.4〜3.5.1）。
 `--dangerously-skip-permissions` は使わない（許可は常に --allowedTools で明示）。
-MCP ツール等をさらに足すときは設定の `chat.cliExtraTools` / `engine.cliExtraTools`。
+MCP ツール等をさらに足すときは設定の `chat.cliExtraTools` / `engine.cliExtraTools`
+（⚙ の「追加許可ツール」）。
+
+**許可ダイアログは無い**（2026-08-12 本人報告「ダイアログが何のことかわからない」）:
+三役ともヘッドレス（`claude -p`）なので、未許可ツールを呼ぶと permission エラーが返るだけで、
+人間の画面に承認ボタンは出ない。それを知らない AI は「許可ダイアログを承認してください」と
+待ちに入り、人間は永久に承認できず会話もランも詰まる（Google カレンダー登録で実際に発生）。
+そこで**三役のプロンプトに `toolPermissionLines`（core/ask.ts）を入れて**、
+「ダイアログは出ない／未許可だと分かったらその場で伝え、⚙の追加許可ツールへ
+`mcp__<サーバ名>__*` を足してもらうよう案内する／承認を待たない」を教えている。
 
 **作業範囲**: ファイルツール（Read/Write/Edit）は cwd=ワークスペースルートに閉じるのが
 claude CLI の既定。ルート外のパスは設定 `ai.addDirs`（三役共通、⚙「AIの作業範囲」）に列挙

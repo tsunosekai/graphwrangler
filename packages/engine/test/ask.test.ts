@@ -249,3 +249,14 @@ describe("buildThreadContextLines: ラリーを含む往復", () => {
     expect(lines[0].indexOf("なんで3個も要るの？")).toBeLessThan(lines[0].indexOf("1個だけ"));
   });
 });
+
+// 実行AIのプロンプトにもツール権限の案内が載る（2026-08-12）。
+// これが無いと、未許可ツールで「承認ダイアログを押して」と止まり、ランが永久に待ちになる
+describe("buildAiPrompt: ツール権限の案内", () => {
+  it("許可ダイアログが無いことと、設定の在り処を伝える", () => {
+    const { prompt } = buildAiPrompt({ node: node({ title: "t" }), goal: null, parentSayMessages: [] });
+    expect(prompt).toContain("許可ダイアログは出ません");
+    expect(prompt).toContain("実行AI（エンジン）");
+    expect(prompt).toContain("追加許可ツール");
+  });
+});

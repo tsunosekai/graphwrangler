@@ -204,3 +204,23 @@ test("ラリーのプロンプトは「代わりに決めない」を明示し�
   // 通常の相談では従来どおり QUESTION 規約を出す
   assert.ok(buildThreadReplyPrompt(base).includes("QUESTION:"));
 });
+
+test("Task AI のプロンプトにツール権限の案内が入る（許可ダイアログは存在しない）", () => {
+  const prompt = buildThreadReplyPrompt({
+    node: threadAiNodeContext({
+      title: "カレンダー登録",
+      detail: null,
+      kind: "task",
+      executor: "ai",
+      status: "pending",
+      impl: null,
+    }),
+    parentTitles: [],
+    pageTitle: null,
+    history: [],
+    newMessage: "カレンダーに登録して",
+  });
+  assert.ok(prompt.includes("許可ダイアログは出ません"));
+  assert.ok(prompt.includes("追加許可ツール"));
+  assert.ok(prompt.includes("チャットAI（GraphWrangler AI）"), "足す場所を具体的に案内する");
+});

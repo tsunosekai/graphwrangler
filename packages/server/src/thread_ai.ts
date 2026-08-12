@@ -15,6 +15,7 @@ import {
   QUESTION_PROTOCOL_LINES,
   type ThreadStore,
   parseAiQuestion,
+  toolPermissionLines,
 } from "@graphwrangler/core";
 import { type ChildProcess, spawn } from "node:child_process";
 import os from "node:os";
@@ -112,6 +113,10 @@ export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): stri
     "話題は以下のタスクノードそのもの。作業ディレクトリのソースコードやリポジトリの話はしない。",
     "実装(impl)の path やドキュメントに言及するときは、読んでいいか確認を求めず Read で先に読んでから答えること。",
     "メッセージ中の「[添付ファイル: <パス>]」はユーザーが添付したファイル。確認を求めず Read で読んで内容を踏まえること。",
+    "",
+    // ツール権限（2026-08-12 本人報告「ダイアログが何のことかわからない」）。
+    // Task AI は GraphWrangler AI と同じ chat.cliExtraTools を使う
+    ...toolPermissionLines("⚙（設定）→「チャットAI（GraphWrangler AI）」"),
     "",
   ];
   if (rally) {

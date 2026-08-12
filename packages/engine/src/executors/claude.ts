@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { toolPermissionLines } from "@graphwrangler/core";
 import { autonomyPromptLines } from "../ask.js";
 import type { Autonomy, Node, SubStep } from "../types.js";
 import { killTree, STDIO_GRACE_MS } from "./script.js";
@@ -166,6 +167,10 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
   lines.push(
     "あなたは GraphWrangler（タスクグラフをAIと人間で分担するツール）の実行ワーカーです。",
     "次の作業を行ってください。",
+    "",
+    // ツール権限（2026-08-12 本人報告「ダイアログが何のことかわからない」）。
+    // 実行AIが未許可ツールで「承認して」と止まると、ランが人間の操作待ちのまま永久に詰まる
+    ...toolPermissionLines("⚙（設定）→「実行AI（エンジン）」"),
     "",
   );
   if (goal) {
