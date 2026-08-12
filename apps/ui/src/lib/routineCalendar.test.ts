@@ -7,11 +7,14 @@ import { isFineSchedule, occurrenceDays } from "./routineCalendar";
 const opts = { latestRunCreated: null, today: new Date(2026, 0, 14) };
 
 describe("isFineSchedule: 毎日以下（既定フィルタで隠す対象）の判定", () => {
-  it("every / daily / 日付無制限の cron は細かい", () => {
+  it("every(分/時/1日ごと) / daily / 日付無制限の cron は細かい", () => {
     expect(isFineSchedule(parseSchedule("every 15m")!)).toBe(true);
-    expect(isFineSchedule(parseSchedule("every 3d")!)).toBe(true);
+    expect(isFineSchedule(parseSchedule("every 1d")!)).toBe(true);
     expect(isFineSchedule(parseSchedule("daily 09:00")!)).toBe(true);
     expect(isFineSchedule(parseSchedule("*/15 9-23 * * *")!)).toBe(true);
+    // 2026-08-12 修正: 2日ごと・週ごとは日が飛ぶので「毎日以下」ではない＝隠さない
+    expect(isFineSchedule(parseSchedule("every 3d")!)).toBe(false);
+    expect(isFineSchedule(parseSchedule("every 2w")!)).toBe(false);
   });
 
   it("週次以上と日付指定つき cron は粗い（既定で表示）", () => {
@@ -57,5 +60,52 @@ describe("occurrenceDays: 月内の発火予定日", () => {
   it("cron は日付フィールドで絞られる（毎月1日の例）・daily は全日", () => {
     expect(occurrenceDays(parseSchedule("0 9 1 * *")!, 2026, 0, opts)).toEqual([1]);
     expect(occurrenceDays(parseSchedule("daily 09:00")!, 2026, 1, opts)).toHaveLength(28);
+  });
+});
+
+// 2026-08-12「あらゆるタイミング」で足した書式のカレンダー表示
+describe("occurrenceDays: 追加書式（毎月◯日・最終日・最終◯曜・毎年・1回だけ・複数曜日）", () => {
+  it("毎月◯日は無い月を飛ばす（31日は2月に出ない）", () => {
+    expect(occurrenceDays(parseSchedule("monthly day 25 09:00")!, 2026, 0, opts)).toEqual([25]);
+    expect(occurrenceDays(parseSchedule("monthly day 1,15 09:00")!, 2026, 0, opts)).toEqual([1, 15]);
+    expect(occurrenceDays(parseSchedule("monthly day 31 09:00")!, 2026, 1, opts)).toEqual([]);
+  });
+
+  it("毎月最終日は月ごとに 31/28 を解決する", () => {
+    const s = parseSchedule("monthly lastday 18:00")!;
+    expect(occurrenceDays(s, 2026, 0, opts)).toEqual([31]);
+    expect(occurrenceDays(s, 2026, 1, opts)).toEqual([28]);
+  });
+
+  it("毎月最終◯曜（2026-01 の最終金曜=30 / 2026-02 は27）", () => {
+    const s = parseSchedule("monthly last fri 17:30")!;
+    expect(occurrenceDays(s, 2026, 0, opts)).toEqual([30]);
+    expect(occurrenceDays(s, 2026, 1, opts)).toEqual([27]);
+  });
+
+  it("毎年◯月◯日・◯月の最終日は対象月だけ", () => {
+    expect(occurrenceDays(parseSchedule("yearly day 1 20 09:00")!, 2026, 0, opts)).toEqual([20]);
+    expect(occurrenceDays(parseSchedule("yearly day 1 20 09:00")!, 2026, 1, opts)).toEqual([]);
+    expect(occurrenceDays(parseSchedule("yearly lastday 1 18:00")!, 2026, 0, opts)).toEqual([31]);
+  });
+
+  it("1回だけはその年月だけに1日出る", () => {
+    const s = parseSchedule("once 2026-01-20 09:00")!;
+    expect(occurrenceDays(s, 2026, 0, opts)).toEqual([20]);
+    expect(occurrenceDays(s, 2026, 1, opts)).toEqual([]);
+    expect(occurrenceDays(s, 2027, 0, opts)).toEqual([]);
+  });
+
+  it("複数曜日の毎週（月・水・金）", () => {
+    // 2026-01: 月曜 5,12,19,26 / 水曜 7,14,21,28 / 金曜 2,9,16,23,30
+    expect(occurrenceDays(parseSchedule("weekly mon,wed,fri 09:00")!, 2026, 0, opts)).toEqual([
+      2, 5, 7, 9, 12, 14, 16, 19, 21, 23, 26, 28, 30,
+    ]);
+  });
+
+  it("every 3d は錨（最新ラン。無ければ今日）から3日ごと", () => {
+    const s = parseSchedule("every 3d")!;
+    const withRun = { latestRunCreated: new Date(2026, 0, 1, 9, 0).toISOString(), today: new Date(2026, 0, 14) };
+    expect(occurrenceDays(s, 2026, 0, withRun)).toEqual([1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31]);
   });
 });

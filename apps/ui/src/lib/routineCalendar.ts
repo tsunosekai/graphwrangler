@@ -5,6 +5,8 @@
 // なく、**予定表として読める近似**を出す（biweekly / every Nd の錨は最新ランに合わせる）。
 import {
   cronMatchesDate,
+  lastDayOfMonth,
+  lastWeekdayOfMonth,
   nthWeekdayOfMonth,
   parseSchedule,
   WEEKDAYS,
@@ -31,11 +33,14 @@ export interface CalendarTrigger {
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-/** 「毎日以下」（1日1回以上の頻度）か。既定フィルタで隠す対象。
- *  - every は m/h はもちろん、d も「毎日系の刻み」として細かい扱い（every 1d = daily）
+/** 「毎日以下」（1日に1回以上の頻度）か。既定フィルタで隠す対象。
+ *  - every は m/h と「1日ごと」まで。2日ごと・週ごとは日が飛ぶので隠さない（2026-08-12 修正）
  *  - cron は日付フィールド（日・月・曜日）が全部 "*" なら毎日発火＝細かい扱い */
 export function isFineSchedule(parsed: ParsedSchedule): boolean {
-  if (parsed.type === "every") return true;
+  if (parsed.type === "every") {
+    if (parsed.unit === "m" || parsed.unit === "h") return true;
+    return parsed.unit === "d" && parsed.amount <= 1;
+  }
   if (parsed.type === "daily") return true;
   if (parsed.type === "cron") {
     const f = parsed.fields;
@@ -101,25 +106,45 @@ export function occurrenceDays(
   monthIndex: number,
   opts: { latestRunCreated: string | null; today: Date },
 ): number[] {
-  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const daysInMonth = lastDayOfMonth(year, monthIndex);
   const all = () => Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-  if (parsed.type === "daily" || parsed.type === "every") return all();
-
-  if (parsed.type === "weekly" || parsed.type === "biweekly") {
-    const target = WEEKDAYS.indexOf(parsed.weekday);
-    const days: number[] = [];
+  /** その月の中で条件に合う日を集める小道具 */
+  const pick = (ok: (day: number, date: Date) => boolean) => {
+    const out: number[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
-      if (new Date(year, monthIndex, day).getDay() !== target) continue;
-      days.push(day);
+      if (ok(day, new Date(year, monthIndex, day))) out.push(day);
     }
-    if (parsed.type === "weekly") return days;
-    // biweekly: 錨の対象曜日から週差が偶数の週だけ
+    return out;
+  };
+
+  if (parsed.type === "daily") return all();
+
+  if (parsed.type === "every") {
+    // 1日に何度も走るものは全日。日・週の刻みは「錨（最新ラン。無ければ今日）から N 日ごと」
+    if (parsed.unit === "m" || parsed.unit === "h") return all();
+    const stepDays = parsed.unit === "w" ? parsed.amount * 7 : parsed.amount;
+    if (stepDays <= 1) return all();
+    const a = opts.latestRunCreated ? new Date(opts.latestRunCreated) : opts.today;
+    const anchor = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    return pick((_day, date) => {
+      const diff = Math.round((date.getTime() - anchor.getTime()) / MS_PER_DAY);
+      return diff % stepDays === 0;
+    });
+  }
+
+  if (parsed.type === "weekly") {
+    const targets = new Set(parsed.weekdays.map((d) => WEEKDAYS.indexOf(d)));
+    return pick((_day, date) => targets.has(date.getDay()));
+  }
+
+  if (parsed.type === "biweekly") {
+    const target = WEEKDAYS.indexOf(parsed.weekday);
+    // 錨（最新ランの直近対象曜日。ランが無ければ today 基準）から週差が偶数の週だけ
     const anchorBase = opts.latestRunCreated ? new Date(opts.latestRunCreated) : opts.today;
     const anchor = lastWeekdayOnOrBefore(parsed.weekday, anchorBase);
-    return days.filter((day) => {
-      const d = new Date(year, monthIndex, day);
-      const weeks = Math.round((d.getTime() - anchor.getTime()) / (7 * MS_PER_DAY));
+    return pick((_day, date) => {
+      if (date.getDay() !== target) return false;
+      const weeks = Math.round((date.getTime() - anchor.getTime()) / (7 * MS_PER_DAY));
       return ((weeks % 2) + 2) % 2 === 0;
     });
   }
@@ -130,12 +155,32 @@ export function occurrenceDays(
     return d ? [d.getDate()] : [];
   }
 
-  // cron: 日付レベルのマッチ（分・時は無視）
-  const days: number[] = [];
-  for (let day = 1; day <= daysInMonth; day++) {
-    if (cronMatchesDate(parsed.fields, new Date(year, monthIndex, day))) days.push(day);
+  if (parsed.type === "monthlyLastDow") {
+    return [lastWeekdayOfMonth(year, monthIndex, parsed.weekday).getDate()];
   }
-  return days;
+
+  if (parsed.type === "monthlyDay") {
+    // 31日など、その月に無い日は飛ばす（月末に寄せたいなら「毎月最終日」を使う）
+    return parsed.days.filter((d) => d <= daysInMonth);
+  }
+
+  if (parsed.type === "monthlyLastDay") return [daysInMonth];
+
+  if (parsed.type === "yearlyDay") {
+    if (monthIndex !== parsed.month - 1 || parsed.day > daysInMonth) return [];
+    return [parsed.day];
+  }
+
+  if (parsed.type === "yearlyLastDay") {
+    return monthIndex === parsed.month - 1 ? [daysInMonth] : [];
+  }
+
+  if (parsed.type === "once") {
+    return parsed.year === year && parsed.month - 1 === monthIndex ? [parsed.day] : [];
+  }
+
+  // cron: 日付レベルのマッチ（分・時は無視）
+  return pick((_day, date) => cronMatchesDate(parsed.fields, date));
 }
 
 /** ページの最新ラン作成時刻（biweekly / every Nd の錨用）。無ければ null */

@@ -4,6 +4,10 @@
 // schedule 警告で事後に気付くしかない）ため、方式セレクト + 数値/時刻/曜日のフォーム部品へ
 // 置き換えた。文法の正本は @graphwrangler/core/schedule（エンジンのラン作成判定と同じパーサ）。
 // 解釈できない既存値は従来どおりの生テキスト編集（自由入力）へフォールバックし、値を壊さない。
+//
+// 2026-08-12 拡張（本人要望「毎月最終日」「毎月何日」「あらゆるタイミングが登録できるように」）:
+// 毎月・毎年は「指定のしかた」を副セレクトで選ぶ（日付 / 最終日 / 第n曜日 / 最終◯曜）。
+// 毎週は曜日を複数選べる（平日だけ・週2回が1本で書ける）。1回だけ（once）も追加。
 import { useEffect, useState } from "react";
 import {
   WEEKDAYS,
@@ -16,18 +20,23 @@ import {
 } from "@graphwrangler/core/schedule";
 import type { NodePatchInput } from "../../lib/api";
 import type { Node } from "../../types";
+import { cn } from "../../lib/utils";
 import { Input } from "../ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Icon } from "../Icon";
 
 /** セレクトで選ぶ起動方式。none=未設定（手動▶のみ）、raw=解釈できない既存値の生編集 */
-type Mode = "none" | "every" | "daily" | "weekly" | "biweekly" | "monthly" | "yearly" | "cron" | "raw";
+type Mode =
+  | "none"
+  | "every"
+  | "daily"
+  | "weekly"
+  | "biweekly"
+  | "monthly"
+  | "yearly"
+  | "once"
+  | "cron"
+  | "raw";
 
 const MODE_JA: Record<Exclude<Mode, "none" | "raw">, string> = {
   every: "間隔ごと",
@@ -36,19 +45,35 @@ const MODE_JA: Record<Exclude<Mode, "none" | "raw">, string> = {
   biweekly: "隔週",
   monthly: "毎月",
   yearly: "毎年",
+  once: "1回だけ",
   cron: "cron式",
 };
 
-/** 曜日を選ぶ方式（曜日セレクト + 時刻を出すモード） */
-const WEEKDAY_MODES: Mode[] = ["weekly", "biweekly", "monthly", "yearly"];
+/** 「毎月」の指定のしかた */
+type MonthMode = "day" | "lastday" | "nth" | "lastdow";
+const MONTH_MODE_JA: Record<MonthMode, string> = {
+  day: "◯日",
+  lastday: "最終日",
+  nth: "第n曜日",
+  lastdow: "最終◯曜",
+};
 
-const NTH_JA = ["第1", "第2", "第3", "第4", "第5"];
+/** 「毎年」の指定のしかた */
+type YearMode = "day" | "lastday" | "nth";
+const YEAR_MODE_JA: Record<YearMode, string> = {
+  day: "◯月◯日",
+  lastday: "◯月の最終日",
+  nth: "◯月の第n曜日",
+};
 
 const EVERY_UNIT_OPTIONS: { value: EveryUnit; label: string }[] = [
   { value: "m", label: "分ごと" },
   { value: "h", label: "時間ごと" },
   { value: "d", label: "日ごと" },
+  { value: "w", label: "週ごと" },
 ];
+
+const NTH_JA = ["第1", "第2", "第3", "第4", "第5"];
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
@@ -56,24 +81,37 @@ interface FormState {
   mode: Mode;
   everyAmount: string; // 入力途中を保持するため文字列
   everyUnit: EveryUnit;
-  time: string; // "HH:MM"（daily と曜日系で共用）
+  time: string; // "HH:MM"（daily と暦系で共用）
+  /** 毎週の曜日（複数可） */
+  weekdays: Weekday[];
+  /** 隔週・第n曜日・最終◯曜で使う単一の曜日 */
   weekday: Weekday;
-  nth: string; // "1".."5"（monthly/yearly の第n。セレクト値なので文字列）
-  month: string; // "1".."12"（yearly の月）
+  monthMode: MonthMode;
+  yearMode: YearMode;
+  nth: string; // "1".."5"
+  month: string; // "1".."12"
+  dayOfMonth: string; // "1".."31"
+  onceDate: string; // "YYYY-MM-DD"
   cronText: string;
   rawText: string;
 }
 
 /** node.schedule から編集フォームの初期状態を導出する（未指定フィールドは既定値で埋める） */
 function deriveState(schedule: string | null): FormState {
+  const today = new Date();
   const base: FormState = {
     mode: "none",
     everyAmount: "1",
     everyUnit: "h",
     time: "09:00",
+    weekdays: ["mon"],
     weekday: "mon",
+    monthMode: "day",
+    yearMode: "day",
     nth: "1",
     month: "1",
+    dayOfMonth: "1",
+    onceDate: `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`,
     cronText: "",
     rawText: schedule ?? "",
   };
@@ -83,21 +121,62 @@ function deriveState(schedule: string | null): FormState {
   if (parsed.type === "every") {
     return { ...base, mode: "every", everyAmount: String(parsed.amount), everyUnit: parsed.unit };
   }
-  if (parsed.type === "daily") {
-    return { ...base, mode: "daily", time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}` };
-  }
   if (parsed.type === "cron") return { ...base, mode: "cron", cronText: schedule.trim() };
-  // 曜日系（weekly / biweekly / monthly / yearly）
-  const withTime = {
-    ...base,
-    mode: parsed.type as Mode,
-    weekday: parsed.weekday,
-    time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}`,
-  };
-  if (parsed.type === "monthly") return { ...withTime, nth: String(parsed.nth) };
-  if (parsed.type === "yearly")
-    return { ...withTime, nth: String(parsed.nth), month: String(parsed.month) };
-  return withTime;
+  const time = { time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}` };
+  switch (parsed.type) {
+    case "daily":
+      return { ...base, mode: "daily", ...time };
+    case "weekly":
+      return { ...base, mode: "weekly", weekdays: parsed.weekdays, ...time };
+    case "biweekly":
+      return { ...base, mode: "biweekly", weekday: parsed.weekday, ...time };
+    case "monthly":
+      return {
+        ...base,
+        mode: "monthly",
+        monthMode: "nth",
+        nth: String(parsed.nth),
+        weekday: parsed.weekday,
+        ...time,
+      };
+    case "monthlyLastDow":
+      return { ...base, mode: "monthly", monthMode: "lastdow", weekday: parsed.weekday, ...time };
+    case "monthlyDay":
+      // 複数日（"1,15"）はこのフォームでは1日しか編集できず、保存すると片方が消えてしまう。
+      // 値を壊さないよう生編集へ倒す（曜日と違い31個のトグルは重すぎるため単一入力にしている）
+      if (parsed.days.length > 1) return { ...base, mode: "raw" };
+      return { ...base, mode: "monthly", monthMode: "day", dayOfMonth: String(parsed.days[0]), ...time };
+    case "monthlyLastDay":
+      return { ...base, mode: "monthly", monthMode: "lastday", ...time };
+    case "yearly":
+      return {
+        ...base,
+        mode: "yearly",
+        yearMode: "nth",
+        month: String(parsed.month),
+        nth: String(parsed.nth),
+        weekday: parsed.weekday,
+        ...time,
+      };
+    case "yearlyDay":
+      return {
+        ...base,
+        mode: "yearly",
+        yearMode: "day",
+        month: String(parsed.month),
+        dayOfMonth: String(parsed.day),
+        ...time,
+      };
+    case "yearlyLastDay":
+      return { ...base, mode: "yearly", yearMode: "lastday", month: String(parsed.month), ...time };
+    default: // once
+      return {
+        ...base,
+        mode: "once",
+        onceDate: `${parsed.year}-${pad2(parsed.month)}-${pad2(parsed.day)}`,
+        ...time,
+      };
+  }
 }
 
 /** フォーム状態から schedule 文字列を組み立てる。組み立て不能（入力途中）は undefined、
@@ -109,35 +188,105 @@ function buildSchedule(s: FormState): string | null | undefined {
     if (!Number.isInteger(amount) || amount <= 0) return undefined;
     return formatSchedule({ type: "every", amount, unit: s.everyUnit });
   }
-  if (s.mode === "daily" || WEEKDAY_MODES.includes(s.mode)) {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(s.time);
-    if (!m) return undefined;
-    const hour = Number(m[1]);
-    const minute = Number(m[2]);
-    if (hour > 23 || minute > 59) return undefined;
-    if (s.mode === "daily") return formatSchedule({ type: "daily", hour, minute });
-    if (s.mode === "weekly") return formatSchedule({ type: "weekly", weekday: s.weekday, hour, minute });
-    if (s.mode === "biweekly")
-      return formatSchedule({ type: "biweekly", weekday: s.weekday, hour, minute });
-    if (s.mode === "monthly")
-      return formatSchedule({ type: "monthly", nth: Number(s.nth), weekday: s.weekday, hour, minute });
-    return formatSchedule({
-      type: "yearly",
-      month: Number(s.month),
-      nth: Number(s.nth),
-      weekday: s.weekday,
-      hour,
-      minute,
-    });
-  }
   if (s.mode === "cron") {
     const text = s.cronText.trim();
     // cron は式として解釈できたときだけ保存する（不正な式を保存すると 3.8 の
     // schedule 警告どまり＝黙って動かないトリガーになるため、保存前に弾く）
     return text && parseSchedule(text)?.type === "cron" ? text : undefined;
   }
-  // raw: 生テキストをそのまま（空は未設定へ）
-  return s.rawText.trim() ? s.rawText : null;
+  if (s.mode === "raw") return s.rawText.trim() ? s.rawText : null;
+
+  // ここから時刻を持つ暦系
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.time);
+  if (!m) return undefined;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour > 23 || minute > 59) return undefined;
+  const nth = Number(s.nth);
+  const month = Number(s.month);
+  const day = Number(s.dayOfMonth);
+
+  switch (s.mode) {
+    case "daily":
+      return formatSchedule({ type: "daily", hour, minute });
+    case "weekly":
+      if (s.weekdays.length === 0) return undefined; // 曜日を1つも選んでいない＝保存しない
+      return formatSchedule({ type: "weekly", weekdays: s.weekdays, hour, minute });
+    case "biweekly":
+      return formatSchedule({ type: "biweekly", weekday: s.weekday, hour, minute });
+    case "monthly":
+      if (s.monthMode === "day") return formatSchedule({ type: "monthlyDay", days: [day], hour, minute });
+      if (s.monthMode === "lastday") return formatSchedule({ type: "monthlyLastDay", hour, minute });
+      if (s.monthMode === "lastdow")
+        return formatSchedule({ type: "monthlyLastDow", weekday: s.weekday, hour, minute });
+      return formatSchedule({ type: "monthly", nth, weekday: s.weekday, hour, minute });
+    case "yearly":
+      if (s.yearMode === "day") return formatSchedule({ type: "yearlyDay", month, day, hour, minute });
+      if (s.yearMode === "lastday") return formatSchedule({ type: "yearlyLastDay", month, hour, minute });
+      return formatSchedule({ type: "yearly", month, nth, weekday: s.weekday, hour, minute });
+    default: {
+      // once
+      const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.onceDate);
+      if (!d) return undefined;
+      return formatSchedule({
+        type: "once",
+        year: Number(d[1]),
+        month: Number(d[2]),
+        day: Number(d[3]),
+        hour,
+        minute,
+      });
+    }
+  }
+}
+
+/** 曜日トグル（毎週の複数曜日）。平日・毎日のプリセットも添える */
+function WeekdayPicker({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: Weekday[];
+  disabled?: boolean;
+  onChange: (next: Weekday[]) => void;
+}) {
+  const toggle = (d: Weekday) => {
+    const next = value.includes(d) ? value.filter((x) => x !== d) : [...value, d];
+    onChange(WEEKDAYS.filter((x) => next.includes(x))); // 曜日順に整列
+  };
+  return (
+    <span className="flex items-center gap-1">
+      <span className="flex overflow-hidden rounded-md border border-border">
+        {WEEKDAYS.map((d) => (
+          <button
+            key={d}
+            type="button"
+            disabled={disabled}
+            aria-pressed={value.includes(d)}
+            className={cn(
+              "h-7 w-7 border-r border-border text-xs last:border-r-0",
+              value.includes(d)
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:bg-accent",
+              d === "sun" && !value.includes(d) && "text-red-500/70",
+              d === "sat" && !value.includes(d) && "text-blue-500/70",
+            )}
+            onClick={() => toggle(d)}
+          >
+            {WEEKDAY_JA[d]}
+          </button>
+        ))}
+      </span>
+      <button
+        type="button"
+        disabled={disabled}
+        className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+        onClick={() => onChange(["mon", "tue", "wed", "thu", "fri"])}
+      >
+        平日
+      </button>
+    </span>
+  );
 }
 
 /**
@@ -191,10 +340,88 @@ export function ScheduleSection({
     intervalOnly && !!node.schedule && parseSchedule(node.schedule)?.type !== "every";
 
   const description = describeSchedule(node.schedule);
+  /** 曜日を1つ選ぶセレクト（隔週・第n曜日・最終◯曜で共用） */
+  const weekdaySelect = (
+    <Select
+      value={state.weekday}
+      disabled={contentLocked}
+      onValueChange={(v) => update({ weekday: v as Weekday })}
+    >
+      <SelectTrigger className="h-8 w-24 flex-shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {WEEKDAYS.map((d) => (
+          <SelectItem key={d} value={d}>
+            {WEEKDAY_JA[d]}曜
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+  /** 第n セレクト */
+  const nthSelect = (
+    <Select value={state.nth} disabled={contentLocked} onValueChange={(v) => update({ nth: v })}>
+      <SelectTrigger className="h-8 w-20 flex-shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {NTH_JA.map((label, i) => (
+          <SelectItem key={label} value={String(i + 1)}>
+            {label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+  /** 月セレクト */
+  const monthSelect = (
+    <Select value={state.month} disabled={contentLocked} onValueChange={(v) => update({ month: v })}>
+      <SelectTrigger className="h-8 w-20 flex-shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((m) => (
+          <SelectItem key={m} value={m}>
+            {m}月
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+  /** 日セレクト（1〜31。無い日の月は飛ばす仕様＝下の注記で伝える） */
+  const daySelect = (
+    <Select
+      value={state.dayOfMonth}
+      disabled={contentLocked}
+      onValueChange={(v) => update({ dayOfMonth: v })}
+    >
+      <SelectTrigger className="h-8 w-20 flex-shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {Array.from({ length: 31 }, (_, i) => String(i + 1)).map((d) => (
+          <SelectItem key={d} value={d}>
+            {d}日
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+  const timeInput = (
+    <Input
+      type="time"
+      className="h-8 w-28"
+      value={state.time}
+      disabled={contentLocked}
+      onChange={(e) => update({ time: e.target.value }, false)}
+      onBlur={() => commit(state)}
+    />
+  );
 
   return (
     <div className="flex flex-col gap-1.5">
-      {/* flex-wrap: 毎年（方式+月+第n+曜日+時刻）はパネル幅に収まらないので折り返す */}
+      {/* flex-wrap: 毎年（方式+副方式+月+日+時刻）はパネル幅に収まらないので折り返す */}
       <div className="flex flex-wrap items-center gap-1.5">
         {/* 方式セレクト。ai は every 固定なので出さない（間隔ビルダーだけ） */}
         {!intervalOnly && (
@@ -257,84 +484,93 @@ export function ScheduleSection({
           </>
         )}
 
-        {/* 月（yearly のみ） */}
+        {/* 毎月・毎年の「指定のしかた」 */}
+        {!intervalOnly && state.mode === "monthly" && (
+          <Select
+            value={state.monthMode}
+            disabled={contentLocked}
+            onValueChange={(v) => update({ monthMode: v as MonthMode })}
+          >
+            <SelectTrigger className="h-8 w-28 flex-shrink-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(MONTH_MODE_JA) as MonthMode[]).map((m) => (
+                <SelectItem key={m} value={m}>
+                  {MONTH_MODE_JA[m]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {!intervalOnly && state.mode === "yearly" && (
           <Select
-            value={state.month}
+            value={state.yearMode}
             disabled={contentLocked}
-            onValueChange={(v) => update({ month: v })}
+            onValueChange={(v) => update({ yearMode: v as YearMode })}
           >
-            <SelectTrigger className="h-8 w-20 flex-shrink-0">
+            <SelectTrigger className="h-8 w-32 flex-shrink-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((m) => (
+              {(Object.keys(YEAR_MODE_JA) as YearMode[]).map((m) => (
                 <SelectItem key={m} value={m}>
-                  {m}月
+                  {YEAR_MODE_JA[m]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         )}
 
-        {/* 第n（monthly / yearly） */}
-        {!intervalOnly && (state.mode === "monthly" || state.mode === "yearly") && (
-          <Select
-            value={state.nth}
+        {/* 毎年は先に月を選ぶ */}
+        {!intervalOnly && state.mode === "yearly" && monthSelect}
+        {/* 日付指定（毎月◯日 / 毎年◯月◯日） */}
+        {!intervalOnly &&
+          ((state.mode === "monthly" && state.monthMode === "day") ||
+            (state.mode === "yearly" && state.yearMode === "day")) &&
+          daySelect}
+        {/* 第n（第n曜日） */}
+        {!intervalOnly &&
+          ((state.mode === "monthly" && state.monthMode === "nth") ||
+            (state.mode === "yearly" && state.yearMode === "nth")) &&
+          nthSelect}
+        {/* 曜日1つ（隔週 / 第n曜日 / 最終◯曜） */}
+        {!intervalOnly &&
+          (state.mode === "biweekly" ||
+            (state.mode === "monthly" && (state.monthMode === "nth" || state.monthMode === "lastdow")) ||
+            (state.mode === "yearly" && state.yearMode === "nth")) &&
+          weekdaySelect}
+        {/* 曜日を複数（毎週） */}
+        {!intervalOnly && state.mode === "weekly" && (
+          <WeekdayPicker
+            value={state.weekdays}
             disabled={contentLocked}
-            onValueChange={(v) => update({ nth: v })}
-          >
-            <SelectTrigger className="h-8 w-20 flex-shrink-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {NTH_JA.map((label, i) => (
-                <SelectItem key={label} value={String(i + 1)}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onChange={(weekdays) => update({ weekdays })}
+          />
         )}
-
-        {/* 曜日（weekly / biweekly / monthly / yearly） */}
-        {!intervalOnly && WEEKDAY_MODES.includes(state.mode) && (
-          <Select
-            value={state.weekday}
-            disabled={contentLocked}
-            onValueChange={(v) => update({ weekday: v as Weekday })}
-          >
-            <SelectTrigger className="h-8 w-24 flex-shrink-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {WEEKDAYS.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {WEEKDAY_JA[d]}曜
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-
-        {/* 時刻（daily と曜日系） */}
-        {!intervalOnly && (state.mode === "daily" || WEEKDAY_MODES.includes(state.mode)) && (
+        {/* 1回だけの日付 */}
+        {!intervalOnly && state.mode === "once" && (
           <Input
-            type="time"
-            className="h-8 w-28"
-            value={state.time}
+            type="date"
+            className="h-8 w-36"
+            value={state.onceDate}
             disabled={contentLocked}
-            onChange={(e) => update({ time: e.target.value }, false)}
+            onChange={(e) => update({ onceDate: e.target.value }, false)}
             onBlur={() => commit(state)}
           />
         )}
+
+        {/* 時刻（暦系すべて） */}
+        {!intervalOnly &&
+          ["daily", "weekly", "biweekly", "monthly", "yearly", "once"].includes(state.mode) &&
+          timeInput}
       </div>
 
       {/* cron 式（5フィールド）。不正な式は保存しない（下の⚠で知らせる） */}
       {!intervalOnly && state.mode === "cron" && (
         <Input
           className="h-8 font-mono text-xs"
-          placeholder="*/15 9-23 * * *（分 時 日 月 曜日）"
+          placeholder="*/15 9-23 * * *（分 時 日 月 曜日。mon / jan / @daily も可）"
           value={state.cronText}
           disabled={contentLocked}
           onChange={(e) => update({ cronText: e.target.value }, false)}
@@ -343,7 +579,7 @@ export function ScheduleSection({
         />
       )}
 
-      {/* 解釈できない既存値の生編集（値を壊さないためのフォールバック） */}
+      {/* 解釈できない既存値・フォームで編集しきれない値の生編集（値を壊さないためのフォールバック） */}
       {state.mode === "raw" && (
         <Input
           className="h-8 font-mono text-xs"
@@ -371,11 +607,20 @@ export function ScheduleSection({
           <Icon name="alert" size={12} />
           cron式として解釈できません（5フィールド: 分 時 日 月 曜日）
         </p>
+      ) : state.mode === "weekly" && state.weekdays.length === 0 ? (
+        <p className="flex items-center gap-1 text-xs text-destructive">
+          <Icon name="alert" size={12} />
+          曜日を1つ以上選んでください
+        </p>
       ) : description ? (
         <p className="text-xs text-muted-foreground">
           {intervalOnly
             ? `${description}に、AIがランを作るべきか判定します（条件は概要や手順書に書く）`
             : `${description}に自動でランを作ります`}
+          {/* 31日など、その日が無い月は飛ばす（月末に寄せたいなら「最終日」を使う） */}
+          {state.mode === "monthly" && state.monthMode === "day" && Number(state.dayOfMonth) > 28
+            ? `（${state.dayOfMonth}日が無い月は飛ばします。月末に寄せたいなら「最終日」）`
+            : ""}
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">

@@ -29,7 +29,7 @@ describe("parseSchedule", () => {
   it("'weekly mon 09:00' を毎週月曜9:00としてパースする", () => {
     expect(parseSchedule("weekly mon 09:00")).toEqual({
       type: "weekly",
-      weekday: "mon",
+      weekdays: ["mon"], // 2026-08-12 に複数曜日対応（単一指定も配列1件で返る）
       hour: 9,
       minute: 0,
       raw: "weekly mon 09:00",
@@ -293,5 +293,103 @@ describe("cron 書式（2026-08-07 追加）", () => {
     expect(parseSchedule("* * * *")).toBe(null);
     expect(parseSchedule("61 * * * *")).toBe(null);
     expect(parseSchedule("こんにちは")).toBe(null);
+  });
+});
+
+// 2026-08-12「あらゆるタイミングが登録できるように」で足した書式のラン作成判定。
+// 2026-01: 1日=木曜 / 月曜 5,12,19,26 / 金曜 2,9,16,23,30 / 31日まで。2026-02 は 28日まで
+describe("shouldCreateScheduledRun: 毎月◯日（monthly day）", () => {
+  it("対象日当日で目標時刻より前なら false、過ぎていて未生成なら true", () => {
+    const s = parseSchedule("monthly day 25 09:00")!;
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 0, 25, 8, 59))).toBe(false);
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 0, 25, 9, 1))).toBe(true);
+  });
+
+  it("今月の分が既にあれば false、翌月の対象日を過ぎたらまた true", () => {
+    const s = parseSchedule("monthly day 25 09:00")!;
+    const jan = { created: new Date(2026, 0, 25, 9, 5).toISOString() };
+    expect(shouldCreateScheduledRun(s, jan, new Date(2026, 0, 28, 10, 0))).toBe(false);
+    expect(shouldCreateScheduledRun(s, jan, new Date(2026, 1, 25, 9, 1))).toBe(true);
+  });
+
+  it("複数日（1,15）はそれぞれの日に作る", () => {
+    const s = parseSchedule("monthly day 1,15 09:00")!;
+    const first = { created: new Date(2026, 0, 1, 9, 5).toISOString() };
+    expect(shouldCreateScheduledRun(s, first, new Date(2026, 0, 10, 10, 0))).toBe(false);
+    expect(shouldCreateScheduledRun(s, first, new Date(2026, 0, 15, 9, 1))).toBe(true);
+  });
+
+  it("31日指定は31日が無い月を飛ばす（2月は作らない）", () => {
+    const s = parseSchedule("monthly day 31 09:00")!;
+    const jan = { created: new Date(2026, 0, 31, 9, 5).toISOString() };
+    // 2月中はずっと直近の予定が 1/31 のまま＝作らない
+    expect(shouldCreateScheduledRun(s, jan, new Date(2026, 1, 28, 23, 0))).toBe(false);
+    // 3/31 を過ぎたら作る
+    expect(shouldCreateScheduledRun(s, jan, new Date(2026, 2, 31, 9, 1))).toBe(true);
+  });
+});
+
+describe("shouldCreateScheduledRun: 毎月最終日 / 最終◯曜", () => {
+  it("最終日は月ごとに 31/28/30 を自動で解決する", () => {
+    const s = parseSchedule("monthly lastday 18:00")!;
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 0, 31, 17, 59))).toBe(false); // 1/31 の時刻前
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 0, 31, 18, 1))).toBe(true);
+    const jan = { created: new Date(2026, 0, 31, 18, 5).toISOString() };
+    expect(shouldCreateScheduledRun(s, jan, new Date(2026, 1, 27, 23, 0))).toBe(false); // 2月はまだ最終日でない
+    expect(shouldCreateScheduledRun(s, jan, new Date(2026, 1, 28, 18, 1))).toBe(true); // 2/28 = 2月の最終日
+  });
+
+  it("最終◯曜は第4が最終の月では第4に出る（第5指定との違い）", () => {
+    const s = parseSchedule("monthly last fri 17:30")!;
+    // 2026-02 の金曜: 6,13,20,27（最終=2/27。第5金曜は存在しない）
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 1, 27, 17, 31))).toBe(true);
+    const feb = { created: new Date(2026, 1, 27, 17, 35).toISOString() };
+    expect(shouldCreateScheduledRun(s, feb, new Date(2026, 2, 20, 18, 0))).toBe(false); // 3月の最終金曜は3/27
+  });
+});
+
+describe("shouldCreateScheduledRun: 毎年◯月◯日 / ◯月の最終日", () => {
+  it("その日を過ぎたら作り、翌年まで作らない", () => {
+    const s = parseSchedule("yearly day 4 1 09:00")!;
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 3, 1, 8, 59))).toBe(false);
+    const done = { created: new Date(2026, 3, 1, 9, 5).toISOString() };
+    expect(shouldCreateScheduledRun(s, done, new Date(2026, 11, 31, 23, 0))).toBe(false);
+    expect(shouldCreateScheduledRun(s, done, new Date(2027, 3, 1, 9, 1))).toBe(true);
+  });
+
+  it("◯月の最終日", () => {
+    const s = parseSchedule("yearly lastday 3 18:00")!;
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 2, 31, 18, 1))).toBe(true);
+    const done = { created: new Date(2026, 2, 31, 18, 5).toISOString() };
+    expect(shouldCreateScheduledRun(s, done, new Date(2026, 5, 1, 12, 0))).toBe(false);
+  });
+});
+
+describe("shouldCreateScheduledRun: 複数曜日の毎週", () => {
+  it("指定した曜日それぞれで作る（月・水・金）", () => {
+    const s = parseSchedule("weekly mon,wed,fri 09:00")!;
+    const mon = { created: new Date(2026, 0, 5, 9, 5).toISOString() }; // 月曜に実行済み
+    expect(shouldCreateScheduledRun(s, mon, new Date(2026, 0, 6, 10, 0))).toBe(false); // 火曜は対象外
+    expect(shouldCreateScheduledRun(s, mon, new Date(2026, 0, 7, 9, 1))).toBe(true); // 水曜
+  });
+});
+
+describe("shouldCreateScheduledRun: 1回だけ（once）", () => {
+  it("その日時まで作らず、過ぎたら1回だけ作り、以後は作らない", () => {
+    const s = parseSchedule("once 2026-09-01 09:00")!;
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 8, 1, 8, 59))).toBe(false);
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 8, 1, 9, 0))).toBe(true);
+    const done = { created: new Date(2026, 8, 1, 9, 1).toISOString() };
+    expect(shouldCreateScheduledRun(s, done, new Date(2026, 8, 1, 9, 5))).toBe(false);
+    expect(shouldCreateScheduledRun(s, done, new Date(2027, 0, 1, 0, 0))).toBe(false);
+  });
+});
+
+describe("shouldCreateScheduledRun: every の週単位", () => {
+  it("every 2w は14日経過で作る", () => {
+    const s = parseSchedule("every 2w")!;
+    const last = { created: new Date(2026, 0, 1, 9, 0).toISOString() };
+    expect(shouldCreateScheduledRun(s, last, new Date(2026, 0, 14, 9, 0))).toBe(false);
+    expect(shouldCreateScheduledRun(s, last, new Date(2026, 0, 15, 9, 0))).toBe(true);
   });
 });

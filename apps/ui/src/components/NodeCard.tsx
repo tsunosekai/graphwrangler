@@ -190,7 +190,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           {node.schedule ? (
             <Hint
               id="schedule"
-              text="スクリプト・トリガーの自動開始条件。パネルの起動方式欄（間隔ごと / 毎日 / 毎週 / 隔週 / 毎月 / 毎年 / cron式）で変更する"
+              text="スクリプト・トリガーの自動開始条件。パネルの起動方式欄（間隔ごと / 毎日 / 毎週 / 隔週 / 毎月 / 毎年 / 1回だけ / cron式）で変更する"
             >
               {/* 読み下し（describeSchedule）を優先。解釈できない値は原文を赤で出す
                   （エンジンが無視する＝自動で動かないトリガーであることを示す。3.8 の schedule 警告と同旨） */}
@@ -203,7 +203,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
           ) : (
             <Hint
               id="schedule"
-              text="設定するまで手動▶でしか開始しない。パネルの起動方式欄（間隔ごと / 毎日 / 毎週 / 隔週 / 毎月 / 毎年 / cron式）で設定する"
+              text="設定するまで手動▶でしか開始しない。パネルの起動方式欄（間隔ごと / 毎日 / 毎週 / 隔週 / 毎月 / 毎年 / 1回だけ / cron式）で設定する"
             >
               <span className="text-destructive">起動条件が未設定</span>
             </Hint>

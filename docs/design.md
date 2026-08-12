@@ -293,8 +293,17 @@ impl.command はワークスペースルートからの相対パスで書く。�
 - **トリガーノード（kind="trigger"）**: フローの先頭に置く。parents を持てない。
   起動方式は executor 軸で一貫（実行・判断・起点の全てが 人間/AI/スクリプト）:
   - **script** = impl.command が**無ければ** cron 的な無条件定期実行。schedule 文字列
-    （every Nm/Nh/Nd・daily HH:MM・weekly dow HH:MM・biweekly dow HH:MM・
-    monthly n dow HH:MM・yearly M n dow HH:MM。2026-08-12 に隔週/毎月第n曜/毎年を追加）。
+    （文法の正本は `packages/core/src/schedule.ts`。2026-08-12 に本人要望
+    「あらゆるタイミングが登録できるように、他のOSSと比べて足りてないものは入れておいて」で
+    一通り揃えた）:
+    `every N m|h|d|w` / `daily HH:MM` / `weekly dow[,dow…] HH:MM`（複数曜日可）/
+    `biweekly dow HH:MM` / `monthly day D[,D…] HH:MM`（毎月◯日）/
+    `monthly lastday HH:MM`（毎月最終日）/ `monthly n dow HH:MM`（第n曜日）/
+    `monthly last dow HH:MM`（最終◯曜）/ `yearly day M D HH:MM` / `yearly lastday M HH:MM` /
+    `yearly M n dow HH:MM` / `once YYYY-MM-DD HH:MM`（1回だけ）/ cron 5フィールド。
+    cron は曜日・月の3文字名（mon / jan）、`?`、`@daily` 等のマクロも受ける（他スケジューラ互換）。
+    **cron の `L` は非対応**——最終日は専用書式（monthly lastday / monthly last dow）で表す。
+    「毎月31日」のようにその月に無い日は**その月を飛ばす**（月末に寄せたいなら最終日を使う）。
     impl.command が**あれば**
     検知スクリプト（2026-08-09。3.15）: schedule をチェック間隔とし、間隔ごとにエンジンが
     command を実行して、stdout の JSON 行 `{"context":{...},"title":"..."}` を
@@ -307,8 +316,10 @@ impl.command はワークスペースルートからの相対パスで書く。�
   - **human** = 手動でランを作る（トリガー上の ▶）。トリガーに outputs 宣言があれば
     ラン作成フォームで context を入力できる（任意。直近ランの値をプリフィル。3.15）
 - **起動方式の入力はフォーム**（2026-08-12）: パネルの schedule 欄は生文字列の手打ちではなく、
-  方式セレクト（手動のみ / 間隔ごと / 毎日 / 毎週 / 隔週 / 毎月 / 毎年 / cron式）+
-  数値・時刻・曜日・第n・月の部品で入力する
+  方式セレクト（手動のみ / 間隔ごと / 毎日 / 毎週 / 隔週 / 毎月 / 毎年 / 1回だけ / cron式）+
+  数値・時刻・曜日・第n・月・日の部品で入力する。毎月と毎年は「指定のしかた」を副セレクトで
+  選ぶ（◯日 / 最終日 / 第n曜日 / 最終◯曜）。毎週は曜日をトグルで複数選べる（平日プリセット付き）。
+  フォームで編集しきれない値（毎月◯日の複数指定など）は生編集へ倒して値を壊さない
   （`apps/ui/.../nodepanel/ScheduleSection.tsx`）。書式を覚えていないと書けない・打ち間違いが
   「黙って動かないトリガー」になっていたため。文法の正本はエンジンから core へ移した
   `packages/core/src/schedule.ts`（UI もエンジンと同じパーサで検証・組み立てる。ラン作成判定は
