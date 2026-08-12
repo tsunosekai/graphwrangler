@@ -7,7 +7,7 @@
 // 検証・組み立てをするため。ここに残るのはラン作成の判定（いつ作るか）だけ。
 // 既存の import 先を保つため、パース系はここから再エクスポートする。
 
-import { parseSchedule, WEEKDAYS, matchesCron } from "@graphwrangler/core";
+import { parseSchedule, WEEKDAYS, matchesCron, nthWeekdayOfMonth } from "@graphwrangler/core";
 import type { ParsedSchedule, Weekday } from "@graphwrangler/core";
 
 export { parseSchedule, parseCron, matchesCron, WEEKDAYS } from "@graphwrangler/core";
@@ -39,7 +39,7 @@ function lastWeeklyOccurrence(weekday: Weekday, hour: number, minute: number, no
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /** year年 monthIndex月(0-11) の「第nth 対象曜日」の hour:minute。
- *  その月に第nthが存在しない（第5など）場合は null */
+ *  その月に第nthが存在しない（第5など）場合は null（日付計算は core と共通） */
 function nthWeekdayOccurrence(
   year: number,
   monthIndex: number,
@@ -48,11 +48,10 @@ function nthWeekdayOccurrence(
   hour: number,
   minute: number,
 ): Date | null {
-  const first = new Date(year, monthIndex, 1);
-  const offset = (WEEKDAYS.indexOf(weekday) - first.getDay() + 7) % 7;
-  const day = 1 + offset + (nth - 1) * 7;
-  const d = new Date(year, monthIndex, day, hour, minute, 0, 0);
-  return d.getMonth() === monthIndex ? d : null;
+  const d = nthWeekdayOfMonth(year, monthIndex, nth, weekday);
+  if (!d) return null;
+  d.setHours(hour, minute, 0, 0);
+  return d;
 }
 
 /** now 以前で直近の「毎月第nth 対象曜日」発生時刻。月を遡って探す

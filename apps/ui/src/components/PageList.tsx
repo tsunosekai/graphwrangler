@@ -26,7 +26,7 @@
 // - 行ごとの派生値（配下ノード・未読キー）は hooks/... ではなく lib/railIndex.ts の索引から引く。
 //   行ごとに allNodes / threadMeta を舐め直すとページ数ぶん掛け算になるため
 import { useMemo, useState } from "react";
-import { FolderPlus, PanelLeft, PanelLeftClose } from "lucide-react";
+import { CalendarDays, FolderPlus, PanelLeft, PanelLeftClose } from "lucide-react";
 import { focusGoalCapture } from "../lib/capture";
 import { HINT_TEXT } from "../lib/hints";
 import { useIdSetPref } from "../hooks/useIdSetPref";
@@ -39,6 +39,7 @@ import type { Node, Run } from "../types";
 import { Button } from "./ui/button";
 import { Hint } from "./Hint";
 import { FolderRow } from "./pagelist/FolderRow";
+import { RoutineCalendarDialog } from "./RoutineCalendar";
 import { PageRow } from "./pagelist/PageRow";
 import { PersonFilter, usePersonFilter } from "./pagelist/PersonFilter";
 import { buildRailSections } from "./pagelist/sections";
@@ -124,6 +125,8 @@ export function PageList({
 
   // アーカイブ節（done/dropped なゴール）は既定で閉じておく
   const [archiveOpen, setArchiveOpen] = useState(false);
+  // ルーティーンの予定カレンダー（2026-08-12 本人要望）。ルーティーン節ヘッダの📅から開く
+  const [calendarOpen, setCalendarOpen] = useState(false);
   // レール自体の開閉（2026-07-31 本人要望）。閉じると細い縦帯だけ残す
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem("gw.railOpen") !== "0");
   const toggleRail = () =>
@@ -304,6 +307,22 @@ export function PageList({
               <Hint id="page-routine" text={HINT_TEXT.pageRoutine}>
                 <span>ルーティーン</span>
               </Hint>
+              <span className="flex flex-shrink-0 items-center">
+              <Hint
+                id="routine-calendar"
+                always="予定カレンダー"
+                text="定刻つきルーティーンをカレンダーで見る（毎日以下の細かい頻度は既定で非表示）"
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
+                  onClick={() => setCalendarOpen(true)}
+                >
+                  <CalendarDays className="size-3.5" />
+                </Button>
+              </Hint>
               <Hint
                 id="folder-add"
                 always="フォルダを追加"
@@ -319,6 +338,7 @@ export function PageList({
                   <FolderPlus className="size-3.5" />
                 </Button>
               </Hint>
+              </span>
             </div>
             {renderShelves("routine")}
             {sections.rootRoutines.map((f) => renderRow(f, false))}
@@ -347,6 +367,16 @@ export function PageList({
           </>
         )}
       </div>
+      <RoutineCalendarDialog
+        open={calendarOpen}
+        onOpenChange={setCalendarOpen}
+        allNodes={allNodes}
+        pageRuns={pageRuns}
+        onOpenPage={(pid) => {
+          setCalendarOpen(false);
+          onSelectPage(pid);
+        }}
+      />
     </div>
   );
 }

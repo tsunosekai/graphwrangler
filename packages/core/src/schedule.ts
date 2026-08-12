@@ -226,6 +226,34 @@ export function formatSchedule(
   return `yearly ${parsed.month} ${parsed.nth} ${parsed.weekday} ${time}`;
 }
 
+// ---- 暦の共通ヘルパ（engine のラン作成判定と UI のカレンダー表示が同じ計算を使う） ----
+
+/** year年 monthIndex月(0-11) の「第nth 対象曜日」の日付（00:00）。
+ *  その月に第nthが存在しない（第5など）場合は null */
+export function nthWeekdayOfMonth(
+  year: number,
+  monthIndex: number,
+  nth: number,
+  weekday: Weekday,
+): Date | null {
+  const first = new Date(year, monthIndex, 1);
+  const offset = (WEEKDAYS.indexOf(weekday) - first.getDay() + 7) % 7;
+  const day = 1 + offset + (nth - 1) * 7;
+  const d = new Date(year, monthIndex, day);
+  return d.getMonth() === monthIndex ? d : null;
+}
+
+/** cron 式がその**日付**にマッチするか（分・時のフィールドは無視する。カレンダーの
+ *  「この日に発火があるか」用。dom/dow の OR は matchesCron と同じ cron 慣例） */
+export function cronMatchesDate(fields: CronFields, date: Date): boolean {
+  const ok = (f: CronField, v: number) => f === null || f.has(v);
+  if (!ok(fields.month, date.getMonth() + 1)) return false;
+  const domOk = ok(fields.dayOfMonth, date.getDate());
+  const dowOk = ok(fields.dayOfWeek, date.getDay());
+  if (fields.dayOfMonth !== null && fields.dayOfWeek !== null) return domOk || dowOk;
+  return domOk && dowOk;
+}
+
 // ---- 起動方式の設定・変更の記録（2026-08-12） ----
 // server がトリガーの schedule を設定・変更・有効化（committed 化）したときにスレッドへ積む
 // status の目印。エンジンはこの時刻を「その回は済んだ」の基準に使う——これが無いと、
