@@ -27,14 +27,22 @@ import {
 import { Icon } from "../Icon";
 
 /** セレクトで選ぶ起動方式。none=未設定（手動▶のみ）、raw=解釈できない既存値の生編集 */
-type Mode = "none" | "every" | "daily" | "weekly" | "cron" | "raw";
+type Mode = "none" | "every" | "daily" | "weekly" | "biweekly" | "monthly" | "yearly" | "cron" | "raw";
 
 const MODE_JA: Record<Exclude<Mode, "none" | "raw">, string> = {
   every: "間隔ごと",
   daily: "毎日",
   weekly: "毎週",
+  biweekly: "隔週",
+  monthly: "毎月",
+  yearly: "毎年",
   cron: "cron式",
 };
+
+/** 曜日を選ぶ方式（曜日セレクト + 時刻を出すモード） */
+const WEEKDAY_MODES: Mode[] = ["weekly", "biweekly", "monthly", "yearly"];
+
+const NTH_JA = ["第1", "第2", "第3", "第4", "第5"];
 
 const EVERY_UNIT_OPTIONS: { value: EveryUnit; label: string }[] = [
   { value: "m", label: "分ごと" },
@@ -48,8 +56,10 @@ interface FormState {
   mode: Mode;
   everyAmount: string; // 入力途中を保持するため文字列
   everyUnit: EveryUnit;
-  time: string; // "HH:MM"（daily/weekly 共用）
+  time: string; // "HH:MM"（daily と曜日系で共用）
   weekday: Weekday;
+  nth: string; // "1".."5"（monthly/yearly の第n。セレクト値なので文字列）
+  month: string; // "1".."12"（yearly の月）
   cronText: string;
   rawText: string;
 }
@@ -62,6 +72,8 @@ function deriveState(schedule: string | null): FormState {
     everyUnit: "h",
     time: "09:00",
     weekday: "mon",
+    nth: "1",
+    month: "1",
     cronText: "",
     rawText: schedule ?? "",
   };
@@ -74,15 +86,18 @@ function deriveState(schedule: string | null): FormState {
   if (parsed.type === "daily") {
     return { ...base, mode: "daily", time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}` };
   }
-  if (parsed.type === "weekly") {
-    return {
-      ...base,
-      mode: "weekly",
-      weekday: parsed.weekday,
-      time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}`,
-    };
-  }
-  return { ...base, mode: "cron", cronText: schedule.trim() };
+  if (parsed.type === "cron") return { ...base, mode: "cron", cronText: schedule.trim() };
+  // 曜日系（weekly / biweekly / monthly / yearly）
+  const withTime = {
+    ...base,
+    mode: parsed.type as Mode,
+    weekday: parsed.weekday,
+    time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}`,
+  };
+  if (parsed.type === "monthly") return { ...withTime, nth: String(parsed.nth) };
+  if (parsed.type === "yearly")
+    return { ...withTime, nth: String(parsed.nth), month: String(parsed.month) };
+  return withTime;
 }
 
 /** フォーム状態から schedule 文字列を組み立てる。組み立て不能（入力途中）は undefined、
@@ -94,15 +109,26 @@ function buildSchedule(s: FormState): string | null | undefined {
     if (!Number.isInteger(amount) || amount <= 0) return undefined;
     return formatSchedule({ type: "every", amount, unit: s.everyUnit });
   }
-  if (s.mode === "daily" || s.mode === "weekly") {
+  if (s.mode === "daily" || WEEKDAY_MODES.includes(s.mode)) {
     const m = /^(\d{1,2}):(\d{2})$/.exec(s.time);
     if (!m) return undefined;
     const hour = Number(m[1]);
     const minute = Number(m[2]);
     if (hour > 23 || minute > 59) return undefined;
-    return s.mode === "daily"
-      ? formatSchedule({ type: "daily", hour, minute })
-      : formatSchedule({ type: "weekly", weekday: s.weekday, hour, minute });
+    if (s.mode === "daily") return formatSchedule({ type: "daily", hour, minute });
+    if (s.mode === "weekly") return formatSchedule({ type: "weekly", weekday: s.weekday, hour, minute });
+    if (s.mode === "biweekly")
+      return formatSchedule({ type: "biweekly", weekday: s.weekday, hour, minute });
+    if (s.mode === "monthly")
+      return formatSchedule({ type: "monthly", nth: Number(s.nth), weekday: s.weekday, hour, minute });
+    return formatSchedule({
+      type: "yearly",
+      month: Number(s.month),
+      nth: Number(s.nth),
+      weekday: s.weekday,
+      hour,
+      minute,
+    });
   }
   if (s.mode === "cron") {
     const text = s.cronText.trim();
@@ -168,7 +194,8 @@ export function ScheduleSection({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
+      {/* flex-wrap: 毎年（方式+月+第n+曜日+時刻）はパネル幅に収まらないので折り返す */}
+      <div className="flex flex-wrap items-center gap-1.5">
         {/* 方式セレクト。ai は every 固定なので出さない（間隔ビルダーだけ） */}
         {!intervalOnly && (
           <Select
@@ -230,8 +257,48 @@ export function ScheduleSection({
           </>
         )}
 
-        {/* 曜日（weekly のみ） */}
-        {!intervalOnly && state.mode === "weekly" && (
+        {/* 月（yearly のみ） */}
+        {!intervalOnly && state.mode === "yearly" && (
+          <Select
+            value={state.month}
+            disabled={contentLocked}
+            onValueChange={(v) => update({ month: v })}
+          >
+            <SelectTrigger className="h-8 w-20 flex-shrink-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}月
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* 第n（monthly / yearly） */}
+        {!intervalOnly && (state.mode === "monthly" || state.mode === "yearly") && (
+          <Select
+            value={state.nth}
+            disabled={contentLocked}
+            onValueChange={(v) => update({ nth: v })}
+          >
+            <SelectTrigger className="h-8 w-20 flex-shrink-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {NTH_JA.map((label, i) => (
+                <SelectItem key={label} value={String(i + 1)}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* 曜日（weekly / biweekly / monthly / yearly） */}
+        {!intervalOnly && WEEKDAY_MODES.includes(state.mode) && (
           <Select
             value={state.weekday}
             disabled={contentLocked}
@@ -250,8 +317,8 @@ export function ScheduleSection({
           </Select>
         )}
 
-        {/* 時刻（daily / weekly） */}
-        {!intervalOnly && (state.mode === "daily" || state.mode === "weekly") && (
+        {/* 時刻（daily と曜日系） */}
+        {!intervalOnly && (state.mode === "daily" || WEEKDAY_MODES.includes(state.mode)) && (
           <Input
             type="time"
             className="h-8 w-28"

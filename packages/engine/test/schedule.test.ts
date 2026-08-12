@@ -146,6 +146,91 @@ describe("shouldCreateScheduledRun: daily", () => {
   });
 });
 
+describe("shouldCreateScheduledRun: biweekly（2026-08-12 追加。錨は最後のラン実績）", () => {
+  // 2026-01-05 / 01-12 は月曜（weekly のテストと同じ暦）
+  it("最新ランが無ければtrue（最初のランの週が錨になる）", () => {
+    const schedule = parseSchedule("biweekly mon 09:00")!;
+    const now = new Date(2026, 0, 5, 9, 5); // 月曜 09:05
+    expect(shouldCreateScheduledRun(schedule, null, now)).toBe(true);
+  });
+
+  it("対象曜日で目標時刻より前ならfalse（weeklyと同じガード）", () => {
+    const schedule = parseSchedule("biweekly mon 09:00")!;
+    const now = new Date(2026, 0, 12, 8, 59);
+    expect(shouldCreateScheduledRun(schedule, null, now)).toBe(false);
+  });
+
+  it("先週にランがある（=今回は休みの週）ならfalse", () => {
+    const schedule = parseSchedule("biweekly mon 09:00")!;
+    const now = new Date(2026, 0, 14, 10, 0); // 水曜。直近の対象時刻は 01-12(月) 09:00
+    const latestRun = { created: new Date(2026, 0, 5, 9, 5).toISOString() }; // 1週間前の月曜に実行済み
+    expect(shouldCreateScheduledRun(schedule, latestRun, now)).toBe(false);
+  });
+
+  it("最後のランが2週間前ならtrue", () => {
+    const schedule = parseSchedule("biweekly mon 09:00")!;
+    const now = new Date(2026, 0, 14, 10, 0); // 直近の対象時刻は 01-12(月) 09:00
+    const latestRun = { created: new Date(2025, 11, 29, 9, 5).toISOString() }; // 2週間前の月曜
+    expect(shouldCreateScheduledRun(schedule, latestRun, now)).toBe(true);
+  });
+});
+
+describe("shouldCreateScheduledRun: monthly（毎月第n曜日。2026-08-12 追加）", () => {
+  // 2026-01 の月曜: 5, 12, 19, 26（第2月曜=01-12）。2026-02 の第2月曜=02-09
+  it("対象日当日で目標時刻より前ならfalse", () => {
+    const schedule = parseSchedule("monthly 2 mon 09:00")!;
+    const now = new Date(2026, 0, 12, 8, 59); // 第2月曜 08:59
+    expect(shouldCreateScheduledRun(schedule, null, now)).toBe(false);
+  });
+
+  it("直近の第n曜日を過ぎていて未生成ならtrue", () => {
+    const schedule = parseSchedule("monthly 2 mon 09:00")!;
+    const now = new Date(2026, 0, 20, 10, 0); // 01-12 は過ぎている
+    const latestRun = { created: new Date(2025, 11, 8, 9, 5).toISOString() }; // 前月（12月第2月曜）
+    expect(shouldCreateScheduledRun(schedule, latestRun, now)).toBe(true);
+  });
+
+  it("今月の分が既にあればfalse", () => {
+    const schedule = parseSchedule("monthly 2 mon 09:00")!;
+    const now = new Date(2026, 0, 20, 10, 0);
+    const latestRun = { created: new Date(2026, 0, 12, 9, 5).toISOString() };
+    expect(shouldCreateScheduledRun(schedule, latestRun, now)).toBe(false);
+  });
+
+  it("翌月の第n曜日を過ぎたらまたtrue", () => {
+    const schedule = parseSchedule("monthly 2 mon 09:00")!;
+    const now = new Date(2026, 1, 9, 9, 5); // 2026-02-09 = 2月の第2月曜 09:05
+    const latestRun = { created: new Date(2026, 0, 12, 9, 5).toISOString() };
+    expect(shouldCreateScheduledRun(schedule, latestRun, now)).toBe(true);
+  });
+
+  it("第5が無い月はスキップ（直近の存在する第5曜日で判定）", () => {
+    // 2026-01 の金曜: 2,9,16,23,30（第5金曜=01-30）。2026-02 は第5金曜なし
+    const schedule = parseSchedule("monthly 5 fri 09:00")!;
+    const now = new Date(2026, 1, 28, 10, 0); // 2月末。直近の第5金曜は 01-30
+    const latestRun = { created: new Date(2026, 0, 30, 9, 5).toISOString() };
+    expect(shouldCreateScheduledRun(schedule, latestRun, now)).toBe(false); // 2月ぶんは作らない
+  });
+});
+
+describe("shouldCreateScheduledRun: yearly（毎年◯月の第n曜日。2026-08-12 追加）", () => {
+  // 2026-01 の第2月曜 = 01-12（成人の日パターン）
+  it("今年の分が既にあればfalse・未生成ならtrue", () => {
+    const schedule = parseSchedule("yearly 1 2 mon 09:00")!;
+    const now = new Date(2026, 2, 1, 10, 0); // 3月（今年の1月第2月曜は過ぎている）
+    const done = { created: new Date(2026, 0, 12, 9, 5).toISOString() };
+    expect(shouldCreateScheduledRun(schedule, done, now)).toBe(false);
+    const lastYear = { created: new Date(2025, 0, 13, 9, 5).toISOString() }; // 去年の分
+    expect(shouldCreateScheduledRun(schedule, lastYear, now)).toBe(true);
+  });
+
+  it("対象日当日で目標時刻より前ならfalse", () => {
+    const schedule = parseSchedule("yearly 1 2 mon 09:00")!;
+    const now = new Date(2026, 0, 12, 8, 59);
+    expect(shouldCreateScheduledRun(schedule, null, now)).toBe(false);
+  });
+});
+
 describe("shouldCreateScheduledRun: 実行中ランがあっても定刻でランを作る（2026-08-08 修正）", () => {
   it("実行中ランの有無は判定に影響しない（旧仕様では常にfalseだった）", () => {
     const every = parseSchedule("every 15m")!;

@@ -7,7 +7,10 @@
 // 対応する書式（それ以外は解釈不能としてパースは null）:
 //   - "every <N>m" / "every <N>h" / "every <N>d" … N 間隔
 //   - "daily <HH:MM>"                              … 毎日その時刻
-//   - "weekly <mon|tue|wed|thu|fri|sat|sun> <HH:MM>" … 毎週その曜日時刻
+//   - "weekly <dow> <HH:MM>"                       … 毎週その曜日時刻（dow=mon..sun）
+//   - "biweekly <dow> <HH:MM>"                     … 隔週（2026-08-12。錨は最後のラン実績）
+//   - "monthly <1-5> <dow> <HH:MM>"                … 毎月第n曜日（第5が無い月はスキップ）
+//   - "yearly <1-12> <1-5> <dow> <HH:MM>"          … 毎年◯月の第n曜日
 //   - cron 5フィールド（"*/15 9-23 * * *" 等）      … * / 数値 / a-b / */n / a-b/n / カンマ区切り
 
 export const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -42,11 +45,23 @@ export type ParsedSchedule =
   | { type: "every"; ms: number; amount: number; unit: EveryUnit; raw: string }
   | { type: "daily"; hour: number; minute: number; raw: string }
   | { type: "weekly"; weekday: Weekday; hour: number; minute: number; raw: string }
+  // 隔週◯曜（2026-08-12 本人要望）。どちらの週かの錨は「最後のランから2週間」——
+  // 固定の週パリティを持たず、実際のラン実績に追従する（判定は engine 側）
+  | { type: "biweekly"; weekday: Weekday; hour: number; minute: number; raw: string }
+  // 毎月第n◯曜（nth=1〜5。第5が無い月はその月はスキップ）
+  | { type: "monthly"; nth: number; weekday: Weekday; hour: number; minute: number; raw: string }
+  // 毎年◯月の第n◯曜（month=1〜12）
+  | { type: "yearly"; month: number; nth: number; weekday: Weekday; hour: number; minute: number; raw: string }
   | { type: "cron"; fields: CronFields; raw: string };
 
 const EVERY_RE = /^every\s+(\d+)\s*(m|h|d)$/i;
 const DAILY_RE = /^daily\s+(\d{1,2}):(\d{2})$/i;
 const WEEKLY_RE = /^weekly\s+(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2}):(\d{2})$/i;
+const BIWEEKLY_RE = /^biweekly\s+(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2}):(\d{2})$/i;
+// "monthly 2 tue 09:00" = 毎月第2火曜 09:00
+const MONTHLY_RE = /^monthly\s+([1-5])\s+(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2}):(\d{2})$/i;
+// "yearly 4 2 tue 09:00" = 毎年4月の第2火曜 09:00
+const YEARLY_RE = /^yearly\s+(\d{1,2})\s+([1-5])\s+(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2}):(\d{2})$/i;
 
 const MS_PER_MINUTE = 60 * 1000;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
@@ -151,6 +166,36 @@ export function parseSchedule(text: string): ParsedSchedule | null {
     return { type: "weekly", weekday, hour, minute, raw: text };
   }
 
+  const biweeklyMatch = BIWEEKLY_RE.exec(trimmed);
+  if (biweeklyMatch) {
+    const weekday = biweeklyMatch[1].toLowerCase() as Weekday;
+    const hour = Number(biweeklyMatch[2]);
+    const minute = Number(biweeklyMatch[3]);
+    if (hour > 23 || minute > 59) return null;
+    return { type: "biweekly", weekday, hour, minute, raw: text };
+  }
+
+  const monthlyMatch = MONTHLY_RE.exec(trimmed);
+  if (monthlyMatch) {
+    const nth = Number(monthlyMatch[1]);
+    const weekday = monthlyMatch[2].toLowerCase() as Weekday;
+    const hour = Number(monthlyMatch[3]);
+    const minute = Number(monthlyMatch[4]);
+    if (hour > 23 || minute > 59) return null;
+    return { type: "monthly", nth, weekday, hour, minute, raw: text };
+  }
+
+  const yearlyMatch = YEARLY_RE.exec(trimmed);
+  if (yearlyMatch) {
+    const month = Number(yearlyMatch[1]);
+    const nth = Number(yearlyMatch[2]);
+    const weekday = yearlyMatch[3].toLowerCase() as Weekday;
+    const hour = Number(yearlyMatch[4]);
+    const minute = Number(yearlyMatch[5]);
+    if (month < 1 || month > 12 || hour > 23 || minute > 59) return null;
+    return { type: "yearly", month, nth, weekday, hour, minute, raw: text };
+  }
+
   const cron = parseCron(trimmed);
   if (cron) return { type: "cron", fields: cron, raw: text };
 
@@ -167,11 +212,18 @@ export function formatSchedule(
   parsed:
     | { type: "every"; amount: number; unit: EveryUnit }
     | { type: "daily"; hour: number; minute: number }
-    | { type: "weekly"; weekday: Weekday; hour: number; minute: number },
+    | { type: "weekly"; weekday: Weekday; hour: number; minute: number }
+    | { type: "biweekly"; weekday: Weekday; hour: number; minute: number }
+    | { type: "monthly"; nth: number; weekday: Weekday; hour: number; minute: number }
+    | { type: "yearly"; month: number; nth: number; weekday: Weekday; hour: number; minute: number },
 ): string {
   if (parsed.type === "every") return `every ${parsed.amount}${parsed.unit}`;
   if (parsed.type === "daily") return `daily ${pad2(parsed.hour)}:${pad2(parsed.minute)}`;
-  return `weekly ${parsed.weekday} ${pad2(parsed.hour)}:${pad2(parsed.minute)}`;
+  const time = `${pad2(parsed.hour)}:${pad2(parsed.minute)}`;
+  if (parsed.type === "weekly") return `weekly ${parsed.weekday} ${time}`;
+  if (parsed.type === "biweekly") return `biweekly ${parsed.weekday} ${time}`;
+  if (parsed.type === "monthly") return `monthly ${parsed.nth} ${parsed.weekday} ${time}`;
+  return `yearly ${parsed.month} ${parsed.nth} ${parsed.weekday} ${time}`;
 }
 
 const EVERY_UNIT_JA: Record<EveryUnit, string> = { m: "分", h: "時間", d: "日" };
@@ -183,7 +235,11 @@ export function describeSchedule(text: string | null): string | null {
   if (!parsed) return null;
   if (parsed.type === "every") return `${parsed.amount}${EVERY_UNIT_JA[parsed.unit]}ごと`;
   if (parsed.type === "daily") return `毎日 ${pad2(parsed.hour)}:${pad2(parsed.minute)}`;
-  if (parsed.type === "weekly")
-    return `毎週${WEEKDAY_JA[parsed.weekday]}曜 ${pad2(parsed.hour)}:${pad2(parsed.minute)}`;
-  return `cron式（${parsed.raw.trim()}）`;
+  if (parsed.type === "cron") return `cron式（${parsed.raw.trim()}）`;
+  const time = `${pad2(parsed.hour)}:${pad2(parsed.minute)}`;
+  const dow = `${WEEKDAY_JA[parsed.weekday]}曜`;
+  if (parsed.type === "weekly") return `毎週${dow} ${time}`;
+  if (parsed.type === "biweekly") return `隔週${dow} ${time}`;
+  if (parsed.type === "monthly") return `毎月第${parsed.nth}${dow} ${time}`;
+  return `毎年${parsed.month}月の第${parsed.nth}${dow} ${time}`;
 }

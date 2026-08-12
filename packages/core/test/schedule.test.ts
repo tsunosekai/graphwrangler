@@ -22,12 +22,36 @@ describe("formatSchedule", () => {
   });
 
   it("parse→format の往復が正規形へ戻る（UI の構造化入力が保存する形）", () => {
-    for (const raw of ["every 15m", "every 2h", "every 3d", "daily 09:00", "weekly mon 09:00"]) {
+    for (const raw of [
+      "every 15m",
+      "every 2h",
+      "every 3d",
+      "daily 09:00",
+      "weekly mon 09:00",
+      "biweekly fri 18:30",
+      "monthly 2 tue 09:00",
+      "yearly 4 2 tue 09:00",
+    ]) {
       const parsed = parseSchedule(raw);
       expect(parsed).not.toBeNull();
       if (!parsed || parsed.type === "cron") throw new Error("unreachable");
       expect(formatSchedule(parsed)).toBe(raw);
     }
+  });
+
+  it("biweekly/monthly/yearly の構造と不正値（2026-08-12 追加書式）", () => {
+    expect(parseSchedule("biweekly mon 09:00")).toMatchObject({ type: "biweekly", weekday: "mon" });
+    expect(parseSchedule("monthly 2 tue 09:00")).toMatchObject({ type: "monthly", nth: 2, weekday: "tue" });
+    expect(parseSchedule("yearly 4 2 tue 09:00")).toMatchObject({
+      type: "yearly",
+      month: 4,
+      nth: 2,
+      weekday: "tue",
+    });
+    expect(parseSchedule("monthly 0 tue 09:00")).toBeNull(); // 第0は無い
+    expect(parseSchedule("monthly 6 tue 09:00")).toBeNull(); // 第6は無い
+    expect(parseSchedule("yearly 13 1 mon 09:00")).toBeNull(); // 13月は無い
+    expect(parseSchedule("biweekly mon 25:00")).toBeNull(); // 範囲外時刻
   });
 
   it("parseSchedule は every の amount/unit を構造として返す（UI のフォーム初期値）", () => {
@@ -42,6 +66,9 @@ describe("describeSchedule", () => {
     expect(describeSchedule("every 3d")).toBe("3日ごと");
     expect(describeSchedule("daily 9:00")).toBe("毎日 09:00");
     expect(describeSchedule("weekly mon 09:00")).toBe("毎週月曜 09:00");
+    expect(describeSchedule("biweekly fri 18:30")).toBe("隔週金曜 18:30");
+    expect(describeSchedule("monthly 2 tue 09:00")).toBe("毎月第2火曜 09:00");
+    expect(describeSchedule("yearly 4 2 tue 09:00")).toBe("毎年4月の第2火曜 09:00");
     expect(describeSchedule("*/15 9-23 * * *")).toBe("cron式（*/15 9-23 * * *）");
   });
 

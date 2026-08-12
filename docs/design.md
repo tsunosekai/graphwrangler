@@ -293,7 +293,9 @@ impl.command はワークスペースルートからの相対パスで書く。�
 - **トリガーノード（kind="trigger"）**: フローの先頭に置く。parents を持てない。
   起動方式は executor 軸で一貫（実行・判断・起点の全てが 人間/AI/スクリプト）:
   - **script** = impl.command が**無ければ** cron 的な無条件定期実行。schedule 文字列
-    （every Nm/Nh/Nd・daily HH:MM・weekly dow HH:MM）。impl.command が**あれば**
+    （every Nm/Nh/Nd・daily HH:MM・weekly dow HH:MM・biweekly dow HH:MM・
+    monthly n dow HH:MM・yearly M n dow HH:MM。2026-08-12 に隔週/毎月第n曜/毎年を追加）。
+    impl.command が**あれば**
     検知スクリプト（2026-08-09。3.15）: schedule をチェック間隔とし、間隔ごとにエンジンが
     command を実行して、stdout の JSON 行 `{"context":{...},"title":"..."}` を
     emit された数だけランを作る（1行=1ラン。空出力=今回はランなし。Rx の
@@ -305,7 +307,8 @@ impl.command はワークスペースルートからの相対パスで書く。�
   - **human** = 手動でランを作る（トリガー上の ▶）。トリガーに outputs 宣言があれば
     ラン作成フォームで context を入力できる（任意。直近ランの値をプリフィル。3.15）
 - **起動方式の入力はフォーム**（2026-08-12）: パネルの schedule 欄は生文字列の手打ちではなく、
-  方式セレクト（手動のみ / 間隔ごと / 毎日 / 毎週 / cron式）+ 数値・時刻・曜日の部品で入力する
+  方式セレクト（手動のみ / 間隔ごと / 毎日 / 毎週 / 隔週 / 毎月 / 毎年 / cron式）+
+  数値・時刻・曜日・第n・月の部品で入力する
   （`apps/ui/.../nodepanel/ScheduleSection.tsx`）。書式を覚えていないと書けない・打ち間違いが
   「黙って動かないトリガー」になっていたため。文法の正本はエンジンから core へ移した
   `packages/core/src/schedule.ts`（UI もエンジンと同じパーサで検証・組み立てる。ラン作成判定は
@@ -335,7 +338,9 @@ impl.command はワークスペースルートからの相対パスで書く。�
   （2026-08-08 変更。旧仕様は「実行中ランがあるとランを作らない」＝積み残し防止だったが、
   人間の回答待ちのランは長時間 running のままで、定刻のはずのルーティーンが黙って
   動かない状態が常態化していた）。同じ周期で二重に作らない保証は最新ランの時刻で行う
-  （every=経過時間 / daily=同じ暦日か / weekly=直近の対象時刻より後か / cron=同じ分か）
+  （every=経過時間 / daily=同じ暦日か / weekly・monthly・yearly=直近の対象時刻より後か /
+  biweekly=直近の週次対象時刻の1週間以上前に最後のランがあるか（固定の週パリティを持たず
+  ラン実績が錨） / cron=同じ分か）
 - **ラン前承認（approval=true のトリガー）**: script/AI の自動でランを作る直前に、
   トリガーのスレッドへ go（ランを作る）/ skip（今回は見送る）の承認カードを開き、
   go 回答の1回だけランを作る（task の実行前承認と同型。「不可逆は毎回確認する」）。

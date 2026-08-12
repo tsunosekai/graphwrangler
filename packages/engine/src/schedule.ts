@@ -36,6 +36,58 @@ function lastWeeklyOccurrence(weekday: Weekday, hour: number, minute: number, no
   return d;
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** year年 monthIndex月(0-11) の「第nth 対象曜日」の hour:minute。
+ *  その月に第nthが存在しない（第5など）場合は null */
+function nthWeekdayOccurrence(
+  year: number,
+  monthIndex: number,
+  nth: number,
+  weekday: Weekday,
+  hour: number,
+  minute: number,
+): Date | null {
+  const first = new Date(year, monthIndex, 1);
+  const offset = (WEEKDAYS.indexOf(weekday) - first.getDay() + 7) % 7;
+  const day = 1 + offset + (nth - 1) * 7;
+  const d = new Date(year, monthIndex, day, hour, minute, 0, 0);
+  return d.getMonth() === monthIndex ? d : null;
+}
+
+/** now 以前で直近の「毎月第nth 対象曜日」発生時刻。月を遡って探す
+ *  （第5指定で存在しない月はスキップされるぶんだけ遡る。上限つき） */
+function lastMonthlyOccurrence(
+  nth: number,
+  weekday: Weekday,
+  hour: number,
+  minute: number,
+  now: Date,
+): Date | null {
+  for (let back = 0; back < 24; back++) {
+    const base = new Date(now.getFullYear(), now.getMonth() - back, 1);
+    const d = nthWeekdayOccurrence(base.getFullYear(), base.getMonth(), nth, weekday, hour, minute);
+    if (d && d.getTime() <= now.getTime()) return d;
+  }
+  return null; // 第1〜4は毎月あるので実質第5のみ。24ヶ月遡って無ければ諦める
+}
+
+/** now 以前で直近の「毎年 month月の第nth 対象曜日」発生時刻。年を遡って探す */
+function lastYearlyOccurrence(
+  month: number,
+  nth: number,
+  weekday: Weekday,
+  hour: number,
+  minute: number,
+  now: Date,
+): Date | null {
+  for (let back = 0; back < 8; back++) {
+    const d = nthWeekdayOccurrence(now.getFullYear() - back, month - 1, nth, weekday, hour, minute);
+    if (d && d.getTime() <= now.getTime()) return d;
+  }
+  return null;
+}
+
 /**
  * スケジュールに基づき、今このタイミングで新しいランを生成すべきか判定する（純粋関数）。
  *
@@ -55,6 +107,12 @@ function lastWeeklyOccurrence(weekday: Weekday, hour: number, minute: number, no
  *   「無ければ即座に生成」にはしない）。それ以外は直近の対象曜日・時刻（必ず now 以前）を求め、
  *   最新ランが無いか、その時刻より前なら true（今週分は trigger を問わず1本で足りる、という判定。
  *   dailyの「同じ暦日か」の代わりに「直近のラン作成時刻より後か」で判定する）
+ * - "biweekly"（2026-08-12）: weekly と同じ発生時刻の系で、最新ランが直近の発生の
+ *   **1週間以上前**のときだけ true。固定の週パリティを持たず最後のラン実績が錨——
+ *   最初のランを作った週から1週おきが自然に維持され、skip 回答も同じ式で効く
+ * - "monthly"/"yearly"（2026-08-12）: 直近の「第n曜日」発生時刻（必ず now 以前。月/年を遡って
+ *   求める。第5が無い月はスキップ）より最新ランが前なら true。対象日当日の時刻前ガードも
+ *   weekly と同じ
  */
 export function shouldCreateScheduledRun(
   schedule: ParsedSchedule,
@@ -86,7 +144,43 @@ export function shouldCreateScheduledRun(
     return new Date(latestRun.created).getTime() < minuteStart.getTime();
   }
 
-  // weekly
+  if (schedule.type === "monthly" || schedule.type === "yearly") {
+    // weekly と同じ理由の「対象日当日で時刻前なら見送り」ガード（無いと当日の 0 時に
+    // 前回分の追い付きランが走る——目標時刻まで待つ）
+    const todayTarget = nthWeekdayOccurrence(
+      now.getFullYear(),
+      now.getMonth(),
+      schedule.nth,
+      schedule.weekday,
+      schedule.hour,
+      schedule.minute,
+    );
+    const monthOk = schedule.type === "monthly" || now.getMonth() === schedule.month - 1;
+    if (
+      monthOk &&
+      todayTarget &&
+      isSameLocalDay(todayTarget, now) &&
+      now.getTime() < todayTarget.getTime()
+    ) {
+      return false;
+    }
+    const occurrence =
+      schedule.type === "monthly"
+        ? lastMonthlyOccurrence(schedule.nth, schedule.weekday, schedule.hour, schedule.minute, now)
+        : lastYearlyOccurrence(
+            schedule.month,
+            schedule.nth,
+            schedule.weekday,
+            schedule.hour,
+            schedule.minute,
+            now,
+          );
+    if (!occurrence) return false; // 直近の発生が見つからない（第5が存在しない等）
+    if (!latestRun) return true;
+    return new Date(latestRun.created).getTime() < occurrence.getTime();
+  }
+
+  // weekly / biweekly（共通の「対象曜日当日で時刻前なら見送り」ガード）
   const targetIndex = WEEKDAYS.indexOf(schedule.weekday);
   if (now.getDay() === targetIndex) {
     const targetToday = new Date(now);
@@ -96,5 +190,11 @@ export function shouldCreateScheduledRun(
   if (!latestRun) return true;
   const occurrence = lastWeeklyOccurrence(schedule.weekday, schedule.hour, schedule.minute, now);
   const last = new Date(latestRun.created);
+  if (schedule.type === "biweekly") {
+    // 隔週: 直近の週次発生の**1週間以上前**に最後のランがある（＝先週分は休んだ）とき
+    // だけ作る。固定の週パリティを持たず、最後のラン実績を錨にする——最初のランを
+    // 作った週から1週おき、が自然に維持され、skip 回答（runBaseline）も同じ式で効く
+    return last.getTime() < occurrence.getTime() - 7 * MS_PER_DAY;
+  }
   return last.getTime() < occurrence.getTime();
 }
