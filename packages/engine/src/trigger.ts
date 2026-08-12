@@ -13,6 +13,7 @@
 // schedule をチェック間隔とし、間隔ごとにエンジンが command を実行して、stdout の JSON 行
 // {"context":{...},"title":"..."} を emit された数だけランを作る（1行=1ラン。空出力=ラン作成なし）。
 // ネットワークI/Oを一切持たない純粋関数のみを置く（vitest でユニットテストする対象）。
+import { SCHEDULE_SET_MARKER } from "@graphwrangler/core";
 import { coerceStringRecord } from "./context.js";
 import { parseSchedule, shouldCreateScheduledRun } from "./schedule.js";
 import type { DecisionAnswer, DecisionRequest, Message, Node } from "./types.js";
@@ -322,6 +323,33 @@ export function runBaseline(
   if (latestRun && skipTs) return { created: latestRun.created > skipTs ? latestRun.created : skipTs };
   if (skipTs) return { created: skipTs };
   return latestRun;
+}
+
+// ---- 起動方式の設定・変更直後の追い付き実行の抑止（2026-08-12 本人報告
+// 「トリガーを変更した瞬間に実行される不具合があるかも」） ----
+// server が schedule の設定・変更・committed 化のたびにスレッドへ積む [起動方式] status
+// （core の SCHEDULE_SET_MARKER / buildScheduleSetBody）の時刻を「その回は済んだ」の基準に
+// 混ぜる。これが無いと、設定した瞬間に「直近の過ぎた定刻」の追い付きランが即座に走る
+// （every は必ず・daily/weekly/monthly/yearly も定刻を過ぎていれば）。
+// 判定は基準が新しくなるほど false に倒れる（単調）ので、呼び出し側は粗い判定が true の
+// ときだけスレッドを取得して混ぜ直せばよい（定常状態では追加の取得なし）
+
+/** スレッドから最新の [起動方式] 記録の時刻を返す（無ければ null。純粋関数） */
+export function latestScheduleSetAt(messages: Message[]): string | null {
+  const m = [...messages]
+    .reverse()
+    .find((x) => x.kind === "status" && x.body.startsWith(SCHEDULE_SET_MARKER));
+  return m?.ts ?? null;
+}
+
+/** baseline（最新ラン/skip回答）と [起動方式] 記録の新しい方を基準にする（純粋関数） */
+export function mergeScheduleSetBaseline(
+  baseline: { created: string } | null,
+  scheduleSetAt: string | null,
+): { created: string } | null {
+  if (!scheduleSetAt) return baseline;
+  if (!baseline || baseline.created < scheduleSetAt) return { created: scheduleSetAt };
+  return baseline;
 }
 
 /** go 回答が「未消費」（最新ランより新しい）か（純粋関数）。ランを作ると run.created が

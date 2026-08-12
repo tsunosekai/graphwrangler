@@ -19,17 +19,19 @@ import type { AppContext } from "../src/app_context.js";
 
 interface Harness {
   graph: GraphStore;
+  threads: ThreadStore;
   app: Hono;
 }
 
 function harness(): Harness {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gw-node-routes-"));
   const graph = new GraphStore(dir);
+  const threads = new ThreadStore(dir);
   // ここで叩くルートが実際に読むのは graph/threads/reads だけ。
   // 残りは AppContext の形を満たすためのダミー（selfUpdate は触られない）
   const ctx = {
     graph,
-    threads: new ThreadStore(dir),
+    threads,
     runs: new RunStore(dir),
     settings: new SettingsStore(dir),
     userSettings: new UserSettingsStore(dir),
@@ -52,7 +54,7 @@ function harness(): Harness {
   });
   app.route("/", graphRoutes(ctx));
   app.route("/", nodeRoutes(ctx));
-  return { graph, app };
+  return { graph, threads, app };
 }
 
 test("ノード1件取得: 見つかると全フィールドが返る", async () => {
@@ -96,4 +98,73 @@ test("ノード1件取得: GET /api/state の nodes 要素と同じ形で返る"
   const fromState = state.nodes.find((n) => n.id === target.id);
   const fromRoute = (await (await app.request(`/api/nodes/${target.id}`)).json()) as Node;
   assert.deepEqual(fromRoute, fromState);
+});
+
+// ---- 起動方式の設定・変更の記録（2026-08-12 本人報告「トリガーを変更した瞬間に実行される」対策）----
+// schedule の設定・変更・committed 化でスレッドへ [起動方式] status が積まれる。
+// エンジンはこの時刻を「その回は済んだ」の基準に使う（engine/trigger.ts の
+// latestScheduleSetAt / mergeScheduleSetBaseline）
+
+function scheduleSetMessages(harnessObj: Harness, nodeId: string) {
+  return harnessObj.threads.list(nodeId).filter((m) => m.kind === "status" && m.body.startsWith("[起動方式]"));
+}
+
+test("トリガーの schedule 変更で [起動方式] status が積まれる（読み下し付き）", async () => {
+  const h = harness();
+  const trigger = h.graph.addNode({ title: "定刻", kind: "trigger", executor: "script" });
+  const res = await h.app.request(`/api/nodes/${trigger.id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ schedule: "daily 09:00" }),
+  });
+  assert.equal(res.status, 200);
+  const notes = scheduleSetMessages(h, trigger.id);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].body, /手動のみ → 毎日 09:00/);
+});
+
+test("schedule 付きトリガーの committed 化でも積まれる（draft で設定→計画済みの導線）", async () => {
+  const h = harness();
+  const trigger = h.graph.addNode({
+    title: "定刻",
+    kind: "trigger",
+    executor: "script",
+    schedule: "weekly mon 09:00",
+  });
+  const res = await h.app.request(`/api/nodes/${trigger.id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ lifecycle: "committed" }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(scheduleSetMessages(h, trigger.id).length, 1);
+});
+
+test("schedule に関係ない patch では積まれない", async () => {
+  const h = harness();
+  const trigger = h.graph.addNode({
+    title: "定刻",
+    kind: "trigger",
+    executor: "script",
+    schedule: "daily 09:00",
+  });
+  const res = await h.app.request(`/api/nodes/${trigger.id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "名前だけ変更" }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(scheduleSetMessages(h, trigger.id).length, 0);
+});
+
+test("addNode で schedule 付きトリガーを作った時も積まれる", async () => {
+  const h = harness();
+  const res = await h.app.request("/api/nodes", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "定刻", kind: "trigger", executor: "script", schedule: "every 15m" }),
+  });
+  assert.equal(res.status, 200);
+  const created = (await res.json()) as Node;
+  assert.equal(scheduleSetMessages(h, created.id).length, 1);
 });

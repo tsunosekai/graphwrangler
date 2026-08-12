@@ -8,7 +8,9 @@ import {
   GraphError,
   NodeInputSchema,
   NodePatchSchema,
+  buildScheduleSetBody,
   nowIso,
+  type Node,
 } from "@graphwrangler/core";
 import { expandNode } from "../expand.js";
 import { resolveWorkspacePath } from "../files.js";
@@ -20,9 +22,28 @@ export function nodeRoutes(ctx: AppContext): Hono {
   const { graph, threads } = ctx;
   const app = new Hono();
 
+  /** トリガーの起動方式が「効き始めた」記録をスレッドへ積む（2026-08-12）。
+   *  エンジンはこの status の時刻を「その回は済んだ」の基準に使い、設定・変更した瞬間に
+   *  直近の過ぎた定刻の追い付きランが走るのを防ぐ（次の定刻から動く）。
+   *  監査（いつ誰がどう変えたか）も兼ねる。失敗は本体の操作を失敗させない */
+  const noteScheduleSet = (nodeId: string, before: string | null, after: string | null) => {
+    try {
+      threads.post(nodeId, {
+        kind: "status",
+        body: buildScheduleSetBody(before, after),
+        author: { kind: "system" },
+        via: "ui",
+      });
+    } catch {
+      // 記録できなくても patch 自体は成立させる（最悪でも旧挙動＝即時ランに戻るだけ）
+    }
+  };
+
   app.post("/api/nodes", async (c) => {
     const body = await c.req.json();
     const node = graph.addNode(NodeInputSchema.parse(body), meta(body));
+    // トリガーを最初から schedule 付きで作った場合も「作った時刻」を基準にする
+    if (node.kind === "trigger" && node.schedule) noteScheduleSet(node.id, null, node.schedule);
     return c.json(node);
   });
 
@@ -36,7 +57,26 @@ export function nodeRoutes(ctx: AppContext): Hono {
 
   app.post("/api/nodes/:id", async (c) => {
     const body = await c.req.json();
-    const node = graph.patchNode(c.req.param("id"), NodePatchSchema.parse(body), meta(body));
+    const id = c.req.param("id");
+    const patch = NodePatchSchema.parse(body);
+    let before: Node | null = null;
+    try {
+      before = graph.get(id);
+    } catch {
+      // 存在しなければ patchNode が 404 を投げる（こちらでは握るだけ）
+    }
+    const node = graph.patchNode(id, patch, meta(body));
+    // 起動方式の設定・変更、または schedule 付きトリガーの committed 化（＝効き始め）を記録。
+    // 後者が要るのは、draft のまま schedule を書いてから「計画済みにする」を押す導線——
+    // 変更記録が draft 時点のままだと、committed 化した瞬間に追い付きランが走り得るため
+    if (before && node.kind === "trigger") {
+      const scheduleChanged =
+        patch.schedule !== undefined && (before.schedule ?? null) !== (node.schedule ?? null);
+      const activated =
+        before.lifecycle !== "committed" && node.lifecycle === "committed" && !!node.schedule;
+      if (scheduleChanged) noteScheduleSet(id, before.schedule ?? null, node.schedule ?? null);
+      else if (activated) noteScheduleSet(id, node.schedule ?? null, node.schedule ?? null);
+    }
     return c.json(node);
   });
 

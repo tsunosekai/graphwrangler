@@ -226,6 +226,22 @@ export function formatSchedule(
   return `yearly ${parsed.month} ${parsed.nth} ${parsed.weekday} ${time}`;
 }
 
+// ---- 起動方式の設定・変更の記録（2026-08-12） ----
+// server がトリガーの schedule を設定・変更・有効化（committed 化）したときにスレッドへ積む
+// status の目印。エンジンはこの時刻を「その回は済んだ」の基準に使う——これが無いと、
+// 起動方式を設定した瞬間に「直近の過ぎた定刻」の追い付きランが即座に走る
+// （本人報告「トリガーを変更した瞬間に実行される不具合があるかも」。every は設定直後に必ず、
+// daily/weekly/monthly/yearly も直近の定刻を過ぎていれば即実行されていた）。
+// SCHEDULE_WARNING_MARKER（engine/trigger.ts）と同じ「本文にマーカーを埋める」方式
+
+export const SCHEDULE_SET_MARKER = "[起動方式]";
+
+/** 起動方式の設定・変更を記録する status の本文（読み下し付き。監査とエンジン基準の両用） */
+export function buildScheduleSetBody(before: string | null, after: string | null): string {
+  const show = (s: string | null) => (s ? (describeSchedule(s) ?? s) : "手動のみ");
+  return `${SCHEDULE_SET_MARKER} ${show(before)} → ${show(after)}（次の定刻から自動で開始します）`;
+}
+
 const EVERY_UNIT_JA: Record<EveryUnit, string> = { m: "分", h: "時間", d: "日" };
 
 /** schedule を日本語の読み下しにする（UI のプレビュー用）。解釈できなければ null */

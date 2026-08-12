@@ -15,6 +15,8 @@ import {
   isClosedPage,
   isDetectScriptTrigger,
   isRunnableTrigger,
+  latestScheduleSetAt,
+  mergeScheduleSetBaseline,
   parseAiRunDecision,
   parseDetectEmitLines,
   resolveAiCheckIntervalMs,
@@ -518,5 +520,64 @@ describe("buildTriggerPrompt", () => {
   it("outputs が無ければ ##gw の指示は含めない", () => {
     const prompt = buildTriggerPrompt(node({ title: "起点" }), new Date("2026-01-01T00:00:00Z"));
     expect(prompt).not.toContain("##gw");
+  });
+});
+
+// 起動方式の設定・変更直後の追い付き実行の抑止（2026-08-12 本人報告
+// 「トリガーを変更した瞬間に実行される不具合があるかも」）
+describe("latestScheduleSetAt / mergeScheduleSetBaseline: 設定・変更直後は走らない", () => {
+  function statusMessage(id: string, ts: string, body: string): Message {
+    return {
+      id,
+      node: "n-t",
+      ts,
+      author: { kind: "system" },
+      via: "ui",
+      kind: "status",
+      body,
+      runId: null,
+      payload: null,
+    };
+  }
+
+  it("最新の [起動方式] 記録の時刻を拾う（他の status は無視）", () => {
+    const msgs = [
+      statusMessage("m-1", "2026-01-01T00:00:00Z", "[起動方式] 手動のみ → 毎日 09:00"),
+      statusMessage("m-2", "2026-01-02T00:00:00Z", "ほかの記録"),
+      statusMessage("m-3", "2026-01-03T00:00:00Z", "[起動方式] 毎日 09:00 → 毎週月曜 09:00"),
+    ];
+    expect(latestScheduleSetAt(msgs)).toBe("2026-01-03T00:00:00Z");
+    expect(latestScheduleSetAt([])).toBeNull();
+  });
+
+  it("基準は「最新ラン/skip」と「設定・変更時刻」の新しい方", () => {
+    expect(mergeScheduleSetBaseline(null, "2026-01-03T00:00:00Z")).toEqual({
+      created: "2026-01-03T00:00:00Z",
+    });
+    expect(
+      mergeScheduleSetBaseline({ created: "2026-01-01T00:00:00Z" }, "2026-01-03T00:00:00Z"),
+    ).toEqual({ created: "2026-01-03T00:00:00Z" });
+    expect(
+      mergeScheduleSetBaseline({ created: "2026-01-05T00:00:00Z" }, "2026-01-03T00:00:00Z"),
+    ).toEqual({ created: "2026-01-05T00:00:00Z" });
+    expect(mergeScheduleSetBaseline({ created: "2026-01-05T00:00:00Z" }, null)).toEqual({
+      created: "2026-01-05T00:00:00Z",
+    });
+  });
+
+  it("daily: 設定した日の過ぎた定刻では走らず、翌日の定刻から走る", () => {
+    // ランが1本も無いページで 10:00 に daily 09:00 を設定 → その瞬間は走らない
+    const setAt = new Date(2026, 0, 5, 10, 0).toISOString();
+    const merged = mergeScheduleSetBaseline(null, setAt);
+    expect(shouldRunScriptTrigger("daily 09:00", merged, new Date(2026, 0, 5, 10, 0, 5))).toBe(false);
+    // 翌日の 09:00 を過ぎたら走る
+    expect(shouldRunScriptTrigger("daily 09:00", merged, new Date(2026, 0, 6, 9, 1))).toBe(true);
+  });
+
+  it("every: 設定した瞬間ではなく、設定から間隔経過後に走る", () => {
+    const setAt = new Date(2026, 0, 5, 10, 0).toISOString();
+    const merged = mergeScheduleSetBaseline(null, setAt);
+    expect(shouldRunScriptTrigger("every 15m", merged, new Date(2026, 0, 5, 10, 0, 5))).toBe(false);
+    expect(shouldRunScriptTrigger("every 15m", merged, new Date(2026, 0, 5, 10, 15))).toBe(true);
   });
 });

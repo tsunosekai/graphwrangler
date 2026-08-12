@@ -24,6 +24,8 @@ import {
   isDetectScriptTrigger,
   isClosedPage,
   isRunnableTrigger,
+  latestScheduleSetAt,
+  mergeScheduleSetBaseline,
   parseAiRunDecision,
   parseDetectEmitLines,
   resolveAiCheckIntervalMs,
@@ -221,10 +223,11 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
   if (trigger.pendingRequest) return; // ラン前承認カード等の回答待ち
 
   let gate: RunStartGateState = { status: "none" };
+  let threadMessages: Message[] | null = null; // 取得済みなら使い回す（下の抑止判定と共用）
   if (trigger.approval) {
     try {
-      const { messages } = await getThread(trigger.id);
-      gate = findRunStartGate(messages);
+      ({ messages: threadMessages } = await getThread(trigger.id));
+      gate = findRunStartGate(threadMessages);
     } catch (err) {
       log(`ラン前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
       return;
@@ -232,7 +235,8 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
   }
 
   // skip 回答はその回のラン作成とみなす（runBaseline）。承認なしのトリガーでは gate=none で従来どおり
-  const should = shouldRunScriptTrigger(trigger.schedule, runBaseline(latestRun, gate), new Date());
+  const baseline = runBaseline(latestRun, gate);
+  const should = shouldRunScriptTrigger(trigger.schedule, baseline, new Date());
   if (should === null) {
     if (trigger.schedule) {
       log(`未対応のschedule書式のため無視: trigger=${trigger.id} schedule="${trigger.schedule}"`);
@@ -243,6 +247,22 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
     return;
   }
   if (!should) return;
+
+  // 起動方式の設定・変更直後の追い付き実行の抑止（2026-08-12 本人報告）: 設定・変更の時刻を
+  // 「その回は済んだ」扱いで基準に混ぜ、次の定刻から動かす。判定は基準が新しいほど false に
+  // 倒れる（単調）ので、上の粗い判定が true のときだけスレッドを見る＝定常では追加取得なし
+  if (!threadMessages) {
+    try {
+      ({ messages: threadMessages } = await getThread(trigger.id));
+    } catch (err) {
+      log(`スレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
+      return;
+    }
+  }
+  const merged = mergeScheduleSetBaseline(baseline, latestScheduleSetAt(threadMessages));
+  if (merged !== baseline && shouldRunScriptTrigger(trigger.schedule, merged, new Date()) !== true) {
+    return; // 設定・変更した回ぶんは済んだ扱い。次の定刻を待つ
+  }
 
   if (trigger.approval && !hasUnconsumedGo(gate, latestRun)) {
     try {
