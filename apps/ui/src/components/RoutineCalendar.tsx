@@ -50,12 +50,17 @@ export function RoutineCalendarDialog({
 
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
   const leadingBlanks = new Date(year, monthIndex, 1).getDay(); // 日曜始まり
+  // 常に6週ぶん（7×6=42セル）描く。月によって5週/6週で高さが変わると、月送りのたびに
+  // モーダルの大きさが揺れて煩わしい（2026-08-12 本人指摘）。足りないぶんは空セルで埋める
+  const trailingBlanks = 42 - leadingBlanks - daysInMonth;
   const isToday = (day: number) =>
     year === today.getFullYear() && monthIndex === today.getMonth() && day === today.getDate();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] w-[min(60rem,92vw)] max-w-none flex-col sm:max-w-none">
+      {/* サイズは内容に依らず固定（高さ 92vh・幅 95vw 上限 120rem）。月送りや件数で揺らさない。
+          デスクトップではほぼ全画面まで広げる（2026-08-12 本人要望「もっと大きく」） */}
+      <DialogContent className="flex h-[92vh] max-h-[92vh] w-[min(120rem,95vw)] max-w-none flex-col sm:max-w-none">
         <DialogHeader>
           <DialogTitle>ルーティーンの予定</DialogTitle>
         </DialogHeader>
@@ -87,13 +92,15 @@ export function RoutineCalendarDialog({
           </label>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="grid grid-cols-7 gap-px rounded-md border border-border bg-border">
+        {/* グリッドは常に「見出し1行 + 6週」の固定レイアウト（rows-[auto_repeat(6,1fr)]）で
+            高さいっぱいに広げる。角丸なし（2026-08-12 本人指定）。1日に予定が多い日だけ
+            そのセルの中でスクロールさせ、グリッド自体の高さは変えない */}
+        <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-[auto_repeat(6,1fr)] gap-px border border-border bg-border">
             {DOW_HEADER.map((d, i) => (
               <div
                 key={d}
                 className={cn(
-                  "bg-muted px-1 py-0.5 text-center text-[11px] font-semibold text-muted-foreground",
+                  "bg-muted px-1 py-1 text-center text-xs font-semibold text-muted-foreground",
                   i === 0 && "text-red-500/70",
                   i === 6 && "text-blue-500/70",
                 )}
@@ -102,7 +109,7 @@ export function RoutineCalendarDialog({
               </div>
             ))}
             {Array.from({ length: leadingBlanks }, (_, i) => (
-              <div key={`blank-${i}`} className="min-h-20 bg-background/60" />
+              <div key={`blank-${i}`} className="min-h-0 bg-background/60" />
             ))}
             {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
               const entries = cells.get(day) ?? [];
@@ -110,13 +117,13 @@ export function RoutineCalendarDialog({
                 <div
                   key={day}
                   className={cn(
-                    "flex min-h-20 flex-col gap-0.5 bg-background p-1",
+                    "flex min-h-0 flex-col gap-0.5 overflow-y-auto bg-background p-1",
                     isToday(day) && "bg-accent/40",
                   )}
                 >
                   <span
                     className={cn(
-                      "text-[11px] leading-none text-muted-foreground",
+                      "flex-shrink-0 text-xs leading-none text-muted-foreground",
                       isToday(day) && "font-bold text-foreground",
                     )}
                   >
@@ -127,7 +134,7 @@ export function RoutineCalendarDialog({
                       key={`${t.triggerId}-${day}`}
                       type="button"
                       title={`${t.pageTitle}（${t.description}）`}
-                      className="w-full truncate rounded bg-accent px-1 py-0.5 text-left text-[11px] leading-tight hover:bg-accent/70"
+                      className="w-full flex-shrink-0 truncate bg-accent px-1 py-0.5 text-left text-xs leading-tight hover:bg-accent/70"
                       onClick={() => onOpenPage(t.pageId)}
                     >
                       {t.time && <span className="mr-1 tabular-nums text-muted-foreground">{t.time}</span>}
@@ -137,15 +144,18 @@ export function RoutineCalendarDialog({
                 </div>
               );
             })}
-          </div>
-          {triggers.filter((t) => showFine || !t.fine).length === 0 && (
-            <p className="py-4 text-center text-sm text-muted-foreground">
-              {fineCount > 0
-                ? "週次以上のルーティーンはありません（毎日以下は上のチェックで表示できます）"
-                : "定刻つきのルーティーンがありません（トリガーの起動方式で設定できます）"}
-            </p>
-          )}
+            {/* 6週に満たないぶんの空セル（グリッドの高さを月によらず一定に保つ） */}
+            {Array.from({ length: Math.max(0, trailingBlanks) }, (_, i) => (
+              <div key={`trail-${i}`} className="min-h-0 bg-background/60" />
+            ))}
         </div>
+        {triggers.filter((t) => showFine || !t.fine).length === 0 && (
+          <p className="flex-shrink-0 text-center text-sm text-muted-foreground">
+            {fineCount > 0
+              ? "週次以上のルーティーンはありません（毎日以下は上のチェックで表示できます）"
+              : "定刻つきのルーティーンがありません（トリガーの起動方式で設定できます）"}
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );
