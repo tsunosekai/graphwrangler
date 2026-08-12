@@ -218,3 +218,34 @@ describe("buildThreadContextLines", () => {
     expect(buildThreadContextLines(recovered)).toHaveLength(0);
   });
 });
+
+// ラリー（選択肢を選ばず言葉で聞き返した回答。design.md 4-④）も経緯に残す（2026-08-12）。
+// 選ぶまでに交わした内容が決定の理由そのものなので、再実行するAIに渡す
+describe("buildThreadContextLines: ラリーを含む往復", () => {
+  const request: DecisionRequest = {
+    context: "c",
+    question: "何個出しますか？",
+    options: [
+      { id: "ai:1", label: "1個だけ", then: "続行" },
+      { id: "ai:2", label: "3個くらい", then: "続行" },
+    ],
+    impact: "safe",
+    undo: null,
+  };
+
+  it("聞き返し → 最終的に選んだ選択肢、の順で1行にまとめる", () => {
+    const messages = [
+      message({ id: "req-1", kind: "decision_request", body: "何個？", payload: { request }, requestStatus: "answered" }),
+      // ラリー（option=null。カードは開いたまま）
+      message({ kind: "decision_answer", payload: { requestId: "req-1", option: null, note: "なんで3個も要るの？" } }),
+      // AI が答えたあと、人間が選択肢を選んで決着
+      message({ kind: "decision_answer", payload: { requestId: "req-1", option: "ai:1", note: null } }),
+    ];
+    const lines = buildThreadContextLines(messages);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("なんで3個も要るの？");
+    expect(lines[0]).toContain("1個だけ");
+    // 時系列（聞き返し → 決着）が保たれる
+    expect(lines[0].indexOf("なんで3個も要るの？")).toBeLessThan(lines[0].indexOf("1個だけ"));
+  });
+});

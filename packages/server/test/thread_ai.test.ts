@@ -17,7 +17,7 @@ test("人間の say かつ open な判断リクエストが無ければトリガ
   );
 });
 
-test("open な判断リクエストがあるノードはトリガーしない（/answer のラリーに任せる）", () => {
+test("open な判断リクエストがあるノードの say はトリガーしない（カードに答えるのが先）", () => {
   assert.equal(
     shouldTriggerThreadAi({ kind: "say", actor: { kind: "human" }, pendingRequest: "m1" }),
     false,
@@ -140,4 +140,67 @@ test("buildThreadReplyPrompt は QUESTION プロトコルと『乱発するな�
   assert.match(prompt, /QUESTION: <人間への質問（1行）>/);
   assert.match(prompt, /\*\*人間を呼び出す\*\*合図/);
   assert.match(prompt, /人間が決めないとこの先へ進めない/);
+});
+
+// ---- ラリー（判断カードへの聞き返し）への応答（2026-08-12 修正）----
+// それまでは誰も応答せず、UI が「聞き返す・相談する…」と誘っておいて黙って待たせていた
+
+test("ラリー: open なカードへの人間の decision_answer はトリガーする", () => {
+  assert.equal(
+    shouldTriggerThreadAi({
+      kind: "decision_answer",
+      actor: { kind: "human" },
+      pendingRequest: "m1",
+      rally: true,
+    }),
+    true,
+  );
+});
+
+test("ラリー: カードが閉じている（選択肢で決着した）なら応答しない＝実行AIが再開する番", () => {
+  assert.equal(
+    shouldTriggerThreadAi({
+      kind: "decision_answer",
+      actor: { kind: "human" },
+      pendingRequest: null,
+      rally: true,
+    }),
+    false,
+  );
+});
+
+test("ラリー: 人間以外（エンジンの回答）ではトリガーしない", () => {
+  assert.equal(
+    shouldTriggerThreadAi({
+      kind: "decision_answer",
+      actor: { kind: "agent" },
+      pendingRequest: "m1",
+      rally: true,
+    }),
+    false,
+  );
+});
+
+test("ラリーのプロンプトは「代わりに決めない」を明示し、QUESTION 規約を出さない", () => {
+  const base = {
+    node: threadAiNodeContext({
+      title: "ダジャレを考える",
+      detail: null,
+      kind: "task",
+      executor: "ai",
+      status: "running",
+      impl: null,
+    }),
+    parentTitles: [],
+    pageTitle: null,
+    history: [{ kind: "decision_request", body: "1個でいいですか？" }],
+    newMessage: "なんで3個も要るの？",
+  };
+  const rally = buildThreadReplyPrompt({ ...base, rally: true });
+  assert.ok(rally.includes("質問カードが開いたまま"));
+  assert.ok(rally.includes("代わりに決めてはいけません"));
+  assert.ok(!rally.includes("QUESTION:"), "既にカードが開いているので二重に人を呼ばない");
+  assert.ok(rally.includes("なんで3個も要るの？"));
+  // 通常の相談では従来どおり QUESTION 規約を出す
+  assert.ok(buildThreadReplyPrompt(base).includes("QUESTION:"));
 });

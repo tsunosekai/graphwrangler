@@ -214,6 +214,23 @@ export function threadRoutes(ctx: AppContext): Hono {
         { pendingRequest: null, status: "pending" },
         { actor: { kind: "system" }, via: m.via },
       );
+    } else {
+      // ラリー（選択肢を選ばない自由文の回答。design.md 4-④）: カードは開いたままなので、
+      // このままだと**誰も応答しない**（質問した実行AIはカードが open の間ずっと回答待ちで
+      // 止まっており、Task AI もカードがあると起動しない）。UI は「聞き返す・相談する…」と
+      // 誘っているので、Task AI に応答させて会話として成立させる（2026-08-12 修正）。
+      // 決めるのは引き続き人間——AI は疑問に答えて選びやすくするだけ（thread_ai.ts の rally）
+      maybeTriggerThreadAi({
+        graph,
+        threads,
+        settings,
+        nodeId: id,
+        kind: message.kind,
+        actor: m.actor,
+        runId: message.runId ?? null,
+        attachmentsDir,
+        rally: true,
+      });
     }
     return c.json({ message, resolved, node: graph.get(id) });
   });

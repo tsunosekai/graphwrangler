@@ -78,6 +78,9 @@ function stripRunMarker(text: string): string {
  * ノード自身のスレッドから、再実行プロンプトに差し込む経緯を組み立てる（純粋関数）。
  * - AIの質問（id "ai:*" の選択肢を持つ decision_request）で回答済みのもの → 直近3件の
  *   Q&A（選択肢のラベル + 自由記入 note）
+ * - **同じ質問への往復（ラリー）は全部つなげる**（2026-08-12）: 人間が選択肢を選ばずに
+ *   言葉で聞き返した回答（option=null。design.md 4-④）も、選ぶまでの間に交わした内容が
+ *   決定の理由そのものなので落とさない。「聞き返し → …… → 最終的にこれを選んだ」の順で渡す
  * - 末尾が実行失敗の status → 失敗理由（自動リトライ・failure recovery の再実行で
  *   同じやり方を繰り返さないための文脈）
  */
@@ -94,17 +97,21 @@ export function buildThreadContextLines(messages: Message[]): string[] {
   );
   for (const req of answered.slice(-3)) {
     const request = (req.payload as { request: DecisionRequest }).request;
-    const answer = messages.find(
-      (m) =>
-        m.kind === "decision_answer" && (m.payload as DecisionAnswer | null)?.requestId === req.id,
-    );
-    if (!answer) continue;
-    const payload = answer.payload as DecisionAnswer;
-    const label = request.options.find((o) => o.id === payload.option)?.label ?? null;
-    const parts = [label, payload.note].filter(Boolean);
+    // この質問への回答を時系列で全部（ラリーの聞き返し → 最後に選んだ選択肢）
+    const parts = messages
+      .filter(
+        (m) =>
+          m.kind === "decision_answer" && (m.payload as DecisionAnswer | null)?.requestId === req.id,
+      )
+      .map((m) => {
+        const payload = m.payload as DecisionAnswer;
+        const label = request.options.find((o) => o.id === payload.option)?.label ?? null;
+        return [label, payload.note].filter(Boolean).join(" / ");
+      })
+      .filter(Boolean);
     if (parts.length === 0) continue;
     lines.push(
-      `あなたは人間に質問しました:「${stripRunMarker(request.question)}」→ 人間の回答: ${parts.join(" / ")}`,
+      `あなたは人間に質問しました:「${stripRunMarker(request.question)}」→ 人間の回答: ${parts.join(" → ")}`,
     );
   }
 

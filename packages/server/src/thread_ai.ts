@@ -1,7 +1,10 @@
 // スレッド相談AI（Task AI。「会話はいつでも可」の原則。docs/design.md 3.9）。
-// ノードのスレッドに人間が say を書いたら、非同期でAIが応答する。判断リクエストの
-// ラリー（POST /api/nodes/:id/answer, option:null）はエンジン側が拾うので、ここでは
-// 「open な判断リクエストが無いノードへの普通の相談」だけを相手にする。
+// ノードのスレッドに人間が say を書いたら、非同期でAIが応答する。
+// 判断リクエストのラリー（POST /api/nodes/:id/answer, option:null。design.md 4-④）も
+// **ここが応答する**（2026-08-12 修正。旧コメントは「エンジン側が拾う」としていたが実装が
+// 無く、UI が「聞き返す・相談する…」と誘っておいて誰も答えない状態だった——質問した実行AIは
+// カードが open の間ずっと回答待ちで止まり、Task AI もカードがあると起動しない設定だった）。
+// ラリーへの応答ではカードを開いたままにする（決めるのは人間。AI は疑問に答えて選びやすくするだけ）。
 // 呼び出し元は index.ts の POST /api/nodes/:id/messages（メッセージ保存レスポンスを
 // 返した直後、await せずに maybeTriggerThreadAi を呼ぶ）。
 import {
@@ -29,14 +32,25 @@ const MAX_THREAD_AI_HISTORY = 20;
 
 // ---- 純関数（トリガー判定・プロンプト組み立て。ユニットテスト対象） ----
 
-/** このメッセージ投稿でスレッド相談AIを起動すべきか。人間の say かつ open な判断
- *  リクエストが無いときのみ true（エンジン等の投稿・判断リクエストのラリーには反応しない） */
+/**
+ * このメッセージ投稿でスレッド相談AIを起動すべきか。
+ * - 通常: 人間の say かつ open な判断リクエストが無いとき（エンジン等の投稿には反応しない）
+ * - ラリー（2026-08-12。rally=true）: 開いている判断カードへ人間が**選択肢を選ばず言葉で
+ *   聞き返した**とき（option=null の decision_answer。design.md 4-④）。それまでは誰も
+ *   応答せず、UI が「聞き返す・相談する…」と誘っておいて黙って待たせていた——質問した
+ *   実行AIは「回答待ち」で止まっており、Task AI もカードが開いている間は起動しないため。
+ *   **カードは開いたまま**答えるので、決めるのは引き続き人間（AIが代わりに選ばない）
+ */
 export function shouldTriggerThreadAi(input: {
   kind: string;
   actor: Pick<Actor, "kind">;
   pendingRequest: string | null;
+  /** 判断リクエストへのラリー（選択肢を選ばない自由文の回答）か */
+  rally?: boolean;
 }): boolean {
-  return input.kind === "say" && input.actor.kind === "human" && input.pendingRequest === null;
+  if (input.actor.kind !== "human") return false;
+  if (input.rally) return input.kind === "decision_answer" && input.pendingRequest !== null;
+  return input.kind === "say" && input.pendingRequest === null;
 }
 
 export interface ThreadAiNodeContext {
@@ -82,12 +96,16 @@ export interface BuildThreadReplyPromptInput {
   history: ThreadAiHistoryEntry[];
   /** 今回人間が書いた新しい発言 */
   newMessage: string;
+  /** 開いている判断カードへの聞き返し（ラリー）への応答か（2026-08-12）。
+   *  true のときは「カードは開いたまま・決めるのは人間」を明示し、QUESTION 規約は出さない
+   *  （既にカードが開いているので二重に人を呼ばない） */
+  rally?: boolean;
 }
 
 /** スレッド相談AIへ渡すプロンプトを組み立てる（純粋関数）。CLI方式(stdin渡し)・API方式
  *  (completeText への単発プロンプト)の両方で同じ文字列をそのまま使う */
 export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): string {
-  const { node, parentTitles, pageTitle, history, newMessage } = input;
+  const { node, parentTitles, pageTitle, history, newMessage, rally } = input;
   const lines: string[] = [
     "あなたは Task AI。タスクノードのスレッドで相談に乗る担当として、簡潔に答えてください。" +
       "**必ずユーザーが話しかけてきた言語で書くこと**（日本語で話しかけられたら日本語）。",
@@ -95,16 +113,31 @@ export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): stri
     "実装(impl)の path やドキュメントに言及するときは、読んでいいか確認を求めず Read で先に読んでから答えること。",
     "メッセージ中の「[添付ファイル: <パス>]」はユーザーが添付したファイル。確認を求めず Read で読んで内容を踏まえること。",
     "",
+  ];
+  if (rally) {
+    // ラリー（2026-08-12）: 開いている判断カードへ人間が言葉で聞き返した場面。
+    // カードはそのまま残っているので、AI がやるのは「疑問に答えて選びやすくする」ことだけ。
+    // QUESTION 規約は出さない——既にカードが開いており、二重に人を呼ぶ意味がない
+    lines.push(
+      "いま**人間への質問カードが開いたまま**で、人間はそこで選択肢を選ばずに言葉で聞き返してきました。",
+      "その疑問・確認に短く答えて、**人間が選択肢を選べる状態にする**のがあなたの仕事です。",
+      "**あなたが代わりに決めてはいけません**（決めるのは人間。カードは開いたままです）。",
+      "人間の返事が実質どれかの選択肢を指しているなら、どれを選べば進むかを一言添えてください。",
+      "",
+    );
+  } else {
     // QUESTION プロトコル（core/ask.ts。engine の AI executor と同じ規約を会話にも通す。
     // 2026-08-11）。これを出すと Discord の「あなたの番」が鳴って人間を呼び出すので、
     // **普通の聞き返しには使わせない**——乱発されると、返信ごとに鳴っていた旧仕様に逆戻りする
-    ...QUESTION_PROTOCOL_LINES,
-    "ただしこれは**人間を呼び出す**合図で、Discord に「あなたの番」の通知が飛びます。" +
-      "会話の中の軽い確認・聞き返し・提案の同意取りには使わず、普通の返信として書いてください。" +
-      "使うのは「人間が決めないとこの先へ進めない」ときだけです。",
-    "",
-    `ノード: ${node.title || "（無題）"}`,
-  ];
+    lines.push(
+      ...QUESTION_PROTOCOL_LINES,
+      "ただしこれは**人間を呼び出す**合図で、Discord に「あなたの番」の通知が飛びます。" +
+        "会話の中の軽い確認・聞き返し・提案の同意取りには使わず、普通の返信として書いてください。" +
+        "使うのは「人間が決めないとこの先へ進めない」ときだけです。",
+      "",
+    );
+  }
+  lines.push(`ノード: ${node.title || "（無題）"}`);
   if (node.detail) lines.push(`詳細: ${node.detail}`);
   lines.push(
     `種別(kind): ${node.kind}`,
@@ -312,6 +345,8 @@ async function respondInThread(
   attachmentsDir?: string,
   // どのランの会話に返すか（2026-08-08「会話もフォーク」）。null = テンプレート側
   runId: string | null = null,
+  // 開いている判断カードへの聞き返し（ラリー）への応答か（2026-08-12）
+  rally = false,
 ): Promise<void> {
   const messages = threads.listScoped(node.id, runId);
   const last = messages[messages.length - 1];
@@ -339,6 +374,7 @@ async function respondInThread(
     pageTitle,
     history,
     newMessage: last.body,
+    rally,
   });
 
   const chat = settings.get().chat;
@@ -449,12 +485,16 @@ export function maybeTriggerThreadAi(params: {
   attachmentsDir?: string;
   /** どのランの会話への投稿か（2026-08-08「会話もフォーク」）。null/未指定 = テンプレート側 */
   runId?: string | null;
+  /** 判断カードへのラリー（選択肢を選ばない自由文の回答）への応答か（2026-08-12）。
+   *  カードは開いたままなので、AI は疑問に答えるだけ（決めるのは人間） */
+  rally?: boolean;
 }): void {
   const { graph, threads, settings, nodeId, kind, actor, onQuestion, attachmentsDir } = params;
   const runId = params.runId ?? null;
+  const rally = params.rally ?? false;
   if (!graph.has(nodeId)) return;
   const node = graph.get(nodeId);
-  if (!shouldTriggerThreadAi({ kind, actor, pendingRequest: node.pendingRequest })) return;
+  if (!shouldTriggerThreadAi({ kind, actor, pendingRequest: node.pendingRequest, rally })) return;
   const key = aiKey(nodeId, runId);
   if (runningThreadAi.has(key)) {
     pendingFollowUp.add(key); // 送信予約: 今の応答が終わったら最新のスレッドで応答し直す
@@ -463,7 +503,19 @@ export function maybeTriggerThreadAi(params: {
 
   const controller = new AbortController();
   runningThreadAi.set(key, controller);
-  respondInThread(graph, threads, settings, node, controller.signal, onQuestion, attachmentsDir, runId)
+  // ラリーへの応答では onQuestion を渡さない: 既にカードが開いているので、
+  // 万一 AI が QUESTION を書いても新しいカードは開かず普通の返信として載せる
+  respondInThread(
+    graph,
+    threads,
+    settings,
+    node,
+    controller.signal,
+    rally ? undefined : onQuestion,
+    attachmentsDir,
+    runId,
+    rally,
+  )
     .catch((err) => {
       if (controller.signal.aborted) return;
       console.error(`[thread-ai] node ${nodeId}: 予期しないエラー: ${String(err)}`);
