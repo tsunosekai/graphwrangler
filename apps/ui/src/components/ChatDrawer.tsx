@@ -1,6 +1,7 @@
 // 内蔵チャット（グラフ整理の GraphWrangler AI）。TopBar の 💬 から開く右ドロワー。
 // @ai-sdk/react の useChat + ai の DefaultChatTransport で UIMessageStream(SSE) を処理する。
 import { useEffect, useMemo, useRef, useState } from "react";
+import { loadUiState, saveUiState } from "../hooks/uiState";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { History, MessageSquare, SquarePen } from "lucide-react";
@@ -122,15 +123,13 @@ export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClo
   // モデル/エフォートの切り替え（2026-08-07 本人要望）。この端末の選択として記憶し、
   // 送信のたびに body で渡す（null = ⚙の既定に従う）。入力欄・添付・音声入力の実体は
   // ChatComposer（Thread と共通。2026-08-07「UI を分けずに同じコンポーネントに」）
-  const [chatModel, setChatModel] = useState<string | null>(() => localStorage.getItem("gw.chatModel"));
-  const [chatEffort, setChatEffort] = useState<string | null>(() => localStorage.getItem("gw.chatEffort"));
+  const [chatModel, setChatModel] = useState<string | null>(() => loadUiState("gw.chatModel"));
+  const [chatEffort, setChatEffort] = useState<string | null>(() => loadUiState("gw.chatEffort"));
   useEffect(() => {
-    if (chatModel) localStorage.setItem("gw.chatModel", chatModel);
-    else localStorage.removeItem("gw.chatModel");
+    saveUiState("gw.chatModel", chatModel);
   }, [chatModel]);
   useEffect(() => {
-    if (chatEffort) localStorage.setItem("gw.chatEffort", chatEffort);
-    else localStorage.removeItem("gw.chatEffort");
+    saveUiState("gw.chatEffort", chatEffort);
   }, [chatEffort]);
 
   // 会話/履歴タブ（2026-07-31 本人要望「切り替えるUIが無い」）。永続化不要のローカル状態

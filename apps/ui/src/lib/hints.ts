@@ -3,6 +3,7 @@
 // - 各ヒントの「OK」でそのヒントは二度と出ない / 設定で全体の無効化・リセットができる
 // - 状態は localStorage 持ち（metaOpen 等と同じ「UI状態」の扱い。正データには混ぜない）
 // - 同じ概念には同じ id を使う（カードとパネルで重複して OK を押させない）
+import { loadUiState, saveUiState } from "../hooks/uiState";
 import { useSyncExternalStore } from "react";
 
 const OFF_KEY = "gw.hints.off";
@@ -10,7 +11,7 @@ const DONE_KEY = "gw.hints.done";
 
 function readDone(): Set<string> {
   try {
-    const raw = JSON.parse(localStorage.getItem(DONE_KEY) ?? "[]");
+    const raw = JSON.parse(loadUiState(DONE_KEY) ?? "[]");
     return new Set(Array.isArray(raw) ? raw.filter((x) => typeof x === "string") : []);
   } catch {
     return new Set();
@@ -20,7 +21,7 @@ function readDone(): Set<string> {
 let done = readDone();
 let off = (() => {
   try {
-    return localStorage.getItem(OFF_KEY) === "1";
+    return loadUiState(OFF_KEY) === "1";
   } catch {
     return false;
   }
@@ -56,7 +57,7 @@ export function dismissHint(id: string) {
   if (done.has(id)) return;
   done.add(id);
   try {
-    localStorage.setItem(DONE_KEY, JSON.stringify([...done]));
+    saveUiState(DONE_KEY, JSON.stringify([...done]));
   } catch {
     // 永続化は補助機能
   }
@@ -66,7 +67,7 @@ export function dismissHint(id: string) {
 export function setHintsEnabled(v: boolean) {
   off = !v;
   try {
-    localStorage.setItem(OFF_KEY, off ? "1" : "0");
+    saveUiState(OFF_KEY, off ? "1" : "0");
   } catch {
     // 無視
   }
@@ -77,7 +78,7 @@ export function setHintsEnabled(v: boolean) {
 export function resetHints() {
   done = new Set();
   try {
-    localStorage.setItem(DONE_KEY, "[]");
+    saveUiState(DONE_KEY, "[]");
   } catch {
     // 無視
   }

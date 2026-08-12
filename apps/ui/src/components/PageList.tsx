@@ -30,6 +30,7 @@ import { CalendarDays, FolderPlus, PanelLeft, PanelLeftClose } from "lucide-reac
 import { focusGoalCapture } from "../lib/capture";
 import { HINT_TEXT } from "../lib/hints";
 import { useIdSetPref } from "../hooks/useIdSetPref";
+import { loadUiState, saveUiState } from "../hooks/uiState";
 import { ROOT_ROW, useRailDnd } from "../hooks/useRailDnd";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { buildRailIndex } from "../lib/railIndex";
@@ -128,14 +129,10 @@ export function PageList({
   // ルーティーンの予定カレンダー（2026-08-12 本人要望）。ルーティーン節ヘッダの📅から開く
   const [calendarOpen, setCalendarOpen] = useState(false);
   // レール自体の開閉（2026-07-31 本人要望）。閉じると細い縦帯だけ残す
-  const [railOpen, setRailOpen] = useState(() => localStorage.getItem("gw.railOpen") !== "0");
+  const [railOpen, setRailOpen] = useState(() => loadUiState("gw.railOpen") !== "0");
   const toggleRail = () =>
     setRailOpen((v) => {
-      try {
-        localStorage.setItem("gw.railOpen", v ? "0" : "1");
-      } catch {
-        // 無視
-      }
+      saveUiState("gw.railOpen", v ? "0" : "1");
       return !v;
     });
   // 折り畳み状態（localStorage。UI状態なので正データには混ぜない）

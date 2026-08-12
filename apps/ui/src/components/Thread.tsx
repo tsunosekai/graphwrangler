@@ -21,6 +21,9 @@ interface Props {
   unreadSince?: string | null;
   /** Task AI が応答生成中か（「考え中」表示。GraphWrangler AI＝ChatDrawer と同じ見た目にする） */
   aiBusy?: boolean;
+  /** 会話が0件のときの説明文（既定=このノードの相談窓口の案内）。発言者フィルタ中は
+   *  「絞り込みで空」だと分かる文言に差し替える（2026-08-12） */
+  emptyLabel?: string;
   /** 実行AI（エンジン）がこのノードの作業中か（2026-08-12。判断カードに答えた後〜成果が
    *  届くまでの「考え中」。Task AI とは別系統なので、入力欄の■停止は出さない） */
   executorBusy?: boolean;
@@ -195,6 +198,7 @@ export function Thread({
   aiBusy,
   executorBusy,
   aiQueued,
+  emptyLabel,
   showReplyBox,
   runId = null,
   aiModel,
@@ -279,7 +283,9 @@ export function Thread({
         }}
       >
         {flow.length === 0 && openRequests.length === 0 && (
-          <div className="py-2 text-sm text-text-lo">このノードの計画や作業をここで相談できます</div>
+          <div className="py-2 text-sm text-text-lo">
+            {emptyLabel ?? "このノードの計画や作業をここで相談できます"}
+          </div>
         )}
         {flow.map((m, idx) => {
           // 未読区切り（この位置から上が既読・下が未読）。メッセージ本体の前に挟む

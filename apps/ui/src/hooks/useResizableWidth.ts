@@ -1,6 +1,7 @@
 // パネル幅のドラッグ変更（desk の --rail-w / --panel-w と同じ思想）。
-// localStorage に保存し次回起動時に復元する。
+// localStorage に保存し次回起動時に復元する（保存はログインユーザーごと。uiState.ts）。
 import { useCallback, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { loadUiState, saveUiState } from "./uiState";
 
 export function useResizableWidth(
   key: string,
@@ -9,7 +10,7 @@ export function useResizableWidth(
   max: number,
 ): [number, (e: ReactPointerEvent, dir: 1 | -1) => void] {
   const [width, setWidth] = useState(() => {
-    const saved = localStorage.getItem(`gw.${key}`);
+    const saved = loadUiState(`gw.${key}`);
     const n = saved ? parseInt(saved, 10) : NaN;
     return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
   });
@@ -28,7 +29,7 @@ export function useResizableWidth(
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
-        localStorage.setItem(`gw.${key}`, String(latest));
+        saveUiState(`gw.${key}`, String(latest));
       };
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);

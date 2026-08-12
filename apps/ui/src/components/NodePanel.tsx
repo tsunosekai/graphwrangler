@@ -10,6 +10,7 @@ import {
   ScrollText,
   Trash2,
   Unlock,
+  Users,
   X,
 } from "lucide-react";
 import { effortLabel, modelLabel, useAiDefaults } from "../lib/aiDefaults";
@@ -23,6 +24,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { isRoutinePage } from "../lib/routine";
 import { threadKey } from "../lib/unread";
 import { usePolling } from "../hooks/usePolling";
+import { loadUiState, saveUiState } from "../hooks/uiState";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { displayNameOf, sameEmail, useTeam } from "../lib/team";
 import { cn } from "../lib/utils";
@@ -45,7 +47,17 @@ import { MembersSection } from "./nodepanel/MembersSection";
 import { OutputsSection } from "./nodepanel/OutputsSection";
 import { ScheduleSection } from "./nodepanel/ScheduleSection";
 import { StatusSection } from "./nodepanel/StatusSection";
-import { findLastBreak, inTab, splitSessions, type PanelTab } from "./nodepanel/messageFilters";
+import {
+  AUTHOR_AI,
+  AUTHOR_ALL,
+  AUTHOR_HUMAN,
+  collectAuthorKeys,
+  findLastBreak,
+  inTab,
+  matchesAuthor,
+  splitSessions,
+  type PanelTab,
+} from "./nodepanel/messageFilters";
 import { useImplStatus } from "./nodepanel/useImplStatus";
 
 interface Props {
@@ -111,24 +123,18 @@ export function NodePanel({
   // 履歴タブで開いている過去セッション（chatBreak メッセージの id。null = 一覧）。
   // GraphWrangler AI の履歴タブ（セッション一覧→クリックで中身）と同じ動線に揃える
   const [historySessionId, setHistorySessionId] = useState<string | null>(null);
+  // 発言者（メンバー）フィルタ（2026-08-12 本人要望）。ノードを開き直すたびに全員へ戻す
+  // （key={node.id} で再マウントされる）——絞ったまま別ノードへ行って「会話が消えた」と
+  // 見えるのを避けるため、あえて持ち越さない
+  const [authorFilter, setAuthorFilter] = useState<string>(AUTHOR_ALL);
   // ノード詳細は既定で開いておく（2026-07-31 本人指定）。会話に集中したいときだけ
   // タブ行右端の「会話を広げる」で閉じる。開閉はリロードを跨いで保持
   // （key={node.id} で再マウントされるため、ノード横断のグローバル設定として保存）
-  const [metaOpen, setMetaOpenRaw] = useState(() => {
-    try {
-      return localStorage.getItem("gw.metaOpen") !== "0";
-    } catch {
-      return true;
-    }
-  });
+  const [metaOpen, setMetaOpenRaw] = useState(() => loadUiState("gw.metaOpen") !== "0");
   const setMetaOpen = (updater: (v: boolean) => boolean) =>
     setMetaOpenRaw((v) => {
       const next = updater(v);
-      try {
-        localStorage.setItem("gw.metaOpen", next ? "1" : "0");
-      } catch {
-        // 無視
-      }
+      saveUiState("gw.metaOpen", next ? "1" : "0");
       return next;
     });
   const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
@@ -344,15 +350,31 @@ export function NodePanel({
   // スレッドは経緯の正史なので消さない。Task AI の応答文脈も server 側で同じ区切りを尊重する）
   const lastBreak = findLastBreak(messages);
   const talkSource = lastBreak >= 0 ? messages.slice(lastBreak + 1) : messages;
-  const filtered = (tab === "talk" ? talkSource : messages).filter((m) => inTab(m, tab));
+  // 発言者（メンバー）フィルタ（2026-08-12）。会話・履歴にだけ効かせる——実行記録は
+  // 機械が書く記録なので人で絞る意味がない（絞ると空になるだけ）
+  const byAuthor = (m: (typeof messages)[number]) =>
+    tab === "log" || matchesAuthor(m, authorFilter);
+  const filtered = (tab === "talk" ? talkSource : messages).filter(
+    (m) => inTab(m, tab) && byAuthor(m),
+  );
+  /** フィルタの選択肢: このスレッドに実際に登場した発言者だけ（会話タブ対象のメッセージから） */
+  const authorKeys = collectAuthorKeys(messages.filter((m) => inTab(m, "talk")));
+  const authorLabel = (key: string) =>
+    key === AUTHOR_AI ? "AI・システム" : key === AUTHOR_HUMAN ? "人間" : displayNameOf(key, users);
   // 「ノード内ノードに展開」ボタンを出してよいか（実行の内訳＝実行記録の下に出す）。
   // ラン表示（runView）はラン作成時点のフォークを見せているだけで書き込み対象ではないので不可、
   // それ以外は kind=task・未Fix・このノードが今のグラフに実在する（allNodes は
   // App が runView 時は runNodes に差し替えるので、run 中に消えた/ラン専用の
   // ノードでは false になる。expand 自体は409で弾かれるがボタンは出さない側で先に絞る）
   const canExpandSubSteps = !runView && node.kind === "task" && !node.fixed && allNodes.some((n) => n.id === node.id);
-  const pastSessions = splitSessions(messages);
-  const currentTalk = talkSource.filter((m) => inTab(m, "talk"));
+  // 履歴タブ側にも同じフィルタを効かせる。空になった過去セッションは一覧から落とす
+  // （「開いても何も無い」行を並べない）
+  const pastSessions = splitSessions(messages)
+    .map((s) => ({ ...s, messages: s.messages.filter((m) => matchesAuthor(m, authorFilter)) }))
+    .filter((s) => s.messages.length > 0);
+  const currentTalk = talkSource.filter(
+    (m) => inTab(m, "talk") && matchesAuthor(m, authorFilter),
+  );
   // モバイルは「ノード詳細」か「会話」のどちらか一方だけを画面に出す（2026-08-02 本人指示
   // 「（詰まった会話節は）いらねぇっつってんだよ、その分上広げろよ」）。切替は一番下の
   // 「会話を広げる」トグル。デスクトップは従来どおり両方出す
@@ -889,6 +911,37 @@ export function NodePanel({
           </TabsList>
         </Tabs>
         <span className="flex shrink-0 items-center">
+        {/* メンバーで絞る（2026-08-12 本人要望）。選択肢はこのスレッドに登場した人だけなので、
+            1人しか居ない会話（個人運用・AIとの1対1）ではそもそも出ない＝degrade 原則。
+            実行記録タブでは意味が無いので隠す */}
+        {tab !== "log" && authorKeys.length >= 2 && (
+          <Hint
+            id="author-filter"
+            text="会話と履歴を発言者で絞り込む（この会話に出てくる人だけが並ぶ。実行記録には効かない）"
+          >
+            <Select value={authorFilter} onValueChange={setAuthorFilter}>
+              <SelectTrigger
+                size="sm"
+                className={cn(
+                  "h-7 w-auto max-w-32 gap-1 border-none px-2 text-xs shadow-none",
+                  authorFilter === AUTHOR_ALL ? "text-muted-foreground" : "text-foreground",
+                )}
+                aria-label="発言者で絞り込む"
+              >
+                <Users className="size-3.5 flex-shrink-0" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={AUTHOR_ALL}>全員</SelectItem>
+                {authorKeys.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {authorLabel(key)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Hint>
+        )}
         {/* 狭いときはラベルを落としてアイコンだけにする（2026-08-02 本人指示
             「新しい会話ボタンは入りきってないからアイコンに」）。判定はビューポート（md:）
             でなくパネルの実幅（@container。2026-08-05 重なり修正）。右肩のトグルは
@@ -958,6 +1011,11 @@ export function NodePanel({
         unreadSince={unreadSince}
         aiBusy={thread?.aiBusy ?? false}
         executorBusy={executorBusy}
+        emptyLabel={
+          authorFilter === AUTHOR_ALL
+            ? undefined
+            : `${authorLabel(authorFilter)}の発言はこの会話にはありません（発言者で絞り込み中）`
+        }
         aiQueued={thread?.aiQueued ?? false}
         showReplyBox={tab === "talk"}
         // 書き込み先もこのランの会話（テンプレート側の相談とは混ざらない。2026-08-08）

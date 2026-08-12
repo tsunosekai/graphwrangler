@@ -34,6 +34,44 @@ export function inTab(m: MaterializedMessage, t: PanelTab): boolean {
   return (m.kind === "status" || m.kind === "artifact") && !isChatBreak(m);
 }
 
+// ---- 発言者（メンバー）フィルタ（2026-08-12 本人要望「会話履歴を、メンバーで
+//      フィルタリングする機能を追加」）----
+// 効かせるのは会話・履歴タブだけ。実行記録は機械が書く記録なので人で絞る意味がない。
+// 選択肢はロスター全員ではなく**そのスレッドに実際に登場した人**から作る（居ない人を
+// 並べても選ぶ意味がないうえ、1人しか居なければフィルタUI自体を出さずに済む）
+
+/** フィルタ無し（全員） */
+export const AUTHOR_ALL = "all";
+/** AI・システム（人間以外の発言をまとめる） */
+export const AUTHOR_AI = "ai";
+/** 名前の無い人間の発言（ログイン無し運用）。AI 側へ寄せないための別枠 */
+export const AUTHOR_HUMAN = "human";
+
+/** 発言者キー: 人間はメール（小文字化）、名無しの人間は AUTHOR_HUMAN、それ以外は AUTHOR_AI */
+export function authorKeyOf(m: MaterializedMessage): string {
+  if (m.author.kind !== "human") return AUTHOR_AI;
+  return m.author.name ? m.author.name.trim().toLowerCase() : AUTHOR_HUMAN;
+}
+
+/** フィルタ（AUTHOR_ALL / AUTHOR_AI / AUTHOR_HUMAN / メール）にこのメッセージが該当するか */
+export function matchesAuthor(m: MaterializedMessage, filter: string): boolean {
+  if (filter === AUTHOR_ALL) return true;
+  return authorKeyOf(m) === filter.trim().toLowerCase();
+}
+
+/** スレッドに登場する発言者キーの一覧（登場順・重複なし）。フィルタの選択肢に使う */
+export function collectAuthorKeys(messages: MaterializedMessage[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of messages) {
+    const key = authorKeyOf(m);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
+
 export interface PastSession {
   id: string;
   ts: string;

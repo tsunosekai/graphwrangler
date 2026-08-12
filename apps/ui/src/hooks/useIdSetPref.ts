@@ -2,10 +2,11 @@
 // localStorage に置くための小さなフック。UI状態なので正データ（ノード）には混ぜない。
 // 読めない / 書けない環境（プライベートモード等）でも黙って続ける——永続化は補助機能。
 import { useState } from "react";
+import { loadUiState, saveUiState } from "./uiState";
 
 function loadIdSet(key: string): Set<string> {
   try {
-    const raw = JSON.parse(localStorage.getItem(key) ?? "[]");
+    const raw = JSON.parse(loadUiState(key) ?? "[]");
     return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
   } catch {
     return new Set();
@@ -20,11 +21,7 @@ export function useIdSetPref(key: string): [Set<string>, (id: string) => void] {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      try {
-        localStorage.setItem(key, JSON.stringify([...next]));
-      } catch {
-        // 無視
-      }
+      saveUiState(key, JSON.stringify([...next]));
       return next;
     });
   return [ids, toggle];

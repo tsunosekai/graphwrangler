@@ -3,6 +3,7 @@
 // 絞り込みの判定は実効関係者（手動 members ∪ 作成者 ∪ 配下ノードの担当・関係者・作成者。
 // lib/team.ts の effectiveMembers）で行う。
 import { useCallback, useState } from "react";
+import { loadUiState, saveUiState } from "../../hooks/uiState";
 import { displayNameOf, effectiveMembers, sameEmail, useTeam } from "../../lib/team";
 import type { Node } from "../../types";
 import { Hint } from "../Hint";
@@ -24,15 +25,11 @@ export function usePersonFilter(membersOf: (groupId: string) => Node[]): PersonF
   // 人フィルタ: "all"（全員）/ "me"（自分。ログイン中のみ）/ "none"（帰属なし）/
   // メールアドレス。リロード跨ぎで保持
   const [personFilter, setPersonFilterRaw] = useState<string>(
-    () => localStorage.getItem(STORAGE_KEY) ?? "all",
+    () => loadUiState(STORAGE_KEY) ?? "all",
   );
   const setValue = (v: string) => {
     setPersonFilterRaw(v);
-    try {
-      localStorage.setItem(STORAGE_KEY, v);
-    } catch {
-      // 無視（永続化は補助機能）
-    }
+    saveUiState(STORAGE_KEY, v);
   };
   // 保存値の正規化: 未ログインで "me" が残っていた・ロスターから消えたメールだった、は
   // 「全員」に倒す（Select の表示と絞り込みの両方がこれを使う）。"none"（帰属なし）は有効値

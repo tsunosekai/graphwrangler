@@ -17,7 +17,7 @@ import { TeamContext, useTeam, type Team } from "./lib/team";
 import { cn } from "./lib/utils";
 import { usePolling } from "./hooks/usePolling";
 import { useIsMobile } from "./hooks/useIsMobile";
-import { loadTabState, loadUiState, saveTabState, saveUiState } from "./hooks/uiState";
+import { loadTabState, loadUiState, saveTabState, saveUiState, setUiStateScope } from "./hooks/uiState";
 import { useReadState } from "./hooks/useReadState";
 import { useDesktopNotify } from "./hooks/useDesktopNotify";
 import { useUrlRouting } from "./hooks/useUrlRouting";
@@ -73,9 +73,15 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const refreshMe = useCallback(async () => {
     try {
-      setMe(await api.getMe());
+      const next = await api.getMe();
+      // 画面状態（開いていたページ・選択・パネル開閉・幅…）の保存領域をこの人へ切り替えてから
+      // 本体をマウントする（2026-08-12 本人要望「それぞれのメンバーの画面に影響を及ぼさない」）。
+      // useState 初期化子が読むので、setMe より**前**に呼ぶ必要がある
+      setUiStateScope(next.email);
+      setMe(next);
     } catch {
       // 判定に失敗したら従来どおり本体を出す（ログイン不要運用・旧サーバとの互換）
+      setUiStateScope(null);
       setMe({ email: null, displayName: null, admin: false, authRequired: false });
     }
   }, []);
