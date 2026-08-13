@@ -14,6 +14,7 @@ import {
   type ParsedSchedule,
   type Weekday,
 } from "@graphwrangler/core/schedule";
+import { isJapaneseBusinessDay } from "@graphwrangler/core/holidays";
 import type { Node, Run } from "../types";
 
 export interface CalendarTrigger {
@@ -94,6 +95,7 @@ function lastWeekdayOnOrBefore(weekday: Weekday, base: Date): Date {
  * year年 monthIndex月(0-11) のうち、このトリガーが「発火する予定の日」の日番号（1始まり）。
  *
  * - daily / every: 全日（既定フィルタでは隠れている。表示したときは毎日チップが出る）
+ * - weekday: 平日（月〜金かつ祝日でない日）。毎週の月〜金と違い祝日が抜ける
  * - weekly: 対象曜日の日
  * - biweekly: 対象曜日のうち、錨（最新ランの直近対象曜日。ランが無ければ today 基準の
  *   直近対象曜日）と週差が偶数の日——エンジンの「最後のランから2週間」の近似
@@ -131,6 +133,8 @@ export function occurrenceDays(
       return diff % stepDays === 0;
     });
   }
+
+  if (parsed.type === "weekday") return pick((_day, date) => isJapaneseBusinessDay(date));
 
   if (parsed.type === "weekly") {
     const targets = new Set(parsed.weekdays.map((d) => WEEKDAYS.indexOf(d)));

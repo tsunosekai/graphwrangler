@@ -124,6 +124,47 @@ describe("shouldCreateScheduledRun: weekly", () => {
   });
 });
 
+// 平日（2026-08-14 追加）。祝日カレンダーは core/holidays.ts が持ち、ここでは
+// 「休みの日は作らない」「連休明けの最初の平日に1本だけ作る」の2点を見る。
+// 2026年GW: 5/2(土) 5/3(日=憲法記念日) 5/4 5/5 5/6(振替休日) が休み、5/7(木)が明け
+describe("shouldCreateScheduledRun: weekday（平日）", () => {
+  const schedule = () => parseSchedule("weekday 09:00")!;
+
+  it("平日で目標時刻より前ならfalse、過ぎていて未生成ならtrue", () => {
+    expect(shouldCreateScheduledRun(schedule(), null, new Date(2026, 4, 7, 8, 59))).toBe(false);
+    expect(shouldCreateScheduledRun(schedule(), null, new Date(2026, 4, 7, 9, 5))).toBe(true);
+  });
+
+  it("土日・祝日・振替休日には作らない（前営業日の分が済んでいれば黙る）", () => {
+    const friday = { created: new Date(2026, 4, 1, 9, 0).toISOString() }; // 5/1(金)の分は生成済み
+    expect(shouldCreateScheduledRun(schedule(), friday, new Date(2026, 4, 2, 12, 0))).toBe(false); // 土
+    expect(shouldCreateScheduledRun(schedule(), friday, new Date(2026, 4, 3, 12, 0))).toBe(false); // 日=祝日
+    expect(shouldCreateScheduledRun(schedule(), friday, new Date(2026, 4, 5, 12, 0))).toBe(false); // こどもの日
+    expect(shouldCreateScheduledRun(schedule(), friday, new Date(2026, 4, 6, 12, 0))).toBe(false); // 振替休日
+  });
+
+  it("連休明けの最初の平日に1本だけ作る", () => {
+    const friday = { created: new Date(2026, 4, 1, 9, 0).toISOString() };
+    expect(shouldCreateScheduledRun(schedule(), friday, new Date(2026, 4, 7, 9, 5))).toBe(true);
+    // その1本が済めば同じ日はもう作らない
+    const thursday = { created: new Date(2026, 4, 7, 9, 1).toISOString() };
+    expect(shouldCreateScheduledRun(schedule(), thursday, new Date(2026, 4, 7, 18, 0))).toBe(false);
+  });
+
+  it("国民の休日（2026-09-22）も平日扱いしない", () => {
+    const before = { created: new Date(2026, 8, 18, 9, 0).toISOString() }; // 9/18(金)
+    expect(shouldCreateScheduledRun(schedule(), before, new Date(2026, 8, 22, 12, 0))).toBe(false);
+    expect(shouldCreateScheduledRun(schedule(), before, new Date(2026, 8, 24, 9, 5))).toBe(true);
+  });
+
+  it("祝日に動く「毎週月〜金」とは別物（同じ祝日で weekly は作る）", () => {
+    const weekly = parseSchedule("weekly mon,tue,wed,thu,fri 09:00")!;
+    const friday = { created: new Date(2026, 4, 1, 9, 0).toISOString() };
+    expect(shouldCreateScheduledRun(weekly, friday, new Date(2026, 4, 5, 9, 5))).toBe(true);
+    expect(shouldCreateScheduledRun(schedule(), friday, new Date(2026, 4, 5, 9, 5))).toBe(false);
+  });
+});
+
 describe("shouldCreateScheduledRun: daily", () => {
   it("目標時刻より前ならfalse", () => {
     const schedule = parseSchedule("daily 09:00")!;

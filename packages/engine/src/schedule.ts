@@ -10,6 +10,7 @@
 import {
   parseSchedule,
   WEEKDAYS,
+  isJapaneseBusinessDay,
   matchesCron,
   lastDayOfMonth,
   lastWeekdayOfMonth,
@@ -37,6 +38,7 @@ type CalendarSchedule = Extract<
   {
     type:
       | "daily"
+      | "weekday"
       | "weekly"
       | "monthly"
       | "monthlyLastDow"
@@ -65,6 +67,10 @@ function targetTimeOn(schedule: CalendarSchedule, date: Date): Date | null {
   switch (schedule.type) {
     case "daily":
       return at();
+    case "weekday":
+      // 平日（月〜金かつ祝日でない日）。土日祝は「対象日でない」＝その日は作らず、
+      // 次の平日の定刻に出る（daily と同じ暦ベースの探索に乗る）
+      return isJapaneseBusinessDay(date) ? at() : null;
     case "weekly":
       return schedule.weekdays.includes(WEEKDAYS[date.getDay()]) ? at() : null;
     case "monthly": {
@@ -125,9 +131,11 @@ function lastOccurrenceOnOrBefore(
  * - "biweekly"（2026-08-12）: weekly と同じ発生時刻の系で、最新ランが直近の発生の
  *   **1週間以上前**のときだけ true。固定の週パリティを持たず最後のラン実績が錨——
  *   最初のランを作った週から1週おきが自然に維持され、skip 回答も同じ式で効く
- * - それ以外（weekly / monthly系 / yearly系。暦ベース）: 「対象日当日で目標時刻より前なら
+ * - それ以外（weekday / weekly / monthly系 / yearly系。暦ベース）: 「対象日当日で目標時刻より前なら
  *   false」を先に見たうえで、**直近の予定時刻（必ず now 以前）**を求め、最新ランがそれより
  *   前なら true。第5曜日や31日が無い月・2月の最終日など、存在しない日は自動で飛ばされる
+ *   （weekday＝平日は「土日祝は対象日でない」だけなので、この共通の仕組みにそのまま乗る。
+ *   連休明けの最初の平日に、休みの分をまとめて1本作る形になる）
  * - "once"（2026-08-12）: その日時を過ぎていて、まだその時刻以降のランが無ければ true
  *   （＝1回だけ。以後は永久に false）
  */

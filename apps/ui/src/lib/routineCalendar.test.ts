@@ -24,12 +24,21 @@ describe("isFineSchedule: 毎日以下（既定フィルタで隠す対象）の
     expect(isFineSchedule(parseSchedule("yearly 4 2 tue 09:00")!)).toBe(false);
     expect(isFineSchedule(parseSchedule("0 9 1 * *")!)).toBe(false); // 毎月1日
     expect(isFineSchedule(parseSchedule("0 9 * * 1")!)).toBe(false); // 毎週月曜
+    // 平日は週5回だが、同じ並びの "weekly mon,tue,wed,thu,fri" と扱いをそろえる（2026-08-14）
+    expect(isFineSchedule(parseSchedule("weekday 09:00")!)).toBe(false);
   });
 });
 
 describe("occurrenceDays: 月内の発火予定日", () => {
   it("weekly は対象曜日の全日", () => {
     expect(occurrenceDays(parseSchedule("weekly mon 09:00")!, 2026, 0, opts)).toEqual([5, 12, 19, 26]);
+  });
+
+  // 2026-05: 1(金) のあとGW（2(土) 3(日=憲法記念日) 4 5 6(振替休日)）、7(木)から平常
+  it("weekday は月〜金から祝日・振替休日を抜いた日", () => {
+    expect(occurrenceDays(parseSchedule("weekday 09:00")!, 2026, 4, opts)).toEqual([
+      1, 7, 8, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29,
+    ]);
   });
 
   it("biweekly はランが無ければ today 基準の隔週（today=1/14 → 直近月曜 1/12 が錨）", () => {

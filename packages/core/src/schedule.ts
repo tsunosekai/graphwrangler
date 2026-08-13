@@ -7,6 +7,7 @@
 // 対応する書式（それ以外は解釈不能としてパースは null）:
 //   - "every <N>m|h|d|w"                     … N 間隔（w=週。2026-08-12 追加）
 //   - "daily <HH:MM>"                        … 毎日その時刻
+//   - "weekday <HH:MM>"                      … 平日（月〜金かつ祝日でない日。2026-08-14）
 //   - "weekly <dow[,dow…]> <HH:MM>"          … 毎週その曜日時刻（複数曜日可。2026-08-12）
 //   - "biweekly <dow> <HH:MM>"               … 隔週（錨は最後のラン実績）
 //   - "monthly <1-5> <dow> <HH:MM>"          … 毎月第n曜日（第5が無い月はスキップ）
@@ -23,6 +24,10 @@
 // 2026-08-12 の拡張は本人指示「あらゆるタイミングが登録できるように、他のOSSと比べて
 // 足りてないものは入れておいて」。cron 互換（名前・?・マクロ）と、cron では書けない
 // 「最終日」「最終◯曜」「1回だけ」を足した（cron の L は非対応のままで、専用書式で表す）。
+//
+// 2026-08-14 に "weekday"（平日）を追加。"weekly mon,tue,wed,thu,fri" でも月〜金は書けるが、
+// 本人の言う「平日」は**祝日を除く**という意味なので別の型にした（祝日カレンダーは
+// holidays.ts。cron でも weekly でも表せない条件で、専用書式にするしかない）。
 
 export const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
@@ -55,6 +60,9 @@ export type EveryUnit = "m" | "h" | "d" | "w";
 export type ParsedSchedule =
   | { type: "every"; ms: number; amount: number; unit: EveryUnit; raw: string }
   | { type: "daily"; hour: number; minute: number; raw: string }
+  // 平日（2026-08-14 本人要望）。月〜金のうち祝日・振替休日・国民の休日を除いた日
+  // （定義は holidays.ts の isJapaneseBusinessDay）。土日祝は飛ばして次の平日に出る
+  | { type: "weekday"; hour: number; minute: number; raw: string }
   // 毎週。複数曜日を持てる（"weekly mon,wed,fri 09:00"。平日だけ・週2回などが1本で書ける）
   | { type: "weekly"; weekdays: Weekday[]; hour: number; minute: number; raw: string }
   // 隔週◯曜（2026-08-12 本人要望）。どちらの週かの錨は「最後のランから2週間」——
@@ -82,6 +90,8 @@ export type ParsedSchedule =
 const DOW = "mon|tue|wed|thu|fri|sat|sun";
 const EVERY_RE = /^every\s+(\d+)\s*(m|h|d|w)$/i;
 const DAILY_RE = /^daily\s+(\d{1,2}):(\d{2})$/i;
+// "weekday 09:00" = 平日（月〜金かつ祝日でない日）09:00
+const WEEKDAY_RE = /^weekday\s+(\d{1,2}):(\d{2})$/i;
 const WEEKLY_RE = new RegExp(`^weekly\\s+((?:${DOW})(?:\\s*,\\s*(?:${DOW}))*)\\s+(\\d{1,2}):(\\d{2})$`, "i");
 const BIWEEKLY_RE = new RegExp(`^biweekly\\s+(${DOW})\\s+(\\d{1,2}):(\\d{2})$`, "i");
 // "monthly 2 tue 09:00" = 毎月第2火曜 09:00
@@ -260,6 +270,12 @@ export function parseSchedule(text: string): ParsedSchedule | null {
     return t ? { type: "daily", ...t, raw: text } : null;
   }
 
+  const weekdayMatch = WEEKDAY_RE.exec(trimmed);
+  if (weekdayMatch) {
+    const t = time(weekdayMatch[1], weekdayMatch[2]);
+    return t ? { type: "weekday", ...t, raw: text } : null;
+  }
+
   const weeklyMatch = WEEKLY_RE.exec(trimmed);
   if (weeklyMatch) {
     const weekdays = parseWeekdayList(weeklyMatch[1]);
@@ -417,6 +433,7 @@ export function formatSchedule(
   parsed:
     | { type: "every"; amount: number; unit: EveryUnit }
     | { type: "daily"; hour: number; minute: number }
+    | { type: "weekday"; hour: number; minute: number }
     | { type: "weekly"; weekdays: Weekday[]; hour: number; minute: number }
     | { type: "biweekly"; weekday: Weekday; hour: number; minute: number }
     | { type: "monthly"; nth: number; weekday: Weekday; hour: number; minute: number }
@@ -433,6 +450,8 @@ export function formatSchedule(
   switch (parsed.type) {
     case "daily":
       return `daily ${time}`;
+    case "weekday":
+      return `weekday ${time}`;
     case "weekly":
       return `weekly ${parsed.weekdays.join(",")} ${time}`;
     case "biweekly":
@@ -468,6 +487,10 @@ export function describeSchedule(text: string | null): string | null {
   switch (parsed.type) {
     case "daily":
       return `毎日 ${time}`;
+    case "weekday":
+      // 「祝日を除く」まで読み下しへ入れる。ノードカード・[起動方式]の記録もこれを載せるので、
+      // 土日だけ除く「毎週月〜金」との違いが一目で分かる必要がある
+      return `平日（祝日を除く）${time}`;
     case "weekly":
       return `毎週${parsed.weekdays.map((d) => WEEKDAY_JA[d]).join("・")}曜 ${time}`;
     case "biweekly":

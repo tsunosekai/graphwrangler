@@ -83,7 +83,8 @@ export function buildScheduleWarningBody(scheduleText: string | null): string {
     : "schedule が設定されていません";
   return (
     `${SCHEDULE_WARNING_MARKER} ${cause}。このトリガーはランを作りません` +
-    "（対応する書式: every 15m|2h|3d|2w / daily 09:00 / weekly mon,wed,fri 09:00 / " +
+    "（対応する書式: every 15m|2h|3d|2w / daily 09:00 / weekday 09:00 / " +
+    "weekly mon,wed,fri 09:00 / " +
     "biweekly mon 09:00 / monthly day 25 09:00 / monthly lastday 18:00 / monthly 2 tue 09:00 / " +
     "monthly last fri 17:30 / yearly day 4 1 09:00 / yearly lastday 3 18:00 / " +
     "yearly 4 2 tue 09:00 / once 2026-09-01 09:00 / cron 5フィールド）"

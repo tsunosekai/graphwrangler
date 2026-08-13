@@ -41,6 +41,8 @@ describe("formatSchedule", () => {
       "yearly day 4 1 09:00",
       "yearly lastday 3 18:00",
       "once 2026-09-01 09:00",
+      // 2026-08-14 追加（平日）
+      "weekday 09:00",
     ]) {
       const parsed = parseSchedule(raw);
       expect(parsed).not.toBeNull();
@@ -80,6 +82,15 @@ describe("describeSchedule", () => {
     expect(describeSchedule("monthly 2 tue 09:00")).toBe("毎月第2火曜 09:00");
     expect(describeSchedule("yearly 4 2 tue 09:00")).toBe("毎年4月の第2火曜 09:00");
     expect(describeSchedule("*/15 9-23 * * *")).toBe("cron式（*/15 9-23 * * *）");
+  });
+
+  // 平日は「毎週月〜金」と紛らわしいので、読み下しの時点で祝日の扱いを言い切る
+  // （ノードカードと [起動方式] の記録がこの文言をそのまま載せる）
+  it("平日は祝日を除くことを読み下しに含める", () => {
+    expect(describeSchedule("weekday 9:00")).toBe("平日（祝日を除く）09:00");
+    expect(describeSchedule("weekly mon,tue,wed,thu,fri 09:00")).toBe(
+      "毎週月・火・水・木・金曜 09:00",
+    );
   });
 
   it("未設定・解釈できない書式は null（UI は警告表示へ切り替える）", () => {

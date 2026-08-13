@@ -7,7 +7,10 @@
 //
 // 2026-08-12 拡張（本人要望「毎月最終日」「毎月何日」「あらゆるタイミングが登録できるように」）:
 // 毎月・毎年は「指定のしかた」を副セレクトで選ぶ（日付 / 最終日 / 第n曜日 / 最終◯曜）。
-// 毎週は曜日を複数選べる（平日だけ・週2回が1本で書ける）。1回だけ（once）も追加。
+// 毎週は曜日を複数選べる（月〜金・週2回が1本で書ける）。1回だけ（once）も追加。
+//
+// 2026-08-14 に「平日」を方式へ追加（本人要望）。毎週の月〜金と紛らわしいので、
+// 平日＝祝日も除く / 毎週の月〜金＝祝日も動く、の違いをフォーム上で言い切る。
 import { useEffect, useState } from "react";
 import {
   WEEKDAYS,
@@ -30,6 +33,7 @@ type Mode =
   | "none"
   | "every"
   | "daily"
+  | "weekday"
   | "weekly"
   | "biweekly"
   | "monthly"
@@ -41,6 +45,7 @@ type Mode =
 const MODE_JA: Record<Exclude<Mode, "none" | "raw">, string> = {
   every: "間隔ごと",
   daily: "毎日",
+  weekday: "平日",
   weekly: "毎週",
   biweekly: "隔週",
   monthly: "毎月",
@@ -126,6 +131,8 @@ function deriveState(schedule: string | null): FormState {
   switch (parsed.type) {
     case "daily":
       return { ...base, mode: "daily", ...time };
+    case "weekday":
+      return { ...base, mode: "weekday", ...time };
     case "weekly":
       return { ...base, mode: "weekly", weekdays: parsed.weekdays, ...time };
     case "biweekly":
@@ -209,6 +216,8 @@ function buildSchedule(s: FormState): string | null | undefined {
   switch (s.mode) {
     case "daily":
       return formatSchedule({ type: "daily", hour, minute });
+    case "weekday":
+      return formatSchedule({ type: "weekday", hour, minute });
     case "weekly":
       if (s.weekdays.length === 0) return undefined; // 曜日を1つも選んでいない＝保存しない
       return formatSchedule({ type: "weekly", weekdays: s.weekdays, hour, minute });
@@ -240,7 +249,9 @@ function buildSchedule(s: FormState): string | null | undefined {
   }
 }
 
-/** 曜日トグル（毎週の複数曜日）。平日・毎日のプリセットも添える */
+/** 曜日トグル（毎週の複数曜日）。月〜金のプリセットを添える。
+ *  「平日」と呼ばないのは方式セレクトの平日（祝日を除く）と別物だから——こちらは
+ *  祝日でも動く単なる月〜金。取り違えると祝日に動く/動かないが逆になる */
 function WeekdayPicker({
   value,
   disabled,
@@ -280,10 +291,11 @@ function WeekdayPicker({
       <button
         type="button"
         disabled={disabled}
+        title="月〜金を選ぶ（祝日も動きます。祝日を除きたいなら方式の「平日」）"
         className="text-xs text-muted-foreground underline-offset-2 hover:underline"
         onClick={() => onChange(["mon", "tue", "wed", "thu", "fri"])}
       >
-        平日
+        月〜金
       </button>
     </span>
   );
@@ -562,7 +574,7 @@ export function ScheduleSection({
 
         {/* 時刻（暦系すべて） */}
         {!intervalOnly &&
-          ["daily", "weekly", "biweekly", "monthly", "yearly", "once"].includes(state.mode) &&
+          ["daily", "weekday", "weekly", "biweekly", "monthly", "yearly", "once"].includes(state.mode) &&
           timeInput}
       </div>
 
@@ -620,6 +632,10 @@ export function ScheduleSection({
           {/* 31日など、その日が無い月は飛ばす（月末に寄せたいなら「最終日」を使う） */}
           {state.mode === "monthly" && state.monthMode === "day" && Number(state.dayOfMonth) > 28
             ? `（${state.dayOfMonth}日が無い月は飛ばします。月末に寄せたいなら「最終日」）`
+            : ""}
+          {/* 平日: 休みの日ぶんは作らない（連休明けにまとめて1本、が期待どおりか確かめられるように） */}
+          {state.mode === "weekday"
+            ? "（土日・祝日・振替休日・国民の休日は作らず、次の平日に1本作ります）"
             : ""}
         </p>
       ) : (
