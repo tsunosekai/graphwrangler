@@ -29,6 +29,7 @@ import {
   parseAiRunDecision,
   parseDetectEmitLines,
   resolveAiCheckIntervalMs,
+  runsOfTrigger,
   shouldEvaluateAiTrigger,
   shouldRunScriptTrigger,
   shouldRunDetectScript,
@@ -61,8 +62,8 @@ function detectVia(trigger: Node): string {
  * 載せる——検知スクリプトは「まだランになっていない対象」を次回も再 emit する前提なので、
  * 残りは次回の検知で改めて拾われる（カードの多重発行で人間を溺れさせない）。
  */
-async function tickDetectScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
-  const latestRun = runsForPage[0] ?? null; // list は created 降順
+async function tickDetectScriptTrigger(trigger: Node, runsForTrigger: Run[]): Promise<void> {
+  const latestRun = runsForTrigger[0] ?? null; // list は created 降順
   if (trigger.pendingRequest) return; // ラン前承認カード等の回答待ち
   const actor: Actor = { kind: "agent", name: "executor:script" };
 
@@ -214,12 +215,12 @@ async function noteUnresolvedSchedule(trigger: Node): Promise<void> {
  *  （tickDetectScriptTrigger。3.15）、無ければ従来どおりの無条件 cron ラン作成。
  *  approval=true（ラン前承認）ならラン作成の代わりにラン前承認カードを開き、
  *  go 回答の1回だけランを作る（trigger.ts 参照） */
-async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
+async function tickScriptTrigger(trigger: Node, runsForTrigger: Run[]): Promise<void> {
   if (isDetectScriptTrigger(trigger)) {
-    await tickDetectScriptTrigger(trigger, runsForPage);
+    await tickDetectScriptTrigger(trigger, runsForTrigger);
     return;
   }
-  const latestRun = runsForPage[0] ?? null; // list は created 降順
+  const latestRun = runsForTrigger[0] ?? null; // list は created 降順
   if (trigger.pendingRequest) return; // ラン前承認カード等の回答待ち
 
   let gate: RunStartGateState = { status: "none" };
@@ -286,7 +287,7 @@ async function tickScriptTrigger(trigger: Node, runsForPage: Run[]): Promise<voi
  *  ときだけ AI に「今ランを作るべきか」を判定させる。run ならスレッドへ理由を残してランを作り、
  *  skip はエンジンログのみ（スレッドは汚さない。docs/design.md「skipはエンジンログのみ」）。
  *  approval=true（ラン前承認）なら AI の run 判定後にラン前承認カードを開き、go 回答の1回だけランを作る */
-async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
+async function tickAiTrigger(trigger: Node, runsForTrigger: Run[]): Promise<void> {
   if (trigger.pendingRequest) return; // ラン前承認カード等の回答待ち
 
   if (trigger.approval) {
@@ -299,11 +300,11 @@ async function tickAiTrigger(trigger: Node, runsForPage: Run[]): Promise<void> {
       log(`ラン前承認のスレッド取得に失敗（この周は保留）: trigger=${trigger.id} ${String(err)}`);
       return;
     }
-    if (hasUnconsumedGo(gate, runsForPage[0] ?? null)) {
+    if (hasUnconsumedGo(gate, runsForTrigger[0] ?? null)) {
       // 承認済みの go はその場で消費する（2026-08-08: 以前は実行中ランがあると待たせていたが、
       // 人間が「開始して」と答えたのに動かないのは事故に見える）。
       // ラン作成判定の ##gw マーカー由来の context（payload.runEvent）があれば載せる
-      const event = findLatestRunEvent(messages, runsForPage[0] ?? null);
+      const event = findLatestRunEvent(messages, runsForTrigger[0] ?? null);
       try {
         await runTriggerNode(
           trigger.id,
@@ -423,11 +424,14 @@ export async function triggerTick(nodes: Node[]): Promise<void> {
     if (!trigger.group) continue;
     const runsForPage = runsByPage.get(trigger.group);
     if (!runsForPage) continue; // 一覧取得に失敗したページはこの周スキップ
+    // 判定はそのトリガーが作ったランだけで行う（2026-08-14 修正。同じページの別トリガーの
+    // ランを「自分の回は済んだ」と誤認して黙るのを防ぐ。trigger.ts の runsOfTrigger）
+    const runsForTrigger = runsOfTrigger(runsForPage, trigger.id);
 
     if (trigger.executor === "script") {
-      await tickScriptTrigger(trigger, runsForPage);
+      await tickScriptTrigger(trigger, runsForTrigger);
     } else if (trigger.executor === "ai") {
-      await tickAiTrigger(trigger, runsForPage);
+      await tickAiTrigger(trigger, runsForTrigger);
     }
     // executor=human はエンジンは何もしない（手動 /run のみ）
   }

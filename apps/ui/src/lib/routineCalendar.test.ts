@@ -2,7 +2,8 @@
 // 2026-01: 1日=木曜。月曜は 5,12,19,26 / 金曜は 2,9,16,23,30（第5金曜あり）
 import { describe, expect, it } from "vitest";
 import { parseSchedule } from "@graphwrangler/core/schedule";
-import { isFineSchedule, occurrenceDays } from "./routineCalendar";
+import { isFineSchedule, latestRunCreatedOf, occurrenceDays } from "./routineCalendar";
+import type { Run } from "../types";
 
 const opts = { latestRunCreated: null, today: new Date(2026, 0, 14) };
 
@@ -43,6 +44,20 @@ describe("occurrenceDays: 月内の発火予定日", () => {
 
   it("biweekly はランが無ければ today 基準の隔週（today=1/14 → 直近月曜 1/12 が錨）", () => {
     expect(occurrenceDays(parseSchedule("biweekly mon 09:00")!, 2026, 0, opts)).toEqual([12, 26]);
+  });
+
+  // 2026-08-14: 錨はページではなくトリガー単位。同じページの別トリガーのランに引きずられない
+  it("biweekly の錨は自分のトリガーのランだけを見る", () => {
+    const runs = {
+      "p-1": [
+        { created: new Date(2026, 0, 12, 9, 0).toISOString(), trigger: "trigger:t-other:schedule:x" },
+        { created: new Date(2026, 0, 5, 9, 0).toISOString(), trigger: "trigger:t-mine:manual" },
+      ],
+    } as unknown as Record<string, Run[]>;
+    expect(latestRunCreatedOf(runs, "p-1", "t-mine")).toBe(
+      new Date(2026, 0, 5, 9, 0).toISOString(),
+    );
+    expect(latestRunCreatedOf(runs, "p-1", "t-none")).toBeNull();
   });
 
   it("biweekly は最新ランの週が錨（1/5 のランがあれば 5,19）", () => {

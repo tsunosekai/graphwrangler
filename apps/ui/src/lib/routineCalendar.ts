@@ -187,10 +187,20 @@ export function occurrenceDays(
   return pick((_day, date) => cronMatchesDate(parsed.fields, date));
 }
 
-/** ページの最新ラン作成時刻（biweekly / every Nd の錨用）。無ければ null */
-export function latestRunCreatedOf(pageRuns: Record<string, Run[]>, pageId: string): string | null {
+/** そのトリガーの最新ラン作成時刻（biweekly / every Nd の錨用）。無ければ null。
+ *  ページ単位ではなくトリガー単位で見る（2026-08-14 修正。同じページに複数トリガーがあると
+ *  別トリガーのランが錨になり、隔週・N日ごとの予定が実際とずれて見えていた。
+ *  出所は run.trigger = "trigger:<triggerId>:<via>"。エンジン側の runsOfTrigger と同じ絞り方） */
+export function latestRunCreatedOf(
+  pageRuns: Record<string, Run[]>,
+  pageId: string,
+  triggerId: string,
+): string | null {
   const runs = pageRuns[pageId];
-  return runs && runs.length > 0 ? runs[0].created : null; // App の一覧は created 降順
+  if (!runs) return null;
+  const prefix = `trigger:${triggerId}:`;
+  const mine = runs.find((r) => r.trigger.startsWith(prefix)); // App の一覧は created 降順
+  return mine ? mine.created : null;
 }
 
 export interface CalendarCellEntry {
@@ -210,7 +220,7 @@ export function buildMonthCells(
   for (const t of triggers) {
     if (t.fine && !showFine) continue;
     const days = occurrenceDays(t.parsed, year, monthIndex, {
-      latestRunCreated: latestRunCreatedOf(pageRuns, t.pageId),
+      latestRunCreated: latestRunCreatedOf(pageRuns, t.pageId, t.triggerId),
       today,
     });
     for (const day of days) {

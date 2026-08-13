@@ -20,6 +20,7 @@ import {
   parseAiRunDecision,
   parseDetectEmitLines,
   resolveAiCheckIntervalMs,
+  runsOfTrigger,
   shouldEvaluateAiTrigger,
   shouldRunScriptTrigger,
   shouldRunDetectScript,
@@ -579,5 +580,59 @@ describe("latestScheduleSetAt / mergeScheduleSetBaseline: 設定・変更直後�
     const merged = mergeScheduleSetBaseline(null, setAt);
     expect(shouldRunScriptTrigger("every 15m", merged, new Date(2026, 0, 5, 10, 0, 5))).toBe(false);
     expect(shouldRunScriptTrigger("every 15m", merged, new Date(2026, 0, 5, 10, 15))).toBe(true);
+  });
+});
+
+// 同じページに複数のトリガーが並ぶ形（本人のページ: 毎日21:00 / 毎日23:00 / 毎週金13:30 が
+// それぞれ別の担当者へ伸びる3本のライン）。2026-08-14 まではラン作成の判定に**ページの**
+// 最新ランを使っていたため、別ラインのランが「自分の回は済んだ」と誤認されて黙っていた。
+describe("runsOfTrigger: 同じページの複数トリガーが互いを潰さない（2026-08-14 修正）", () => {
+  const run = (triggerId: string, created: Date, via = "schedule:x") => ({
+    id: `r-${triggerId}-${created.getTime()}`,
+    trigger: `trigger:${triggerId}:${via}`,
+    created: created.toISOString(),
+  });
+
+  it("自分のトリガーが作ったランだけを残す（手動▶のランは自分のものとして残す）", () => {
+    const runs = [
+      run("n-2100", new Date(2026, 7, 13, 21, 0)),
+      run("n-2300", new Date(2026, 7, 12, 23, 0)),
+      run("n-2300", new Date(2026, 7, 11, 15, 0), "manual"),
+    ];
+    expect(runsOfTrigger(runs, "n-2300").map((r) => r.id)).toEqual([runs[1].id, runs[2].id]);
+    expect(runsOfTrigger(runs, "n-2100").map((r) => r.id)).toEqual([runs[0].id]);
+    expect(runsOfTrigger(runs, "n-9999")).toEqual([]);
+  });
+
+  it("id の前方一致で他のトリガーを巻き込まない", () => {
+    const runs = [run("n-21", new Date(2026, 7, 13, 21, 0)), run("n-210", new Date(2026, 7, 13, 22, 0))];
+    expect(runsOfTrigger(runs, "n-21").map((r) => r.id)).toEqual([runs[0].id]);
+  });
+
+  it("21:00 のランがあっても、同じ日の 23:00 のトリガーはちゃんと走る", () => {
+    const pageRuns = [run("n-2100", new Date(2026, 7, 13, 21, 0))];
+    const now = new Date(2026, 7, 13, 23, 5);
+    // 修正前の挙動（ページの最新ランをそのまま使う）は false ＝ 23:00 が永久に出ない
+    expect(shouldRunScriptTrigger("daily 23:00", pageRuns[0], now)).toBe(false);
+    // 修正後: 自分のランが無いので走る
+    const mine = runsOfTrigger(pageRuns, "n-2300")[0] ?? null;
+    expect(shouldRunScriptTrigger("daily 23:00", mine, now)).toBe(true);
+  });
+
+  it("週次のランが同じ日の日次の回を食わない", () => {
+    const pageRuns = [
+      run("n-fri", new Date(2026, 7, 14, 13, 30)), // 金曜13:30（週次）
+      run("n-2100", new Date(2026, 7, 13, 21, 0)), // 前日の日次
+    ];
+    const now = new Date(2026, 7, 14, 21, 5); // 金曜 21:05
+    expect(shouldRunScriptTrigger("daily 21:00", pageRuns[0], now)).toBe(false); // 修正前
+    const mine = runsOfTrigger(pageRuns, "n-2100")[0] ?? null;
+    expect(shouldRunScriptTrigger("daily 21:00", mine, now)).toBe(true); // 修正後
+  });
+
+  it("自分のランは従来どおり二重作成を止める", () => {
+    const pageRuns = [run("n-2300", new Date(2026, 7, 13, 23, 1))];
+    const mine = runsOfTrigger(pageRuns, "n-2300")[0] ?? null;
+    expect(shouldRunScriptTrigger("daily 23:00", mine, new Date(2026, 7, 13, 23, 30))).toBe(false);
   });
 });

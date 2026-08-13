@@ -39,6 +39,24 @@ export function isClosedPage(page: Node | null | undefined): boolean {
 }
 
 /**
+ * ページのラン一覧から**そのトリガーが作った**ランだけを取り出す（純粋関数）。
+ *
+ * 2026-08-14 の修正。それまでエンジンはラン作成の判定にページのラン一覧の先頭
+ * （＝そのページで最後に作られたラン）を使っていた。ページに複数のトリガーがあると、
+ * 別のトリガーが作ったランを「自分の回はもう作った」と誤認して黙る——
+ * 本人報告のページ（毎日21:00 / 毎日23:00 / 毎週金13:30 が同居）では、daily の判定が
+ * 「最新ランが今日か」だけを見るため **21:00 のランが 23:00 の回を潰し、23:00 は永久に
+ * 作られない**（逆向きは通るので、遅い時刻のトリガーだけが構造的に出ない）。
+ * ランは作成時に出所を run.trigger = "trigger:<triggerId>:<via>" として持っているので、
+ * 判定に渡す一覧をここで絞る。手動▶のラン（via=manual）も同じトリガーのものは残す
+ * （「手で走らせたのでこの回は済み」は従来どおりの意図した挙動）。
+ */
+export function runsOfTrigger<T extends { trigger: string }>(runs: T[], triggerId: string): T[] {
+  const prefix = `trigger:${triggerId}:`;
+  return runs.filter((r) => r.trigger.startsWith(prefix));
+}
+
+/**
  * script トリガーのラン作成判定。schedule が無い/未対応の書式は null を返す
  * （呼び出し側で警告ログを出す）。
  */
