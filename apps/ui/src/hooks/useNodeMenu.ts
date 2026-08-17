@@ -14,6 +14,7 @@ import {
 } from "../lib/actions";
 import { confirmDialog } from "../lib/dialogs";
 import { TRIAL_CONFIRM_MESSAGE } from "../lib/hints";
+import { optimisticPatchNode } from "../lib/optimistic";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { pushToast } from "../lib/toast";
 import type { Node } from "../types";
@@ -140,8 +141,8 @@ export function useNodeMenu({
       let ok = 0;
       for (const n of targets) {
         try {
-          // トリガーは進捗を持たない（lifecycle だけ確定する）
-          await api.patchNode(
+          // トリガーは進捗を持たない（lifecycle だけ確定する）。楽観更新で1件ずつ即反映
+          await optimisticPatchNode(
             n.id,
             n.kind === "trigger" ? { lifecycle: "committed" } : { status: "pending", lifecycle: "committed" },
           );

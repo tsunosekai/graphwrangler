@@ -7,10 +7,11 @@
 // - badges.tsx      外周の印（完了/処理中・▶・Fix・あなたの番）
 // - BottomPorts.tsx 下辺の出力（分岐の枝ポート or 単一ハンドル）
 // - NodeMenu.tsx    右クリックメニュー（第0層）
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { describeSchedule, parseSchedule } from "@graphwrangler/core/schedule";
-import { api } from "../lib/api";
+import { celebrate, type CelebrateKind } from "../lib/celebrate";
+import { optimisticPatchNode, optimisticPatchRunItem } from "../lib/optimistic";
 import { runTrigger } from "../lib/run";
 import { HINT_TEXT } from "../lib/hints";
 import { STATUS_JA } from "../lib/labels";
@@ -33,6 +34,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   const { node, runItem } = data;
   const [firing, setFiring] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
+  // 右クリックメニュー経由（押した要素が無い）のご褒美アニメーションはカード中央に出す
+  const cardRef = useRef<HTMLDivElement>(null);
   const ringOn = data.selected || selected;
   const {
     projecting,
@@ -47,11 +50,19 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
     showTurn,
   } = deriveCardState(data);
 
-  const patchRunItemStatus = async (status: RunItemStatus) => {
+  // ラン内進捗の遷移で出すご褒美アニメーション（完了=緑チェック / 着手=青パイ。戻す等は無し）
+  const RUN_CELEBRATE: Partial<Record<RunItemStatus, CelebrateKind>> = {
+    done: "done",
+    running: "start",
+  };
+  // 楽観更新（lib/optimistic.ts）: 押した瞬間に投影が変わる（従来はポーリング待ちで数秒無反応）
+  const patchRunItemStatus = async (status: RunItemStatus, anchor?: Element | null) => {
     if (!runItem || runBusy) return;
     setRunBusy(true);
+    const kind = RUN_CELEBRATE[status];
+    if (kind) celebrate(anchor ?? cardRef.current, kind);
     try {
-      await api.patchRunItem(runItem.runId, node.id, { status });
+      await optimisticPatchRunItem(runItem.runId, node.id, status);
     } catch {
       // api() 側でトースト表示済み
     } finally {
@@ -78,11 +89,21 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   };
 
   // カードのボタンと右クリックメニューで同じ処理を呼ぶための切り出し（挙動の二重管理を避ける）
-  const applyPhaseAction = async () => {
-    if (phaseAction) await api.patchNode(node.id, phaseAction.patch);
+  const applyPhaseAction = async (anchor?: Element | null) => {
+    if (!phaseAction) return;
+    celebrate(anchor ?? cardRef.current, phaseAction.label === "完了" ? "done" : "plan");
+    try {
+      await optimisticPatchNode(node.id, phaseAction.patch);
+    } catch {
+      // api() 側でトースト表示済み（楽観更新の見た目は自動で戻る）
+    }
   };
   const toggleFixed = async () => {
-    await api.patchNode(node.id, { fixed: !node.fixed });
+    try {
+      await optimisticPatchNode(node.id, { fixed: !node.fixed });
+    } catch {
+      // api() 側でトースト表示済み
+    }
   };
 
   // ---- 右クリックメニュー（第0層）へ渡す材料 ----
@@ -97,12 +118,16 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   for (const b of runButtons)
     progressItems.push({ label: b.label, run: () => void patchRunItemStatus(b.status) });
   if (unplanPatch) {
-    progressItems.push({ label: "未計画に戻す", run: () => void api.patchNode(node.id, unplanPatch) });
+    progressItems.push({
+      label: "未計画に戻す",
+      run: () => void optimisticPatchNode(node.id, unplanPatch).catch(() => {}),
+    });
   }
   const descendants = menu ? menu.descendantCount(node.id) : 0;
 
   const card = (
     <div
+      ref={cardRef}
       className={cn(
         // marker クラス（exec-*/status-*/lifecycle-*）は index.css のパルスアニメーション・
         // 下書きの粗い破線背景に使う。見た目の大半は Tailwind ユーティリティで組む
@@ -155,10 +180,10 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             >
               <button
                 type="button"
-                className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
+                className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-[color,border-color,transform] hover:border-border-strong hover:text-foreground active:scale-95"
                 onClick={async (e) => {
                   e.stopPropagation();
-                  await applyPhaseAction();
+                  await applyPhaseAction(e.currentTarget);
                 }}
               >
                 {phaseAction.label}
@@ -171,11 +196,11 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             <button
               key={b.label}
               type="button"
-              className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground disabled:opacity-40"
+              className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-[color,border-color,transform] hover:border-border-strong hover:text-foreground active:scale-95 disabled:opacity-40"
               disabled={runBusy}
               onClick={async (e) => {
                 e.stopPropagation();
-                await patchRunItemStatus(b.status);
+                await patchRunItemStatus(b.status, e.currentTarget);
               }}
             >
               {b.label}

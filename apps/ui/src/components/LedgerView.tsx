@@ -12,6 +12,12 @@ import {
   renameRunDialog,
 } from "../lib/actions";
 import { api } from "../lib/api";
+import { celebrate } from "../lib/celebrate";
+import {
+  applyRunListOverlays,
+  optimisticPatchRunItem,
+  useOptimisticVersion,
+} from "../lib/optimistic";
 import { runTrigger } from "../lib/run";
 import { usePolling } from "../hooks/usePolling";
 import { HINT_TEXT } from "../lib/hints";
@@ -150,7 +156,10 @@ export function LedgerView({
     () => api.listRuns(page.id, { silent: true }),
     5000,
   );
-  const runs = runsData?.runs ?? [];
+  // 楽観更新オーバーレイ（lib/optimistic.ts）: セルのトグルを押した瞬間に丸が変わる。
+  // optimisticVersion はオーバーレイの変化を memo に伝えるための版数
+  const optimisticVersion = useOptimisticVersion();
+  const runs = useMemo(() => applyRunListOverlays(runsData?.runs ?? []), [runsData, optimisticVersion]);
   const selectedRun = runs.find((r) => r.id === selectedRunId) ?? null;
 
   const { data: traceData, refresh: refreshTrace } = usePolling(
@@ -268,7 +277,12 @@ export function LedgerView({
   // 「もう一度」「このランでは飛ばす」が同じ経路を通る
   const patchItem = useCallback(
     async (runId: string, nodeId: string, status: RunItemStatus) => {
-      await api.patchRunItem(runId, nodeId, { status });
+      try {
+        // 楽観更新: 押した瞬間に丸が変わる（App 側のラン一覧の取り直しも optimistic が面倒を見る）
+        await optimisticPatchRunItem(runId, nodeId, status);
+      } catch {
+        return; // api() 側でトースト表示済み。見た目は自動で戻る
+      }
       await refreshRuns();
       if (runId === selectedRunId) refreshTrace();
       onMutated();
@@ -277,8 +291,10 @@ export function LedgerView({
   );
 
   const toggleCell = useCallback(
-    async (runId: string, nodeId: string, current: RunItemStatus) => {
+    async (runId: string, nodeId: string, current: RunItemStatus, anchor?: Element | null) => {
       if (current !== "pending" && current !== "done") return;
+      // 完了へ倒すときだけご褒美アニメーション（戻すときは出さない）
+      if (current === "pending") celebrate(anchor, "done");
       await patchItem(runId, nodeId, current === "pending" ? "done" : "pending");
     },
     [patchItem],
@@ -435,7 +451,7 @@ export function LedgerView({
                               if (toggleDisabled) return;
                               if (!item || (item.status !== "pending" && item.status !== "done")) return;
                               e.stopPropagation();
-                              toggleCell(run.id, col.id, item.status);
+                              toggleCell(run.id, col.id, item.status, e.currentTarget);
                             }}
                             onContextMenu={() => setMenuTarget({ runId: run.id, nodeId: col.id })}
                           >

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { deletionOrder } from "../lib/actions";
 import { api } from "../lib/api";
+import { optimisticPatchNode } from "../lib/optimistic";
 import { confirmDialog } from "../lib/dialogs";
 import { EXECUTOR_JA } from "../lib/labels";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
@@ -61,7 +62,8 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
     try {
       for (const n of targets) {
         try {
-          await api.patchNode(n.id, patch(n));
+          // 楽観更新（lib/optimistic.ts）: 1件ずつ即座に画面へ反映される
+          await optimisticPatchNode(n.id, patch(n));
           ok++;
         } catch {
           // api() 側でトースト表示済み（続行して残りに適用する）

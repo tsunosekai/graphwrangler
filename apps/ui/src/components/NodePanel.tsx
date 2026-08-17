@@ -18,6 +18,7 @@ import { api, postReads, type NodePatchInput } from "../lib/api";
 import { confirmDialog, confirmWithAltDialog } from "../lib/dialogs";
 import { HINT_TEXT, TRIAL_CONFIRM_MESSAGE } from "../lib/hints";
 import { EXECUTOR_JA, KIND_JA } from "../lib/labels";
+import { optimisticPatchNode } from "../lib/optimistic";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useDraftField } from "../hooks/useDraftField";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -216,9 +217,11 @@ export function NodePanel({
   // 試走ゲート（docs/design.md 3.5.1）の鮮度。実装セクションの表示と昇格時警告の両方で使う
   const implStatus = useImplStatus(node);
 
+  // 楽観更新（lib/optimistic.ts）: 押した/変えた瞬間に画面へ反映する。PATCH 成功後の
+  // 取り直しは optimistic 側が一括で面倒を見る（ここで onMutated を重ねて二重取得しない）。
+  // 失敗時はオーバーレイが剥がれて見た目が戻る（トーストは api() 側）
   const patch = async (fields: NodePatchInput) => {
-    await api.patchNode(node.id, fields);
-    onMutated();
+    await optimisticPatchNode(node.id, fields);
   };
 
   // ---- ラン投影（docs/design.md 3.8）: アクティブなラン（現在ページの status==="running"
@@ -328,8 +331,7 @@ export function NodePanel({
     );
     if (choice === "alt") {
       try {
-        await api.patchNode(node.id, { status: "done" });
-        onMutated();
+        await optimisticPatchNode(node.id, { status: "done" });
       } catch {
         // エラーは api() 側でトースト表示済み
       }

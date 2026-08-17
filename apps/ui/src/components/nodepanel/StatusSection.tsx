@@ -3,6 +3,8 @@
 // ラン投影の進捗・プロジェクトの進捗ボタン。docs/design.md 3.8 / 3.9）
 import { useState } from "react";
 import { api, type NodePatchInput } from "../../lib/api";
+import { celebrate, type CelebrateKind } from "../../lib/celebrate";
+import { optimisticPatchRunItem } from "../../lib/optimistic";
 import { formDialog } from "../../lib/dialogs";
 import { HINT_TEXT } from "../../lib/hints";
 import { STATUS_JA } from "../../lib/labels";
@@ -62,11 +64,17 @@ export function StatusSection({
     })
   );
   const [runItemBusy, setRunItemBusy] = useState(false);
-  const patchRunItemStatus = async (status: RunItemStatus) => {
+  // 楽観更新（lib/optimistic.ts）: 押した瞬間に画面が変わる。celebrateWith を渡すと
+  // その要素の上にご褒美アニメーション（lib/celebrate.ts）を出す
+  const patchRunItemStatus = async (
+    status: RunItemStatus,
+    celebrateWith?: { anchor: Element | null; kind: CelebrateKind },
+  ) => {
     if (!activeRun || runItemBusy) return;
     setRunItemBusy(true);
+    if (celebrateWith) celebrate(celebrateWith.anchor, celebrateWith.kind);
     try {
-      await api.patchRunItem(activeRun.id, node.id, { status });
+      await optimisticPatchRunItem(activeRun.id, node.id, status);
       onMutated();
     } catch {
       // api() 側でトースト表示済み
@@ -80,7 +88,7 @@ export function StatusSection({
   // **必須にしない**（スキップ可＝全部空のまま完了できる。完了経路は台帳セル・カード・MCP と
   // 複数あり、全部に差し込むとワンクリック完了を壊すため、出すのはこの経路だけ）。
   // 入力があれば先に POST /runs/:id/context（nodeId 付き＝更新記録はこのノードのスレッドへ）
-  const completeRunItem = async () => {
+  const completeRunItem = async (anchor: Element | null) => {
     if (activeRun && node.executor === "human" && (node.outputs?.length ?? 0) > 0) {
       const res = await formDialog(
         "完了します。ランに値を書き足しますか？（任意。空のままでも完了できます）",
@@ -95,7 +103,7 @@ export function StatusSection({
         }
       }
     }
-    await patchRunItemStatus("done");
+    await patchRunItemStatus("done", { anchor, kind: "done" });
   };
 
   return (
@@ -111,8 +119,11 @@ export function StatusSection({
           <span className="text-muted-foreground">下書き（未確定）</span>
           <span className="flex-1" />
           <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
-            <Button type="button" variant="outline" size="sm"
-              onClick={() => patch({ lifecycle: "committed" })}>
+            <Button type="button" variant="outline" size="sm" className="active:scale-95"
+              onClick={(e) => {
+                celebrate(e.currentTarget, "plan");
+                void patch({ lifecycle: "committed" });
+              }}>
               計画済みにする
             </Button>
           </Hint>
@@ -164,9 +175,12 @@ export function StatusSection({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={async () => {
+                className="active:scale-95"
+                onClick={async (e) => {
+                  const anchor = e.currentTarget;
                   if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
-                  patch({ status: "pending", lifecycle: "committed" });
+                  celebrate(anchor, "plan");
+                  void patch({ status: "pending", lifecycle: "committed" });
                 }}
               >
                 計画済みにする
@@ -270,8 +284,11 @@ export function StatusSection({
                 type="button"
                 variant="outline"
                 size="sm"
+                className="active:scale-95"
                 disabled={runItemBusy}
-                onClick={() => patchRunItemStatus("running")}
+                onClick={(e) =>
+                  patchRunItemStatus("running", { anchor: e.currentTarget, kind: "start" })
+                }
               >
                 着手
               </Button>
@@ -283,9 +300,10 @@ export function StatusSection({
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="active:scale-95"
                   disabled={runItemBusy}
                   // outputs 宣言があれば完了ミニフォーム（任意入力）を経由する（3.15）
-                  onClick={() => void completeRunItem()}
+                  onClick={(e) => void completeRunItem(e.currentTarget)}
                 >
                   完了
                 </Button>
@@ -334,10 +352,12 @@ export function StatusSection({
               <span className="flex-1" />
               {(vs === "unplanned" || node.lifecycle === "draft") && (
                 <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
-                  <Button type="button" variant="outline" size="sm"
-                    onClick={async () => {
+                  <Button type="button" variant="outline" size="sm" className="active:scale-95"
+                    onClick={async (e) => {
+                      const anchor = e.currentTarget;
                       if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
-                      patch({ status: "pending", lifecycle: "committed" });
+                      celebrate(anchor, "plan");
+                      void patch({ status: "pending", lifecycle: "committed" });
                     }}>
                     計画済みにする
                   </Button>
@@ -364,12 +384,20 @@ export function StatusSection({
                 <span className="text-xs text-text-lo">前のノードが終わると着手できます</span>
               )}
               {exec && vs === "pending" && frontier && (
-                <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "running" })}>
+                <Button type="button" variant="outline" size="sm" className="active:scale-95"
+                  onClick={(e) => {
+                    celebrate(e.currentTarget, "start");
+                    void patch({ status: "running" });
+                  }}>
                   着手
                 </Button>
               )}
               {exec && ((vs === "pending" && frontier) || vs === "running") && (
-                <Button type="button" variant="outline" size="sm" onClick={() => patch({ status: "done" })}>
+                <Button type="button" variant="outline" size="sm" className="active:scale-95"
+                  onClick={(e) => {
+                    celebrate(e.currentTarget, "done");
+                    void patch({ status: "done" });
+                  }}>
                   完了
                 </Button>
               )}

@@ -22,6 +22,15 @@ import { useReadState } from "./hooks/useReadState";
 import { useDesktopNotify } from "./hooks/useDesktopNotify";
 import { useUrlRouting } from "./hooks/useUrlRouting";
 import { useMobileBackNav } from "./hooks/useMobileBackNav";
+import {
+  applyNodeOverlays,
+  applyRunListOverlays,
+  applyRunMapOverlays,
+  reconcileNodeOverlays,
+  reconcileRunOverlays,
+  registerOptimisticRefreshers,
+  useOptimisticVersion,
+} from "./lib/optimistic";
 import { isRoutinePage } from "./lib/routine";
 import { parseRoute, type RouteState } from "./lib/route";
 import { pushToast } from "./lib/toast";
@@ -177,7 +186,18 @@ function AppInner() {
 
   // ノードエディタ標準の複数選択: 選択中の id 一覧。2件以上で一括編集パネル（BulkPanel）を出す
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const nodes = useMemo(() => data?.nodes ?? [], [data]);
+  // 楽観更新オーバーレイ（lib/optimistic.ts）: 進捗ボタン等の期待値を、ポーリングが
+  // 追いつくまで nodes / runs に重ねて描く（押した瞬間に画面が変わる）
+  const optimisticVersion = useOptimisticVersion();
+  const nodes = useMemo(
+    // optimisticVersion はオーバーレイの変化を memo に伝えるための版数（下の runs も同じ）
+    () => applyNodeOverlays(data?.nodes ?? []),
+    [data, optimisticVersion],
+  );
+  // ポーリングが期待値に追いついた分のオーバーレイを剥がす（詳細は lib/optimistic.ts）
+  useEffect(() => {
+    if (data) reconcileNodeOverlays(data.nodes);
+  }, [data]);
   // 未読バッジ用のノードごとの最終メッセージ時刻 / 既読時刻（どちらもサーバ持ち。
   // 2026-08-02 既読を localStorage からサーバへ移した＝PC で読めばスマホでも既読）
   const threadMeta = useMemo(() => data?.threadMeta ?? {}, [data]);
@@ -226,7 +246,7 @@ function AppInner() {
     async (): Promise<Record<string, Run[]>> => (await api.listAllRuns({ silent: true })).runs,
     5000,
   );
-  const railRuns = useMemo(() => railRunsData ?? {}, [railRunsData]);
+  const railRuns = useMemo(() => applyRunMapOverlays(railRunsData ?? {}), [railRunsData, optimisticVersion]);
 
   // ---- 実行中ラン一覧（docs/design.md 3.8: トリガー起点のルーティーン。グラフ投影用）。
   //      「全ページのラン一覧」（上の railRuns。状態不問。PageList のドット・ラン子行用）とは別物。
@@ -244,7 +264,21 @@ function AppInner() {
     return runs;
     // ページが変わったら次の周期を待たず即取り直す（下のリセット effect の refresh と同趣旨）
   }, 3000, `${pageId ?? ""}:${isCurrentPageRoutine}`);
-  const pageRuns = useMemo(() => pageRunsData ?? [], [pageRunsData]);
+  const pageRuns = useMemo(() => applyRunListOverlays(pageRunsData ?? []), [pageRunsData, optimisticVersion]);
+  // ランのポーリングが期待値に追いついた分のオーバーレイを剥がす + 楽観更新の直後の
+  // 取り直し口を登録する（lib/optimistic.ts）
+  useEffect(() => {
+    reconcileRunOverlays([...Object.values(railRunsData ?? {}).flat(), ...(pageRunsData ?? [])]);
+  }, [railRunsData, pageRunsData]);
+  useEffect(() => {
+    registerOptimisticRefreshers({
+      state: () => void refresh(),
+      runs: () => {
+        void refreshRailRuns();
+        void refreshActiveRun();
+      },
+    });
+  }, [refresh, refreshRailRuns, refreshActiveRun]);
   // projectedRunId: null = 投影なし＝**テンプレート**（設計図）を見ている / それ以外 = そのラン。
   // ページを開いた既定はテンプレート（2026-08-08 本人指定。旧: 実行中のランがあれば勝手に
   // 最新1本を投影していたため、素の設計図を見るのにセレクタ操作が要った）。
