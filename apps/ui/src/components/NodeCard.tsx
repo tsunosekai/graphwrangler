@@ -60,7 +60,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
     if (!showStatus || !prev || prev === visualStatus) return;
     if (visualStatus !== "done" && visualStatus !== "running") return;
     setBadgePop(true);
-    const t = window.setTimeout(() => setBadgePop(false), 800);
+    // ハンコ 0.45s + 波紋 0.22s+0.6s（index.css）を覆う長さでクラスを剥がす
+    const t = window.setTimeout(() => setBadgePop(false), 900);
     return () => window.clearTimeout(t);
   }, [visualStatus, showStatus]);
 

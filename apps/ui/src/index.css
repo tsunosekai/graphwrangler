@@ -274,10 +274,10 @@ body {
 }
 
 /* 進捗遷移のご褒美演出（2026-08-17 本人要望「ノード左のチェックを演出で出す」）:
-   完了チェック/処理中ぐるぐるの左バッジが、状態が**変わった瞬間だけ**バネっぽくポップする
-   （NodeCard が遷移を検知して一時的にクラスを付ける。初期表示・再マウントでは付かない）。
-   .pdg-badge は translateY(-50%) で縦センタリングしているので transform を上書きせず
-   scale だけ動かす */
+   状態が**変わった瞬間だけ**動く（NodeCard が遷移を検知して一時的にクラスを付ける。
+   初期表示・再マウントでは付かない）。.pdg-badge は translateY(-50%) で縦センタリング
+   しているので transform を上書きせず scale だけ動かす */
+/* 着手（処理中ぐるぐる）: バネっぽいポップ */
 .pdg-badge.badge-pop {
   animation: badge-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -294,23 +294,52 @@ body {
     scale: 1;
   }
 }
-/* 完了だけは波紋も出す（色は currentColor = 完了の緑） */
-.pdg-badge.badge-pop-ring {
-  animation:
-    badge-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1),
-    badge-ring 0.7s ease-out;
+/* 完了チェック: ハンコを押す動き（大きく現れて**ドン**と着地、わずかに潰れて静止）。
+   着地の瞬間に波紋の輪が1本、同心円状に広がって消える（2026-08-17 本人指定
+   「ハンコみたいに押される感じ・周りの円は波紋」） */
+.pdg-badge.badge-stamp {
+  animation: badge-stamp 0.45s ease-in;
 }
-@keyframes badge-ring {
+@keyframes badge-stamp {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 60%, transparent);
+    scale: 2.4;
+    opacity: 0;
+  }
+  50% {
+    scale: 0.88;
+    opacity: 1;
+  }
+  70% {
+    scale: 1.08;
   }
   100% {
-    box-shadow: 0 0 0 12px transparent;
+    scale: 1;
+  }
+}
+.pdg-badge.badge-stamp::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0;
+  /* delay ≒ ハンコが着地する 0.45s×50% の時点から広がり始める */
+  animation: badge-ripple 0.6s ease-out 0.22s;
+}
+@keyframes badge-ripple {
+  0% {
+    scale: 1;
+    opacity: 0.8;
+  }
+  100% {
+    scale: 2.8;
+    opacity: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .pdg-badge.badge-pop,
-  .pdg-badge.badge-pop-ring {
+  .pdg-badge.badge-stamp,
+  .pdg-badge.badge-stamp::after {
     animation: none;
   }
 }
