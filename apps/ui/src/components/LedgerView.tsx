@@ -12,7 +12,6 @@ import {
   renameRunDialog,
 } from "../lib/actions";
 import { api } from "../lib/api";
-import { celebrate } from "../lib/celebrate";
 import {
   applyRunListOverlays,
   optimisticPatchRunItem,
@@ -291,10 +290,8 @@ export function LedgerView({
   );
 
   const toggleCell = useCallback(
-    async (runId: string, nodeId: string, current: RunItemStatus, anchor?: Element | null) => {
+    async (runId: string, nodeId: string, current: RunItemStatus) => {
       if (current !== "pending" && current !== "done") return;
-      // 完了へ倒すときだけご褒美アニメーション（戻すときは出さない）
-      if (current === "pending") celebrate(anchor, "done");
       await patchItem(runId, nodeId, current === "pending" ? "done" : "pending");
     },
     [patchItem],
@@ -451,7 +448,7 @@ export function LedgerView({
                               if (toggleDisabled) return;
                               if (!item || (item.status !== "pending" && item.status !== "done")) return;
                               e.stopPropagation();
-                              toggleCell(run.id, col.id, item.status, e.currentTarget);
+                              toggleCell(run.id, col.id, item.status);
                             }}
                             onContextMenu={() => setMenuTarget({ runId: run.id, nodeId: col.id })}
                           >

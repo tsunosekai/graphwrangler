@@ -11,12 +11,14 @@ import { Hint } from "../Hint";
 import { Icon } from "../Icon";
 
 /** PDG風の完了/中止マーク（カード左外側の丸バッジ）と処理中スピナー。
- *  done/running は排他なので左スロットは衝突しない（2026-07-31 本人指定で同位置・同サイズ） */
-export function StatusBadge({ visualStatus }: { visualStatus: Status }) {
+ *  done/running は排他なので左スロットは衝突しない（2026-07-31 本人指定で同位置・同サイズ）。
+ *  pop = 進捗がいま遷移した（NodeCard が検知）: 完了チェック/処理中ぐるぐるがバネっぽく
+ *  ポップして波紋が出る（2026-08-17 本人要望のご褒美演出。CSS は index.css の badge-pop） */
+export function StatusBadge({ visualStatus, pop = false }: { visualStatus: Status; pop?: boolean }) {
   if (visualStatus === "done") {
     return (
       <Hint id="badge-done" always="完了">
-        <span className="pdg-badge text-ok">
+        <span className={cn("pdg-badge text-ok", pop && "badge-pop badge-pop-ring")}>
           <Icon name="check" size={14} />
         </span>
       </Hint>
@@ -34,7 +36,7 @@ export function StatusBadge({ visualStatus }: { visualStatus: Status }) {
   if (visualStatus === "running") {
     return (
       <Hint id="badge-running" always="処理中">
-        <span className="pdg-badge" style={{ color: "var(--active-color)" }}>
+        <span className={cn("pdg-badge", pop && "badge-pop")} style={{ color: "var(--active-color)" }}>
           <Loader2 className="size-3.5 animate-spin" />
         </span>
       </Hint>

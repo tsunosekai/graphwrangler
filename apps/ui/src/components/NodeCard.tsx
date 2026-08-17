@@ -7,10 +7,9 @@
 // - badges.tsx      外周の印（完了/処理中・▶・Fix・あなたの番）
 // - BottomPorts.tsx 下辺の出力（分岐の枝ポート or 単一ハンドル）
 // - NodeMenu.tsx    右クリックメニュー（第0層）
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { describeSchedule, parseSchedule } from "@graphwrangler/core/schedule";
-import { celebrate, type CelebrateKind } from "../lib/celebrate";
 import { optimisticPatchNode, optimisticPatchRunItem } from "../lib/optimistic";
 import { runTrigger } from "../lib/run";
 import { HINT_TEXT } from "../lib/hints";
@@ -34,8 +33,6 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   const { node, runItem } = data;
   const [firing, setFiring] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
-  // 右クリックメニュー経由（押した要素が無い）のご褒美アニメーションはカード中央に出す
-  const cardRef = useRef<HTMLDivElement>(null);
   const ringOn = data.selected || selected;
   const {
     projecting,
@@ -50,17 +47,27 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
     showTurn,
   } = deriveCardState(data);
 
-  // ラン内進捗の遷移で出すご褒美アニメーション（完了=緑チェック / 着手=青パイ。戻す等は無し）
-  const RUN_CELEBRATE: Partial<Record<RunItemStatus, CelebrateKind>> = {
-    done: "done",
-    running: "start",
-  };
+  // ご褒美アニメーション（2026-08-17 本人指定「押したところではなくノード左のチェックを演出で」）:
+  // 表示中に進捗が done / running へ**遷移した**瞬間だけ、左バッジ（完了チェック /
+  // 処理中ぐるぐる）をポップさせる（CSS は index.css の badge-pop）。どこから押しても
+  // （パネル・カードのボタン・右クリックメニュー・楽観更新の反映）ここ1箇所で拾える。
+  // 初期表示・ページ切替の再マウントでは prev が無いので出ない。プラン済み化は演出なし
+  const prevStatusRef = useRef<typeof visualStatus | null>(null);
+  const [badgePop, setBadgePop] = useState(false);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = showStatus ? visualStatus : null;
+    if (!showStatus || !prev || prev === visualStatus) return;
+    if (visualStatus !== "done" && visualStatus !== "running") return;
+    setBadgePop(true);
+    const t = window.setTimeout(() => setBadgePop(false), 800);
+    return () => window.clearTimeout(t);
+  }, [visualStatus, showStatus]);
+
   // 楽観更新（lib/optimistic.ts）: 押した瞬間に投影が変わる（従来はポーリング待ちで数秒無反応）
-  const patchRunItemStatus = async (status: RunItemStatus, anchor?: Element | null) => {
+  const patchRunItemStatus = async (status: RunItemStatus) => {
     if (!runItem || runBusy) return;
     setRunBusy(true);
-    const kind = RUN_CELEBRATE[status];
-    if (kind) celebrate(anchor ?? cardRef.current, kind);
     try {
       await optimisticPatchRunItem(runItem.runId, node.id, status);
     } catch {
@@ -89,9 +96,8 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   };
 
   // カードのボタンと右クリックメニューで同じ処理を呼ぶための切り出し（挙動の二重管理を避ける）
-  const applyPhaseAction = async (anchor?: Element | null) => {
+  const applyPhaseAction = async () => {
     if (!phaseAction) return;
-    celebrate(anchor ?? cardRef.current, phaseAction.label === "完了" ? "done" : "plan");
     try {
       await optimisticPatchNode(node.id, phaseAction.patch);
     } catch {
@@ -127,7 +133,6 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
 
   const card = (
     <div
-      ref={cardRef}
       className={cn(
         // marker クラス（exec-*/status-*/lifecycle-*）は index.css のパルスアニメーション・
         // 下書きの粗い破線背景に使う。見た目の大半は Tailwind ユーティリティで組む
@@ -159,7 +164,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
       {node.kind !== "trigger" && <Handle type="target" position={Position.Top} />}
       {/* 完了/中止/処理中のバッジ。テンプレートには出さない——ただしアクティブなランの
           投影中は item.status で描く（docs/design.md 3.8） */}
-      {showStatus && <StatusBadge visualStatus={visualStatus} />}
+      {showStatus && <StatusBadge visualStatus={visualStatus} pop={badgePop} />}
       <SideBadges
         node={node}
         projecting={projecting}
@@ -183,7 +188,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
                 className="nodrag rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-[color,border-color,transform] hover:border-border-strong hover:text-foreground active:scale-95"
                 onClick={async (e) => {
                   e.stopPropagation();
-                  await applyPhaseAction(e.currentTarget);
+                  await applyPhaseAction();
                 }}
               >
                 {phaseAction.label}
@@ -200,7 +205,7 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
               disabled={runBusy}
               onClick={async (e) => {
                 e.stopPropagation();
-                await patchRunItemStatus(b.status, e.currentTarget);
+                await patchRunItemStatus(b.status);
               }}
             >
               {b.label}

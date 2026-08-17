@@ -3,7 +3,6 @@
 // ラン投影の進捗・プロジェクトの進捗ボタン。docs/design.md 3.8 / 3.9）
 import { useState } from "react";
 import { api, type NodePatchInput } from "../../lib/api";
-import { celebrate, type CelebrateKind } from "../../lib/celebrate";
 import { optimisticPatchRunItem } from "../../lib/optimistic";
 import { formDialog } from "../../lib/dialogs";
 import { HINT_TEXT } from "../../lib/hints";
@@ -64,15 +63,11 @@ export function StatusSection({
     })
   );
   const [runItemBusy, setRunItemBusy] = useState(false);
-  // 楽観更新（lib/optimistic.ts）: 押した瞬間に画面が変わる。celebrateWith を渡すと
-  // その要素の上にご褒美アニメーション（lib/celebrate.ts）を出す
-  const patchRunItemStatus = async (
-    status: RunItemStatus,
-    celebrateWith?: { anchor: Element | null; kind: CelebrateKind },
-  ) => {
+  // 楽観更新（lib/optimistic.ts）: 押した瞬間に画面が変わる（グラフのカード左バッジの
+  // ご褒美演出は NodeCard が遷移を検知して出す——ここから押しても同じに見える）
+  const patchRunItemStatus = async (status: RunItemStatus) => {
     if (!activeRun || runItemBusy) return;
     setRunItemBusy(true);
-    if (celebrateWith) celebrate(celebrateWith.anchor, celebrateWith.kind);
     try {
       await optimisticPatchRunItem(activeRun.id, node.id, status);
       onMutated();
@@ -88,7 +83,7 @@ export function StatusSection({
   // **必須にしない**（スキップ可＝全部空のまま完了できる。完了経路は台帳セル・カード・MCP と
   // 複数あり、全部に差し込むとワンクリック完了を壊すため、出すのはこの経路だけ）。
   // 入力があれば先に POST /runs/:id/context（nodeId 付き＝更新記録はこのノードのスレッドへ）
-  const completeRunItem = async (anchor: Element | null) => {
+  const completeRunItem = async () => {
     if (activeRun && node.executor === "human" && (node.outputs?.length ?? 0) > 0) {
       const res = await formDialog(
         "完了します。ランに値を書き足しますか？（任意。空のままでも完了できます）",
@@ -103,7 +98,7 @@ export function StatusSection({
         }
       }
     }
-    await patchRunItemStatus("done", { anchor, kind: "done" });
+    await patchRunItemStatus("done");
   };
 
   return (
@@ -120,10 +115,7 @@ export function StatusSection({
           <span className="flex-1" />
           <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
             <Button type="button" variant="outline" size="sm" className="active:scale-95"
-              onClick={(e) => {
-                celebrate(e.currentTarget, "plan");
-                void patch({ lifecycle: "committed" });
-              }}>
+              onClick={() => void patch({ lifecycle: "committed" })}>
               計画済みにする
             </Button>
           </Hint>
@@ -176,10 +168,8 @@ export function StatusSection({
                 variant="outline"
                 size="sm"
                 className="active:scale-95"
-                onClick={async (e) => {
-                  const anchor = e.currentTarget;
+                onClick={async () => {
                   if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
-                  celebrate(anchor, "plan");
                   void patch({ status: "pending", lifecycle: "committed" });
                 }}
               >
@@ -286,9 +276,7 @@ export function StatusSection({
                 size="sm"
                 className="active:scale-95"
                 disabled={runItemBusy}
-                onClick={(e) =>
-                  patchRunItemStatus("running", { anchor: e.currentTarget, kind: "start" })
-                }
+                onClick={() => patchRunItemStatus("running")}
               >
                 着手
               </Button>
@@ -303,7 +291,7 @@ export function StatusSection({
                   className="active:scale-95"
                   disabled={runItemBusy}
                   // outputs 宣言があれば完了ミニフォーム（任意入力）を経由する（3.15）
-                  onClick={(e) => void completeRunItem(e.currentTarget)}
+                  onClick={() => void completeRunItem()}
                 >
                   完了
                 </Button>
@@ -353,10 +341,8 @@ export function StatusSection({
               {(vs === "unplanned" || node.lifecycle === "draft") && (
                 <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
                   <Button type="button" variant="outline" size="sm" className="active:scale-95"
-                    onClick={async (e) => {
-                      const anchor = e.currentTarget;
+                    onClick={async () => {
                       if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
-                      celebrate(anchor, "plan");
                       void patch({ status: "pending", lifecycle: "committed" });
                     }}>
                     計画済みにする
@@ -385,19 +371,13 @@ export function StatusSection({
               )}
               {exec && vs === "pending" && frontier && (
                 <Button type="button" variant="outline" size="sm" className="active:scale-95"
-                  onClick={(e) => {
-                    celebrate(e.currentTarget, "start");
-                    void patch({ status: "running" });
-                  }}>
+                  onClick={() => void patch({ status: "running" })}>
                   着手
                 </Button>
               )}
               {exec && ((vs === "pending" && frontier) || vs === "running") && (
                 <Button type="button" variant="outline" size="sm" className="active:scale-95"
-                  onClick={(e) => {
-                    celebrate(e.currentTarget, "done");
-                    void patch({ status: "done" });
-                  }}>
+                  onClick={() => void patch({ status: "done" })}>
                   完了
                 </Button>
               )}
