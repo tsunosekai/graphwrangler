@@ -237,16 +237,34 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
  *   起動された場合に継承され、ホストのプロキシ/セッション認証経路を有効にして
  *   「OAuth session expired」で死ぬ（2026-07-31 実測）
  * CLAUDE_CONFIG_DIR はユーザーの意図した設定なので残す。
+ * CLAUDE_CODE_OAUTH_TOKEN も残す（2026-08-18）。ブラウザでログインしたセッションは期限が
+ * 来ると自動更新に失敗して資格情報が空になり（stremix VPS で 8/12 に発生）、画面の無い
+ * サーバでは AI が全滅する。`claude setup-token` の長期トークンを unit の環境に置くのが
+ * 恒久策だが、ここで落としていると設定しても効かない（サブスクリプション経路のままなので
+ * 上の方針とも矛盾しない）。
  * server/src/chat_cli.ts と同じ規則（変えたら両方直す）。
  */
 export function sanitizedClaudeEnv(): NodeJS.ProcessEnv {
+  const keep = /^CLAUDE_CODE_OAUTH_TOKEN$/;
   const drop =
     /^(CLAUDE_CODE_|CLAUDE_PREVIEW_|CLAUDE_AGENT_SDK)|^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|ANTHROPIC_BASE_URL|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|AI_AGENT|BAGGAGE)$/;
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (!drop.test(k)) env[k] = v;
+    if (keep.test(k) || !drop.test(k)) env[k] = v;
   }
   return env;
+}
+
+/** claude CLI のログイン切れを、人間が次にやることまで含む一行に言い換える。実行AIの失敗は
+ *  ラン記録にこの文字列がそのまま残るので、生の英語だけだと「なぜ止まったか」が読めない
+ *  （2026-08-18）。マッチしなければ元の文字列をそのまま返す。
+ *  server/src/chat_cli.ts の同名関数と同じ規則（変えたら両方直す）。 */
+const CLAUDE_AUTH_FAILURE_RE =
+  /OAuth session expired|Failed to authenticate|OAuth (access )?token (is )?(invalid|expired)|Invalid API key|Please run \/login/i;
+
+export function explainClaudeCliFailure(raw: string): string {
+  if (!CLAUDE_AUTH_FAILURE_RE.test(raw)) return raw;
+  return `${raw}\n→ AI（claude CLI）のログインが切れています。サーバ側で \`claude setup-token\` を実行し、発行された長期トークンを環境変数 CLAUDE_CODE_OAUTH_TOKEN に設定して GraphWrangler を再起動してください（ブラウザログインのセッションは期限切れ後に自動更新できません）。`;
 }
 
 export interface RunClaudeOptions {
@@ -382,7 +400,7 @@ export function runClaude(
         settle({
           success: false,
           output: stdout,
-          error: reason.slice(0, 500) || `終了コード ${code}`,
+          error: explainClaudeCliFailure(reason.slice(0, 500)) || `終了コード ${code}`,
           subSteps,
         });
         return;

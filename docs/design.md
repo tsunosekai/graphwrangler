@@ -62,6 +62,16 @@ claude CLI の既定。ルート外のパスは設定 `ai.addDirs`（三役共�
 すると `--add-dir` で開放される（2026-08-04 本人指示「AI が stremix-document 外も触れる
 ように」。Bash には元々パス制限が無いので、これは檻ではなくファイルツールの使い勝手の話）。
 
+**AIのログイン（2026-08-18）**: CLI モードの三役は、サーバを動かしている OS ユーザーの
+claude ログイン資格情報をそのまま使う（`sanitizedClaudeEnv`。API キーは意図的に落とす）。
+ブラウザでログインしたセッションは**期限が来ると自動更新に失敗して資格情報が空になり**、
+以後すべての AI が `Failed to authenticate: OAuth session expired` で全滅する（stremix VPS で
+2026-08-12 に発生、気付くまで 6 日）。画面の無いサーバでの恒久策は `claude setup-token` の
+長期トークンを環境変数 `CLAUDE_CODE_OAUTH_TOKEN` に置くこと。そのため `CLAUDE_CODE_*` を
+落とすサニタイズはこの変数だけ通す。失敗メッセージも `explainClaudeCliFailure` で
+「次にやること」付きに言い換えてスレッド／ラン記録へ出す（英語一行のままだと、画面を見た人が
+一時的な不調と区別できない）。
+
 ### 技術スタック
 
 TypeScript 一枚岩。pnpm workspace。

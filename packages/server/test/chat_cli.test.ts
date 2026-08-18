@@ -8,7 +8,12 @@
 // 実行: `pnpm --filter @graphwrangler/server test`
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createStreamJsonState, emitStreamJsonLine } from "../src/chat_cli.js";
+import {
+  createStreamJsonState,
+  emitStreamJsonLine,
+  explainClaudeCliFailure,
+  sanitizedClaudeEnv,
+} from "../src/chat_cli.js";
 
 /** テスト用の最小 ReadableStreamDefaultController スタブ。enqueue された SSE チャンクを
  *  デコードして JSON の配列として集める */
@@ -128,4 +133,35 @@ test("system/result 行や壊れた行は無視される", () => {
   emitStreamJsonLine("", controller, encoder, state);
 
   assert.deepEqual(chunks, []);
+});
+
+// ---- 認証まわり（2026-08-18 stremix VPS のログイン切れ全滅を受けて追加） ----
+
+test("sanitizedClaudeEnv は CLAUDE_CODE_* を落とすが OAuth トークンだけは通す", () => {
+  const saved = { ...process.env };
+  try {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "dummy-token";
+    process.env.CLAUDE_CODE_ENTRYPOINT = "cli";
+    process.env.CLAUDECODE = "1";
+    process.env.ANTHROPIC_API_KEY = "sk-should-be-dropped";
+    const env = sanitizedClaudeEnv();
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "dummy-token");
+    assert.equal(env.CLAUDE_CODE_ENTRYPOINT, undefined);
+    assert.equal(env.CLAUDECODE, undefined);
+    assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  } finally {
+    process.env = saved;
+  }
+});
+
+test("explainClaudeCliFailure はログイン切れに次の手順を足す（それ以外は素通し）", () => {
+  const msg = explainClaudeCliFailure(
+    "Failed to authenticate: OAuth session expired and could not be refreshed",
+  );
+  assert.ok(msg.includes("OAuth session expired")); // 元の理由は残す
+  assert.ok(msg.includes("claude setup-token"));
+  assert.ok(msg.includes("CLAUDE_CODE_OAUTH_TOKEN"));
+
+  const other = "ヘッドレスCLIの応答がタイムアウトしました（5分）";
+  assert.equal(explainClaudeCliFailure(other), other);
 });

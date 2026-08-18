@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   ALLOWED_TOOLS,
   buildAiPrompt,
+  explainClaudeCliFailure,
   sanitizeAddDirs,
   sanitizeExtraArgs,
   sanitizeExtraTools,
+  sanitizedClaudeEnv,
 } from "../src/executors/claude.js";
 
 describe("ALLOWED_TOOLS（2026-08-03 権限拡張）", () => {
@@ -97,5 +99,32 @@ describe("buildAiPrompt: ランのコンテキスト（3.15）", () => {
       parentSayMessages: [],
     });
     expect(prompt).not.toContain("##gw");
+  });
+});
+
+// 実行AIも同じ資格情報で動く。server/src/chat_cli.ts のテストと対（2026-08-18）
+describe("認証（ログイン切れ）", () => {
+  it("sanitizedClaudeEnv は CLAUDE_CODE_* を落とすが OAuth トークンだけは通す", () => {
+    const saved = { ...process.env };
+    try {
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = "dummy-token";
+      process.env.CLAUDE_CODE_ENTRYPOINT = "cli";
+      process.env.ANTHROPIC_API_KEY = "sk-should-be-dropped";
+      const env = sanitizedClaudeEnv();
+      expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("dummy-token");
+      expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  it("explainClaudeCliFailure はログイン切れに次の手順を足す（それ以外は素通し）", () => {
+    const msg = explainClaudeCliFailure(
+      "Failed to authenticate: OAuth session expired and could not be refreshed",
+    );
+    expect(msg).toContain("OAuth session expired");
+    expect(msg).toContain("claude setup-token");
+    expect(explainClaudeCliFailure("終了コード 1")).toBe("終了コード 1");
   });
 });

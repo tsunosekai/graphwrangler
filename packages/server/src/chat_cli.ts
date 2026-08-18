@@ -67,17 +67,38 @@ export const DEFAULT_CLI_TOOLS = [
  * 経路に固定する（APIキーで使いたい場合は接続方式 "api" を選ぶ）。継承された
  * ANTHROPIC_API_KEY や、Claude Code セッション内から起動された場合の CLAUDE_CODE_* /
  * ANTHROPIC_BASE_URL は子の claude を誤経路・認証失敗に落とすため除去する（2026-07-31 実測）。
+ * ただし CLAUDE_CODE_OAUTH_TOKEN だけは残す（2026-08-18）。ブラウザでログインした
+ * セッションは期限が来ると自動更新に失敗して資格情報が空になり（stremix VPS で 8/12 に
+ * 発生。以後 6 日間 AI が全滅した）、画面の無いサーバでは復旧に人間の再ログインが要る。
+ * `claude setup-token` の長期トークンを unit の環境に置く運用が唯一の恒久策なのに、
+ * ここで落としていると設定しても効かない（＝サブスクリプション経路のまま。APIキー課金には
+ * 流れないので上の方針とも矛盾しない）。
  * packages/engine/src/executors/claude.ts の sanitizedClaudeEnv と同じ規則（変えたら両方直す）。
  * thread_ai.ts（スレッド相談AI、機能1）もこの関数をそのまま import して使う。
  */
 export function sanitizedClaudeEnv(): NodeJS.ProcessEnv {
+  const keep = /^CLAUDE_CODE_OAUTH_TOKEN$/;
   const drop =
     /^(CLAUDE_CODE_|CLAUDE_PREVIEW_|CLAUDE_AGENT_SDK)|^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|ANTHROPIC_BASE_URL|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|AI_AGENT|BAGGAGE)$/;
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (!drop.test(k)) env[k] = v;
+    if (keep.test(k) || !drop.test(k)) env[k] = v;
   }
   return env;
+}
+
+/** claude CLI のログイン切れを、人間が次にやることまで含む一行に言い換える。
+ *  生の英語（"Failed to authenticate: OAuth session expired and could not be refreshed"）
+ *  だけだと、画面を見た人は何をすればいいか分からず、AI 側の一時的な不調と区別もつかない
+ *  （2026-08-18 stremix VPS。8/12 にセッションが切れてから、Task AI が毎回この一行だけを
+ *  スレッドへ書き続けていた）。マッチしなければ元の文字列をそのまま返す。
+ *  packages/engine/src/executors/claude.ts の同名関数と同じ規則（変えたら両方直す）。 */
+const CLAUDE_AUTH_FAILURE_RE =
+  /OAuth session expired|Failed to authenticate|OAuth (access )?token (is )?(invalid|expired)|Invalid API key|Please run \/login/i;
+
+export function explainClaudeCliFailure(raw: string): string {
+  if (!CLAUDE_AUTH_FAILURE_RE.test(raw)) return raw;
+  return `${raw}\n→ AI（claude CLI）のログインが切れています。サーバ側で \`claude setup-token\` を実行し、発行された長期トークンを環境変数 CLAUDE_CODE_OAUTH_TOKEN に設定して GraphWrangler を再起動してください（ブラウザログインのセッションは期限切れ後に自動更新できません）。`;
 }
 
 function sseChunk(data: unknown): string {
@@ -528,7 +549,7 @@ function runCli(
         const combined = [stderrBuf.trim(), stdoutBuf.trim()].filter(Boolean).join(" / ");
         push({
           type: "error",
-          errorText: `ヘッドレスCLIの起動に失敗しました（終了コード ${code}）: ${combined.slice(0, 500) || "不明なエラー"}`,
+          errorText: `ヘッドレスCLIの起動に失敗しました（終了コード ${code}）: ${explainClaudeCliFailure(combined.slice(0, 500)) || "不明なエラー"}`,
         });
       }
       finish();

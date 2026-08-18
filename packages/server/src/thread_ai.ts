@@ -23,6 +23,7 @@ import { chatKeyMissing, completeText } from "./chat.js";
 import {
   CLI_TIMEOUT_MS,
   DEFAULT_CLI_TOOLS,
+  explainClaudeCliFailure,
   killTree,
   sanitizeModelOverride,
   sanitizedClaudeEnv,
@@ -330,7 +331,7 @@ function postThreadAiFailure(
   try {
     threads.post(nodeId, {
       kind: "status",
-      body: `Task AI 応答失敗: ${reason.slice(0, 300)}`,
+      body: `Task AI 応答失敗: ${explainClaudeCliFailure(reason.slice(0, 300))}`,
       author: { kind: "system" },
       via: "chat",
       runId,
