@@ -142,6 +142,10 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [webhookUrl, setWebhookUrl] = useState("");
   // 公開URL（通知に付くリンクの基底。2026-08-08 本人指示）。空欄 = リンク無しで通知
   const [publicUrl, setPublicUrl] = useState(settings.notify?.publicUrl ?? "");
+  // 連続する人間作業をまとめる（2026-08-20）。既定 true = サーバのスキーマ既定と同じ
+  const [quietConsecutive, setQuietConsecutive] = useState(
+    settings.notify?.quietConsecutiveHumanTurns ?? true,
+  );
   // 業務連絡（手順書で指定したチャンネルへの投稿）用。トークンは Webhook URL と同じ
   // 書き込み専用の扱い（有無だけ受け取り、値は入力中のときだけ送る）。2026-08-11
   const [botToken, setBotToken] = useState("");
@@ -258,6 +262,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
         // publicUrl は末尾スラッシュを落として保存（リンク組み立て時の // を防ぐ）。空欄 = null（2026-08-08）
         notify: {
           discordEnabled,
+          quietConsecutiveHumanTurns: quietConsecutive,
           publicUrl: publicUrl.trim().replace(/\/+$/, "") || null,
           discordGuildId: guildId.trim() || null,
         },
@@ -407,6 +412,8 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           testingNotify={testingNotify}
           testNotify={testNotify}
           publicUrl={publicUrl}
+          quietConsecutive={quietConsecutive}
+          setQuietConsecutive={setQuietConsecutive}
           setPublicUrl={setPublicUrl}
           editingBotToken={editingBotToken}
           setEditingBotToken={setEditingBotToken}

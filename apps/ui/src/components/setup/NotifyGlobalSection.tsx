@@ -19,6 +19,9 @@ interface Props {
   testNotify: () => void;
   publicUrl: string;
   setPublicUrl: (v: string) => void;
+  /** 同じ人の人間作業が続く区間をまとめて1通にするか（2026-08-20） */
+  quietConsecutive: boolean;
+  setQuietConsecutive: (v: boolean) => void;
   /** 業務連絡（手順書で指定されたチャンネルへの投稿）用。2026-08-11 */
   editingBotToken: boolean;
   setEditingBotToken: (v: boolean) => void;
@@ -41,6 +44,8 @@ export function NotifyGlobalSection({
   testNotify,
   publicUrl,
   setPublicUrl,
+  quietConsecutive,
+  setQuietConsecutive,
   editingBotToken,
   setEditingBotToken,
   botToken,
@@ -101,6 +106,19 @@ export function NotifyGlobalSection({
       <p className={desc}>
         通知に付くノードURLの基底。<strong>未設定だと通知そのものが出ません</strong>
         （何の話か分からない通知は出さない方針）
+      </p>
+
+      {/* 連続する人間作業の消音（2026-08-20 本人指示「人間実行ノードかつ担当者が同じタスクが
+          連続している場合のみ通知が出ないようにしてね」）。ノードごとの設定ではなく、
+          グラフの形（直前の作業が同じ人の手作業か）から自動で決まる */}
+      <label className="mt-4 flex items-center gap-2 text-sm text-foreground">
+        <Switch checked={quietConsecutive} onCheckedChange={setQuietConsecutive} />
+        <span>続けて自分の番が来るときは通知をまとめる</span>
+      </label>
+      <p className={desc}>
+        直前の作業が<strong>同じ担当者の人間ノード</strong>だけのときは鳴らしません
+        （手を動かしている最中に鳴らしても情報が増えないため）。区間の先頭や、AI・スクリプトの
+        仕事が終わって回ってきた番は今までどおり鳴ります。橙の「あなたの番」表示は変わりません
       </p>
 
       {/* 業務連絡（2026-08-11 本人要望）: 手順書に「#運営一般 に報告」と書かれたノードで、

@@ -145,6 +145,9 @@ export interface SettingsView {
     /** 通知リンクの基底URL。**未設定だと通知そのものを出さない**（2026-08-11 URL 必須化）
      *  ——鳴るのに辿れない通知はチャンネルの信用を落とすだけなので黙るほうを選ぶ */
     publicUrl: string | null;
+    /** 同じ人の人間作業が続く区間で、2本目以降の「あなたの番」通知を鳴らさないか
+     *  （2026-08-20）。Discord のグラフ通知とデスクトップ通知の両方に効く */
+    quietConsecutiveHumanTurns: boolean;
     /** 業務連絡（手順書で指定したチャンネルへの投稿）用の Bot トークンが設定済みか。
      *  トークン自体は apiKey / Webhook URL と同じく書き込み専用で返らない（2026-08-11） */
     hasDiscordBotToken: boolean;
@@ -217,6 +220,7 @@ export interface SettingsPatch {
     discordEnabled?: boolean;
     discordWebhookUrl?: string | null;
     publicUrl?: string | null;
+    quietConsecutiveHumanTurns?: boolean;
     discordBotToken?: string | null;
     discordGuildId?: string | null;
   };

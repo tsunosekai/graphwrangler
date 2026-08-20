@@ -378,12 +378,19 @@ function AppInner() {
     }
   }, [panelNode, shownPageId, selectedId]);
 
-  // あなたの番が増えたときのデスクトップ通知（対象の集計込み）は hooks/useDesktopNotify.ts
-  useDesktopNotify({ nodes, railRuns, myEmail: me.email, siteTitle });
-
   // ---- AI設定（初回セットアップ + いつでも開ける⚙） ----
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // あなたの番が増えたときのデスクトップ通知（対象の集計込み）は hooks/useDesktopNotify.ts。
+  // 「連続する人間作業はまとめる」はサーバ設定なので、settings の読み込み後に効く
+  useDesktopNotify({
+    nodes,
+    railRuns,
+    myEmail: me.email,
+    siteTitle,
+    quietConsecutive: settings?.notify.quietConsecutiveHumanTurns ?? true,
+  });
   useEffect(() => {
     api
       .getSettings()

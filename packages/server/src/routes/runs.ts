@@ -13,6 +13,7 @@ import {
 import { loadUsers } from "../auth.js";
 import { notifyTurn } from "../discord.js";
 import { notifyTargetOf } from "../notify_target.js";
+import { shouldNotifyTurn, turnParentOf } from "../open_request.js";
 import { resolveRecipients } from "../recipients.js";
 import { meta } from "../request_meta.js";
 import type { AppContext } from "../app_context.js";
@@ -35,13 +36,23 @@ export function resolveItemNode(
   graph: GraphStore,
   run: Run,
   nodeId: string,
-): Pick<Node, "id" | "title" | "group" | "assignee" | "branches"> {
+): Pick<Node, "id" | "title" | "group" | "assignee" | "branches" | "kind" | "executor" | "parents"> {
   if (graph.has(nodeId)) return graph.get(nodeId);
   const snap = run.snapshot?.nodes.find((n) => n.id === nodeId);
   if (snap) return snap;
   // タイトルは表示（スレッド本文・通知の見出し）にしか使わない。空にすると
   // 「: pending → done」のような読めない記録が残るので、辿れる形にしておく
-  return { id: nodeId, title: `（削除済み ${nodeId}）`, group: null, assignee: null, branches: null };
+  return {
+    id: nodeId,
+    title: `（削除済み ${nodeId}）`,
+    group: null,
+    assignee: null,
+    branches: null,
+    // 通知判定（連続する人間作業の抑止）は「形が分からないなら鳴らす」に倒す中立値
+    kind: "task",
+    executor: "human",
+    parents: [],
+  };
 }
 
 /** snapshot ノードを RunStore.applyItemDecision が受けるテンプレート（Node）の形へ補完する。
@@ -209,14 +220,17 @@ export function runRoutes(ctx: AppContext): Hono {
     }
     // Discord 通知（あなたの番の発生源②: ワークアイテムが waiting へ遷移した瞬間。
     // エンジンが人間タスクの順番到達で waiting を付ける経路もここを通る）。
-    // 担当者ありならその人の個人設定を尊重（2026-08-07 ユーザー別設定）。
+    // 鳴らすかの判定は shouldNotifyTurn（連続する人間作業の抑止 × 担当者の個人設定。発生源①と共通）。
     // ラン名は target.runTitle として渡す（簡略フォーマット化 2026-08-08 本人指示）。
     // 宛先は assignee 1本ではなく関係者まで広げて解決する（2026-08-11。recipients.ts）——
     // 会話の材料はこのランのスレッドに絞る（テンプレート側の昔の会話で鳴らさない）
     if (
       fromStatus !== "waiting" &&
       toStatus === "waiting" &&
-      (!node.assignee || userSettings.get(node.assignee).discordTurnNotify)
+      shouldNotifyTurn(node, (id) => turnParentOf(graph, run, id), {
+        quietConsecutive: settings.get().notify.quietConsecutiveHumanTurns,
+        turnNotifyOf: (email) => userSettings.get(email).discordTurnNotify,
+      })
     ) {
       const users = loadUsers(usersFile);
       notifyTurn(

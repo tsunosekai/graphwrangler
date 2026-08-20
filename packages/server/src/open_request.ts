@@ -8,7 +8,18 @@
 //   - POST /api/nodes/:id/request … agent/engine から（AI実行中の QUESTION・承認ゲート・
 //     失敗リカバリ・分岐が全部ここへ来る）
 //   - スレッドの Task AI … 会話中に QUESTION プロトコルで人間の判断を求めたとき（thread_ai.ts）
-import type { Actor, DecisionRequest, GraphStore, Message, RunStore, ThreadStore } from "@graphwrangler/core";
+import {
+  isConsecutiveHumanTurn,
+  type Actor,
+  type DecisionRequest,
+  type GraphStore,
+  type Message,
+  type Run,
+  type RunStore,
+  type ThreadStore,
+  type TurnNode,
+  type TurnParent,
+} from "@graphwrangler/core";
 import { loadUsers } from "./auth.js";
 import { notifyTurn } from "./discord.js";
 import { notifyTargetOf } from "./notify_target.js";
@@ -29,6 +40,55 @@ export function isTurnAlreadyAnnounced(
   nodeId: string,
 ): boolean {
   return pageRuns.some((r) => r.status === "running" && r.items[nodeId]?.status === "waiting");
+}
+
+/**
+ * このノードの「あなたの番」を鳴らすか（純粋関数）。2つの発生源
+ * （①判断リクエストを開く ②ランのワークアイテムが waiting へ遷移）で規則を1つにするため
+ * ここへ畳んである。判定は2段:
+ *   1. 同じ人の人間作業が連続している区間の2本目以降は黙る
+ *      （設定 notify.quietConsecutiveHumanTurns=true のときだけ。2026-08-20）
+ *   2. 担当者が居るならその人の受け取り設定（discordTurnNotify。2026-08-07 ユーザー別設定）
+ * 黙らせるのは通知だけで、waiting への遷移も橙の「あなたの番」表示も変わらない。
+ */
+export function shouldNotifyTurn(
+  node: TurnNode,
+  parentOf: (id: string) => TurnParent | undefined,
+  opts: {
+    /** 連続する人間作業をまとめる設定（settings.notify.quietConsecutiveHumanTurns） */
+    quietConsecutive: boolean;
+    /** 担当者メール → その人が「あなたの番」通知を受け取る設定か */
+    turnNotifyOf: (email: string) => boolean;
+  },
+): boolean {
+  if (opts.quietConsecutive && isConsecutiveHumanTurn(node, parentOf)) return false;
+  return !node.assignee || opts.turnNotifyOf(node.assignee);
+}
+
+/**
+ * 親ノードを「通知判定に必要な形」で引く。テンプレートが消えていても、ランは作成時点の
+ * スナップショットで動く（docs/design.md 5.5）ので run.snapshot から補う。
+ * ran（その回に実際に行われたか）は、ラン文脈ならワークアイテムの status、
+ * プロジェクト層ならテンプレートの status から見る——分岐で選ばれなかった枝（skipped）や
+ * 中止（dropped）は「直前の作業」ではないため。
+ */
+export function turnParentOf(
+  graph: GraphStore,
+  run: Run | undefined,
+  parentId: string,
+): TurnParent | undefined {
+  const tmpl = graph.has(parentId)
+    ? graph.get(parentId)
+    : run?.snapshot?.nodes.find((n) => n.id === parentId);
+  if (!tmpl) return undefined;
+  const status = run ? run.items[parentId]?.status : tmpl.status;
+  return {
+    kind: tmpl.kind,
+    executor: tmpl.executor,
+    assignee: tmpl.assignee,
+    // status を引けない親（ランのアイテムに居ない＝この回は無関係）は「行われていない」扱い
+    ran: status !== undefined && status !== "skipped" && status !== "dropped",
+  };
 }
 
 export interface OpenRequestDeps {
@@ -74,18 +134,26 @@ export function openHumanRequest(
 
   const announced = isTurnAlreadyAnnounced(node.group ? runs.list(node.group) : [], node.id);
 
-  // 担当者が居るときはその人の受け取り設定を尊重する（2026-08-07 ユーザー別設定）。
+  // ラン文脈の質問（Task AI がランの会話で QUESTION したとき等）はリンクをランのページへ
+  // 向ける——回答導線はランの進捗側にある（発生源②と同じ理由。2026-08-12）。
+  // 実在しない runId は黙ってテンプレートリンクに落とす（通知は補助機能）。
+  // 親の「実際に行われたか」もラン文脈ならランのワークアイテムから見る（下の parentOf）
+  let run: Run | undefined;
+  if (recipientRunId) {
+    try {
+      run = runs.get(recipientRunId);
+    } catch {}
+  }
+
+  // 鳴らすかの判定は shouldNotifyTurn に一本化（連続する人間作業 × 担当者の個人設定）。
   // 宛先は assignee 1本ではなく関係者まで広げて解決する（2026-08-11。recipients.ts）
-  if (!announced && (!node.assignee || userSettings.get(node.assignee).discordTurnNotify)) {
-    // ラン文脈の質問（Task AI がランの会話で QUESTION したとき等）はリンクをランのページへ
-    // 向ける——回答導線はランの進捗側にある（発生源②と同じ理由。2026-08-12）。
-    // 実在しない runId は黙ってテンプレートリンクに落とす（通知は補助機能）
-    let run: { id: string; title: string } | undefined;
-    if (recipientRunId) {
-      try {
-        run = runs.get(recipientRunId);
-      } catch {}
-    }
+  if (
+    !announced &&
+    shouldNotifyTurn(node, (id) => turnParentOf(graph, run, id), {
+      quietConsecutive: settings.get().notify.quietConsecutiveHumanTurns,
+      turnNotifyOf: (email) => userSettings.get(email).discordTurnNotify,
+    })
+  ) {
     notifyTurn(
       settings.get().notify,
       resolveRecipients(graph, threads, loadUsers(usersFile), node, recipientRunId),

@@ -14,12 +14,14 @@ import { ReadsStore } from "../src/reads.js";
 import { SettingsStore } from "../src/settings.js";
 import { UserSettingsStore } from "../src/user_settings.js";
 import { runRoutes, resolveItemNode } from "../src/routes/runs.js";
+import { clearDuplicateGuard } from "../src/discord.js";
 import type { AppContext } from "../src/app_context.js";
 
 interface Harness {
   graph: GraphStore;
   threads: ThreadStore;
   runs: RunStore;
+  settings: SettingsStore;
   app: Hono;
 }
 
@@ -30,11 +32,12 @@ function harness(): Harness {
   const runs = new RunStore(dir);
   // ラン層のルートが実際に読むのは graph/threads/runs/settings/userSettings/usersFile だけ。
   // 残りは AppContext の形を満たすためのダミー（selfUpdate は触られない）
+  const settings = new SettingsStore(dir);
   const ctx = {
     graph,
     threads,
     runs,
-    settings: new SettingsStore(dir),
+    settings,
     userSettings: new UserSettingsStore(dir),
     reads: new ReadsStore(path.join(dir, "reads.json")),
     usersFile: path.join(dir, "users.json"),
@@ -54,7 +57,7 @@ function harness(): Harness {
     throw err;
   });
   app.route("/", runRoutes(ctx));
-  return { graph, threads, runs, app };
+  return { graph, threads, runs, settings, app };
 }
 
 function postJson(app: Hono, url: string, body: unknown): Promise<Response> {
@@ -260,5 +263,122 @@ test("resolveItemNode: snapshot も無い旧ランでは 404 を投げず中立�
     group: null,
     assignee: null,
     branches: null,
+    // 通知判定（連続する人間作業の消音）は「形が分からないなら鳴らす」に倒す中立値
+    kind: "task",
+    executor: "human",
+    parents: [],
   });
+});
+
+// ---- 「あなたの番」通知（発生源②: ワークアイテムの waiting 遷移）----
+// 連続する人間作業をまとめる規則（2026-08-20。設定 notify.quietConsecutiveHumanTurns）が
+// ルート越しに効いていることを、Webhook への POST を捕まえて確かめる。
+// 判定そのものの仕様は core の turn.test.ts / open_request.test.ts が持つ。
+
+/** ページ + トリガー + 人間タスク2連（t1 → t2）。executor は引数で差し替えられる */
+function humanChain(graph: GraphStore, firstExecutor: "human" | "ai" = "human") {
+  const page = graph.addNode({ title: "連続ページ", kind: "goal" });
+  const trigger = graph.addNode({
+    title: "起点",
+    kind: "trigger",
+    group: page.id,
+    executor: "script",
+    schedule: "every 1m",
+  });
+  const t1 = graph.patchNode(
+    graph.addNode({ title: "1本目", group: page.id, parents: [trigger.id], executor: firstExecutor })
+      .id,
+    { lifecycle: "committed" },
+  );
+  const t2 = graph.patchNode(
+    graph.addNode({ title: "2本目", group: page.id, parents: [t1.id], executor: "human" }).id,
+    { lifecycle: "committed" },
+  );
+  return { page, trigger, t1, t2 };
+}
+
+/** Webhook への POST 本文を集めながら fn を走らせる（通知は投げっぱなしなので少し待つ） */
+async function captureNotifications(fn: () => Promise<void>): Promise<string[]> {
+  clearDuplicateGuard();
+  const sent: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: { body: string }) => {
+    sent.push(JSON.parse(init.body).content);
+    return new Response("", { status: 200 });
+  }) as unknown as typeof fetch;
+  try {
+    await fn();
+    await new Promise((r) => setTimeout(r, 20));
+  } finally {
+    globalThis.fetch = realFetch;
+    clearDuplicateGuard();
+  }
+  return sent;
+}
+
+/** Discord 通知を有効にする（Webhook URL と公開URLが揃って初めて鳴る） */
+function enableNotify(settings: SettingsStore): void {
+  settings.update({
+    notify: {
+      discordEnabled: true,
+      discordWebhookUrl: "https://hook.test/webhook",
+      publicUrl: "http://gw.test",
+    },
+  });
+}
+
+test("同じ担当者の人間作業が連続する2本目は鳴らない（1本目だけ通知）", async () => {
+  const { graph, runs, settings, app } = harness();
+  enableNotify(settings);
+  const { page, trigger, t1, t2 } = humanChain(graph);
+  const run = runs.createFromTrigger(
+    page.id,
+    trigger.id,
+    graph.state().nodes.filter((n) => n.group === page.id),
+    { pageNode: page },
+  );
+  const sent = await captureNotifications(async () => {
+    await postJson(app, `/api/runs/${run.id}/items/${t1.id}`, { status: "waiting" });
+    await postJson(app, `/api/runs/${run.id}/items/${t1.id}`, { status: "done" });
+    await postJson(app, `/api/runs/${run.id}/items/${t2.id}`, { status: "waiting" });
+  });
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].includes("1本目"));
+});
+
+test("直前がAIなら2本目も鳴る（機械の仕事の完了は人間にとって新しい知らせ）", async () => {
+  const { graph, runs, settings, app } = harness();
+  enableNotify(settings);
+  const { page, trigger, t1, t2 } = humanChain(graph, "ai");
+  const run = runs.createFromTrigger(
+    page.id,
+    trigger.id,
+    graph.state().nodes.filter((n) => n.group === page.id),
+    { pageNode: page },
+  );
+  const sent = await captureNotifications(async () => {
+    await postJson(app, `/api/runs/${run.id}/items/${t1.id}`, { status: "done" });
+    await postJson(app, `/api/runs/${run.id}/items/${t2.id}`, { status: "waiting" });
+  });
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].includes("2本目"));
+});
+
+test("設定を切れば連続でも従来どおり2本とも鳴る", async () => {
+  const { graph, runs, settings, app } = harness();
+  enableNotify(settings);
+  settings.update({ notify: { quietConsecutiveHumanTurns: false } });
+  const { page, trigger, t1, t2 } = humanChain(graph);
+  const run = runs.createFromTrigger(
+    page.id,
+    trigger.id,
+    graph.state().nodes.filter((n) => n.group === page.id),
+    { pageNode: page },
+  );
+  const sent = await captureNotifications(async () => {
+    await postJson(app, `/api/runs/${run.id}/items/${t1.id}`, { status: "waiting" });
+    await postJson(app, `/api/runs/${run.id}/items/${t1.id}`, { status: "done" });
+    await postJson(app, `/api/runs/${run.id}/items/${t2.id}`, { status: "waiting" });
+  });
+  assert.equal(sent.length, 2);
 });

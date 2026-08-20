@@ -88,6 +88,13 @@ export const NotifySettingsSchema = z.object({
   /** 「あなたの番」を流すグラフ通知チャンネルの Webhook URL。
    *  書き込み専用。undefined=維持 / null=削除 / string=設定（apiKey と同じ扱い） */
   discordWebhookUrl: z.string().nullable().default(null),
+  /** 人間の作業が数珠つなぎになっている区間で、2本目以降の「あなたの番」通知を鳴らさない
+   *  （2026-08-20 本人指示「人間実行ノードかつ担当者が同じタスクが連続している場合のみ
+   *  通知が出ないように」）。直前の作業が同じ人の human ノードなら、その人はもう手を
+   *  動かしている最中で、鳴らしても情報が増えない。判定は open_request.ts の
+   *  isConsecutiveHumanTurn（グラフの形から自動で決まる。ノード側に設定は持たせない）。
+   *  false にすると従来どおり1ノードごとに鳴る */
+  quietConsecutiveHumanTurns: z.boolean().default(true),
   /** 通知リンクの基底URL。例 http://100.86.224.19:8770。
    *  **未設定なら通知そのものを出さない**（2026-08-11 本人要望「何の話か分からないから
    *  ノードURLは絶対にのせるようにしたい」——3行目を省いて鳴らすより黙るほうを選ぶ） */
@@ -261,6 +268,7 @@ export class SettingsStore {
         discordEnabled: this.cache.notify.discordEnabled,
         hasDiscordWebhook: this.cache.notify.discordWebhookUrl !== null,
         publicUrl: this.cache.notify.publicUrl,
+        quietConsecutiveHumanTurns: this.cache.notify.quietConsecutiveHumanTurns,
         // トークンは apiKey / Webhook URL と同じく有無だけ返す（書き込み専用）
         hasDiscordBotToken: this.cache.notify.discordBotToken !== null,
         discordGuildId: this.cache.notify.discordGuildId,
