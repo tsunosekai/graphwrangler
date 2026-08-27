@@ -380,6 +380,17 @@ describe("shouldCreateScheduledRun: 毎月最終日 / 最終◯曜", () => {
     expect(shouldCreateScheduledRun(s, jan, new Date(2026, 1, 28, 18, 1))).toBe(true); // 2/28 = 2月の最終日
   });
 
+  it("月末N日前は月の長さに追従する（1月=31日基準、2月=28日基準）", () => {
+    const s = parseSchedule("monthly lastday-3 18:00")!;
+    // 2026-01 の最終日は 31 → 3日前 = 1/28
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 0, 28, 17, 59))).toBe(false); // 当日の時刻前
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 0, 28, 18, 1))).toBe(true);
+    const jan = { created: new Date(2026, 0, 28, 18, 5).toISOString() };
+    // 2026-02 の最終日は 28 → 3日前 = 2/25
+    expect(shouldCreateScheduledRun(s, jan, new Date(2026, 1, 24, 23, 0))).toBe(false); // まだ2/25でない
+    expect(shouldCreateScheduledRun(s, jan, new Date(2026, 1, 25, 18, 1))).toBe(true);
+  });
+
   it("最終◯曜は第4が最終の月では第4に出る（第5指定との違い）", () => {
     const s = parseSchedule("monthly last fri 17:30")!;
     // 2026-02 の金曜: 6,13,20,27（最終=2/27。第5金曜は存在しない）

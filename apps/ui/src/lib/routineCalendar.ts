@@ -170,6 +170,9 @@ export function occurrenceDays(
 
   if (parsed.type === "monthlyLastDay") return [daysInMonth];
 
+  // 月末N日前（offset は 1〜27 なので必ず 1日以降に落ちる）
+  if (parsed.type === "monthlyLastDayOffset") return [daysInMonth - parsed.offset];
+
   if (parsed.type === "yearlyDay") {
     if (monthIndex !== parsed.month - 1 || parsed.day > daysInMonth) return [];
     return [parsed.day];

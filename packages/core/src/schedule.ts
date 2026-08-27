@@ -14,6 +14,7 @@
 //   - "monthly last <dow> <HH:MM>"           … 毎月最終◯曜（2026-08-12）
 //   - "monthly day <D[,D…]> <HH:MM>"         … 毎月◯日（複数可。無い日の月はスキップ。2026-08-12）
 //   - "monthly lastday <HH:MM>"              … 毎月最終日（2026-08-12）
+//   - "monthly lastday-<N> <HH:MM>"          … 毎月最終日のN日前（月末N日前。N=1〜27。2026-08-27）
 //   - "yearly <1-12> <1-5> <dow> <HH:MM>"    … 毎年◯月の第n曜日
 //   - "yearly day <1-12> <D> <HH:MM>"        … 毎年◯月◯日（2026-08-12）
 //   - "yearly lastday <1-12> <HH:MM>"        … 毎年◯月の最終日（2026-08-12）
@@ -77,6 +78,9 @@ export type ParsedSchedule =
   | { type: "monthlyDay"; days: number[]; hour: number; minute: number; raw: string }
   // 毎月最終日（28/29/30/31 を月ごとに自動で解決）
   | { type: "monthlyLastDay"; hour: number; minute: number; raw: string }
+  // 毎月最終日のN日前（月末N日前。2026-08-27 本人要望）。「毎月◯日」と違い月の長さに追従する。
+  // offset は 1〜27 に制限——2月（28日）でも必ず 1日以降に落ち、どの月もスキップされない
+  | { type: "monthlyLastDayOffset"; offset: number; hour: number; minute: number; raw: string }
   // 毎年◯月の第n◯曜（month=1〜12）
   | { type: "yearly"; month: number; nth: number; weekday: Weekday; hour: number; minute: number; raw: string }
   // 毎年◯月◯日（記念日・年次手続き）
@@ -102,6 +106,8 @@ const MONTHLY_LAST_DOW_RE = new RegExp(`^monthly\\s+last\\s+(${DOW})\\s+(\\d{1,2
 const MONTHLY_DAY_RE = /^monthly\s+day\s+(\d{1,2}(?:\s*,\s*\d{1,2})*)\s+(\d{1,2}):(\d{2})$/i;
 // "monthly lastday 09:00" = 毎月最終日 09:00
 const MONTHLY_LASTDAY_RE = /^monthly\s+lastday\s+(\d{1,2}):(\d{2})$/i;
+// "monthly lastday-3 09:00" = 毎月最終日の3日前（月末3日前）09:00
+const MONTHLY_LASTDAY_OFFSET_RE = /^monthly\s+lastday-(\d{1,2})\s+(\d{1,2}):(\d{2})$/i;
 // "yearly 4 2 tue 09:00" = 毎年4月の第2火曜 09:00
 const YEARLY_RE = new RegExp(`^yearly\\s+(\\d{1,2})\\s+([1-5])\\s+(${DOW})\\s+(\\d{1,2}):(\\d{2})$`, "i");
 // "yearly day 4 1 09:00" = 毎年4月1日 09:00
@@ -318,6 +324,16 @@ export function parseSchedule(text: string): ParsedSchedule | null {
     return t ? { type: "monthlyLastDay", ...t, raw: text } : null;
   }
 
+  const monthlyLastDayOffsetMatch = MONTHLY_LASTDAY_OFFSET_RE.exec(trimmed);
+  if (monthlyLastDayOffsetMatch) {
+    const offset = Number(monthlyLastDayOffsetMatch[1]);
+    const t = time(monthlyLastDayOffsetMatch[2], monthlyLastDayOffsetMatch[3]);
+    // 0日前は "monthly lastday" と同じ意味の別表記になるので弾く（書き方を1つに保つ）
+    return offset >= 1 && offset <= 27 && t
+      ? { type: "monthlyLastDayOffset", offset, ...t, raw: text }
+      : null;
+  }
+
   const yearlyMatch = YEARLY_RE.exec(trimmed);
   if (yearlyMatch) {
     const month = Number(yearlyMatch[1]);
@@ -440,6 +456,7 @@ export function formatSchedule(
     | { type: "monthlyLastDow"; weekday: Weekday; hour: number; minute: number }
     | { type: "monthlyDay"; days: number[]; hour: number; minute: number }
     | { type: "monthlyLastDay"; hour: number; minute: number }
+    | { type: "monthlyLastDayOffset"; offset: number; hour: number; minute: number }
     | { type: "yearly"; month: number; nth: number; weekday: Weekday; hour: number; minute: number }
     | { type: "yearlyDay"; month: number; day: number; hour: number; minute: number }
     | { type: "yearlyLastDay"; month: number; hour: number; minute: number }
@@ -464,6 +481,8 @@ export function formatSchedule(
       return `monthly day ${parsed.days.join(",")} ${time}`;
     case "monthlyLastDay":
       return `monthly lastday ${time}`;
+    case "monthlyLastDayOffset":
+      return `monthly lastday-${parsed.offset} ${time}`;
     case "yearly":
       return `yearly ${parsed.month} ${parsed.nth} ${parsed.weekday} ${time}`;
     case "yearlyDay":
@@ -503,6 +522,8 @@ export function describeSchedule(text: string | null): string | null {
       return `毎月${parsed.days.join("・")}日 ${time}`;
     case "monthlyLastDay":
       return `毎月最終日 ${time}`;
+    case "monthlyLastDayOffset":
+      return `毎月月末${parsed.offset}日前 ${time}`;
     case "yearly":
       return `毎年${parsed.month}月の第${parsed.nth}${dow(parsed.weekday)} ${time}`;
     case "yearlyDay":

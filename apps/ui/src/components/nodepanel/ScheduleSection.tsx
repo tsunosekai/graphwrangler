@@ -55,10 +55,11 @@ const MODE_JA: Record<Exclude<Mode, "none" | "raw">, string> = {
 };
 
 /** 「毎月」の指定のしかた */
-type MonthMode = "day" | "lastday" | "nth" | "lastdow";
+type MonthMode = "day" | "lastday" | "lastdayOffset" | "nth" | "lastdow";
 const MONTH_MODE_JA: Record<MonthMode, string> = {
   day: "◯日",
   lastday: "最終日",
+  lastdayOffset: "月末◯日前",
   nth: "第n曜日",
   lastdow: "最終◯曜",
 };
@@ -96,6 +97,8 @@ interface FormState {
   nth: string; // "1".."5"
   month: string; // "1".."12"
   dayOfMonth: string; // "1".."31"
+  /** 月末◯日前の◯（"1".."27"。2月でも必ず存在する日に落ちる範囲） */
+  lastDayOffset: string;
   onceDate: string; // "YYYY-MM-DD"
   cronText: string;
   rawText: string;
@@ -116,6 +119,7 @@ function deriveState(schedule: string | null): FormState {
     nth: "1",
     month: "1",
     dayOfMonth: "1",
+    lastDayOffset: "1",
     onceDate: `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`,
     cronText: "",
     rawText: schedule ?? "",
@@ -155,6 +159,14 @@ function deriveState(schedule: string | null): FormState {
       return { ...base, mode: "monthly", monthMode: "day", dayOfMonth: String(parsed.days[0]), ...time };
     case "monthlyLastDay":
       return { ...base, mode: "monthly", monthMode: "lastday", ...time };
+    case "monthlyLastDayOffset":
+      return {
+        ...base,
+        mode: "monthly",
+        monthMode: "lastdayOffset",
+        lastDayOffset: String(parsed.offset),
+        ...time,
+      };
     case "yearly":
       return {
         ...base,
@@ -226,6 +238,13 @@ function buildSchedule(s: FormState): string | null | undefined {
     case "monthly":
       if (s.monthMode === "day") return formatSchedule({ type: "monthlyDay", days: [day], hour, minute });
       if (s.monthMode === "lastday") return formatSchedule({ type: "monthlyLastDay", hour, minute });
+      if (s.monthMode === "lastdayOffset")
+        return formatSchedule({
+          type: "monthlyLastDayOffset",
+          offset: Number(s.lastDayOffset),
+          hour,
+          minute,
+        });
       if (s.monthMode === "lastdow")
         return formatSchedule({ type: "monthlyLastDow", weekday: s.weekday, hour, minute });
       return formatSchedule({ type: "monthly", nth, weekday: s.weekday, hour, minute });
@@ -420,6 +439,25 @@ export function ScheduleSection({
       </SelectContent>
     </Select>
   );
+  /** 月末◯日前セレクト（1〜27。28以上は2月に存在しない日が出るので出さない） */
+  const lastDayOffsetSelect = (
+    <Select
+      value={state.lastDayOffset}
+      disabled={contentLocked}
+      onValueChange={(v) => update({ lastDayOffset: v })}
+    >
+      <SelectTrigger className="h-8 w-24 flex-shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {Array.from({ length: 27 }, (_, i) => String(i + 1)).map((d) => (
+          <SelectItem key={d} value={d}>
+            {d}日前
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
   const timeInput = (
     <Input
       type="time"
@@ -541,6 +579,8 @@ export function ScheduleSection({
           ((state.mode === "monthly" && state.monthMode === "day") ||
             (state.mode === "yearly" && state.yearMode === "day")) &&
           daySelect}
+        {/* 月末◯日前 */}
+        {!intervalOnly && state.mode === "monthly" && state.monthMode === "lastdayOffset" && lastDayOffsetSelect}
         {/* 第n（第n曜日） */}
         {!intervalOnly &&
           ((state.mode === "monthly" && state.monthMode === "nth") ||
@@ -632,6 +672,10 @@ export function ScheduleSection({
           {/* 31日など、その日が無い月は飛ばす（月末に寄せたいなら「最終日」を使う） */}
           {state.mode === "monthly" && state.monthMode === "day" && Number(state.dayOfMonth) > 28
             ? `（${state.dayOfMonth}日が無い月は飛ばします。月末に寄せたいなら「最終日」）`
+            : ""}
+          {/* 月末◯日前: 実際の日は月の長さで動く（固定日でないことを具体例で言い切る） */}
+          {state.mode === "monthly" && state.monthMode === "lastdayOffset"
+            ? `（月の長さに追従します。31日の月は${31 - Number(state.lastDayOffset)}日、2月は${28 - Number(state.lastDayOffset)}日）`
             : ""}
           {/* 平日: 休みの日ぶんは作らない（連休明けにまとめて1本、が期待どおりか確かめられるように） */}
           {state.mode === "weekday"

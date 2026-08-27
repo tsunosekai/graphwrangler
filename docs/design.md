@@ -318,7 +318,8 @@ impl.command はワークスペースルートからの相対パスで書く。�
     `every N m|h|d|w` / `daily HH:MM` / `weekday HH:MM`（平日）/
     `weekly dow[,dow…] HH:MM`（複数曜日可）/
     `biweekly dow HH:MM` / `monthly day D[,D…] HH:MM`（毎月◯日）/
-    `monthly lastday HH:MM`（毎月最終日）/ `monthly n dow HH:MM`（第n曜日）/
+    `monthly lastday HH:MM`（毎月最終日）/ `monthly lastday-N HH:MM`（月末N日前。N=1〜27）/
+    `monthly n dow HH:MM`（第n曜日）/
     `monthly last dow HH:MM`（最終◯曜）/ `yearly day M D HH:MM` / `yearly lastday M HH:MM` /
     `yearly M n dow HH:MM` / `once YYYY-MM-DD HH:MM`（1回だけ）/ cron 5フィールド。
     cron は曜日・月の3文字名（mon / jan）、`?`、`@daily` 等のマクロも受ける（他スケジューラ互換）。

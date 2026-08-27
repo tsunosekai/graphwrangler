@@ -38,6 +38,8 @@ describe("formatSchedule", () => {
       "monthly day 1,15 09:00",
       "monthly lastday 18:00",
       "monthly last fri 17:30",
+      // 2026-08-27 追加（月末◯日前）
+      "monthly lastday-3 18:00",
       "yearly day 4 1 09:00",
       "yearly lastday 3 18:00",
       "once 2026-09-01 09:00",
@@ -131,6 +133,17 @@ describe("2026-08-12 追加分の文法", () => {
     });
   });
 
+  it("月末◯日前（1〜27。0は lastday と同義の別表記なので拒否）", () => {
+    expect(parseSchedule("monthly lastday-3 18:00")).toMatchObject({
+      type: "monthlyLastDayOffset",
+      offset: 3,
+      hour: 18,
+    });
+    expect(parseSchedule("monthly lastday-27 09:00")).toMatchObject({ offset: 27 });
+    expect(parseSchedule("monthly lastday-0 09:00")).toBeNull();
+    expect(parseSchedule("monthly lastday-28 09:00")).toBeNull(); // 2月に存在しない日が出る
+  });
+
   it("毎年◯月◯日・毎年◯月の最終日", () => {
     expect(parseSchedule("yearly day 4 1 09:00")).toMatchObject({ type: "yearlyDay", month: 4, day: 1 });
     expect(parseSchedule("yearly lastday 3 18:00")).toMatchObject({ type: "yearlyLastDay", month: 3 });
@@ -178,6 +191,7 @@ describe("2026-08-12 追加分の文法", () => {
     expect(describeSchedule("monthly day 25 09:00")).toBe("毎月25日 09:00");
     expect(describeSchedule("monthly day 1,15 09:00")).toBe("毎月1・15日 09:00");
     expect(describeSchedule("monthly lastday 18:00")).toBe("毎月最終日 18:00");
+    expect(describeSchedule("monthly lastday-3 18:00")).toBe("毎月月末3日前 18:00");
     expect(describeSchedule("monthly last fri 17:30")).toBe("毎月最終金曜 17:30");
     expect(describeSchedule("weekly mon,wed,fri 09:00")).toBe("毎週月・水・金曜 09:00");
     expect(describeSchedule("yearly day 4 1 09:00")).toBe("毎年4月1日 09:00");

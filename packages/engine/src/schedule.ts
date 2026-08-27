@@ -44,6 +44,7 @@ type CalendarSchedule = Extract<
       | "monthlyLastDow"
       | "monthlyDay"
       | "monthlyLastDay"
+      | "monthlyLastDayOffset"
       | "yearly"
       | "yearlyDay"
       | "yearlyLastDay";
@@ -83,6 +84,9 @@ function targetTimeOn(schedule: CalendarSchedule, date: Date): Date | null {
       return schedule.days.includes(day) ? at() : null;
     case "monthlyLastDay":
       return lastDayOfMonth(year, monthIndex) === day ? at() : null;
+    case "monthlyLastDayOffset":
+      // 月末N日前。offset は 1〜27（パーサで制限）なので必ず 1日以降に落ちる
+      return lastDayOfMonth(year, monthIndex) - schedule.offset === day ? at() : null;
     case "yearly": {
       if (monthIndex !== schedule.month - 1) return null;
       const target = nthWeekdayOfMonth(year, monthIndex, schedule.nth, schedule.weekday);
