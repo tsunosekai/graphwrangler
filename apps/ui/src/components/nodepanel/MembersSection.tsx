@@ -5,7 +5,8 @@
 // 「自動」チップ。追加は末尾の「＋」からメニューで選ぶ（旧: ロスター全員をトグル
 // チップで並べていたが、人数が多いと地獄。2026-08-04 実機指摘で現メンバー+＋方式へ）。
 // 左レールの人フィルタ・イニシャルバッジは実効関係者（手動 ∪ 自動）を見る。
-// 作成者（createdBy）はサーバが刻む不変値なので表示のみ。囲い（bg-card）は付けない
+// 作成者（createdBy）はサーバが刻む不変値なので表示のみで、実効関係者には**含めない**
+// （2026-09-08 本人指示。バッジ・人フィルタは担当者と関係者だけ）。囲い（bg-card）は付けない
 // ——detail や分岐の枝と同じ地のメタ項目として並べる（同日の実機指摘）
 import { Plus, X } from "lucide-react";
 import type { NodePatchInput } from "../../lib/api";
@@ -75,7 +76,7 @@ export function MembersSection({
                 key={m}
                 id="members-auto"
                 always="自動集計の関係者"
-                text="配下ノードの担当者・関係者・作成者から自動で集まった分。ここでは外せない（外すには配下ノード側の担当者・関係者を変える）"
+                text="配下ノードの担当者・関係者から自動で集まった分（作成者は含めない）。ここでは外せない（外すには配下ノード側の担当者・関係者を変える）"
               >
                 <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-text-lo">
                   {displayNameOf(m, users)}

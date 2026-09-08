@@ -595,10 +595,13 @@ impl.command はワークスペースルートからの相対パスで書く。�
     関係者チップ。2026-08-04 に kind=goal 限定を撤廃——本人指示「ノードにも関係者を
     設定できるように」）。左レールの人フィルタと「自分の関係分」の判定に使う
 - **ページの実効関係者は配下から継承する**（2026-08-04）: ページの関係者 =
-  手動 members ∪ page.createdBy ∪ 配下ノード（group がそのページ）の
-  members ∪ assignee ∪ createdBy（UI の `effectiveMembers`、apps/ui/src/lib/team.ts）。
-  担当者を割り当てれば自動でそのページの関係者になる（Huly の
-  creator+assignee 自動 collaborator と同型）。ページの NodePanel では手動分は
+  手動 members ∪ 配下ノード（group がそのページ）の members ∪ assignee
+  （UI の `effectiveMembers`、apps/ui/src/lib/team.ts）。**作成者（createdBy）は
+  含めない**（2026-09-08 本人指示「作成者はプロジェクトの担当者アイコンに出さない。
+  担当者と関係者のみ」。当初は Huly の creator+assignee 自動 collaborator と同型で
+  作成者も入れていたが、起票しただけの人がバッジ・人フィルタに居座るのを撤回。
+  作成者は NodePanel のメタ表示と Discord 宛先解決（recipients.ts の段2/3）にだけ残る）。
+  担当者を割り当てれば自動でそのページの関係者になる。ページの NodePanel では手動分は
   トグルチップ、継承分は「自動」ラベルの非活性チップで区別表示（継承は解除できない
   ——外したければ元のノード側を変える）。左レールのイニシャルバッジも実効関係者
 - **会話の発言者フィルタ**（2026-08-12 本人要望「会話履歴を、メンバーでフィルタリング」）:

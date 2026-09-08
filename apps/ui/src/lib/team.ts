@@ -71,11 +71,14 @@ export function turnIsMine(assignee: string | null | undefined, meEmail: string 
   return !assignee || !meEmail || sameEmail(assignee, meEmail);
 }
 
-/** ページの実効関係者: 手動 members ∪ 作成者 ∪ 配下ノード（group===page.id）の
- *  members・担当者・作成者の自動集計（2026-08-04）。手動設定だけに頼ると、配下に担当者が
- *  居るのにページのバッジ・人フィルタに現れない——「誰が絡んでいるページか」は配下から
- *  導出するのが実態に合う。重複はメール小文字正規化で除去し、表示表記は最初に見つかった
- *  ものをそのまま使う（表示名解決は displayNameOf が別途行うので表記は何でもよい） */
+/** ページの実効関係者: 手動 members ∪ 配下ノード（group===page.id）の members・担当者の
+ *  自動集計（2026-08-04）。手動設定だけに頼ると、配下に担当者が居るのにページのバッジ・
+ *  人フィルタに現れない——「誰が絡んでいるページか」は配下から導出するのが実態に合う。
+ *  **作成者（createdBy）は含めない**（2026-09-08 本人指示「作成者はプロジェクトの担当者
+ *  アイコンに出さない。担当者と関係者のみ」。起票しただけの人が関係者として左レールの
+ *  バッジ・人フィルタに居座るのは実態と違う。作成者はパネルのメタ表示にだけ残る）。
+ *  重複はメール小文字正規化で除去し、表示表記は最初に見つかったものをそのまま使う
+ *  （表示名解決は displayNameOf が別途行うので表記は何でもよい） */
 export function effectiveMembers(page: Node, allNodes: Node[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -87,12 +90,10 @@ export function effectiveMembers(page: Node, allNodes: Node[]): string[] {
     out.push(email);
   };
   for (const m of page.members ?? []) add(m);
-  add(page.createdBy);
   for (const n of allNodes) {
     if (n.group !== page.id) continue;
     for (const m of n.members ?? []) add(m);
     add(n.assignee);
-    add(n.createdBy);
   }
   return out;
 }

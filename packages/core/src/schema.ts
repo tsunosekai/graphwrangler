@@ -215,8 +215,8 @@ export const NodeSchema = z.object({
    *  ノード分割で表現する）。Fix の保護対象外（誰がやるかは「やり方」ではない） */
   assignee: z.string().nullable().default(null),
   /** 関係者（メール配列）。ページ（kind=goal / メンバー持ち）でのみ意味を持つ。
-   *  左レールの人フィルタと「自分の関係分」判定に使う。作成者は自動で関係者扱いなので
-   *  ここへ重複して入れる必要はない */
+   *  左レールの人フィルタと「自分の関係分」判定に使う。作成者（createdBy）は関係者扱い
+   *  **しない**（2026-09-08。起票者を関係者にもしたければここへ明示的に入れる） */
   members: z.array(z.string()).default([]),
   created: z.string(),
 });
