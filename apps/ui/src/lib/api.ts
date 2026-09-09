@@ -479,6 +479,32 @@ export const api = {
   revertDecision: (id: string) =>
     withSelfRead(id, request<Node>(`/nodes/${id}/decide/revert`, { method: "POST", body: "{}" })),
 
+  // ---- 飛ばす / ここで打ち切る（docs/design.md 3.9b） ----
+
+  /** プロジェクト層: このノードをやらずに先へ進む（skipped。下流へは伝搬しない） */
+  skipNode: (id: string) =>
+    withSelfRead(id, request<Node>(`/nodes/${id}/skip`, { method: "POST", body: "{}" })),
+
+  /** プロジェクト層: ここで打ち切る（このノード dropped・下流 skipped・ページ dropped） */
+  abortNode: (id: string) =>
+    withSelfRead(
+      id,
+      request<{ node: Node; skipped: string[]; page: Node | null }>(`/nodes/${id}/abort`, {
+        method: "POST",
+        body: "{}",
+      }),
+    ),
+
+  /** ラン層: このアイテムでランを打ち切る（アイテム dropped・下流 skipped・ラン cancelled） */
+  abortRun: (runId: string, nodeId: string) =>
+    withSelfRead(
+      threadKey(nodeId, runId),
+      request<{ run: Run; skipped: string[] }>(`/runs/${runId}/abort`, {
+        method: "POST",
+        body: JSON.stringify({ nodeId }),
+      }),
+    ),
+
   /** ラン層: ワークアイテム(kind=decisionテンプレート)のchoice確定+skip伝搬 */
   decideRunItem: (runId: string, nodeId: string, choice: string) =>
     withSelfRead(

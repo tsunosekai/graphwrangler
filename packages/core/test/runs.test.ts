@@ -186,8 +186,11 @@ describe("RunStore: ワークアイテム更新・一覧・永続化", () => {
     const { page, trigger, childA } = setupTriggerPage();
     const run = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id));
 
-    const cancelled = runs.cancel(run.id);
+    const { run: cancelled, skipped } = runs.cancel(run.id);
     expect(cancelled.status).toBe("cancelled");
+    // 未決着のアイテムは skipped になる（台帳上で「もう進まない」が見える）
+    expect(skipped).toContain(childA.id);
+    expect(cancelled.items[childA.id].status).toBe("skipped");
     const afterPatch = runs.patchItem(run.id, childA.id, { status: "done" });
     expect(afterPatch.status).toBe("cancelled");
   });

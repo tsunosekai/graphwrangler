@@ -247,6 +247,7 @@ export class RunStore {
     };
 
     // 直接規則: このdecisionを親に持ち、選ばれなかった枝のitemをskippedにする
+    const derived = new Set<string>();
     for (const [id, it] of Object.entries(items)) {
       if (it.status === "done" || it.status === "dropped" || it.status === "skipped") continue;
       const tmpl = templatesById.get(id);
@@ -254,30 +255,72 @@ export class RunStore {
       const branchId = tmpl.parentOptions[nodeId];
       if (branchId !== undefined && branchId !== choice) {
         items = { ...items, [id]: { ...it, status: "skipped" } };
+        derived.add(id);
       }
     }
 
-    // 連鎖規則: ラン内に存在する全ての親がskippedなitemもskippedにする（不動点まで繰り返す）
+    // 連鎖規則: ラン内に存在する全ての親がskippedで、かつ少なくとも1つの親がこの決着由来の
+    // itemもskippedにする（不動点まで繰り返す）。範囲を負けた枝から辿れるものに限定するのは
+    // GraphStore.propagateSkipChain と同じ理由——「このランでは飛ばす」（手動スキップ＝飛ばして
+    // 先へ進む）や「未計画テンプレートは skipped で入る」の下流を、無関係な分岐の決着が巻き込まないため
     let changed = true;
     while (changed) {
       changed = false;
       for (const [id, it] of Object.entries(items)) {
+        if (derived.has(id)) continue;
         if (it.status === "done" || it.status === "dropped" || it.status === "skipped") continue;
         const tmpl = templatesById.get(id);
         if (!tmpl) continue;
         const relevantParents = tmpl.parents.filter((pid) => pid in items);
         if (relevantParents.length === 0) continue; // ラン内に親が居なければ連鎖の対象外
         const allSkipped = relevantParents.every((pid) => items[pid]?.status === "skipped");
-        if (allSkipped) {
-          items = { ...items, [id]: { ...it, status: "skipped" } };
-          changed = true;
-        }
+        if (!allSkipped) continue;
+        if (!relevantParents.some((pid) => derived.has(pid))) continue;
+        items = { ...items, [id]: { ...it, status: "skipped" } };
+        derived.add(id);
+        changed = true;
       }
     }
 
     const updated: Run = { ...run, items, status: deriveRunStatus(run.status, items) };
     this.write(updated);
     return updated;
+  }
+
+  /**
+   * ここで打ち切る（ラン版。docs/design.md 3.9b）: このアイテムを dropped にし、テンプレートの
+   * 子孫にあたる未決着アイテムを skipped にし、ランを cancelled にする。
+   * - アイテム自身が done なら done のまま（「ここまでやって打ち切る」）
+   * - running のアイテム（エンジンが実行中）も skipped にする——ランが cancelled になれば
+   *   エンジンは以後拾わず、走り切った結果の patch が上書きしても run.status は cancelled のまま
+   * - templates は decide と同じ「ページの全メンバー（削除済みは snapshot で補う）」
+   * ページ側（テンプレート）は触らない＝次のランは普通に作られる。「もう回さない」は
+   * ページのアーカイブで表す
+   */
+  abortFrom(runId: string, nodeId: string, templates: Node[]): { run: Run; skipped: string[] } {
+    const run = this.get(runId);
+    const item = run.items[nodeId];
+    if (!item) throw new GraphError(`run ${runId} has no work item for node ${nodeId}`, 404);
+    if (run.status === "cancelled") throw new GraphError("このランは既に打ち切られています", 409);
+    if (item.status === "dropped" || item.status === "skipped") {
+      throw new GraphError("このアイテムは既に決着しています", 409);
+    }
+    let items: Record<string, RunItem> = { ...run.items };
+    if (item.status !== "done") {
+      items[nodeId] = { ...item, status: "dropped", note: "打ち切り" };
+    }
+    const skipped: string[] = [];
+    for (const id of collectDescendantsAmong(templates, nodeId)) {
+      if (id === nodeId) continue;
+      const it = items[id];
+      if (!it) continue;
+      if (it.status === "done" || it.status === "dropped" || it.status === "skipped") continue;
+      items = { ...items, [id]: { ...it, status: "skipped", note: "打ち切りにより見送り" } };
+      skipped.push(id);
+    }
+    const updated: Run = { ...run, items, status: "cancelled" };
+    this.write(updated);
+    return { run: updated, skipped };
   }
 
   /**
@@ -303,11 +346,21 @@ export class RunStore {
     return updated;
   }
 
-  cancel(runId: string): Run {
+  /** ランを打ち切る。未決着のアイテム（pending/waiting/running）は skipped にして台帳上も
+   *  「もう進まない」が見えるようにする（2026-09-09。以前は status だけ cancelled にして
+   *  アイテムは pending のまま残していた）。done/dropped は触らない */
+  cancel(runId: string): { run: Run; skipped: string[] } {
     const run = this.get(runId);
-    const updated: Run = { ...run, status: "cancelled" };
+    const skipped: string[] = [];
+    let items: Record<string, RunItem> = { ...run.items };
+    for (const [id, it] of Object.entries(items)) {
+      if (it.status === "done" || it.status === "dropped" || it.status === "skipped") continue;
+      items = { ...items, [id]: { ...it, status: "skipped", note: "打ち切りにより見送り" } };
+      skipped.push(id);
+    }
+    const updated: Run = { ...run, items, status: "cancelled" };
     this.write(updated);
-    return updated;
+    return { run: updated, skipped };
   }
 
   private write(run: Run): void {

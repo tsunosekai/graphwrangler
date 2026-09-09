@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Play } from "lucide-react";
 import {
+  abortRunWithConfirm,
   cancelRunWithConfirm,
   hasUnread,
   markKeysRead,
@@ -249,6 +250,17 @@ export function LedgerView({ page, members, threadMeta, reads, onViewed, onMutat
     [runs, refreshRuns, onMutated],
   );
 
+  // ここで打ち切る（3.9b）: 右クリックした丸のアイテムを起点にランを打ち切る
+  const abortRunAt = useCallback(
+    async (run: Run, col: { id: string; title: string }) => {
+      if (!(await abortRunWithConfirm(run, col))) return;
+      await refreshRuns();
+      if (run.id === selectedRunId) refreshTrace();
+      onMutated();
+    },
+    [refreshRuns, refreshTrace, selectedRunId, onMutated],
+  );
+
   // ラン名の後編集（並列ラン=ランの区別用ラベル）。ダイアログは左レール・グラフ上部と同じ
   const renameRun = useCallback(
     async (run: Run) => {
@@ -484,15 +496,18 @@ export function LedgerView({ page, members, threadMeta, reads, onViewed, onMutat
               {/* AI/スクリプトの実行失敗（note が「失敗」始まり）は放置すると行き止まりになる。
                   ノードのパネルにしか無かった導線を、台帳の丸からも届くようにする */}
               {targetItem && targetItem.status === "waiting" && targetItem.note?.startsWith("失敗") && (
-                <>
-                  <ContextMenuItem onSelect={() => void patchItem(targetRun.id, targetCol.id, "pending")}>
-                    もう一度
-                  </ContextMenuItem>
+                <ContextMenuItem onSelect={() => void patchItem(targetRun.id, targetCol.id, "pending")}>
+                  もう一度
+                </ContextMenuItem>
+              )}
+              {/* 「このランでは飛ばす」は失敗時に限らず常時（2026-09-09。3.9b）。分岐は対象外 */}
+              {targetItem &&
+                targetCol.kind !== "decision" &&
+                (targetItem.status === "pending" || targetItem.status === "waiting") && (
                   <ContextMenuItem onSelect={() => void patchItem(targetRun.id, targetCol.id, "skipped")}>
                     このランでは飛ばす
                   </ContextMenuItem>
-                </>
-              )}
+                )}
               {/* 分岐(decision)と —（未生成/スキップ）は切り替えの対象外なので出さない */}
               {targetItem &&
                 targetCol.kind !== "decision" &&
@@ -509,6 +524,22 @@ export function LedgerView({ page, members, threadMeta, reads, onViewed, onMutat
               >
                 既読にする
               </ContextMenuItem>
+              {/* ここで打ち切る（3.9b）: このアイテムを起点にランを打ち切る */}
+              {targetItem &&
+                targetRun.status === "running" &&
+                (targetItem.status === "pending" ||
+                  targetItem.status === "waiting" ||
+                  targetItem.status === "running") && (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      variant="destructive"
+                      onSelect={() => void abortRunAt(targetRun, targetCol)}
+                    >
+                      ここで打ち切る
+                    </ContextMenuItem>
+                  </>
+                )}
             </>
           )}
         </ContextMenuContent>

@@ -402,16 +402,99 @@ export class GraphStore {
     this.patchNode(nodeId, { choice, status: "done" }, meta);
 
     // 直接規則: このdecisionを親に持ち、選ばれなかった枝の子をskippedにする
+    const seeds = new Set<string>();
     for (const n of [...this.nodes.values()]) {
       if (n.status === "done" || n.status === "dropped" || n.status === "skipped") continue;
       const branchId = n.parentOptions[nodeId];
       if (branchId !== undefined && branchId !== choice) {
         this.patchNode(n.id, { status: "skipped" }, meta);
+        seeds.add(n.id);
       }
     }
 
-    this.propagateSkipChain(meta);
+    this.propagateSkipChain(seeds, meta);
     return this.get(nodeId);
+  }
+
+  /**
+   * ノードを飛ばす（手動スキップ。docs/design.md 3.9b）: 「このノードはやらないで先へ進む」。
+   * status を skipped にするだけで、下流へは伝搬しない——frontier は「skipped でない親が
+   * 全て done」なので、飛ばした親は無かったことになり下流はそのまま着火できる。
+   * 分岐の負けた枝の skip（applyDecision）と同じ status を使うが、意味は逆
+   * （あちらは「その枝は通らない」で下流も止まる）。連鎖規則が手動スキップを巻き込まない
+   * ように propagateSkipChain は負けた枝から辿れる範囲に限定してある。
+   * - トリガーは進捗を持たないので対象外
+   * - 決着済み（done/dropped/skipped）は対象外。running は「戻す」を経てから
+   * - frontier は要求しない（まだ順番が来ていないノードを先に「やらない」と決めるのは
+   *   計画の操作で、実行フェーズの原則の対象外）
+   */
+  skipNode(nodeId: string, meta: OpMeta = {}): Node {
+    const node = this.get(nodeId);
+    if (node.kind === "trigger") throw new GraphError("トリガーは飛ばせません", 409);
+    // 分岐を飛ばすと choice が無いまま全ての枝の子が frontier に乗る（isOnLosingBranch は
+    // choice 確定後しか効かない）。分岐の決着経路は「分岐を選ぶ」だけ（3.9）
+    if (node.kind === "decision") {
+      throw new GraphError("分岐は飛ばせません（分岐を選ぶか、ここで打ち切ってください）", 409);
+    }
+    if (node.status === "done" || node.status === "dropped" || node.status === "skipped") {
+      throw new GraphError("このノードは既に決着しています", 409);
+    }
+    if (node.status === "running") {
+      throw new GraphError("進行中のノードは飛ばせません（先に「戻す」で待ちに戻してください）", 409);
+    }
+    this.patchNode(
+      nodeId,
+      node.pendingRequest ? { status: "skipped", pendingRequest: null } : { status: "skipped" },
+      meta,
+    );
+    return this.get(nodeId);
+  }
+
+  /**
+   * ここで打ち切る（docs/design.md 3.9b）: このノードを dropped にし、その下流（子孫）で
+   * まだ決着していないものを skipped にし、所属ページ（group）を dropped（アーカイブ）にする。
+   * applyDecision と同じく patch の連続（Ctrl+Z は1手ずつ戻る）。
+   * - ノード自身が done なら done のまま（「ここまでやって打ち切る」）。それ以外は dropped
+   * - 下流の done/dropped は触らない（skipped は既に skipped）
+   * - ページが無い（group=null）ノードは、自分と子孫だけを閉じる
+   * 戻すときの範囲（ページの復帰・下流の skipped の復元）は人間が判断する——自動では戻さない
+   * （revertDecision の「下流の done/dropped は戻さない」と同じ原則）。
+   */
+  abortFrom(nodeId: string, meta: OpMeta = {}): { node: Node; skipped: string[]; page: Node | null } {
+    const node = this.get(nodeId);
+    if (node.kind === "trigger") throw new GraphError("トリガーは打ち切れません", 409);
+    if (node.status === "dropped" || node.status === "skipped") {
+      throw new GraphError("このノードは既に決着しています", 409);
+    }
+    if (node.status !== "done") {
+      this.patchNode(
+        nodeId,
+        node.pendingRequest ? { status: "dropped", pendingRequest: null } : { status: "dropped" },
+        meta,
+      );
+    }
+    const skipped: string[] = [];
+    for (const id of this.collectDescendants(nodeId)) {
+      if (id === nodeId) continue;
+      const d = this.nodes.get(id);
+      if (!d) continue;
+      if (d.status === "done" || d.status === "dropped" || d.status === "skipped") continue;
+      this.patchNode(
+        id,
+        d.pendingRequest ? { status: "skipped", pendingRequest: null } : { status: "skipped" },
+        meta,
+      );
+      skipped.push(id);
+    }
+    let page: Node | null = null;
+    if (node.group && this.has(node.group)) {
+      const p = this.get(node.group);
+      if (p.status !== "done" && p.status !== "dropped") {
+        this.patchNode(p.id, { status: "dropped" }, meta);
+      }
+      page = this.get(p.id);
+    }
+    return { node: this.get(nodeId), skipped, page };
   }
 
   /**
@@ -500,18 +583,27 @@ export class GraphStore {
   }
 
   /** 連鎖規則: 全ての親が skipped なノードを skipped にする（不動点まで繰り返す） */
-  private propagateSkipChain(meta: OpMeta): void {
+  /** 連鎖規則: 「全ての親が skipped」かつ「少なくとも1つの親がこの決着由来（seeds から辿れる）」
+   *  のノードを skipped にする（不動点まで）。範囲を負けた枝から辿れるノードに限定するのは、
+   *  手動スキップ（skipNode＝「飛ばして先へ進む」）の下流を巻き込まないため——限定が無いと、
+   *  A→B→C で B を飛ばしたあと同じページで無関係な分岐を決めた瞬間に C が「親が全部
+   *  skipped」に該当して止まる。ラン作成時の「未計画テンプレートは skipped」も同じ穴だった。
+   *  collectSkipsDerivedFrom（選び直し側）と同じ集合の取り方 */
+  private propagateSkipChain(seeds: Set<string>, meta: OpMeta): void {
+    const derived = new Set(seeds);
     let changed = true;
     while (changed) {
       changed = false;
       for (const n of [...this.nodes.values()]) {
+        if (derived.has(n.id)) continue;
         if (n.status === "done" || n.status === "dropped" || n.status === "skipped") continue;
         if (n.parents.length === 0) continue; // ルートは連鎖規則の対象外（親なし=空配列の空虚な真を避ける）
         const allSkipped = n.parents.every((pid) => this.nodes.get(pid)?.status === "skipped");
-        if (allSkipped) {
-          this.patchNode(n.id, { status: "skipped" }, meta);
-          changed = true;
-        }
+        if (!allSkipped) continue;
+        if (!n.parents.some((pid) => derived.has(pid))) continue;
+        this.patchNode(n.id, { status: "skipped" }, meta);
+        derived.add(n.id);
+        changed = true;
       }
     }
   }

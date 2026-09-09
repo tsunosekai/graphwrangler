@@ -1,7 +1,15 @@
 // ルーティーンページのラン（実行インスタンス）のワークアイテム処理。
 // 実行対象の選定は pickRun.ts / approval.ts（純粋関数）、ここはその結果を API へ書く配線。
 // 分岐アイテム(kind=decision)は tickRunDecision.ts が担当する。
-import { getThread, openRequest, patchRunContext, patchRunItem, postMessage, listPageRuns } from "./api.js";
+import {
+  abortRun,
+  getThread,
+  openRequest,
+  patchRunContext,
+  patchRunItem,
+  postMessage,
+  listPageRuns,
+} from "./api.js";
 import { ENGINE_ACTOR, VIA } from "./actor.js";
 import {
   APPROVAL_WAITING_NOTE,
@@ -335,8 +343,9 @@ function collectPendingAiQuestions(nodes: Node[], runs: Run[]): Array<{ run: Run
  *  ゲート判定は承認連携と同じ findRunGate（質問カードの question にランのマーカー入り）:
  *  - 未発行（executeRunItem 時に開けなかった）→ スレッドの say payload から質問を復元して開き直す
  *  - 発行済み・未回答 → 次の候補へ
- *  - 回答済み: abort → 中止(dropped) / それ以外（ai:* や自由文）→ 回答をスレッド経緯として
- *    読み込ませて再実行 */
+ *  - 回答済み: skip_continue → このランでは飛ばす(skipped) / abort_run → ここで打ち切り
+ *    （アイテム dropped・下流 skipped・ラン cancelled。3.9b）/ abort（旧カード）→ 中止(dropped) /
+ *    それ以外（ai:* や自由文）→ 回答をスレッド経緯として読み込ませて再実行 */
 async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> {
   const pending = collectPendingAiQuestions(nodes, runs);
   for (const { run, node } of pending) {
@@ -386,6 +395,22 @@ async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> 
     }
 
     // answered
+    if (gate.option === "skip_continue") {
+      await patchRunItem(
+        run.id,
+        node.id,
+        { status: "skipped", note: "質問への回答で飛ばして続行" },
+        ENGINE_ACTOR,
+        VIA,
+      );
+      log(`AI質問の回答で飛ばして続行(skipped): run=${run.id} node=${node.id} title=${node.title}`);
+      return true;
+    }
+    if (gate.option === "abort_run") {
+      await abortRun(run.id, node.id, ENGINE_ACTOR, VIA);
+      log(`AI質問の回答で打ち切り: run=${run.id} node=${node.id} title=${node.title}`);
+      return true;
+    }
     if (gate.option === "abort") {
       await patchRunItem(
         run.id,

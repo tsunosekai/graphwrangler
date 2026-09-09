@@ -2,6 +2,7 @@
 // col-span-2 の行として並ぶ（トリガーの確定/取り消し・テンプレートのプラン化・
 // ラン投影の進捗・プロジェクトの進捗ボタン。docs/design.md 3.8 / 3.9）
 import { useState } from "react";
+import { abortNodeWithConfirm, abortRunWithConfirm } from "../../lib/actions";
 import { api, type NodePatchInput } from "../../lib/api";
 import { optimisticPatchRunItem } from "../../lib/optimistic";
 import { formDialog } from "../../lib/dialogs";
@@ -20,6 +21,10 @@ const STATUS_HINT =
 // 人間の語彙: 未計画 →[プラン済みにする]→ 待ち →[着手]→ 進行中 →[完了]。
 // 待ち/進行中は人間ノードでは「やってるかどうかの目印」、AI/スクリプトでは機械が動かす。
 // 中止(dropped)は選択肢から廃止（消すならノード削除。Ctrl+Zで戻せる）。
+// ……だったが 2026-09-09 に「飛ばす」（skipped＝やらずに先へ進む）と「打ち切る」
+// （dropped＋下流を見送り＋ページ/ランを閉じる。docs/design.md 3.9b）を追加した。
+// ノード削除での代用はルーティーンではテンプレートが変わってしまい、プロジェクトでも
+// 「やらないと決めた」記録が残らないため。
 // waiting は保存値でなく導出値（pendingRequest あり / ランアイテムの waiting）。
 // 進捗の日本語（STATUS_JA）は lib/labels.ts が唯一の正
 
@@ -63,6 +68,28 @@ export function StatusSection({
     })
   );
   const [runItemBusy, setRunItemBusy] = useState(false);
+  const [abortBusy, setAbortBusy] = useState(false);
+
+  // 飛ばす（プロジェクト層。POST /nodes/:id/skip。分岐・トリガー・決着済みはサーバが 409）
+  const skipNode = async () => {
+    try {
+      await api.skipNode(node.id);
+      onMutated();
+    } catch {
+      // api() 側でトースト表示済み
+    }
+  };
+  // ここで打ち切る（プロジェクト層 / ラン層。確認ダイアログ → API）
+  const abortHere = async () => {
+    if (abortBusy) return;
+    setAbortBusy(true);
+    try {
+      const ok = activeRun ? await abortRunWithConfirm(activeRun, node) : await abortNodeWithConfirm(node);
+      if (ok) onMutated();
+    } finally {
+      setAbortBusy(false);
+    }
+  };
   // 楽観更新（lib/optimistic.ts）: 押した瞬間に画面が変わる（グラフのカード左バッジの
   // ご褒美演出は NodeCard が遷移を検知して出す——ここから押しても同じに見える）
   const patchRunItemStatus = async (status: RunItemStatus) => {
@@ -229,22 +256,29 @@ export function StatusSection({
             )}
             <span className="flex-1" />
             {/* AI/スクリプトの実行失敗（note が「失敗:」）は放置すると行き止まりになる
-                （エンジンは waiting を拾わない）ため、リトライ/見送りの導線をここに置く。
+                （エンジンは waiting を拾わない）ため、リトライの導線をここに置く。
                 承認待ち・分岐待ちは判断カードが往復を担うので出さない */}
             {activeRunItem.status === "waiting" && activeRunItem.note?.startsWith("失敗") && (
-              <>
-                <Hint id="run-retry" text="待ちに戻して、エンジンにもう一度実行させる">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={runItemBusy}
-                    onClick={() => patchRunItemStatus("pending")}
-                  >
-                    もう一度
-                  </Button>
-                </Hint>
-                <Hint id="run-skip" text="このランではこのステップを見送る（テンプレートは変えない）">
+              <Hint id="run-retry" text="待ちに戻して、エンジンにもう一度実行させる">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={runItemBusy}
+                  onClick={() => patchRunItemStatus("pending")}
+                >
+                  もう一度
+                </Button>
+              </Hint>
+            )}
+            {/* 「このランでは飛ばす」は失敗時に限らず常時（2026-09-09。3.9b）: 今回はやらないと
+                決めたステップを skipped にして下流へ進ませる。分岐は「分岐を選ぶ」だけが決着経路 */}
+            {node.kind !== "decision" &&
+              (activeRunItem.status === "pending" || activeRunItem.status === "waiting") && (
+                <Hint
+                  id="run-skip"
+                  text="このランではこのステップをやらずに次へ進む（テンプレートは変えない）"
+                >
                   <Button
                     type="button"
                     variant="ghost"
@@ -255,7 +289,25 @@ export function StatusSection({
                     このランでは飛ばす
                   </Button>
                 </Hint>
-              </>
+              )}
+            {(activeRunItem.status === "pending" ||
+              activeRunItem.status === "waiting" ||
+              activeRunItem.status === "running") && (
+              <Hint
+                id="run-abort"
+                text="ここでランを打ち切る（このステップは中止、続きのステップは見送り。テンプレートは変えない）"
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  disabled={abortBusy}
+                  onClick={() => void abortHere()}
+                >
+                  打ち切る
+                </Button>
+              </Hint>
             )}
             {/* 分岐(decision)のアイテムは「分岐を選ぶ」で決着する（choice を経ずに done に
                 できてしまう二重経路を作らない）。着手/完了は担当=人間の task のみ */}
@@ -393,6 +445,36 @@ export function StatusSection({
                 >
                   完了
                 </Button>
+              )}
+              {/* 飛ばす（3.9b）: やらずに先へ進む。frontier は要求しない（先に「やらない」と決めるのは
+                  計画の操作）。分岐は「分岐を選ぶ」だけが決着経路なので出さない */}
+              {exec && (vs === "pending" || vs === "waiting") && (
+                <Hint
+                  id="status-skip"
+                  text="このノードはやらずに次へ進む（続きのノードはそのまま着手できる）"
+                >
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void skipNode()}>
+                    飛ばす
+                  </Button>
+                </Hint>
+              )}
+              {/* ここで打ち切る（3.9b）: このノードを中止、続きを見送り、プロジェクトをアーカイブへ */}
+              {(vs === "pending" || vs === "waiting" || vs === "running") && (
+                <Hint
+                  id="status-abort"
+                  text="ここでプロジェクトを打ち切る（このノードは中止、続きのノードは見送り、プロジェクトはアーカイブへ）"
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    disabled={abortBusy}
+                    onClick={() => void abortHere()}
+                  >
+                    打ち切る
+                  </Button>
+                </Hint>
               )}
               {/* dropped（中止）は kind を問わず復帰できる（エンジンの abort 回答で
                   dropped になったノードが行き止まりにならないように） */}

@@ -198,6 +198,39 @@ export async function cancelRunWithConfirm(run: { id: string; title: string }): 
   }
 }
 
+/** ここで打ち切る（プロジェクト。確認 → api.abortNode）。打ち切ったときだけ true */
+export async function abortNodeWithConfirm(node: { id: string; title: string }): Promise<boolean> {
+  const ok = await confirmDialog(
+    `「${node.title}」で打ち切りますか？\nこのノードは中止、続きのノードは見送りになり、プロジェクトはアーカイブに入ります。`,
+    { danger: true, confirmLabel: "打ち切る" },
+  );
+  if (!ok) return false;
+  try {
+    await api.abortNode(node.id);
+    return true;
+  } catch {
+    return false; // api() 側でトースト表示済み
+  }
+}
+
+/** ここで打ち切る（ラン。確認 → api.abortRun）。打ち切ったときだけ true */
+export async function abortRunWithConfirm(
+  run: { id: string; title: string },
+  node: { id: string; title: string },
+): Promise<boolean> {
+  const ok = await confirmDialog(
+    `ラン「${run.title}」を「${node.title}」で打ち切りますか？\nこのステップは中止、続きのステップは見送りになります（テンプレートは変わりません）。`,
+    { danger: true, confirmLabel: "打ち切る" },
+  );
+  if (!ok) return false;
+  try {
+    await api.abortRun(run.id, node.id);
+    return true;
+  } catch {
+    return false; // api() 側でトースト表示済み
+  }
+}
+
 /** 指定キーのうち未読のものがあるか（メニュー項目の disabled 判定用） */
 export function hasUnread(
   keys: string[],

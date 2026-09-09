@@ -1,6 +1,6 @@
 // プロジェクト層（ルーティーンでない普通のノード。docs/design.md 3.4/3.5）のタスク処理。
 // 実行対象の選定は pick.ts（純粋関数）、ここはその結果を API へ書く配線と実行の後処理。
-import { openRequest, patchNode, postMessage } from "./api.js";
+import { abortNode, openRequest, patchNode, postMessage, skipNode } from "./api.js";
 import { ENGINE_ACTOR, VIA } from "./actor.js";
 import { MAX_AUTO_RETRIES, buildAiQuestionRequest, parseAiQuestion, shouldAutoRetry } from "./ask.js";
 import { extractGwMarkers } from "./context.js";
@@ -177,6 +177,14 @@ export async function tickProject(nodes: Node[]): Promise<boolean> {
     case "drop":
       await patchNode(action.node.id, { status: "dropped" }, ENGINE_ACTOR, VIA);
       log(`人間の回答により中止(dropped): id=${action.node.id} title=${action.node.title}`);
+      return true;
+    case "skip":
+      await skipNode(action.node.id, ENGINE_ACTOR, VIA);
+      log(`人間の回答により飛ばして続行(skipped): id=${action.node.id} title=${action.node.title}`);
+      return true;
+    case "abort":
+      await abortNode(action.node.id, ENGINE_ACTOR, VIA);
+      log(`人間の回答により打ち切り: id=${action.node.id} title=${action.node.title}`);
       return true;
     case "demote":
       await demoteToDraft(action.node);

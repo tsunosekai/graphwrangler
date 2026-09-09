@@ -101,6 +101,17 @@ export async function decideNode(id: string, choice: string, actor: Actor, via: 
   return (await request("POST", `/api/nodes/${id}/decide`, { choice, actor, via })) as Node;
 }
 
+/** ノードを飛ばす（POST /api/nodes/:id/skip。skipped にして下流へ進ませる。3.9b） */
+export async function skipNode(id: string, actor: Actor, via: string): Promise<Node> {
+  return (await request("POST", `/api/nodes/${id}/skip`, { actor, via })) as Node;
+}
+
+/** ここで打ち切る（POST /api/nodes/:id/abort。このノード dropped・下流 skipped・ページ dropped。3.9b） */
+export async function abortNode(id: string, actor: Actor, via: string): Promise<Node> {
+  const res = (await request("POST", `/api/nodes/${id}/abort`, { actor, via })) as { node: Node };
+  return res.node;
+}
+
 /** 判断リクエストを開く。ノードは server 側で自動的に waiting + pendingRequest になる。
  *  runId を渡すとカード（decision_request）がそのランの会話に属する——ランのページは
  *  そのランのメッセージだけを見せるため、これが無いと通知リンクでランのページを開いても
@@ -164,6 +175,13 @@ export async function patchRunItem(
     actor,
     via,
   })) as Run;
+}
+
+/** ランをこのアイテムで打ち切る（POST /api/runs/:id/abort。アイテム dropped・下流 skipped・
+ *  ラン cancelled。3.9b） */
+export async function abortRun(runId: string, nodeId: string, actor: Actor, via: string): Promise<Run> {
+  const res = (await request("POST", `/api/runs/${runId}/abort`, { nodeId, actor, via })) as { run: Run };
+  return res.run;
 }
 
 /** ランのコンテキストへ値を merge する（POST /api/runs/:id/context。docs/design.md 3.15）。

@@ -170,3 +170,41 @@ test("addNode で schedule 付きトリガーを作った時も積まれる", as
   const created = (await res.json()) as Node;
   assert.equal(scheduleSetMessages(h, created.id).length, 1);
 });
+
+// ---- 飛ばす / ここで打ち切る（POST /api/nodes/:id/skip, /abort。docs/design.md 3.9b） ----
+
+test("飛ばす: skipped になり、スレッドに status が積まれる。分岐は 409", async () => {
+  const { graph, threads, app } = harness();
+  const a = graph.addNode({ title: "A", lifecycle: "committed" });
+  const res = await app.request(`/api/nodes/${a.id}/skip`, { method: "POST" });
+  assert.equal(res.status, 200);
+  assert.equal(((await res.json()) as Node).status, "skipped");
+  assert.ok(threads.list(a.id).some((m) => m.kind === "status" && m.body.includes("スキップ")));
+  const d = graph.addNode({
+    title: "分岐",
+    kind: "decision",
+    lifecycle: "committed",
+    branches: [
+      { id: "a", label: "A" },
+      { id: "b", label: "B" },
+    ],
+  });
+  const res2 = await app.request(`/api/nodes/${d.id}/skip`, { method: "POST" });
+  assert.equal(res2.status, 409);
+});
+
+test("ここで打ち切る: 起点 dropped・下流 skipped・ページ dropped。両スレッドに記録", async () => {
+  const { graph, threads, app } = harness();
+  const page = graph.addNode({ title: "P", kind: "goal" });
+  const a = graph.addNode({ title: "A", group: page.id, lifecycle: "committed" });
+  const b = graph.addNode({ title: "B", group: page.id, lifecycle: "committed", parents: [a.id] });
+  const res = await app.request(`/api/nodes/${a.id}/abort`, { method: "POST" });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { node: Node; skipped: string[]; page: Node | null };
+  assert.equal(body.node.status, "dropped");
+  assert.deepEqual(body.skipped, [b.id]);
+  assert.equal(body.page?.status, "dropped");
+  assert.equal(graph.get(b.id).status, "skipped");
+  assert.ok(threads.list(a.id).some((m) => m.kind === "status" && m.body.includes("打ち切り")));
+  assert.ok(threads.list(page.id).some((m) => m.kind === "status" && m.body.includes("打ち切り")));
+});

@@ -47,6 +47,8 @@ export type EngineAction =
   | { type: "execute"; node: Node }
   | { type: "open-gate"; node: Node }
   | { type: "drop"; node: Node }
+  | { type: "skip"; node: Node } // AI質問カードの「飛ばして続ける」回答 → skipped（下流はそのまま進む）
+  | { type: "abort"; node: Node } // AI質問カードの「打ち切る」回答 → ここで打ち切り（3.9b）
   | { type: "demote"; node: Node } // modify回答 → 下書きに戻して人間の編集を待つ
   | { type: "none" };
 
@@ -66,6 +68,8 @@ function lastAnswerOption(message: Message | undefined): string | undefined {
  * メッセージによる分岐（lastMessages は各ノードのスレッド最新メッセージ。無い/不要なら省略可）:
  * - 直前の decision_answer が option="abort"（失敗リカバリ）または "skip"（不可逆ゲート）
  *   → drop（status=dropped にする）
+ * - option="skip_continue"（AI質問カードの「飛ばして続ける」）→ skip（POST /skip。skipped に
+ *   して下流へ進ませる）、option="abort_run"（同「打ち切る」）→ abort（POST /abort。3.9b）
  * - option="modify"（内容を変える）→ demote（lifecycle=draft に戻し、人間の編集と
  *   「プラン済みにする」を待つ。回答直後に同じ内容で再実行してしまわないため。
  *   呼び出し側=index.ts が demote 後に status メッセージを積むことで回答を消費する）
@@ -93,6 +97,12 @@ export function selectAction(
 
     if (option === "abort" || option === "skip") {
       return { type: "drop", node };
+    }
+    if (option === "skip_continue") {
+      return { type: "skip", node };
+    }
+    if (option === "abort_run") {
+      return { type: "abort", node };
     }
 
     if (option === "modify") {

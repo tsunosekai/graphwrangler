@@ -223,3 +223,20 @@ describe("ルーティーンテンプレートの除外", () => {
     expect(selectAction([page, trigger, tmpl]).type).toBe("none");
   });
 });
+
+describe("AI質問カードの「飛ばして続ける」「打ち切る」回答（3.9b）", () => {
+  it("option=skip_continue なら skip、option=abort_run なら abort になる", () => {
+    const n1 = node();
+    expect(selectAction([n1], { [n1.id]: decisionAnswer("skip_continue") })).toEqual({
+      type: "skip",
+      node: n1,
+    });
+    const n2 = node();
+    expect(selectAction([n2], { [n2.id]: decisionAnswer("abort_run") })).toEqual({ type: "abort", node: n2 });
+  });
+
+  it("旧カードの option=abort は引き続き drop（互換）", () => {
+    const n = node();
+    expect(selectAction([n], { [n.id]: decisionAnswer("abort") })).toEqual({ type: "drop", node: n });
+  });
+});

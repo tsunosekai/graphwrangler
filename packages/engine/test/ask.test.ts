@@ -98,30 +98,31 @@ describe("parseAiQuestion", () => {
 });
 
 describe("buildAiQuestionRequest", () => {
-  it("AI選択肢を ai:N で並べ、末尾に必ず中止(abort)を付ける", () => {
+  it("AI選択肢を ai:N で並べ、末尾に必ず「飛ばして続ける」「打ち切る」を付ける", () => {
     const req = buildAiQuestionRequest(node({ title: "記事を書く" }), {
       question: "文体は？",
       options: ["です・ます", "だ・である"],
       context: "",
     });
-    expect(req.options.map((o) => o.id)).toEqual(["ai:1", "ai:2", "abort"]);
+    expect(req.options.map((o) => o.id)).toEqual(["ai:1", "ai:2", "skip_continue", "abort_run"]);
     expect(req.question).toBe("文体は？");
     expect(req.impact).toBe("safe");
   });
 
   it("選択肢が無ければ「おまかせで続行」を補って2択以上にする", () => {
     const req = buildAiQuestionRequest(node(), { question: "Q", options: [], context: "" });
-    expect(req.options.map((o) => o.id)).toEqual(["ai:proceed", "abort"]);
+    expect(req.options.map((o) => o.id)).toEqual(["ai:proceed", "skip_continue", "abort_run"]);
   });
 
-  it("選択肢は最大3個+中止で4個に収める（スキーマの max 4）", () => {
+  it("選択肢は最大2個+飛ばす/打ち切るで4個に収める（スキーマの max 4）", () => {
     const req = buildAiQuestionRequest(node(), {
       question: "Q",
       options: ["a", "b", "c", "d", "e"],
       context: "",
     });
     expect(req.options).toHaveLength(4);
-    expect(req.options[3].id).toBe("abort");
+    expect(req.options[2].id).toBe("skip_continue");
+    expect(req.options[3].id).toBe("abort_run");
   });
 
   it("runId を渡すと question にランのマーカーが入る（approval.ts の findRunGate が拾える）", () => {

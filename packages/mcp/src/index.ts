@@ -552,12 +552,63 @@ server.registerTool(
   "run_cancel",
   {
     description:
-      "実行中のランを中断する（status を cancelled にする）。中断後はワークアイテムが全部揃っても" +
-      "自動では done に戻らない。取り消し操作はない（undo/redo の対象外＝ラン専用の操作ログには乗らない）。",
-    inputSchema: { runId: z.string().describe("中断するランid") },
+      "実行中のランを打ち切る（status を cancelled にし、未決着のワークアイテムを skipped にする）。" +
+      "打ち切り後はワークアイテムが全部揃っても自動では done に戻らない。取り消し操作はない" +
+      "（undo/redo の対象外＝ラン専用の操作ログには乗らない）。特定のアイテムを起点に打ち切るなら run_abort。",
+    inputSchema: { runId: z.string().describe("打ち切るランid") },
   },
   safe(async ({ runId }: { runId: string }) =>
     apiPost(`/api/runs/${encodeURIComponent(runId)}/cancel`, withMeta({})),
+  ),
+);
+
+// ---- 15b. run_abort（ここで打ち切る。docs/design.md 3.9b） ----
+
+server.registerTool(
+  "run_abort",
+  {
+    description:
+      "ランを指定アイテムのところで打ち切る: そのアイテムを dropped（done なら done のまま）にし、" +
+      "テンプレート上の下流で未決着のアイテムを skipped にし、ランを cancelled にする。" +
+      "テンプレート（ページ側）は変えない＝次のランは普通に作られる。「もう回さない」はページを done/dropped に。",
+    inputSchema: {
+      runId: z.string().describe("打ち切るランid"),
+      nodeId: z.string().describe("打ち切りの起点になるワークアイテムのテンプレートノードid"),
+    },
+  },
+  safe(async ({ runId, nodeId }: { runId: string; nodeId: string }) =>
+    apiPost(`/api/runs/${encodeURIComponent(runId)}/abort`, withMeta({ nodeId })),
+  ),
+);
+
+// ---- 15c. node_skip / node_abort（飛ばす・ここで打ち切る。docs/design.md 3.9b） ----
+
+server.registerTool(
+  "node_skip",
+  {
+    description:
+      "ノードを飛ばす（status=skipped）。「このノードはやらないで先へ進む」——frontier は skipped の親を" +
+      "充足扱いにするので下流はそのまま着火する。下流へは伝搬しない。決着済み（done/dropped/skipped）・" +
+      "進行中（running）・トリガーは対象外。ルーティーンのテンプレートには意味が無い" +
+      "（ランのアイテムは run_item_patch で status=skipped）。取り消しは node_patch で status=pending。",
+    inputSchema: { nodeId: z.string().describe("飛ばすノードid") },
+  },
+  safe(async ({ nodeId }: { nodeId: string }) =>
+    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/skip`, withMeta({})),
+  ),
+);
+
+server.registerTool(
+  "node_abort",
+  {
+    description:
+      "ここで打ち切る: このノードを dropped（done なら done のまま）にし、下流（子孫）で未決着のものを skipped にし、" +
+      "所属ページ（group）を dropped＝アーカイブにする。プロジェクトを途中で中止するときの操作。" +
+      "戻すときは人間が範囲を判断する（自動では戻らない）。ランの途中で打ち切るなら run_abort。",
+    inputSchema: { nodeId: z.string().describe("打ち切りの起点になるノードid") },
+  },
+  safe(async ({ nodeId }: { nodeId: string }) =>
+    apiPost(`/api/nodes/${encodeURIComponent(nodeId)}/abort`, withMeta({})),
   ),
 );
 

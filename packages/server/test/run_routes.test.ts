@@ -381,3 +381,47 @@ test("設定を切れば連続でも従来どおり2本とも鳴る", async () =
   });
   assert.equal(sent.length, 2);
 });
+
+// ---- 打ち切り（POST /api/runs/:id/abort, /cancel。docs/design.md 3.9b） ----
+
+test("ラン打ち切り(abort): 起点 dropped・下流 skipped・ラン cancelled。テンプレートは不変", async () => {
+  const { graph, threads, app } = harness();
+  const { page, trigger, task } = simplePage(graph);
+  const next = graph.patchNode(
+    graph.addNode({ title: "次", group: page.id, parents: [task.id], executor: "human" }).id,
+    { lifecycle: "committed" },
+  );
+  const run = await createRun(app, trigger.id);
+  const res = await postJson(app, `/api/runs/${run.id}/abort`, { nodeId: task.id });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { run: Run; skipped: string[] };
+  assert.equal(body.run.status, "cancelled");
+  assert.equal(body.run.items[task.id].status, "dropped");
+  assert.equal(body.run.items[next.id].status, "skipped");
+  assert.deepEqual(body.skipped, [next.id]);
+  assert.equal(graph.get(task.id).status, "pending");
+  assert.equal(graph.get(page.id).status, "pending");
+  assert.ok(threads.list(task.id).some((m) => m.kind === "status" && m.body.includes("打ち切り")));
+  assert.ok(threads.list(page.id).some((m) => m.kind === "status" && m.body.includes("ラン打ち切り")));
+});
+
+test("ラン打ち切り(abort): ランに無いノードは 404、打ち切り済みは 409", async () => {
+  const { graph, app } = harness();
+  const { trigger, task } = simplePage(graph);
+  const run = await createRun(app, trigger.id);
+  assert.equal((await postJson(app, `/api/runs/${run.id}/abort`, { nodeId: "n-nope-0001" })).status, 404);
+  assert.equal((await postJson(app, `/api/runs/${run.id}/abort`, { nodeId: task.id })).status, 200);
+  assert.equal((await postJson(app, `/api/runs/${run.id}/abort`, { nodeId: task.id })).status, 409);
+});
+
+test("ラン打ち切り(cancel): 未決着アイテムが skipped になり、ページのスレッドに記録される", async () => {
+  const { graph, threads, app } = harness();
+  const { page, trigger, task } = simplePage(graph);
+  const run = await createRun(app, trigger.id);
+  const res = await postJson(app, `/api/runs/${run.id}/cancel`, {});
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as Run;
+  assert.equal(body.status, "cancelled");
+  assert.equal(body.items[task.id].status, "skipped");
+  assert.ok(threads.list(page.id).some((m) => m.kind === "status" && m.body.startsWith("ラン打ち切り")));
+});

@@ -226,6 +226,49 @@ export function nodeRoutes(ctx: AppContext): Hono {
     return c.json(updated);
   });
 
+  // ---- 飛ばす / ここで打ち切る（docs/design.md 3.9b。2026-09-09） ----
+
+  /** ノードを飛ばす: skipped にして下流へ進ませる（GraphStore.skipNode。下流へは伝搬しない） */
+  app.post("/api/nodes/:id/skip", async (c) => {
+    const id = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const m = meta(body);
+    const updated = graph.skipNode(id, { actor: m.actor, via: m.via });
+    threads.post(id, {
+      kind: "status",
+      body: "飛ばして続行（スキップ）",
+      author: m.actor,
+      via: m.via,
+    });
+    return c.json(updated);
+  });
+
+  /** ここで打ち切る: このノード dropped・下流の未決着を skipped・所属ページを dropped
+   *  （GraphStore.abortFrom）。ノードとページの両方のスレッドに記録する */
+  app.post("/api/nodes/:id/abort", async (c) => {
+    const id = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const m = meta(body);
+    const { node, skipped, page } = graph.abortFrom(id, { actor: m.actor, via: m.via });
+    threads.post(id, {
+      kind: "status",
+      body: `ここで打ち切り（続きの${skipped.length}件を見送り${page ? "・ページを中止" : ""}）`,
+      payload: { skipped },
+      author: m.actor,
+      via: m.via,
+    });
+    if (page && page.id !== id) {
+      threads.post(page.id, {
+        kind: "status",
+        body: `打ち切り: 「${node.title}」で中止`,
+        payload: { nodeId: id, skipped },
+        author: m.actor,
+        via: m.via,
+      });
+    }
+    return c.json({ node, skipped, page });
+  });
+
   /** 分岐の選び直し（手戻り）。choice を取り消して pending に戻し、この決着に由来する
    *  skip を復元する（GraphStore.revertDecision）。下流の done は戻さない */
   app.post("/api/nodes/:id/decide/revert", async (c) => {

@@ -19,7 +19,7 @@ function truncate(text: string, limit: number): string {
 
 export interface AiQuestion {
   question: string;
-  /** AIが提示した選択肢（0〜3個に切り詰めて使う。無ければ「おまかせで続行」を補う） */
+  /** AIが提示した選択肢（0〜2個に切り詰めて使う。無ければ「おまかせで続行」を補う） */
   options: string[];
   /** 質問の下に書かれた判断材料の補足（無ければ空文字） */
   context: string;
@@ -46,9 +46,10 @@ export function parseAiQuestion(output: string): AiQuestion | null {
 
 /**
  * AIの質問を人間向けの判断リクエストへ変換する。AI提示の選択肢は id "ai:1".. で並べ
- * （無ければ「おまかせで続行」）、末尾に必ず「中止」(id "abort") を付ける——abort は
- * engine の pick.ts / ラン側の質問tickが drop として解釈する予約id。
- * それ以外の回答（ai:* や自由文）は「回答を踏まえて再実行」になる。
+ * （無ければ「おまかせで続行」）、末尾に必ず「飛ばして続ける」(id "skip_continue") と
+ * 「打ち切る」(id "abort_run") を付ける——engine の pick.ts / ラン側の質問tickが
+ * それぞれ skip / abort として解釈する予約id（旧 "abort"＝このステップだけ dropped も
+ * 互換のため受け付ける）。それ以外の回答（ai:* や自由文）は「回答を踏まえて再実行」になる。
  *
  * runMarker（engine の `[ラン <id>]`）を渡すと question の末尾に埋め込む——どのランの
  * 質問かを engine が回答から復元するため。会話（Task AI）からの質問はランに紐付かないので
@@ -61,7 +62,7 @@ export function buildAiQuestionRequest(
 ): DecisionRequest {
   const aiOptions =
     q.options.length > 0
-      ? q.options.slice(0, 3).map((label, i) => ({
+      ? q.options.slice(0, 2).map((label, i) => ({
           id: `ai:${i + 1}`,
           label: truncate(label, 80),
           then: "この方針でAIが作業を続ける",
@@ -78,12 +79,25 @@ export function buildAiQuestionRequest(
   return {
     context: contextLines.join("\n"),
     question: runMarker ? `${q.question} ${runMarker}` : q.question,
+    // 末尾の2択は「飛ばして続ける」（このステップだけ skipped にして下流へ進む）と
+    // 「打ち切る」（このステップを dropped にし、下流を skipped にして、ランなら cancelled・
+    // プロジェクトならページをアーカイブ）。以前は「中止」（このステップだけ dropped）の1つ
+    // だったが、下流が永久に止まる行き止まりで残す価値が薄かった（2026-09-09。3.9b）。
+    // エンジンの解釈は pick.ts / tickProject.ts / tickRun.ts（旧 "abort" 回答も dropped として
+    // 引き続き受け付ける＝回答済みカードの互換）
     options: [
       ...aiOptions,
       {
-        id: "abort",
-        label: "中止",
-        then: runMarker ? "このランではこのアイテムを中止する" : "このタスクを中止(dropped)にする",
+        id: "skip_continue",
+        label: "飛ばして続ける",
+        then: runMarker ? "このランではこのステップを飛ばして次へ進む" : "このタスクを飛ばして次へ進む",
+      },
+      {
+        id: "abort_run",
+        label: "打ち切る",
+        then: runMarker
+          ? "このステップで打ち切り、ランを中止する（続きのステップは見送り）"
+          : "このタスクで打ち切り、プロジェクトを中止する（続きのタスクは見送り）",
       },
     ],
     impact: "safe",
@@ -96,7 +110,7 @@ export function buildAiQuestionRequest(
 export const QUESTION_PROTOCOL_LINES = [
   "人間の判断が必要になったときは、作業を進めずに次の形式**だけ**を出力して終了してください:",
   "QUESTION: <人間への質問（1行）>",
-  "OPTION: <選択肢>（任意。1行1個で最大3個。選んでほしい方針があるときに）",
+  "OPTION: <選択肢>（任意。1行1個で最大2個。選んでほしい方針があるときに）",
   "（以降の行は判断材料の補足として自由に書いてよい）",
 ];
 

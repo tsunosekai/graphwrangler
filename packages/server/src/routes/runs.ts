@@ -242,6 +242,17 @@ export function runRoutes(ctx: AppContext): Hono {
     return c.json(run);
   });
 
+  /** ページの全メンバー（削除済みは snapshot で補う）＝ RunStore が parents/parentOptions を
+   *  引くためのテンプレート集合。decide / abort で共用 */
+  const templatesFor = (run: Run): Node[] => {
+    const current = graph.state().nodes.filter((n) => n.group === run.pageId);
+    const currentIds = new Set(current.map((n) => n.id));
+    const fromSnapshot = (run.snapshot?.nodes ?? [])
+      .filter((n) => n.group === run.pageId && !currentIds.has(n.id))
+      .map((n) => snapshotTemplate(n, run.snapshot?.capturedAt ?? run.created));
+    return [...current, ...fromSnapshot];
+  };
+
   const DecideRunItemSchema = z.object({ choice: z.string().min(1) });
 
   /** ラン内の分岐アイテム(kind=decision)の choice を確定する（docs/design.md 3.9のラン内版）。
@@ -256,13 +267,7 @@ export function runRoutes(ctx: AppContext): Hono {
     const body = await c.req.json();
     const { choice } = DecideRunItemSchema.parse(body);
     const m = meta(body);
-    const current = graph.state().nodes.filter((n) => n.group === run.pageId);
-    const currentIds = new Set(current.map((n) => n.id));
-    const fromSnapshot = (run.snapshot?.nodes ?? [])
-      .filter((n) => n.group === run.pageId && !currentIds.has(n.id))
-      .map((n) => snapshotTemplate(n, run.snapshot?.capturedAt ?? run.created));
-    const templates = [...current, ...fromSnapshot];
-    const updated = runs.applyItemDecision(runId, nodeId, choice, templates);
+    const updated = runs.applyItemDecision(runId, nodeId, choice, templatesFor(run));
     const label = node.branches?.find((b) => b.id === choice)?.label ?? choice;
     threads.post(nodeId, {
       kind: "status",
@@ -293,8 +298,53 @@ export function runRoutes(ctx: AppContext): Hono {
     return c.json(runs.rename(c.req.param("id"), title));
   });
 
-  app.post("/api/runs/:id/cancel", (c) => {
-    return c.json(runs.cancel(c.req.param("id")));
+  /** ランの打ち切り。未決着のアイテムは skipped になる（RunStore.cancel）。ページのスレッドへ記録 */
+  app.post("/api/runs/:id/cancel", async (c) => {
+    const runId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const m = meta(body);
+    const { run, skipped } = runs.cancel(runId);
+    threads.post(run.pageId, {
+      kind: "status",
+      body: `ラン打ち切り: ${run.title}（${skipped.length}件を見送り）`,
+      payload: { runId, skipped },
+      runId,
+      author: m.actor,
+      via: m.via,
+    });
+    return c.json(run);
+  });
+
+  const AbortRunSchema = z.object({ nodeId: z.string().min(1) });
+
+  /** ここで打ち切る（ラン版。docs/design.md 3.9b）: このアイテム dropped・テンプレート上の
+   *  下流の未決着アイテム skipped・ラン cancelled（RunStore.abortFrom）。
+   *  アイテムのスレッド（このラン）とページのスレッドの両方に記録する */
+  app.post("/api/runs/:id/abort", async (c) => {
+    const runId = c.req.param("id");
+    const body = await c.req.json();
+    const { nodeId } = AbortRunSchema.parse(body);
+    const m = meta(body);
+    const before = runs.get(runId);
+    const node = resolveItemNode(graph, before, nodeId);
+    const { run, skipped } = runs.abortFrom(runId, nodeId, templatesFor(before));
+    threads.post(nodeId, {
+      kind: "status",
+      body: `ここで打ち切り（続きの${skipped.length}件を見送り・ランを中止）`,
+      payload: { runId, skipped },
+      runId,
+      author: m.actor,
+      via: m.via,
+    });
+    threads.post(run.pageId, {
+      kind: "status",
+      body: `ラン打ち切り: ${run.title}（「${node.title}」で中止）`,
+      payload: { runId, nodeId, skipped },
+      runId,
+      author: m.actor,
+      via: m.via,
+    });
+    return c.json({ run, skipped });
   });
 
   // ---- ランのコンテキスト（3.15 の書き。エンジンの ##gw マーカー抽出・人間の完了フォーム・
