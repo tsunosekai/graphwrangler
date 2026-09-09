@@ -56,12 +56,7 @@ export async function getState(): Promise<{ nodes: Node[]; now: string }> {
 }
 
 /** ノードの部分更新。actor/via で帰属を明示する */
-export async function patchNode(
-  id: string,
-  patch: NodePatch,
-  actor: Actor,
-  via: string,
-): Promise<Node> {
+export async function patchNode(id: string, patch: NodePatch, actor: Actor, via: string): Promise<Node> {
   return (await request("POST", `/api/nodes/${id}`, { ...patch, actor, via })) as Node;
 }
 
@@ -102,12 +97,7 @@ export async function postMessage(
 
 /** 分岐ノード(kind=decision)の choice を確定する（POST /api/nodes/:id/decide）。
  *  choice が branches に無い/kind≠decision は ApiError(400) として投げる（docs/design.md 3.9） */
-export async function decideNode(
-  id: string,
-  choice: string,
-  actor: Actor,
-  via: string,
-): Promise<Node> {
+export async function decideNode(id: string, choice: string, actor: Actor, via: string): Promise<Node> {
   return (await request("POST", `/api/nodes/${id}/decide`, { choice, actor, via })) as Node;
 }
 

@@ -123,7 +123,8 @@ server.registerTool(
 server.registerTool(
   "node_get",
   {
-    description: "指定した1ノードの全フィールド（detail/impl を含む）を取得する。ノードidは state_get の一覧から得る。",
+    description:
+      "指定した1ノードの全フィールド（detail/impl を含む）を取得する。ノードidは state_get の一覧から得る。",
     inputSchema: { nodeId: z.string().describe("取得したいノードのid") },
   },
   // GET /api/nodes/:id は GET /api/state の nodes 要素と同じ形（同じ Node）を返す。
@@ -153,48 +154,82 @@ server.registerTool(
           "trigger_run)。既定 task",
       ),
       executor: ExecutorSchema.optional().describe("誰にディスパッチするか。既定 human"),
-      approval: z.boolean().optional().describe("実行前承認。true=実行の直前に人間の承認ゲートを通す（不可逆な外部副作用がある作業など）。既定 false"),
+      approval: z
+        .boolean()
+        .optional()
+        .describe(
+          "実行前承認。true=実行の直前に人間の承認ゲートを通す（不可逆な外部副作用がある作業など）。既定 false",
+        ),
       autonomy: AutonomySchema.optional().describe(
         "AI executor の自律度。high=人間に判断を仰がず進む（失敗も自動リトライ）/ " +
           "normal=必要なときだけ QUESTION 形式で質問 / low=迷ったら質問に倒す。既定 normal",
       ),
-      aiModel: z.string().nullable().optional().describe(
-        "このノードのAI（実行AI・Task AI）が使うモデルの上書き（例: opus/sonnet/haiku）。null=設定の既定",
-      ),
-      aiEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().optional().describe(
-        "同エフォート（思考の深さ）。null=設定の既定",
-      ),
+      aiModel: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "このノードのAI（実行AI・Task AI）が使うモデルの上書き（例: opus/sonnet/haiku）。null=設定の既定",
+        ),
+      aiEffort: z
+        .enum(["low", "medium", "high", "xhigh", "max"])
+        .nullable()
+        .optional()
+        .describe("同エフォート（思考の深さ）。null=設定の既定"),
       lifecycle: LifecycleSchema.optional().describe("draft=審議中/committed=実行対象。既定 draft"),
       status: StatusSchema.optional().describe("既定 pending。unplanned=やり方未定"),
       parents: z.array(z.string()).optional().describe("先行ノードid配列。空=ルート"),
-      parentOptions: z.record(z.string(), z.string()).optional().describe(
-        "どの親decisionのどの枝から生えるか（親decisionId→枝id）。キーは parents に含まれる " +
-          "kind=decision のノード、値はその branches の選択肢id。既定 {}",
-      ),
-      group: z.string().nullable().optional().describe("所属ページ(ゴール)のノードid。ページ直下に作るならそのidを渡す"),
-      branches: z.array(NodeBranchSchema).nullable().optional().describe(
-        "kind=decision の選択肢一覧 [{id,label,then?}]（最低2個。elseなし・単一選択）。decision 以外では null",
-      ),
-      schedule: z.string().nullable().optional().describe(
-        "kind=trigger 用の起動方式（\"every 15m\" / \"daily 09:00\" / \"weekly mon 09:00\" 等の自由文字列）。" +
-          "executor=script ならcron的なラン作成判定、executor=ai なら判定間隔として使う。既定 null",
-      ),
-      fixed: z.boolean().optional().describe(
-        "Fixフラグ（ロック）。true=やり方が確定し、AIは impl を書き換えない。既定 false",
-      ),
+      parentOptions: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+          "どの親decisionのどの枝から生えるか（親decisionId→枝id）。キーは parents に含まれる " +
+            "kind=decision のノード、値はその branches の選択肢id。既定 {}",
+        ),
+      group: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("所属ページ(ゴール)のノードid。ページ直下に作るならそのidを渡す"),
+      branches: z
+        .array(NodeBranchSchema)
+        .nullable()
+        .optional()
+        .describe(
+          "kind=decision の選択肢一覧 [{id,label,then?}]（最低2個。elseなし・単一選択）。decision 以外では null",
+        ),
+      schedule: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          'kind=trigger 用の起動方式（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等の自由文字列）。' +
+            "executor=script ならcron的なラン作成判定、executor=ai なら判定間隔として使う。既定 null",
+        ),
+      fixed: z
+        .boolean()
+        .optional()
+        .describe("Fixフラグ（ロック）。true=やり方が確定し、AIは impl を書き換えない。既定 false"),
       impl: NodeImplSchema.optional().describe(
         "実装形態。null=会話段、{type:'doc',text}=手順書、{type:'script',command}=シェルコマンド",
       ),
-      assignee: z.string().nullable().optional().describe(
-        "担当者のメール。executor=human で「人間の誰がやるか」。null=未割当（全員宛）。既定 null",
-      ),
-      members: z.array(z.string()).optional().describe(
-        "ページの関係者のメール配列。ページ（kind=goal / メンバー持ち）でのみ意味を持つ。既定 []",
-      ),
-      outputs: z.array(OutputParamSchema).nullable().optional().describe(
-        "ランのコンテキストへの出力宣言 [{name, label?, example?}]（design.md 3.15）。" +
-          "trigger ではラン作成フォームの項目 / 検知スクリプトの emit 契約になる。既定 null",
-      ),
+      assignee: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("担当者のメール。executor=human で「人間の誰がやるか」。null=未割当（全員宛）。既定 null"),
+      members: z
+        .array(z.string())
+        .optional()
+        .describe("ページの関係者のメール配列。ページ（kind=goal / メンバー持ち）でのみ意味を持つ。既定 []"),
+      outputs: z
+        .array(OutputParamSchema)
+        .nullable()
+        .optional()
+        .describe(
+          "ランのコンテキストへの出力宣言 [{name, label?, example?}]（design.md 3.15）。" +
+            "trigger ではラン作成フォームの項目 / 検知スクリプトの emit 契約になる。既定 null",
+        ),
     },
   },
   safe(async (input: Record<string, unknown>) => apiPost("/api/nodes", withMeta(input))),
@@ -243,7 +278,8 @@ server.registerTool(
 server.registerTool(
   "thread_get",
   {
-    description: "指定ノードのスレッド（会話・判断リクエスト・実行ログ・成果物が時系列に並ぶ）のメッセージ一覧を取得する。",
+    description:
+      "指定ノードのスレッド（会話・判断リクエスト・実行ログ・成果物が時系列に並ぶ）のメッセージ一覧を取得する。",
     inputSchema: { nodeId: z.string().describe("対象ノードid") },
   },
   safe(async ({ nodeId }: { nodeId: string }) => apiGet(`/api/nodes/${encodeURIComponent(nodeId)}/thread`)),
@@ -332,7 +368,7 @@ server.registerTool(
       nodeId: z.string().describe("どのノードの実行としての連絡か（URLと関係者の解決に使う）"),
       channel: z
         .string()
-        .describe("投稿先チャンネル。手順書に書かれた名前をそのまま（例: \"#運営一般\"）。チャンネルIDでも可"),
+        .describe('投稿先チャンネル。手順書に書かれた名前をそのまま（例: "#運営一般"）。チャンネルIDでも可'),
       body: z.string().min(1).describe("連絡の本文だけ。宛先・URL・出し元は自動で付く"),
       runId: z.string().nullable().optional().describe("どのランの実行としての連絡か。既定 null"),
     },
@@ -360,11 +396,17 @@ server.registerTool(
       "（run.context に反映される）。",
     inputSchema: {
       nodeId: z.string().describe("ランを作るトリガーノードid（kind=trigger）"),
-      via: z.string().min(1).optional().describe("ラン作成の理由の自由文字列（run.trigger に刻まれる）。省略時は \"mcp\""),
+      via: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('ラン作成の理由の自由文字列（run.trigger に刻まれる）。省略時は "mcp"'),
       context: z
         .record(z.string(), z.string())
         .optional()
-        .describe("このランの初期コンテキスト（キー→値）。省略時は空。ランの進行中に run_context_set で書き足せる"),
+        .describe(
+          "このランの初期コンテキスト（キー→値）。省略時は空。ランの進行中に run_context_set で書き足せる",
+        ),
     },
   },
   // via はここでは帰属情報ではなく「ラン作成の理由」（run.trigger の第3要素）。
@@ -389,7 +431,7 @@ server.registerTool(
       "merge する（同一ラン内は last-write-wins。テンプレートには書き戻さない＝このランだけの値）。" +
       "nodeId を渡すとそのノードのスレッドへ、省略時は run.trigger から取り出したトリガーノードへ、" +
       "runId 付きで「コンテキスト更新: k=v, …」の status メッセージが積まれる（監査用）。" +
-      "script executor が stdout に出す `##gw {\"set\":{...}}` マーカー行と同じ効果を持つ、" +
+      'script executor が stdout に出す `##gw {"set":{...}}` マーカー行と同じ効果を持つ、' +
       "エンジン外（MCP・人間・外部システム）からの書き込み経路。更新後のラン全体を返す。",
     inputSchema: {
       runId: z.string().describe("対象のランid"),
@@ -477,9 +519,7 @@ server.registerTool(
     const { snapshot, ...rest } = run;
     return {
       ...rest,
-      snapshot: snapshot
-        ? { capturedAt: snapshot.capturedAt, nodeCount: snapshot.nodes?.length ?? 0 }
-        : null,
+      snapshot: snapshot ? { capturedAt: snapshot.capturedAt, nodeCount: snapshot.nodes?.length ?? 0 } : null,
     };
   }),
 );
@@ -516,7 +556,9 @@ server.registerTool(
       "自動では done に戻らない。取り消し操作はない（undo/redo の対象外＝ラン専用の操作ログには乗らない）。",
     inputSchema: { runId: z.string().describe("中断するランid") },
   },
-  safe(async ({ runId }: { runId: string }) => apiPost(`/api/runs/${encodeURIComponent(runId)}/cancel`, withMeta({}))),
+  safe(async ({ runId }: { runId: string }) =>
+    apiPost(`/api/runs/${encodeURIComponent(runId)}/cancel`, withMeta({})),
+  ),
 );
 
 // ---- 16. run_trace ----

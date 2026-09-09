@@ -124,12 +124,7 @@ export class RunStore {
    * 引数 pageId はランが属するページのid。トリガーノードの group が通常これにあたる
    * （呼び出し側=server が渡す）。
    */
-  createFromTrigger(
-    pageId: string,
-    triggerId: string,
-    allMembers: Node[],
-    opts: TriggerRunOpts = {},
-  ): Run {
+  createFromTrigger(pageId: string, triggerId: string, allMembers: Node[], opts: TriggerRunOpts = {}): Run {
     const ts = nowIso();
     const descendants = collectDescendantsAmong(allMembers, triggerId);
     const items: Record<string, RunItem> = {};
@@ -202,8 +197,7 @@ export class RunStore {
       status: patch.status ?? item.status,
       note: patch.note !== undefined ? patch.note : item.note,
       choice: patch.choice !== undefined ? patch.choice : item.choice,
-      resolvedParams:
-        patch.resolvedParams !== undefined ? patch.resolvedParams : item.resolvedParams,
+      resolvedParams: patch.resolvedParams !== undefined ? patch.resolvedParams : item.resolvedParams,
     };
     const items = { ...run.items, [nodeId]: updatedItem };
     const updated: Run = { ...run, items, status: deriveRunStatus(run.status, items) };

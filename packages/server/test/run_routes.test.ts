@@ -286,8 +286,7 @@ function humanChain(graph: GraphStore, firstExecutor: "human" | "ai" = "human") 
     schedule: "every 1m",
   });
   const t1 = graph.patchNode(
-    graph.addNode({ title: "1本目", group: page.id, parents: [trigger.id], executor: firstExecutor })
-      .id,
+    graph.addNode({ title: "1本目", group: page.id, parents: [trigger.id], executor: firstExecutor }).id,
     { lifecycle: "committed" },
   );
   const t2 = graph.patchNode(

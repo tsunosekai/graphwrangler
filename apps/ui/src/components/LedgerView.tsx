@@ -12,11 +12,7 @@ import {
   renameRunDialog,
 } from "../lib/actions";
 import { api } from "../lib/api";
-import {
-  applyRunListOverlays,
-  optimisticPatchRunItem,
-  useOptimisticVersion,
-} from "../lib/optimistic";
+import { applyRunListOverlays, optimisticPatchRunItem, useOptimisticVersion } from "../lib/optimistic";
 import { runTrigger } from "../lib/run";
 import { usePolling } from "../hooks/usePolling";
 import { HINT_TEXT } from "../lib/hints";
@@ -130,15 +126,7 @@ function renderCell(item: RunItem | undefined, col: Node) {
   );
 }
 
-export function LedgerView({
-  page,
-  members,
-  threadMeta,
-  reads,
-  onViewed,
-  onMutated,
-  onRunStarted,
-}: Props) {
+export function LedgerView({ page, members, threadMeta, reads, onViewed, onMutated, onRunStarted }: Props) {
   const columns = useMemo(() => topoOrder(members), [members]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -224,9 +212,8 @@ export function LedgerView({
   // ルーティーンページ ⇔ トリガーを持つページ なので、台帳が出ている時点で必ず存在する
   const triggerNode = useMemo(
     () =>
-      members
-        .filter((m) => m.kind === "trigger")
-        .sort((a, b) => a.created.localeCompare(b.created))[0] ?? null,
+      members.filter((m) => m.kind === "trigger").sort((a, b) => a.created.localeCompare(b.created))[0] ??
+      null,
     [members],
   );
 
@@ -315,9 +302,7 @@ export function LedgerView({
   };
 
   const targetRun = menuTarget ? (runs.find((r) => r.id === menuTarget.runId) ?? null) : null;
-  const targetCol = menuTarget?.nodeId
-    ? (columns.find((c) => c.id === menuTarget.nodeId) ?? null)
-    : null;
+  const targetCol = menuTarget?.nodeId ? (columns.find((c) => c.id === menuTarget.nodeId) ?? null) : null;
   const targetItem = targetRun && targetCol ? targetRun.items[targetCol.id] : undefined;
 
   const EXEC_TEXT: Record<string, string> = { human: "text-human", agent: "text-ai", system: "text-script" };
@@ -406,7 +391,10 @@ export function LedgerView({
                 {runs.map((run) => (
                   <tr
                     key={run.id}
-                    className={cn("cursor-pointer hover:bg-accent/40", run.id === selectedRunId && "bg-ai/[0.08]")}
+                    className={cn(
+                      "cursor-pointer hover:bg-accent/40",
+                      run.id === selectedRunId && "bg-ai/[0.08]",
+                    )}
                     onClick={() => setSelectedRunId(run.id)}
                   >
                     <td
@@ -557,7 +545,10 @@ export function LedgerView({
               </Button>
             </Hint>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3.5 py-1.5" ref={traceBodyRef}>
+          <div
+            className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3.5 py-1.5"
+            ref={traceBodyRef}
+          >
             {events.length === 0 && <div className="py-2 text-xs text-text-lo">まだありません</div>}
             {events.map((ev, i) => (
               <div
@@ -571,7 +562,9 @@ export function LedgerView({
                 <span
                   className={cn(
                     "flex-shrink-0",
-                    EXEC_TEXT[ev.author.kind === "human" ? "human" : ev.author.kind === "agent" ? "agent" : "system"],
+                    EXEC_TEXT[
+                      ev.author.kind === "human" ? "human" : ev.author.kind === "agent" ? "agent" : "system"
+                    ],
                   )}
                 >
                   <Icon name={AUTHOR_ICON[ev.author.kind] ?? "gear"} size={12} />
@@ -579,7 +572,9 @@ export function LedgerView({
                 <span className="flex-shrink-0 font-mono text-xs text-text-lo">
                   {new Date(ev.ts).toLocaleString("ja-JP")}
                 </span>
-                <span className="max-w-[140px] flex-shrink-0 truncate text-muted-foreground">{ev.nodeTitle}</span>
+                <span className="max-w-[140px] flex-shrink-0 truncate text-muted-foreground">
+                  {ev.nodeTitle}
+                </span>
                 <span className="min-w-0 flex-1 truncate">{ev.body}</span>
               </div>
             ))}

@@ -114,8 +114,13 @@ export function StatusSection({
           <span className="text-muted-foreground">下書き（未確定）</span>
           <span className="flex-1" />
           <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
-            <Button type="button" variant="outline" size="sm" className="active:scale-95"
-              onClick={() => void patch({ lifecycle: "committed" })}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="active:scale-95"
+              onClick={() => void patch({ lifecycle: "committed" })}
+            >
               計画済みにする
             </Button>
           </Hint>
@@ -134,12 +139,7 @@ export function StatusSection({
             id="status-unplan"
             text="計画を取り消して未計画に戻す（自動開始が止まる。手動の▶はそのまま使える）"
           >
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => patch({ lifecycle: "draft" })}
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={() => patch({ lifecycle: "draft" })}>
               未計画に戻す
             </Button>
           </Hint>
@@ -209,10 +209,7 @@ export function StatusSection({
         pageHasTrigger &&
         (activeRunItem ? (
           <div className="col-span-2 flex flex-wrap items-center gap-2 text-sm">
-            <Hint
-              id="status"
-              text={`${STATUS_HINT}。ここの進捗はテンプレートではなく実行中のランのもの`}
-            >
+            <Hint id="status" text={`${STATUS_HINT}。ここの進捗はテンプレートではなく実行中のランのもの`}>
               <span className="text-muted-foreground">進捗（実行中のラン）:</span>
             </Hint>
             <span className="inline-flex items-center gap-1.5">
@@ -226,10 +223,7 @@ export function StatusSection({
             {/* waiting の理由（失敗: … / 承認待ち / 分岐待ち）を見せる。台帳の丸だけでは
                 何が起きたか分からない（2026-08-01 手戻りレビュー） */}
             {activeRunItem.status === "waiting" && activeRunItem.note && (
-              <span
-                className="max-w-full truncate text-xs text-muted-foreground"
-                title={activeRunItem.note}
-              >
+              <span className="max-w-full truncate text-xs text-muted-foreground" title={activeRunItem.note}>
                 {activeRunItem.note}
               </span>
             )}
@@ -265,23 +259,27 @@ export function StatusSection({
             )}
             {/* 分岐(decision)のアイテムは「分岐を選ぶ」で決着する（choice を経ずに done に
                 できてしまう二重経路を作らない）。着手/完了は担当=人間の task のみ */}
-            {node.executor === "human" && node.kind === "task" && activeRunItem.status === "pending" && !runFrontier && (
-              <span className="text-xs text-text-lo">前のノードが終わると着手できます</span>
-            )}
-            {node.executor === "human" && node.kind === "task" &&
-              (activeRunItem.status === "pending" || activeRunItem.status === "waiting") && runFrontier && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="active:scale-95"
-                disabled={runItemBusy}
-                onClick={() => patchRunItemStatus("running")}
-              >
-                着手
-              </Button>
-            )}
-            {node.executor === "human" && node.kind === "task" &&
+            {node.executor === "human" &&
+              node.kind === "task" &&
+              activeRunItem.status === "pending" &&
+              !runFrontier && <span className="text-xs text-text-lo">前のノードが終わると着手できます</span>}
+            {node.executor === "human" &&
+              node.kind === "task" &&
+              (activeRunItem.status === "pending" || activeRunItem.status === "waiting") &&
+              runFrontier && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="active:scale-95"
+                  disabled={runItemBusy}
+                  onClick={() => patchRunItemStatus("running")}
+                >
+                  着手
+                </Button>
+              )}
+            {node.executor === "human" &&
+              node.kind === "task" &&
               (((activeRunItem.status === "pending" || activeRunItem.status === "waiting") && runFrontier) ||
                 activeRunItem.status === "running") && (
                 <Button
@@ -340,11 +338,16 @@ export function StatusSection({
               <span className="flex-1" />
               {(vs === "unplanned" || node.lifecycle === "draft") && (
                 <Hint id="commit-plan" text={HINT_TEXT.commitPlan}>
-                  <Button type="button" variant="outline" size="sm" className="active:scale-95"
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="active:scale-95"
                     onClick={async () => {
                       if (node.executor === "script" && !(await confirmPromotionIfNeeded())) return;
                       void patch({ status: "pending", lifecycle: "committed" });
-                    }}>
+                    }}
+                  >
                     計画済みにする
                   </Button>
                 </Hint>
@@ -370,14 +373,24 @@ export function StatusSection({
                 <span className="text-xs text-text-lo">前のノードが終わると着手できます</span>
               )}
               {exec && vs === "pending" && frontier && (
-                <Button type="button" variant="outline" size="sm" className="active:scale-95"
-                  onClick={() => void patch({ status: "running" })}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="active:scale-95"
+                  onClick={() => void patch({ status: "running" })}
+                >
                   着手
                 </Button>
               )}
               {exec && ((vs === "pending" && frontier) || vs === "running") && (
-                <Button type="button" variant="outline" size="sm" className="active:scale-95"
-                  onClick={() => void patch({ status: "done" })}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="active:scale-95"
+                  onClick={() => void patch({ status: "done" })}
+                >
                   完了
                 </Button>
               )}

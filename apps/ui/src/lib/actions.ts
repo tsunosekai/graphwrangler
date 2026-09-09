@@ -125,11 +125,7 @@ export function readKeysForNode(nodeId: string, threadMeta: Record<string, strin
 
 /** ページ（pageId）配下の全メンバーノードぶんの既読キー。ページ自身のノードも含める。
  *  入れ子のグループも辿る（削除の巻き添え計算 removal.ts と同じ「不動点まで広げる」流儀） */
-export function readKeysForPage(
-  pageId: string,
-  nodes: Node[],
-  threadMeta: Record<string, string>,
-): string[] {
+export function readKeysForPage(pageId: string, nodes: Node[], threadMeta: Record<string, string>): string[] {
   const members = new Set<string>([pageId]);
   let grew = true;
   while (grew) {

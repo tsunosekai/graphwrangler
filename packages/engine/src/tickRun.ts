@@ -72,7 +72,9 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
       );
       try {
         await openRequest(node.id, buildAiQuestionRequest(node, question, run.id), ENGINE_ACTOR, VIA, run.id);
-        log(`AIが人間へ質問(ラン): run=${run.id} node=${node.id} question=${truncate(question.question, 100)}`);
+        log(
+          `AIが人間へ質問(ラン): run=${run.id} node=${node.id} question=${truncate(question.question, 100)}`,
+        );
       } catch (err) {
         log(`AI質問カードを開けなかった（次周に持ち越し）: run=${run.id} node=${node.id} ${String(err)}`);
       }
@@ -179,7 +181,9 @@ export async function executeRunItem(nodes: Node[], run: Run, node: Node): Promi
       ENGINE_ACTOR,
       VIA,
     );
-    log(`ラン実行失敗→自律リトライ ${count}/${MAX_AUTO_RETRIES}: run=${run.id} node=${node.id} reason=${reason}`);
+    log(
+      `ラン実行失敗→自律リトライ ${count}/${MAX_AUTO_RETRIES}: run=${run.id} node=${node.id} reason=${reason}`,
+    );
     return;
   }
 
@@ -421,9 +425,7 @@ export async function tickRunItem(nodes: Node[]): Promise<void> {
         ENGINE_ACTOR,
         VIA,
       );
-      log(
-        `不可逆のため承認待ちへ: run=${action.run.id} node=${action.node.id} title=${action.node.title}`,
-      );
+      log(`不可逆のため承認待ちへ: run=${action.run.id} node=${action.node.id} title=${action.node.title}`);
       return;
     case "human-turn":
       // 担当=人間のステップに順番が回ってきた。waiting へ上げるとサーバが

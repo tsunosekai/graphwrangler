@@ -23,10 +23,9 @@ function setupTriggerPage() {
     executor: "script",
     schedule: "every 1m",
   });
-  const childA = graph.patchNode(
-    graph.addNode({ title: "A", group: page.id, parents: [trigger.id] }).id,
-    { lifecycle: "committed" },
-  );
+  const childA = graph.patchNode(graph.addNode({ title: "A", group: page.id, parents: [trigger.id] }).id, {
+    lifecycle: "committed",
+  });
   // 分岐: childA から2つに分かれる
   const childB = graph.patchNode(
     graph.addNode({ title: "B(分岐1)", group: page.id, parents: [childA.id] }).id,
@@ -59,8 +58,7 @@ function membersOf(pageId: string) {
 describe("RunStore.createFromTrigger", () => {
   it("子孫算出: 分岐・合流を含めてトリガーの子孫だけを拾う", () => {
     const runs = new RunStore(dir);
-    const { page, trigger, childA, childB, childC, merge, draftChild, unplannedChild } =
-      setupTriggerPage();
+    const { page, trigger, childA, childB, childC, merge, draftChild, unplannedChild } = setupTriggerPage();
     const run = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id));
 
     expect(run.id).toMatch(/^r-\d{8}-0001$/);
@@ -180,9 +178,7 @@ describe("RunStore: ワークアイテム更新・一覧・永続化", () => {
     const runs = new RunStore(dir);
     const { page, trigger } = setupTriggerPage();
     const run = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id));
-    expect(() => runs.patchItem(run.id, "n-99999999-0001", { status: "done" })).toThrow(
-      GraphError,
-    );
+    expect(() => runs.patchItem(run.id, "n-99999999-0001", { status: "done" })).toThrow(GraphError);
   });
 
   it("cancel: status が cancelled になり、以後の patchItem で done に戻らない", () => {
@@ -312,10 +308,9 @@ describe("RunStore.applyItemDecision: 実行フェーズゲート", () => {
   function setupRunDecision() {
     const page = graph.addNode({ title: "ページ", kind: "goal" });
     const trigger = graph.addNode({ title: "起点", kind: "trigger", group: page.id });
-    const pre = graph.patchNode(
-      graph.addNode({ title: "前段", group: page.id, parents: [trigger.id] }).id,
-      { lifecycle: "committed" },
-    );
+    const pre = graph.patchNode(graph.addNode({ title: "前段", group: page.id, parents: [trigger.id] }).id, {
+      lifecycle: "committed",
+    });
     const decision = graph.patchNode(
       graph.addNode({
         title: "分岐",

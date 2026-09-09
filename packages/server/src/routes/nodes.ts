@@ -72,8 +72,7 @@ export function nodeRoutes(ctx: AppContext): Hono {
     if (before && node.kind === "trigger") {
       const scheduleChanged =
         patch.schedule !== undefined && (before.schedule ?? null) !== (node.schedule ?? null);
-      const activated =
-        before.lifecycle !== "committed" && node.lifecycle === "committed" && !!node.schedule;
+      const activated = before.lifecycle !== "committed" && node.lifecycle === "committed" && !!node.schedule;
       if (scheduleChanged) noteScheduleSet(id, before.schedule ?? null, node.schedule ?? null);
       else if (activated) noteScheduleSet(id, node.schedule ?? null, node.schedule ?? null);
     }

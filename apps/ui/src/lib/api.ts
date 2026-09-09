@@ -48,7 +48,10 @@ async function request<T>(path: string, init?: RequestInit & { silent?: boolean 
 
   if (!res.ok) {
     const msg =
-      data && typeof data === "object" && "error" in data && typeof (data as { error?: unknown }).error === "string"
+      data &&
+      typeof data === "object" &&
+      "error" in data &&
+      typeof (data as { error?: unknown }).error === "string"
         ? (data as { error: string }).error
         : `HTTP ${res.status}`;
     if (!init?.silent) pushToast(msg);
@@ -332,7 +335,13 @@ export const api = {
     }),
 
   /** admin: 表示名・admin・無効化・Discord ID の変更。400=自分自身の admin 剥奪・無効化 */
-  adminPatchUser: (input: { email: string; displayName?: string; admin?: boolean; disabled?: boolean; discordId?: string | null }) =>
+  adminPatchUser: (input: {
+    email: string;
+    displayName?: string;
+    admin?: boolean;
+    disabled?: boolean;
+    discordId?: string | null;
+  }) =>
     request<{ ok: boolean }>("/admin/users/patch", {
       method: "POST",
       body: JSON.stringify(input),
@@ -346,8 +355,7 @@ export const api = {
     }),
 
   /** Discord 通知のテスト送信（保存済み Webhook URL で1通送る。設定画面の「テスト送信」） */
-  testNotify: () =>
-    request<{ ok: boolean; error?: string }>("/notify/test", { method: "POST", body: "{}" }),
+  testNotify: () => request<{ ok: boolean; error?: string }>("/notify/test", { method: "POST", body: "{}" }),
 
   // threadMeta: ノードごとの最終メッセージ時刻 / reads: ノードごとの既読時刻。
   // この2つの突き合わせが未読判定（どちらもサーバ持ち＝端末間で一致する）
@@ -367,10 +375,13 @@ export const api = {
 
   /** 手順書のインライン本文をワークスペース内ファイルへ書き出し、impl を path 参照に切り替える */
   implToFile: (id: string, filePath: string, opts: { overwrite?: boolean } = {}) =>
-    withSelfRead(id, request<{ ok: boolean; path: string }>(`/nodes/${id}/impl/to-file`, {
-      method: "POST",
-      body: JSON.stringify({ path: filePath, ...(opts.overwrite ? { overwrite: true } : {}) }),
-    })),
+    withSelfRead(
+      id,
+      request<{ ok: boolean; path: string }>(`/nodes/${id}/impl/to-file`, {
+        method: "POST",
+        body: JSON.stringify({ path: filePath, ...(opts.overwrite ? { overwrite: true } : {}) }),
+      }),
+    ),
 
   removeNode: (id: string, opts: { force?: boolean; silent?: boolean } = {}) =>
     request<{ removed: boolean }>(`/nodes/${id}/remove`, {
@@ -391,14 +402,17 @@ export const api = {
   // ---- スクリプト試走（試走ゲート。docs/design.md 3.5 近く。実装は packages/server/src/trial.ts） ----
 
   trialNode: (id: string) =>
-    withSelfRead(id, request<{
-      success: boolean;
-      exitCode: number | null;
-      output: string;
-      implTrial: ImplTrial | null;
-      /** 実際に実行した実コマンド（パラメータ置換後 + --dry-run。docs/design.md 3.5.1） */
-      resolvedCommand: string;
-    }>(`/nodes/${id}/trial`, { method: "POST", body: "{}" })),
+    withSelfRead(
+      id,
+      request<{
+        success: boolean;
+        exitCode: number | null;
+        output: string;
+        implTrial: ImplTrial | null;
+        /** 実際に実行した実コマンド（パラメータ置換後 + --dry-run。docs/design.md 3.5.1） */
+        resolvedCommand: string;
+      }>(`/nodes/${id}/trial`, { method: "POST", body: "{}" }),
+    ),
 
   /** aiBusy: Task AI が応答生成中か（「考え中」表示用。GraphWrangler AI と挙動を揃える）。
    *  aiQueued: 応答中に書いた送信予約を受けて、終わり次第もう一度応答する予約があるか */
@@ -419,35 +433,47 @@ export const api = {
 
   postMessage: (id: string, body: string, runId?: string | null) =>
     // 自分の投稿で自分に未読が付かないようにする既読マークも、会話の単位（ラン）で打つ
-    withSelfRead(threadKey(id, runId), request<Message>(`/nodes/${id}/messages`, {
-      method: "POST",
-      body: JSON.stringify({ kind: "say", body, runId: runId ?? null }),
-    })),
+    withSelfRead(
+      threadKey(id, runId),
+      request<Message>(`/nodes/${id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ kind: "say", body, runId: runId ?? null }),
+      }),
+    ),
 
   /** 「新しい会話」区切り（payload.chatBreak）。区切りも会話の単位（そのラン / テンプレート）に
    *  属するので、ランのページから押したときは runId を渡してそのランのスレッドへ打つ */
   postChatBreak: (id: string, runId?: string | null) =>
-    withSelfRead(threadKey(id, runId), request<Message>(`/nodes/${id}/messages`, {
-      method: "POST",
-      body: JSON.stringify({
-        kind: "status",
-        body: "―― 新しい会話 ――",
-        payload: { chatBreak: true },
-        runId: runId ?? null,
+    withSelfRead(
+      threadKey(id, runId),
+      request<Message>(`/nodes/${id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "status",
+          body: "―― 新しい会話 ――",
+          payload: { chatBreak: true },
+          runId: runId ?? null,
+        }),
       }),
-    })),
+    ),
 
   answer: (id: string, requestId: string, option: string | null, note: string | null = null) =>
-    withSelfRead(id, request<{ message: Message; resolved: boolean; node: Node }>(`/nodes/${id}/answer`, {
-      method: "POST",
-      body: JSON.stringify({ requestId, option, note }),
-    })),
+    withSelfRead(
+      id,
+      request<{ message: Message; resolved: boolean; node: Node }>(`/nodes/${id}/answer`, {
+        method: "POST",
+        body: JSON.stringify({ requestId, option, note }),
+      }),
+    ),
 
   // ---- 分岐ノード（kind=decision。docs/design.md 3.9） ----
 
   /** プロジェクト層: choice確定+skip伝搬。UIから直接叩く経路も正（human分岐の判断リクエスト経由と並立） */
   decide: (id: string, choice: string) =>
-    withSelfRead(id, request<Node>(`/nodes/${id}/decide`, { method: "POST", body: JSON.stringify({ choice }) })),
+    withSelfRead(
+      id,
+      request<Node>(`/nodes/${id}/decide`, { method: "POST", body: JSON.stringify({ choice }) }),
+    ),
 
   /** プロジェクト層: 分岐の選び直し（choice取り消し + このskip伝搬の復元。下流のdoneは戻らない） */
   revertDecision: (id: string) =>
@@ -455,10 +481,13 @@ export const api = {
 
   /** ラン層: ワークアイテム(kind=decisionテンプレート)のchoice確定+skip伝搬 */
   decideRunItem: (runId: string, nodeId: string, choice: string) =>
-    withSelfRead(threadKey(nodeId, runId), request<Run>(`/runs/${runId}/items/${nodeId}/decide`, {
-      method: "POST",
-      body: JSON.stringify({ choice }),
-    })),
+    withSelfRead(
+      threadKey(nodeId, runId),
+      request<Run>(`/runs/${runId}/items/${nodeId}/decide`, {
+        method: "POST",
+        body: JSON.stringify({ choice }),
+      }),
+    ),
 
   // ---- トリガーノード（kind=trigger。docs/design.md 3.4/3.8/3.9） ----
 
@@ -490,13 +519,15 @@ export const api = {
 
   patchRunItem: (runId: string, nodeId: string, input: { status?: RunItemStatus; note?: string | null }) =>
     // 進捗の記録はそのランのスレッドに載るので、既読もそのランのキーで打つ
-    withSelfRead(threadKey(nodeId, runId), request<Run>(`/runs/${runId}/items/${nodeId}`, { method: "POST", body: JSON.stringify(input) })),
+    withSelfRead(
+      threadKey(nodeId, runId),
+      request<Run>(`/runs/${runId}/items/${nodeId}`, { method: "POST", body: JSON.stringify(input) }),
+    ),
 
   renameRun: (runId: string, title: string) =>
     request<Run>(`/runs/${runId}/rename`, { method: "POST", body: JSON.stringify({ title }) }),
 
-  cancelRun: (runId: string) =>
-    request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
+  cancelRun: (runId: string) => request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
 
   getRunTrace: (runId: string, opts: { silent?: boolean } = {}) =>
     request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`, { silent: opts.silent }),
@@ -546,15 +577,17 @@ export const api = {
 
   // ---- 元に戻す / やり直す（操作ログの補償追記） ----
 
-  undo: () => request<{ undone: { id: string; op: string; ts: string } }>("/undo", {
-    method: "POST",
-    body: "{}",
-  }),
+  undo: () =>
+    request<{ undone: { id: string; op: string; ts: string } }>("/undo", {
+      method: "POST",
+      body: "{}",
+    }),
 
-  redo: () => request<{ redone: { id: string; op: string; ts: string } }>("/redo", {
-    method: "POST",
-    body: "{}",
-  }),
+  redo: () =>
+    request<{ redone: { id: string; op: string; ts: string } }>("/redo", {
+      method: "POST",
+      body: "{}",
+    }),
 
   // ---- エンジン稼働インジケータ ----
 

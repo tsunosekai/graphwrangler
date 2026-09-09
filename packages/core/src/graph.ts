@@ -113,10 +113,7 @@ export function readWorkspaceFile(file: string): Node[] {
   }
   const result = WorkspaceFileSchema.safeParse(parsed);
   if (!result.success) {
-    throw new GraphError(
-      `正データファイルの形式が不正です: ${file}\n${result.error.message}`,
-      500,
-    );
+    throw new GraphError(`正データファイルの形式が不正です: ${file}\n${result.error.message}`, 500);
   }
   return result.data.nodes;
 }
@@ -257,7 +254,11 @@ export class GraphStore {
   /** サーバの GET /api/workspace 用: 現在のモードと関連パスを返す */
   workspaceInfo(): { mode: "workspace" | "datadir"; root: string | null; file: string | null } {
     if (this.mode.kind === "workspace") {
-      return { mode: "workspace", root: path.dirname(this.mode.canonicalFile), file: this.mode.canonicalFile };
+      return {
+        mode: "workspace",
+        root: path.dirname(this.mode.canonicalFile),
+        file: this.mode.canonicalFile,
+      };
     }
     return { mode: "datadir", root: null, file: null };
   }
@@ -324,8 +325,7 @@ export class GraphStore {
       implTrial: null,
       // 作成者はサーバが操作メタから刻む（クライアント入力からは受けない。docs/design.md 3.11）。
       // meta.user（チャットAI経由でも背後の人間）→ human actor の name（=ログインメール）→ null
-      createdBy:
-        meta.user ?? (meta.actor?.kind === "human" && meta.actor.name ? meta.actor.name : null),
+      createdBy: meta.user ?? (meta.actor?.kind === "human" && meta.actor.name ? meta.actor.name : null),
       created: nowIso(),
     };
     this.commit({ op: "node.add", payload: { node } }, meta);
@@ -351,21 +351,15 @@ export class GraphStore {
     }
     if (parsed.parentOptions !== undefined || parsed.parents !== undefined) {
       const parents = parsed.parents ?? current.parents;
-      const parentOptions =
-        parsed.parentOptions !== undefined ? parsed.parentOptions : current.parentOptions;
+      const parentOptions = parsed.parentOptions !== undefined ? parsed.parentOptions : current.parentOptions;
       this.validateParentOptions(parents, parentOptions);
     }
     // 決着済みの分岐の「選ばれなかった枝」上のノードは実行可能な status に入れない（addNode と
     // 同じ理由）。繋ぎ変え（parents/parentOptions 変更）だけでなく status だけの patch も対象
     // ——素通りさせると skipped が pending に戻って frontier に乗り、エンジンに誤実行される。
     // 負けた枝からの復帰は revertDecision（choice を先に取り消す）だけが通る正規ルート
-    if (
-      parsed.parentOptions !== undefined ||
-      parsed.parents !== undefined ||
-      parsed.status !== undefined
-    ) {
-      const parentOptions =
-        parsed.parentOptions !== undefined ? parsed.parentOptions : current.parentOptions;
+    if (parsed.parentOptions !== undefined || parsed.parents !== undefined || parsed.status !== undefined) {
+      const parentOptions = parsed.parentOptions !== undefined ? parsed.parentOptions : current.parentOptions;
       const nextStatus = parsed.status ?? current.status;
       if (
         (nextStatus === "pending" || nextStatus === "unplanned" || nextStatus === "running") &&
@@ -431,10 +425,7 @@ export class GraphStore {
    */
   private validateDecisionGate(node: Node): void {
     if (node.lifecycle !== "committed") {
-      throw new GraphError(
-        "下書き(draft)のノードです。分岐を選ぶ前に確定(committed)してください",
-        409,
-      );
+      throw new GraphError("下書き(draft)のノードです。分岐を選ぶ前に確定(committed)してください", 409);
     }
     if (node.status === "done" || node.status === "skipped" || node.status === "dropped") {
       throw new GraphError("この分岐は既に決着しています", 409);
@@ -474,8 +465,7 @@ export class GraphStore {
         if (!n || n.status !== "skipped") continue;
         if (this.isOnLosingBranch(n.parentOptions)) continue; // 他の決着済み分岐で正当な skip
         const allSkipped =
-          n.parents.length > 0 &&
-          n.parents.every((pid) => this.nodes.get(pid)?.status === "skipped");
+          n.parents.length > 0 && n.parents.every((pid) => this.nodes.get(pid)?.status === "skipped");
         if (allSkipped) continue; // 連鎖規則でまだ正当な skip
         this.patchNode(n.id, { status: "pending" }, meta);
         changed = true;
@@ -544,15 +534,11 @@ export class GraphStore {
       }
       const children = [...this.nodes.values()].filter((n) => n.parents.includes(id));
       if (children.length > 0) {
-        throw new GraphError(
-          `node ${id} has ${children.length} children; remove or reparent them first`,
-        );
+        throw new GraphError(`node ${id} has ${children.length} children; remove or reparent them first`);
       }
       const members = [...this.nodes.values()].filter((n) => n.group === id);
       if (members.length > 0) {
-        throw new GraphError(
-          `node ${id} has ${members.length} members; ungroup or remove them first`,
-        );
+        throw new GraphError(`node ${id} has ${members.length} members; ungroup or remove them first`);
       }
       this.detachFolderRefs(new Set([id]), meta);
       this.commit({ op: "node.remove", payload: { nodeId: id } }, meta);
@@ -911,10 +897,7 @@ export class GraphStore {
         // 迷子のページができるので、削除（=add の補償）は同じく拒否する
         const filed = [...this.nodes.values()].filter((n) => n.folder === id);
         if (children.length || members.length || filed.length) {
-          throw new GraphError(
-            `undo できません: ${id} には後続ノードやメンバーが追加されています`,
-            409,
-          );
+          throw new GraphError(`undo できません: ${id} には後続ノードやメンバーが追加されています`, 409);
         }
         if (!this.nodes.has(id)) {
           throw new GraphError(`undo できません: ${id} は既に存在しません`, 409);
@@ -943,11 +926,7 @@ export class GraphStore {
         // 現在 fixed なノードの「やり方」フィールドを戻す補償は拒否（fixed 自体の付け外しの
         // 戻しだけは許可。docs/design.md 3.5 実効化）
         assertPatchAllowedWhileFixed(cur, inversePatch, FIXED_UNDO_MESSAGE);
-        this.commit(
-          { op: "node.patch", payload: { nodeId: id, patch: inversePatch } },
-          meta,
-          target.id,
-        );
+        this.commit({ op: "node.patch", payload: { nodeId: id, patch: inversePatch } }, meta, target.id);
         break;
       }
       case "node.remove": {

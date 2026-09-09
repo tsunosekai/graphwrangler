@@ -106,7 +106,9 @@ test("ノード1件取得: GET /api/state の nodes 要素と同じ形で返る"
 // latestScheduleSetAt / mergeScheduleSetBaseline）
 
 function scheduleSetMessages(harnessObj: Harness, nodeId: string) {
-  return harnessObj.threads.list(nodeId).filter((m) => m.kind === "status" && m.body.startsWith("[起動方式]"));
+  return harnessObj.threads
+    .list(nodeId)
+    .filter((m) => m.kind === "status" && m.body.startsWith("[起動方式]"));
 }
 
 test("トリガーの schedule 変更で [起動方式] status が積まれる（読み下し付き）", async () => {

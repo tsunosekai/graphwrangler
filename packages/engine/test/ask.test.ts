@@ -181,7 +181,13 @@ describe("buildThreadContextLines", () => {
 
   it("回答済みのAI質問をQ&Aとして拾い、ランのマーカーを外す", () => {
     const messages = [
-      message({ id: "req-1", kind: "decision_request", body: "文体は？", payload: { request }, requestStatus: "answered" }),
+      message({
+        id: "req-1",
+        kind: "decision_request",
+        body: "文体は？",
+        payload: { request },
+        requestStatus: "answered",
+      }),
       message({
         kind: "decision_answer",
         payload: { requestId: "req-1", option: "ai:1", note: "少し砕けてよい" },
@@ -196,13 +202,28 @@ describe("buildThreadContextLines", () => {
   });
 
   it("未回答の質問・AI以外のリクエスト（承認ゲート等）は拾わない", () => {
-    const gateRequest: DecisionRequest = { ...request, options: [
-      { id: "go", label: "実行して", then: "実行" },
-      { id: "skip", label: "やめる", then: "中止" },
-    ] };
+    const gateRequest: DecisionRequest = {
+      ...request,
+      options: [
+        { id: "go", label: "実行して", then: "実行" },
+        { id: "skip", label: "やめる", then: "中止" },
+      ],
+    };
     const messages = [
-      message({ id: "req-2", kind: "decision_request", body: "q", payload: { request }, requestStatus: "open" }),
-      message({ id: "req-3", kind: "decision_request", body: "q", payload: { request: gateRequest }, requestStatus: "answered" }),
+      message({
+        id: "req-2",
+        kind: "decision_request",
+        body: "q",
+        payload: { request },
+        requestStatus: "open",
+      }),
+      message({
+        id: "req-3",
+        kind: "decision_request",
+        body: "q",
+        payload: { request: gateRequest },
+        requestStatus: "answered",
+      }),
       message({ kind: "decision_answer", payload: { requestId: "req-3", option: "go", note: null } }),
     ];
     expect(buildThreadContextLines(messages)).toHaveLength(0);
@@ -235,9 +256,18 @@ describe("buildThreadContextLines: ラリーを含む往復", () => {
 
   it("聞き返し → 最終的に選んだ選択肢、の順で1行にまとめる", () => {
     const messages = [
-      message({ id: "req-1", kind: "decision_request", body: "何個？", payload: { request }, requestStatus: "answered" }),
+      message({
+        id: "req-1",
+        kind: "decision_request",
+        body: "何個？",
+        payload: { request },
+        requestStatus: "answered",
+      }),
       // ラリー（option=null。カードは開いたまま）
-      message({ kind: "decision_answer", payload: { requestId: "req-1", option: null, note: "なんで3個も要るの？" } }),
+      message({
+        kind: "decision_answer",
+        payload: { requestId: "req-1", option: null, note: "なんで3個も要るの？" },
+      }),
       // AI が答えたあと、人間が選択肢を選んで決着
       message({ kind: "decision_answer", payload: { requestId: "req-1", option: "ai:1", note: null } }),
     ];
