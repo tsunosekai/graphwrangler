@@ -264,3 +264,31 @@ describe("GraphStore: trigger ノード", () => {
     expect(g.addNode({ title: "b", kind: "goal", order: 0 }).order).toBe(0);
   });
 });
+
+describe("ノード id は再利用しない（2026-11-24）", () => {
+  it("消したノードの id を、次に作るノードへ回さない", () => {
+    const g = new GraphStore(dir);
+    const a = g.addNode({ title: "a" });
+    const b = g.addNode({ title: "b" });
+    g.removeNode(b.id);
+    const c = g.addNode({ title: "c" });
+    expect(c.id).not.toBe(b.id);
+    expect([a.id, b.id, c.id].map((id) => id.slice(-4))).toEqual(["0001", "0002", "0003"]);
+  });
+
+  it("開き直しても、操作ログに残る id は使用済みのまま", () => {
+    const g1 = new GraphStore(dir);
+    const a = g1.addNode({ title: "a" });
+    g1.removeNode(a.id);
+    const g2 = new GraphStore(dir);
+    expect(g2.addNode({ title: "b" }).id).not.toBe(a.id);
+  });
+
+  it("操作ログが無くても、スレッドのファイルが残っている id は使わない", () => {
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    fs.mkdirSync(path.join(dir, "threads"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "threads", `n-${today}-0005.jsonl`), "");
+    const g = new GraphStore(dir);
+    expect(g.addNode({ title: "x" }).id).toBe(`n-${today}-0006`);
+  });
+});

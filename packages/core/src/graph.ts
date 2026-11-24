@@ -220,10 +220,21 @@ function assertPatchAllowedWhileFixed(current: Node, patch: NodePatch, message: 
   }
 }
 
+/** ディレクトリ直下のファイルの絶対パス一覧（無ければ空） */
+function listFiles(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir).map((name) => path.join(dir, name));
+  } catch {
+    return [];
+  }
+}
+
 export class GraphStore {
   private nodes = new Map<string, Node>();
   private mode: StoreMode;
   private opsPath: string;
+  /** これまでに使われたノード id（消されたものも含む）。初回の採番時に一度だけ集める */
+  private usedNodeIds: Set<string> | null = null;
 
   /** 従来どおり data-dir モードで開く（`new GraphStore(dataDir)`）。
    *  ワークスペースモードは `GraphStore.workspace()` から StoreMode を渡して同じ経路を通る */
@@ -320,7 +331,7 @@ export class GraphStore {
     const node: Node = {
       ...parsed,
       status,
-      id: nextId("n", this.nodes.keys()),
+      id: this.allocateNodeId(),
       pendingRequest: null,
       waitUntil: null, // 待ちが明ける時刻はエンジンだけが書く（3.17）
       prepRequest: false, // 前準備の依頼は作成後に UI が立てる（3.18）
@@ -808,6 +819,37 @@ export class GraphStore {
         nodes: [...this.nodes.values()],
       });
     }
+  }
+
+  /**
+   * ノード id を採番する。**消したノードの id を再利用しない**（2026-11-24 実害: 消したノードの
+   * id が新しいノードに回り、消したノードの会話——スレッドは id ごとのファイルで残る——が
+   * 新しいノードにそのまま付いてきた。ランの記録も id でノードを指すので、同じことが起きる）。
+   * 「いまあるノード」だけでなく、操作ログ・スレッド・ランに一度でも現れた id を使用済みとして扱う。
+   */
+  private allocateNodeId(): string {
+    if (this.usedNodeIds === null) {
+      const used = new Set<string>(this.nodes.keys());
+      const dir = this.mode.kind === "workspace" ? this.mode.sidecarDir : this.mode.dataDir;
+      const ID_RE = /n-\d{8}-\d{4}/g;
+      // 操作ログ（追加・削除・巻き戻しを含む全履歴）と、ランの記録に出てくる id
+      for (const file of [this.opsPath, ...listFiles(path.join(dir, "runs"))]) {
+        try {
+          for (const m of fs.readFileSync(file, "utf8").matchAll(ID_RE)) used.add(m[0]);
+        } catch {
+          // 無ければ読まない（新しいワークスペース・ログを消した環境）
+        }
+      }
+      // スレッドは <id>.jsonl。操作ログが無い（gitignore で持ち越されない）環境でもこれは残る
+      for (const file of listFiles(path.join(dir, "threads"))) {
+        const m = /^(n-\d{8}-\d{4})\.jsonl$/.exec(path.basename(file));
+        if (m) used.add(m[1]);
+      }
+      this.usedNodeIds = used;
+    }
+    const id = nextId("n", [...this.usedNodeIds, ...this.nodes.keys()]);
+    this.usedNodeIds.add(id);
+    return id;
   }
 
   /** ops.jsonl だけから状態を再構築する（snapshot 消失時の復元・整合性テスト用） */
