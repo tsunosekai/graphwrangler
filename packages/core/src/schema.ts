@@ -26,7 +26,8 @@ export const ViaSchema = z.string().min(1);
  *  導出や巻き添え削除にフォルダが乗ってしまうため。
  *  「ルーティーンであること」はページ種別ではなく、trigger ノードを
  *  メンバーに持つかどうかから導出する */
-export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger", "folder"]);
+// wait（2026-11-24）= 待ちノード。誰も何もしないが、時刻が来るまで先へ進ませない（3.17）
+export const NodeKindSchema = z.enum(["goal", "task", "decision", "trigger", "wait", "folder"]);
 export type NodeKind = z.infer<typeof NodeKindSchema>;
 export const ExecutorSchema = z.enum(["human", "ai", "script"]);
 export type Executor = z.infer<typeof ExecutorSchema>;
@@ -200,6 +201,13 @@ export const NodeSchema = z.object({
    *  起きたとき1本にまとめて実行する。false = 止まっていた間の回は捨て、次の定刻から動く。
    *  保存済みノードには無いフィールドなので default 必須（無ければ true） */
   catchUp: z.boolean().default(true),
+  /** kind=wait 用の待ち方（"after 8d 09:00" / "after 3h" / "until monthly day 9 09:00"。
+   *  文法の正本は wait.ts）。順番が回ってきたらこの待ち方で明ける時刻を決め、時刻が来たら
+   *  エンジンが自動で完了にする（3.17）。それ以外の kind では null */
+  wait: z.string().nullable().default(null),
+  /** プロジェクト層の待ちノードが明ける時刻（ISO）。エンジンが順番到達時に一度だけ決めて書く
+   *  進捗の値で、やり方（Fix の保護対象）ではない。ラン側は RunItem.waitUntil */
+  waitUntil: z.string().nullable().default(null),
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個。elseなし・単一選択。docs/design.md 3.9）。
    *  それ以外の kind では null */
   branches: z.array(NodeBranchSchema).nullable().default(null),
@@ -248,6 +256,7 @@ export const NodeInputSchema = z.object({
   fixed: z.boolean().default(false),
   schedule: z.string().nullable().default(null),
   catchUp: z.boolean().default(true),
+  wait: z.string().nullable().default(null),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   choice: z.string().nullable().default(null),
   outputs: z.array(OutputParamSchema).nullable().default(null),
@@ -440,6 +449,9 @@ export const RunItemSchema = z.object({
    *  引数欄はこの値入り（読み取り専用）で表示し、現在の run.context とずれていたら
    *  「古い値で実行済み」を出す。null = 未実行（script 以外のアイテムでも常に null） */
   resolvedParams: z.record(z.string(), z.string()).nullable().default(null),
+  /** テンプレートが kind=wait のとき、このランでその待ちが明ける時刻（ISO）。エンジンが
+   *  順番到達時に一度だけ決めて書く（3.17）。それ以外・未到達は null */
+  waitUntil: z.string().nullable().default(null),
 });
 export type RunItem = z.infer<typeof RunItemSchema>;
 
@@ -478,6 +490,7 @@ export const NodeSnapshotSchema = z.object({
   fixed: z.boolean().default(false),
   schedule: z.string().nullable().default(null),
   catchUp: z.boolean().default(true),
+  wait: z.string().nullable().default(null),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   /** 出力宣言（3.15）。null = 宣言なし */
   outputs: z.array(OutputParamSchema).nullable().default(null),

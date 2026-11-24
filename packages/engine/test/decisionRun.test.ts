@@ -36,6 +36,8 @@ function node(partial: Partial<Node> = {}): Node {
     implTrial: partial.implTrial ?? null,
     schedule: partial.schedule ?? null,
     catchUp: true,
+    wait: null,
+    waitUntil: null,
     branches: partial.branches ?? [
       { id: "a", label: "Aへ" },
       { id: "b", label: "Bへ" },
@@ -56,6 +58,7 @@ function item(partial: Partial<RunItem> = {}): RunItem {
     note: partial.note ?? null,
     choice: partial.choice ?? null,
     resolvedParams: partial.resolvedParams ?? null,
+    waitUntil: partial.waitUntil ?? null,
   };
 }
 

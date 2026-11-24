@@ -83,7 +83,7 @@ export function CardHead({ data, dimmed }: { data: NodeCardData; dimmed: boolean
           同じ Icon name="alert" を使い、title で理由を区別する（NodePanel にも同じ警告を出す）。
           kind=trigger は対象外——トリガーの executor=script は「schedule でランを作る」の意味で
           あって command 実行ではない（docs/design.md 3.8）ため、impl 不要 */}
-      {node.executor === "script" && node.kind !== "trigger" && node.impl?.type !== "script" && (
+      {node.executor === "script" && node.kind !== "trigger" && node.kind !== "wait" && node.impl?.type !== "script" && (
         <Hint
           id="impl-missing"
           always="実装が未接続"

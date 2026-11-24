@@ -206,6 +206,15 @@ server.registerTool(
           'kind=trigger 用の起動方式（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等の自由文字列）。' +
             "executor=script ならcron的なラン作成判定、executor=ai なら判定間隔として使う。既定 null",
         ),
+      wait: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          'kind=wait 用の待ち方。"after 8d 09:00"（順番が回ってきた日の8日後の09:00まで）/ "after 3h"（3時間）/ ' +
+            '"until monthly day 9 09:00"（次の9日09:00まで。until の後ろは起動方式と同じ暦の書式）。' +
+            "時刻が来るとエンジンが自動で完了にして次へ進める。待ちノードは executor=script で作る",
+        ),
       catchUp: z
         .boolean()
         .optional()

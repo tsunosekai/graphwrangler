@@ -55,6 +55,8 @@ function node(partial: Partial<Node> = {}): Node {
     implTrial: partial.implTrial ?? null,
     schedule: partial.schedule ?? null,
     catchUp: true,
+    wait: null,
+    waitUntil: null,
     branches: partial.branches ?? null,
     choice: partial.choice ?? null,
     outputs: partial.outputs ?? null,

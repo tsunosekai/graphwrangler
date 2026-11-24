@@ -67,6 +67,7 @@ function snapshotTemplate(snap: NodeSnapshot, capturedAt: string): Node {
     order: null,
     pendingRequest: null,
     choice: null,
+    waitUntil: null,
     createdBy: null,
     members: [],
     created: capturedAt,
@@ -177,6 +178,8 @@ export function runRoutes(ctx: AppContext): Hono {
      *  ランページの引数欄が値入り（読み取り専用）表示に使い、現在の run.context と
      *  ずれていたら「古い値で実行済み」を出す */
     resolvedParams: z.record(z.string(), z.string()).nullable().optional(),
+    /** 待ちノードが明ける時刻（ISO。3.17）。エンジンが順番到達時に書く */
+    waitUntil: z.string().nullable().optional(),
   });
 
   /** ワークアイテム更新。テンプレートノードのスレッドへ状態遷移を記録し、
@@ -195,6 +198,7 @@ export function runRoutes(ctx: AppContext): Hono {
       status: input.status,
       note: input.note,
       resolvedParams: input.resolvedParams,
+      waitUntil: input.waitUntil,
     });
     const m = meta(body);
     const node = resolveItemNode(graph, before, nodeId);

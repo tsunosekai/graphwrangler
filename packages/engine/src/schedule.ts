@@ -37,7 +37,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const CRON_CATCHUP_LOOKBACK_MINUTES = 31 * 24 * 60;
 
 /** 暦ベースの書式（every / cron / biweekly 以外）。「この日は対象日か」を1日単位で答えられる */
-type CalendarSchedule = Extract<
+export type CalendarSchedule = Extract<
   ParsedSchedule,
   {
     type:
@@ -60,7 +60,7 @@ type CalendarSchedule = Extract<
  * 「毎月◯日」「最終日」「第n曜日」「最終◯曜」…の違いをここ1箇所に閉じ込め、
  * 直近の予定時刻の探索（lastOccurrenceOnOrBefore）は共通のループで済ませる。
  */
-function targetTimeOn(schedule: CalendarSchedule, date: Date): Date | null {
+export function targetTimeOn(schedule: CalendarSchedule, date: Date): Date | null {
   const year = date.getFullYear();
   const monthIndex = date.getMonth();
   const day = date.getDate();

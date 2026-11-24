@@ -37,6 +37,8 @@ function node(partial: Partial<Node> = {}): Node {
     implTrial: partial.implTrial ?? null,
     schedule: partial.schedule ?? null,
     catchUp: true,
+    wait: null,
+    waitUntil: null,
     branches: partial.branches ?? null,
     choice: partial.choice ?? null,
     parentOptions: partial.parentOptions ?? {},
@@ -54,6 +56,7 @@ function item(partial: Partial<RunItem> = {}): RunItem {
     note: partial.note ?? APPROVAL_WAITING_NOTE,
     choice: partial.choice ?? null,
     resolvedParams: partial.resolvedParams ?? null,
+    waitUntil: partial.waitUntil ?? null,
   };
 }
 
@@ -187,7 +190,7 @@ describe("selectRunApprovalAction: go後に1回実行", () => {
   it("実行後(アイテムがwaiting/承認待ちでなくなった)は対象から外れる", () => {
     const n = node({ id: "irr1" });
     // 実行済みを模して item.status が done に変わった状態
-    const r = run({ irr1: { status: "done", note: null, choice: null, resolvedParams: null } });
+    const r = run({ irr1: { status: "done", note: null, choice: null, resolvedParams: null, waitUntil: null } });
     const gateStates = { [gateKey(r.id, "irr1")]: { status: "answered" as const, option: "go" } };
     const action = selectRunApprovalAction([n], [r], gateStates);
     expect(action).toEqual({ type: "none" });

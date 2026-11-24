@@ -49,6 +49,7 @@ function toNodeSnapshot(n: Node): NodeSnapshot {
     fixed: n.fixed,
     schedule: n.schedule,
     catchUp: n.catchUp,
+    wait: n.wait,
     branches: n.branches,
     outputs: n.outputs,
     parentOptions: n.parentOptions,
@@ -75,6 +76,8 @@ export interface PatchItemInput {
   choice?: string | null;
   /** script 実行時に解決された {name: 値} の記録（3.15）。エンジンが実行直前に書く */
   resolvedParams?: Record<string, string> | null;
+  /** 待ちノードが明ける時刻（ISO）。エンジンが順番到達時に書く（3.17） */
+  waitUntil?: string | null;
 }
 
 /** 新しい順（created 降順）。created はミリ秒精度なので、同じミリ秒に作られたランは
@@ -144,6 +147,7 @@ export class RunStore {
         note: null,
         choice: null,
         resolvedParams: null,
+        waitUntil: null,
       };
     }
     const via = opts.via ?? "manual";
@@ -207,6 +211,8 @@ export class RunStore {
       note: patch.note !== undefined ? patch.note : item.note,
       choice: patch.choice !== undefined ? patch.choice : item.choice,
       resolvedParams: patch.resolvedParams !== undefined ? patch.resolvedParams : item.resolvedParams,
+      // 古いランのアイテムには無いフィールドなので ?? null で受ける
+      waitUntil: patch.waitUntil !== undefined ? patch.waitUntil : (item.waitUntil ?? null),
     };
     const items = { ...run.items, [nodeId]: updatedItem };
     const updated: Run = { ...run, items, status: deriveRunStatus(run.status, items) };

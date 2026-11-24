@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { describeSchedule, parseSchedule } from "@graphwrangler/core/schedule";
+import { describeWait } from "@graphwrangler/core/wait";
 import { optimisticPatchNode, optimisticPatchRunItem } from "../lib/optimistic";
 import { runTrigger } from "../lib/run";
 import { HINT_TEXT } from "../lib/hints";
@@ -238,6 +239,16 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
             >
               <span className="text-destructive">起動条件が未設定</span>
             </Hint>
+          )}
+        </div>
+      )}
+      {/* 待ちノードの待ち方（3.17）。未設定・解釈不能は赤で出す（そのままでは待てない） */}
+      {node.kind === "wait" && (
+        <div className="mt-1.5 text-xs">
+          {describeWait(node.wait ?? null) ? (
+            <span className="text-muted-foreground">{describeWait(node.wait ?? null)}</span>
+          ) : (
+            <span className="text-destructive">{node.wait ? `${node.wait}（解釈不能）` : "待ち方が未設定"}</span>
           )}
         </div>
       )}

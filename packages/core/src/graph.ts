@@ -158,7 +158,7 @@ export function collectDescendantsAmong(nodes: Node[], id: string): Set<string> 
 // ---- Fix（= ロック。やり方の確定）の実効化（docs/design.md 3.5）----
 //
 // Fix 中に守るのは「やり方」であって進捗ではない。保護対象は
-// title/detail/kind/executor/approval/parents/group/branches/parentOptions/schedule/catchUp/impl
+// title/detail/kind/executor/approval/parents/group/branches/parentOptions/schedule/catchUp/wait/impl
 // （impl は params[].value の変更だけ例外で許可——値は実行時入力でありやり方ではない）。
 // status/lifecycle/fixed/pendingRequest/implTrial/choice は進捗・ロック自体の
 // 操作なので常に変更できる（許可リストではなく、保護リストに載っていないもの全て、という形で表す）。
@@ -179,6 +179,7 @@ const FIXED_PROTECTED_SIMPLE_FIELDS = [
   "parentOptions",
   "schedule",
   "catchUp",
+  "wait",
 ] as const satisfies readonly (keyof NodePatch)[];
 
 const FIXED_PATCH_MESSAGE = "ロック済みのノードのやり方は変更できません（先にロックを解除してください）";
@@ -321,6 +322,7 @@ export class GraphStore {
       status,
       id: nextId("n", this.nodes.keys()),
       pendingRequest: null,
+      waitUntil: null, // 待ちが明ける時刻はエンジンだけが書く（3.17）
       // 試走記録は新規作成時は必ず未試走（NodeInputSchema には含めない。desk と同じく
       // 「作成時に指定できるものではなく、試走APIだけが書く」フィールド）
       implTrial: null,

@@ -15,7 +15,7 @@ export interface Actor {
  *  trigger=起点ノード（ランを作るとそのページ(group)でランが生成される。3.4/3.8/3.9。
  *  parents を持てない=グラフの起点であることを構造的に保証する） /
  *  folder=左レールの整理棚（2026-08-05）。ページを束ねるだけでグラフ・実行には関与しない */
-export type NodeKind = "goal" | "task" | "decision" | "trigger" | "folder";
+export type NodeKind = "goal" | "task" | "decision" | "trigger" | "wait" | "folder";
 
 /** スクリプトのパラメータ宣言（2026-07-31 実装。docs/design.md 3.5.1）。
  *  宣言（name/label/example）は GraphWrangler AI が書き、値（value）は人間がパネルで入力する。
@@ -115,6 +115,11 @@ export interface Node {
   /** kind=trigger 用: 取りこぼしの追い付き。エンジンが止まっていた間に過ぎた定刻を、次に
    *  起きたとき1本にまとめて実行する（既定 true）。古いサーバは返さないので省略可＝true 扱い */
   catchUp?: boolean;
+  /** kind=wait 用の待ち方（"after 8d 09:00" / "until monthly day 9 09:00" 等。3.17）。
+   *  古いサーバは返さないので省略可 */
+  wait?: string | null;
+  /** プロジェクト層の待ちノードが明ける時刻（ISO）。エンジンが書く */
+  waitUntil?: string | null;
   /** ランのコンテキストへの出力宣言（docs/design.md 3.15）。null = 宣言なし。
    *  トリガーではラン作成フォームの項目、task では「このノードがランに書き足すキー」の宣言 */
   outputs: OutputParam[] | null;
@@ -194,6 +199,8 @@ export interface RunItem {
   /** script 実行時に解決された {name: 値}（docs/design.md 3.15）。実行済みの記録なので
    *  以後 run.context が変わっても書き換わらない——ずれたら UI が「古い値で実行済み」を出す */
   resolvedParams: Record<string, string> | null;
+  /** テンプレートが kind=wait のとき、このランで待ちが明ける時刻（ISO）。未到達は null */
+  waitUntil?: string | null;
 }
 
 export type RunStatus = "running" | "done" | "cancelled";

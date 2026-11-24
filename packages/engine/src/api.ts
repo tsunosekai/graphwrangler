@@ -166,7 +166,12 @@ export async function runTriggerNode(
 export async function patchRunItem(
   runId: string,
   nodeId: string,
-  patch: { status?: RunItemStatus; note?: string | null; resolvedParams?: Record<string, string> | null },
+  patch: {
+    status?: RunItemStatus;
+    note?: string | null;
+    resolvedParams?: Record<string, string> | null;
+    waitUntil?: string | null;
+  },
   actor: Actor,
   via: string,
 ): Promise<Run> {

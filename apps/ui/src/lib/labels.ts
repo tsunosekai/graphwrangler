@@ -29,6 +29,7 @@ export const KIND_JA: Record<NodeKind, string> = {
   task: "実行",
   decision: "判断",
   trigger: "トリガー",
+  wait: "待ち",
   goal: "プロジェクト/ルーティーン（ページ）",
   folder: "フォルダ",
 };

@@ -47,6 +47,7 @@ import { ImplSection } from "./nodepanel/ImplSection";
 import { MembersSection } from "./nodepanel/MembersSection";
 import { OutputsSection } from "./nodepanel/OutputsSection";
 import { ScheduleSection } from "./nodepanel/ScheduleSection";
+import { WaitSection } from "./nodepanel/WaitSection";
 import { StatusSection } from "./nodepanel/StatusSection";
 import {
   AUTHOR_AI,
@@ -85,7 +86,7 @@ interface Props {
 }
 
 // 種別はノードの3種のみ（ゴールはページなので選択肢に出さない。現在値がゴール等の時だけ表示）
-const KIND_OPTIONS: Node["kind"][] = ["task", "decision", "trigger"];
+const KIND_OPTIONS: Node["kind"][] = ["task", "decision", "trigger", "wait"];
 
 // 種別・担当の日本語（KIND_JA / EXECUTOR_JA）は lib/labels.ts が唯一の正
 const EXECUTOR_OPTIONS: Node["executor"][] = ["human", "ai", "script"];
@@ -568,7 +569,7 @@ export function NodePanel({
           常に見えるようにする（メタ折りたたみの外）。NodeCard 側にも同じ理由で⚠バッジを出す。
           kind=trigger は対象外——トリガーの executor=script は「schedule でランを作る」の意味で
           あって command 実行ではない（docs/design.md 3.8）ため、impl 不要 */}
-      {node.executor === "script" && node.kind !== "trigger" && node.impl?.type !== "script" && (
+      {node.executor === "script" && node.kind !== "trigger" && node.kind !== "wait" && node.impl?.type !== "script" && (
         <div
           className="flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
           title="担当がスクリプトなのに実装がスクリプトでない＝実行すると失敗する。実装欄でコマンドを設定するか担当を変える"
@@ -633,6 +634,9 @@ export function NodePanel({
               <ScheduleSection node={node} contentLocked={contentLocked} patch={patch} />
             ))}
 
+          {/* 待ちノードの待ち方（docs/design.md 3.17） */}
+          {node.kind === "wait" && <WaitSection node={node} contentLocked={contentLocked} patch={patch} />}
+
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-sm text-muted-foreground">
               <Hint id="kind" text={HINT_TEXT.kind}>
@@ -643,6 +647,12 @@ export function NodePanel({
                 disabled={contentLocked}
                 onValueChange={(v) => {
                   const kind = v as Node["kind"];
+                  // 待ちは誰の作業でもなく機械が明けさせるので、担当はスクリプト扱いに揃える
+                  // （人間のままだと「あなたの番」の対象に見えてしまう）。待ち方は既定値を入れておく
+                  if (kind === "wait") {
+                    void patch({ kind, executor: "script", approval: false, wait: node.wait ?? "after 7d 09:00" });
+                    return;
+                  }
                   // decision に切り替えた時、branches が未設定なら既定2枝を立てる（docs/design.md 3.9）
                   if (kind === "decision" && !node.branches) {
                     patch({
@@ -669,7 +679,10 @@ export function NodePanel({
                 </SelectContent>
               </Select>
             </label>
-            <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+            {/* 待ちノードは誰の作業でもない（時刻が来たら機械が明けさせる）ので担当を選ばせない */}
+            <label
+              className={cn("flex flex-col gap-1 text-sm text-muted-foreground", node.kind === "wait" && "hidden")}
+            >
               {/* 最重要ヒント（2026-08-05 本人指定）: 担当=「誰がその作業を始めるのか」 */}
               <Hint id="executor" text={HINT_TEXT.executor}>
                 <span className="self-start">担当</span>
@@ -735,7 +748,7 @@ export function NodePanel({
                 ノードでは本人の操作が承認そのものなのでトグルを出さない（既に irreversible の
                 ノードだけは解除できるよう表示する）。トリガーでは意味が「ラン前承認」になる
                 （script の定刻ラン作成・AI の自動のラン作成の直前にゲート。手動▶はそのままラン作成） */}
-            {(node.executor !== "human" || node.approval) && (
+            {node.kind !== "wait" && (node.executor !== "human" || node.approval) && (
               <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
                 {/* 「?」アイコンは廃止し、ラベル自体のマウスオーバーに統一（2026-08-05 本人指定） */}
                 <Hint id="approval" text={HINT_TEXT.approval}>
@@ -835,7 +848,8 @@ export function NodePanel({
 
           <MembersSection node={node} allNodes={allNodes} patch={patch} />
 
-          <ImplSection
+          {/* 待ちノードには実装も出力宣言も無い（待つだけ） */}
+          {node.kind !== "wait" && <ImplSection
             node={node}
             activeRun={activeRun}
             activeRunItem={activeRunItem}
@@ -845,15 +859,17 @@ export function NodePanel({
             patch={patch}
             onMutated={onMutated}
             refreshThread={refreshThread}
-          />
+          />}
 
-          <OutputsSection
-            node={node}
-            runView={runView}
-            contentLocked={contentLocked}
-            pageHasTrigger={pageHasTrigger}
-            patch={patch}
-          />
+          {node.kind !== "wait" && (
+            <OutputsSection
+              node={node}
+              runView={runView}
+              contentLocked={contentLocked}
+              pageHasTrigger={pageHasTrigger}
+              patch={patch}
+            />
+          )}
 
           <BranchesEditor node={node} contentLocked={contentLocked} patch={patch} />
 

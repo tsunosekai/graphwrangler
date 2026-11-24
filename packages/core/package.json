@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
     "./schedule": "./src/schedule.ts",
+    "./wait": "./src/wait.ts",
     "./holidays": "./src/holidays.ts",
     "./turn": "./src/turn.ts"
   },

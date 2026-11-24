@@ -10,6 +10,7 @@ import { tickDecision } from "./tickDecision.js";
 import { tickProject } from "./tickProject.js";
 import { tickRunItem } from "./tickRun.js";
 import { triggerTick } from "./tickTrigger.js";
+import { tickWait } from "./tickWait.js";
 
 export async function tick(): Promise<void> {
   await refreshEngineConfig(); // 成功後は10分ごと、失敗中は毎tick再試行（内部で throttle）
@@ -26,6 +27,10 @@ export async function tick(): Promise<void> {
   const { nodes } = await getState();
 
   await triggerTick(nodes);
+
+  // 待ちノード（3.17）。実行を伴わず軽いので「1tick=1件」の枠の外で毎周まとめて見る
+  // （下の層が長い AI 実行で塞がっていても、待ち明けが後回しにならないように）
+  await tickWait(nodes);
 
   // タスク優先→分岐→ラン。上の層が1件処理したらこの周はそこで終わる（1tick=1件）
   if (await tickProject(nodes)) return;
