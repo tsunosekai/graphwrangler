@@ -3,9 +3,16 @@
 // （index.ts の tick）は import しても何も起きない副作用なしのモジュールに保つ
 // （そうしないと tick 系の配線がテストから触れない）。
 import { tick } from "./index.js";
+
 import { startAwakeWatch } from "./awake.js";
 import { log } from "./log.js";
 import { engineConfig, engineMode, refreshEngineConfig, refreshWorkspaceInfo } from "./settings.js";
+
+// デスクトップ常駐版（apps/desktop）は Electron の実行ファイルを素の Node として使うために
+// ELECTRON_RUN_AS_NODE=1 を付けてこのプロセスを起動する。役目はここまでで終わりなので消す——
+// 残すと、ここから起動するスクリプトや CLI が Electron 製アプリ（VS Code の `code` 等）を
+// 呼んだとき、そのアプリまで「素の Node」として起動して壊れる
+delete process.env.ELECTRON_RUN_AS_NODE;
 
 const INTERVAL_MS = Number(process.env.GW_ENGINE_INTERVAL_MS ?? 5000);
 

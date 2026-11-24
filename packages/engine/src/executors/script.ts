@@ -46,7 +46,7 @@ export function decodeOutput(buf: Buffer): string {
 export function killTree(child: ChildProcess): void {
   if (child.pid == null) return;
   if (process.platform === "win32") {
-    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
   } else {
     try {
       process.kill(-child.pid, "SIGKILL");
@@ -93,6 +93,7 @@ export function runScript(command: string, opts: RunScriptOptions = {}): Promise
     const child = spawn(command, {
       shell: true,
       cwd,
+      windowsHide: true, // コンソールの無い親（デスクトップ常駐版）の下で黒い窓を出さない
       // POSIX ではプロセスグループを分け、killTree でグループごと止められるようにする
       ...(process.platform !== "win32" ? { detached: true } : {}),
       // env 省略時は spawn 既定（process.env 継承）のまま。指定時だけ重ねる

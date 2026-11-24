@@ -41,11 +41,12 @@ export function RoutineCalendarDialog({
 
   const triggers = useMemo(() => collectCalendarTriggers(allNodes), [allNodes]);
   const fineCount = useMemo(() => triggers.filter((t) => t.fine).length, [triggers]);
+  // today は分単位で変わっても結果に効かないので日付文字列で依存を安定させる
+  const todayKey = today.toDateString();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: today は日付だけ効く（todayKey で代表させる）
   const cells = useMemo(
     () => buildMonthCells(triggers, year, monthIndex, pageRuns, today, showFine),
-    // today は分単位で変わっても結果に効かないので日付文字列で依存を安定させる
-    // biome-ignore lint/correctness/useExhaustiveDependencies: today は日付だけ効く
-    [triggers, year, monthIndex, pageRuns, showFine, today.toDateString()],
+    [triggers, year, monthIndex, pageRuns, showFine, todayKey],
   );
 
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();

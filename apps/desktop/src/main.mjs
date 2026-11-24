@@ -15,7 +15,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BrowserWindow, Menu, Tray, app, dialog, nativeImage, shell } from "electron";
+import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage, shell } from "electron";
 import QRCode from "qrcode";
 import {
   findTailscaleIp,
@@ -193,7 +193,27 @@ function createWindow(show) {
     autoHideMenuBar: true,
     // 隠れている間も UI を回し続ける——「あなたの番」のデスクトップ通知は UI 側
     // （useDesktopNotify）が出しているので、トレイに隠れた窓が止まると通知も止まる
-    webPreferences: { backgroundThrottling: false },
+    webPreferences: { backgroundThrottling: false, preload: path.join(here, "preload.cjs") },
+  });
+  // 通知をクリックしたら窓を前に出す。通知は UI が Web の Notification で出しているので、
+  // ページ側の Notification を薄く包み、クリックをプリロードの橋（gwDesktop.show）へ流す。
+  // UI のコードは変えない（ブラウザで開いたときは橋が無いので何も起きない）
+  win.webContents.on("dom-ready", () => {
+    void win.webContents
+      .executeJavaScript(
+        `(() => {
+          if (window.__gwNotifyPatched || !window.Notification) return;
+          window.__gwNotifyPatched = true;
+          const Base = window.Notification;
+          window.Notification = class extends Base {
+            constructor(title, options) {
+              super(title, options);
+              this.addEventListener("click", () => window.gwDesktop && window.gwDesktop.show());
+            }
+          };
+        })()`,
+      )
+      .catch(() => {});
   });
   win.on("close", (e) => {
     if (quitting) return;
@@ -248,10 +268,28 @@ function applyLoginItem() {
   });
 }
 
+/** PNG 1枚を包んだ .ico を作る（ICO は PNG をそのまま格納できる）。ショートカットのアイコン用——
+ *  パッケージ化していないので、既定だと electron.exe のアイコンが出てしまう */
+function ensureIcoFile() {
+  const png = fs.readFileSync(path.join(repoRoot, "apps", "ui", "public", "icon-256.png"));
+  const header = Buffer.alloc(22);
+  header.writeUInt16LE(1, 2); // type = icon
+  header.writeUInt16LE(1, 4); // 画像は1枚
+  // エントリ: 幅0・高さ0 は「256」の意味
+  header.writeUInt16LE(1, 10); // planes
+  header.writeUInt16LE(32, 12); // bpp
+  header.writeUInt32LE(png.length, 14);
+  header.writeUInt32LE(22, 18); // 画像データの開始位置
+  const file = path.join(app.getPath("userData"), "icon.ico");
+  fs.writeFileSync(file, Buffer.concat([header, png]));
+  return file;
+}
+
 /** スタートメニューから手で起動できるようにする（Windows）。通知の発信元名もここで決まる */
 function ensureStartMenuShortcut() {
   if (process.platform !== "win32") return;
   try {
+    const icon = ensureIcoFile();
     const link = path.join(
       app.getPath("appData"),
       "Microsoft",
@@ -265,6 +303,8 @@ function ensureStartMenuShortcut() {
       args: `"${appDir}"`,
       cwd: appDir,
       description: "GraphWrangler",
+      icon,
+      iconIndex: 0,
       appUserModelId: APP_ID,
     });
   } catch {
@@ -351,6 +391,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", showWindow);
+  ipcMain.on("gw:show", showWindow);
   app.on("window-all-closed", () => {
     // 窓が無くてもトレイで常駐し続ける（何もしない）
   });

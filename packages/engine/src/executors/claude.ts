@@ -348,6 +348,7 @@ export function runClaude(
         ...(isWindows ? { shell: true } : { detached: true }),
         ...(cwd ? { cwd } : {}),
         env: sanitizedClaudeEnv(),
+        windowsHide: true, // コンソールの無い親（デスクトップ常駐版）の下で黒い窓を出さない
       });
     } catch (err) {
       resolve({ success: false, output: "", error: `${config.cliPath} -p 起動失敗: ${String(err)}` });

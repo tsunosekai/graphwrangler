@@ -48,7 +48,7 @@ function run(
     execFile(
       "git",
       args,
-      { cwd, timeout: GIT_TIMEOUT_MS, encoding: "utf8" },
+      { cwd, timeout: GIT_TIMEOUT_MS, encoding: "utf8", windowsHide: true },
       (err, stdout, stderr) => {
         // execFile の err.code は number（終了コード）か string（ENOENT 等）が来る
         const rawCode = err ? (err as { code?: unknown }).code : 0;

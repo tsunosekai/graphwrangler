@@ -217,7 +217,12 @@ export function runPlainClaude(
     try {
       // cwd 明示: サーバの cwd のまま起動すると claude が graphwrangler リポジトリを
       // 自分のプロジェクトと誤認する（chat_cli.ts と同じ対策。2026-07-31 実測）
-      child = spawn(cliPath, args, { ...(isWindows ? { shell: true } : {}), env: sanitizedClaudeEnv(), cwd });
+      child = spawn(cliPath, args, {
+        ...(isWindows ? { shell: true } : {}),
+        env: sanitizedClaudeEnv(),
+        cwd,
+        windowsHide: true,
+      });
     } catch (err) {
       resolve({ success: false, output: "", error: `${cliPath} -p 起動失敗: ${String(err)}` });
       return;

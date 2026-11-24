@@ -74,7 +74,7 @@ function run(
   timeout = GIT_TIMEOUT_MS,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { cwd, timeout, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(cmd, args, { cwd, timeout, encoding: "utf8", maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       const rawCode = err ? (err as { code?: unknown }).code : 0;
       const code = typeof rawCode === "number" ? rawCode : err ? 1 : 0;
       resolve({ code, stdout: stdout ?? "", stderr: stderr ?? "" });

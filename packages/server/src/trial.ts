@@ -82,7 +82,7 @@ export function runTrial(command: string, cwd: string): Promise<TrialRunResult> 
     const stderrChunks: Buffer[] = [];
     let timedOut = false;
 
-    const child = spawn(command, { shell: true, cwd });
+    const child = spawn(command, { shell: true, cwd, windowsHide: true });
 
     const timer = setTimeout(() => {
       timedOut = true;

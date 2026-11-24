@@ -369,7 +369,7 @@ export function killTree(child: { pid?: number; kill: (signal?: NodeJS.Signals) 
   if (!child.pid) return;
   if (process.platform === "win32") {
     try {
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
     } catch {
       try {
         child.kill();
@@ -490,7 +490,12 @@ function runCli(
       // claude がそのリポジトリを自分のプロジェクトだと思い込み、画面のグラフでなく
       // ソースコードの話を始める（2026-07-31 実測）。ワークスペースモードなら
       // workspace root、それ以外は中立な tmp
-      child = spawn(cliPath, args, { ...(isWindows ? { shell: true } : {}), env: sanitizedClaudeEnv(), cwd });
+      child = spawn(cliPath, args, {
+        ...(isWindows ? { shell: true } : {}),
+        env: sanitizedClaudeEnv(),
+        cwd,
+        windowsHide: true,
+      });
     } catch (err) {
       push({ type: "error", errorText: `${cliPath} の起動に失敗しました: ${String(err)}` });
       finish();
