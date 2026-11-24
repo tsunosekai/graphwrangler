@@ -563,3 +563,34 @@ body {
   background: var(--card);
   padding: 0.5em 0.7em 0.55em;
 }
+
+/* カードと会話の境界（上下にドラッグ）。列の gap の中に収まるよう、上下の余白を打ち消す */
+.gw-split-handle {
+  flex-shrink: 0;
+  height: 10px;
+  margin: -9px 0;
+  cursor: row-resize;
+  position: relative;
+  z-index: 5;
+  touch-action: none;
+}
+.gw-split-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 36px;
+  height: 2px;
+  margin-left: -18px;
+  border-radius: 1px;
+  background: var(--border-strong);
+  opacity: 0.5;
+}
+.gw-split-handle:hover::after,
+.gw-split-handle:active::after {
+  left: 0;
+  width: 100%;
+  margin-left: 0;
+  opacity: 1;
+  background: var(--ai);
+}

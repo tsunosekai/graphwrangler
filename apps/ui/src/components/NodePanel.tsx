@@ -411,6 +411,43 @@ export function NodePanel({
   // compact は PC でもスマホでも会話を出す（スマホでも手順カードを開けば、会話しながら読める）。
   // 下書きのスマホだけは従来どおり「詳細か会話のどちらか」
   const showTalk = compact ? true : formOnly ? false : !isMobile || !metaShown;
+
+  // カードと会話の境界を上下にドラッグして動かす（2026-11-24 本人要望）。動かした高さは
+  // ノードをまたいで覚える（どのノードでも同じ割り振りで読める）。一度も動かしていなければ
+  // 中身に合わせた高さ（上限つき）のまま。境界のダブルクリックでその状態へ戻す
+  const cardBoxRef = useRef<HTMLDivElement>(null);
+  const [cardH, setCardH] = useState<number | null>(() => {
+    const n = Number.parseInt(loadUiState("gw.cardH") ?? "", 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  });
+  const startCardResize = (e: React.PointerEvent) => {
+    const box = cardBoxRef.current;
+    const column = box?.parentElement;
+    if (!box || !column) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = box.getBoundingClientRect().height;
+    // 会話側に入力欄ぶんの高さは必ず残す
+    const max = Math.max(120, column.getBoundingClientRect().height - 260);
+    let latest = startH;
+    const onMove = (ev: PointerEvent) => {
+      latest = Math.round(Math.min(max, Math.max(72, startH + (ev.clientY - startY))));
+      setCardH(latest);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      saveUiState("gw.cardH", String(latest));
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+  const resetCardHeight = () => {
+    setCardH(null);
+    saveUiState("gw.cardH", "");
+  };
+  // 高さを固定するのは、カードを開いていて会話と並んでいるときだけ
+  const cardSized = compact && metaShown && cardH !== null;
   // タブごとの未読ドット（2026-08-02 本人要望「ノード詳細のどこが未読なのか分からないので
   // ドットをつけてほしい」）。未読の実体はスレッドのメッセージなので、それを切り分けている
   // 3タブのどれに入るかを示す＝どのタブを見ればいいかが分かる。判定は Thread の
@@ -655,6 +692,7 @@ export function NodePanel({
           スクロール容器で包む（2026-08-02 スクロール不能バグ修正の一環） */}
       {(compact || formOnly || metaShown) && (
         <div
+          ref={cardBoxRef}
           className={cn(
             "flex min-h-0 flex-col gap-3",
             // compact はカードの中身が自分でスクロールする（チップと進捗の操作を上に残すため）
@@ -665,7 +703,13 @@ export function NodePanel({
             showTalk ? "flex-shrink-0 basis-auto" : "flex-1",
           )}
           // 会話がまだ無いノードは、手順を読む場所を広めに取る
-          style={showTalk ? { maxHeight: messages.length === 0 ? "70%" : compact ? "50%" : "60%" } : undefined}
+          style={
+            cardSized
+              ? { height: cardH ?? undefined, maxHeight: "calc(100% - 260px)" }
+              : showTalk
+                ? { maxHeight: messages.length === 0 ? "70%" : compact ? "50%" : "60%" }
+                : undefined
+          }
         >
           {compact ? (
             <NodeSummary
@@ -960,6 +1004,17 @@ export function NodePanel({
           </>
           )}
         </div>
+      )}
+      {/* カードと会話の境界。上下にドラッグで割り振りを変える（ダブルクリックで自動へ戻す） */}
+      {compact && metaShown && (
+        <div
+          className="gw-split-handle"
+          role="separator"
+          aria-orientation="horizontal"
+          title="ドラッグでカードと会話の境界を動かす（ダブルクリックで自動に戻す）"
+          onPointerDown={startCardResize}
+          onDoubleClick={resetCardHeight}
+        />
       )}
 
       {openRequests.map((m) => (

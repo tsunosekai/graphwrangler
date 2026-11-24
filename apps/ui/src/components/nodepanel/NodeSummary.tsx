@@ -129,7 +129,7 @@ export function NodeSummary({
   const hasBody = !!detail || !!docText || showImplSection || hasOutputs || !!runNote;
 
   return (
-    <div className="gw-node-card flex min-h-0 flex-col">
+    <div className="gw-node-card flex min-h-0 flex-1 flex-col">
       <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         {hasBody && (
           <button
