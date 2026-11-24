@@ -48,6 +48,7 @@ import { MembersSection } from "./nodepanel/MembersSection";
 import { OutputsSection } from "./nodepanel/OutputsSection";
 import { ScheduleSection } from "./nodepanel/ScheduleSection";
 import { WaitSection } from "./nodepanel/WaitSection";
+import { NodeSummary } from "./nodepanel/NodeSummary";
 import { StatusSection } from "./nodepanel/StatusSection";
 import {
   AUTHOR_AI,
@@ -456,6 +457,50 @@ export function NodePanel({
     return () => window.clearInterval(timer);
   }, [executorBusy, refreshThread]);
 
+  // 計画済みノードは「読む」表示（NodeSummary）にする: 設定は入力されているものだけを小さく、
+  // 手順は Markdown で。編集フォームは「編集」を押したときだけ出す（2026-11-24 本人要望
+  // 「計画済みにしたらスッキリした画面に」）。下書きは組み立て中なのでフォームのまま。
+  // ランの表示は記録を読む場面なので常に「読む」側から始める
+  const [editing, setEditing] = useState(false);
+  const readable = node.lifecycle === "committed" || !!runView;
+  const compact = readable && !editing;
+  // 進捗・実装・出力の3節は、フォームと「読む」表示で同じものを使う
+  const statusSection = (
+    <StatusSection
+      node={node}
+      activeRun={activeRun}
+      activeRunItem={activeRunItem}
+      runView={runView}
+      pageHasTrigger={pageHasTrigger}
+      isFrontier={isFrontier}
+      patch={patch}
+      onMutated={onMutated}
+      confirmPromotionIfNeeded={confirmPromotionIfNeeded}
+    />
+  );
+  const implSection = (
+    <ImplSection
+      node={node}
+      activeRun={activeRun}
+      activeRunItem={activeRunItem}
+      runView={runView}
+      contentLocked={contentLocked}
+      implStatus={implStatus}
+      patch={patch}
+      onMutated={onMutated}
+      refreshThread={refreshThread}
+    />
+  );
+  const outputsSection = (
+    <OutputsSection
+      node={node}
+      runView={runView}
+      contentLocked={contentLocked}
+      pageHasTrigger={pageHasTrigger}
+      patch={patch}
+    />
+  );
+
   return (
     <aside
       data-mobile-panel="right"
@@ -607,8 +652,35 @@ export function NodePanel({
             // 従来どおり上限60%の縮む節のまま
             showTalk ? "flex-shrink-0 basis-auto" : "flex-1",
           )}
-          style={showTalk ? { maxHeight: "60%" } : undefined}
+          // 会話がまだ無いノードは、手順を読む場所を広めに取る
+          style={showTalk ? { maxHeight: messages.length === 0 ? "72%" : "60%" } : undefined}
         >
+          {compact ? (
+            <NodeSummary
+              node={node}
+              runNote={runView ? `このランの記録（${runView.title}）` : null}
+              // ルーティーンのテンプレート（設計図）側では進捗の欄を出さない——進捗はランごとに
+              // あり、ここに出るのは「計画済み／未計画に戻す」だけで、読むときには要らない
+              // （戻したいときは「編集」から）。トリガーは手動開始の導線があるので残す
+              statusSection={
+                !runView && pageHasTrigger && node.kind !== "trigger" ? null : statusSection
+              }
+              implSection={implSection}
+              outputsSection={outputsSection}
+              canEdit
+              onEdit={() => setEditing(true)}
+            />
+          ) : (
+          <>
+          {readable && (
+            <button
+              type="button"
+              className="self-start rounded px-1.5 py-0.5 text-xs text-text-lo hover:bg-muted hover:text-foreground"
+              onClick={() => setEditing(false)}
+            >
+              ← 表示に戻る
+            </button>
+          )}
           {/* Fix実効化の注記（docs/design.md 3.5）: ロック中は「やり方」フィールドの編集UIを
               disabled にする。進捗（status）・params の値・試走・Fixトグル自体は生かしたまま */}
           {runView ? (
@@ -858,48 +930,22 @@ export function NodePanel({
                 </label>
               </>
             )}
-            <StatusSection
-              node={node}
-              activeRun={activeRun}
-              activeRunItem={activeRunItem}
-              runView={runView}
-              pageHasTrigger={pageHasTrigger}
-              isFrontier={isFrontier}
-              patch={patch}
-              onMutated={onMutated}
-              confirmPromotionIfNeeded={confirmPromotionIfNeeded}
-            />
+            {statusSection}
           </div>
 
           <MembersSection node={node} allNodes={allNodes} patch={patch} />
 
           {/* 待ちノードには実装も出力宣言も無い（待つだけ） */}
-          {node.kind !== "wait" && <ImplSection
-            node={node}
-            activeRun={activeRun}
-            activeRunItem={activeRunItem}
-            runView={runView}
-            contentLocked={contentLocked}
-            implStatus={implStatus}
-            patch={patch}
-            onMutated={onMutated}
-            refreshThread={refreshThread}
-          />}
+          {node.kind !== "wait" && implSection}
 
-          {node.kind !== "wait" && (
-            <OutputsSection
-              node={node}
-              runView={runView}
-              contentLocked={contentLocked}
-              pageHasTrigger={pageHasTrigger}
-              patch={patch}
-            />
-          )}
+          {node.kind !== "wait" && outputsSection}
 
           <BranchesEditor node={node} contentLocked={contentLocked} patch={patch} />
 
           {/* 作成者の刻印は関係者セクション内の「作成者: ○○」に統一した（2026-08-04 追修。
               旧: 非 goal はここに「作成: ○○」を出していたが、関係者を全ノード種へ開放したので重複） */}
+          </>
+          )}
         </div>
       )}
 
