@@ -179,9 +179,14 @@ function remoteUrl() {
   return ip ? `http://${ip}:${port}` : null;
 }
 
+// アプリのアイコン（apps/desktop/assets。scripts/make-icon.py が UI の図柄から起こしたもの）。
+// UI 同梱の icon.png は白地に灰色で、タスクバーやトレイでは白い四角に見えて埋もれる
+const assetsDir = path.join(appDir, "assets");
+const icoFile = path.join(assetsDir, "icon.ico");
+
+/** ウィンドウ・タスクバー用。Windows は複数サイズ入りの .ico を渡す（小さい表示が潰れない） */
 function iconImage() {
-  const file = path.join(repoRoot, "apps", "ui", "public", "icon-256.png");
-  return nativeImage.createFromPath(file);
+  return nativeImage.createFromPath(process.platform === "win32" ? icoFile : path.join(assetsDir, "icon.png"));
 }
 
 function createWindow(show) {
@@ -268,28 +273,10 @@ function applyLoginItem() {
   });
 }
 
-/** PNG 1枚を包んだ .ico を作る（ICO は PNG をそのまま格納できる）。ショートカットのアイコン用——
- *  パッケージ化していないので、既定だと electron.exe のアイコンが出てしまう */
-function ensureIcoFile() {
-  const png = fs.readFileSync(path.join(repoRoot, "apps", "ui", "public", "icon-256.png"));
-  const header = Buffer.alloc(22);
-  header.writeUInt16LE(1, 2); // type = icon
-  header.writeUInt16LE(1, 4); // 画像は1枚
-  // エントリ: 幅0・高さ0 は「256」の意味
-  header.writeUInt16LE(1, 10); // planes
-  header.writeUInt16LE(32, 12); // bpp
-  header.writeUInt32LE(png.length, 14);
-  header.writeUInt32LE(22, 18); // 画像データの開始位置
-  const file = path.join(app.getPath("userData"), "icon.ico");
-  fs.writeFileSync(file, Buffer.concat([header, png]));
-  return file;
-}
-
 /** スタートメニューから手で起動できるようにする（Windows）。通知の発信元名もここで決まる */
 function ensureStartMenuShortcut() {
   if (process.platform !== "win32") return;
   try {
-    const icon = ensureIcoFile();
     const link = path.join(
       app.getPath("appData"),
       "Microsoft",
@@ -303,7 +290,7 @@ function ensureStartMenuShortcut() {
       args: `"${appDir}"`,
       cwd: appDir,
       description: "GraphWrangler",
-      icon,
+      icon: icoFile,
       iconIndex: 0,
       appUserModelId: APP_ID,
     });
@@ -406,7 +393,12 @@ if (!app.requestSingleInstanceLock()) {
     applyLoginItem();
     ensureStartMenuShortcut();
 
-    tray = new Tray(iconImage().resize({ width: 16, height: 16 }));
+    // Windows は .ico をそのまま渡す（画面の拡大率に合うサイズを OS が選ぶ）
+    tray = new Tray(
+      process.platform === "win32"
+        ? icoFile
+        : nativeImage.createFromPath(path.join(assetsDir, "tray.png")).resize({ width: 16, height: 16 }),
+    );
     tray.on("click", showWindow);
     refreshTray();
 
