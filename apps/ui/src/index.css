@@ -509,3 +509,49 @@ body {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-lo) 55%, transparent) transparent;
 }
+
+/* ---- 操作できるチャット（lib/richMd.tsx。docs/design.md 3.18） ---- */
+.gw-copy-block { position: relative; }
+.gw-copy-block .gw-copy-btn {
+  position: absolute;
+  top: 0.35em;
+  right: 0.4em;
+  z-index: 1;
+  padding: 0.1em 0.55em;
+  font-size: 0.75em;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.gw-copy-block .gw-copy-btn:hover { color: var(--foreground); border-color: var(--border-strong); }
+.gw-copy-block pre { padding-right: 4.5em; white-space: pre-wrap; }
+.gw-actions { display: flex; flex-wrap: wrap; gap: 0.4em; margin: 0.5em 0; }
+.gw-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.3em 0.75em;
+  border: 1px solid var(--ai);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.92em;
+  cursor: pointer;
+}
+.gw-action-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--ai) 14%, transparent); }
+.gw-action-btn:disabled { opacity: 0.6; cursor: default; }
+.gw-action-btn[data-unavailable="true"] { border-style: dashed; border-color: var(--border-strong); opacity: 0.7; }
+.gw-action-invalid { opacity: 0.6; text-decoration: line-through; }
+.chat-md li.gw-check-item { list-style: none; margin-left: -1.4em; }
+.gw-check-item > label { display: flex; align-items: flex-start; gap: 0.5em; cursor: pointer; }
+.gw-check-item input { margin-top: 0.3em; flex-shrink: 0; }
+.gw-check-item[data-checked="true"] > label > span { opacity: 0.55; text-decoration: line-through; }
+.gw-prep-pin {
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--ai) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ai) 6%, var(--card));
+  padding: 0.4em 0.7em 0.5em;
+}

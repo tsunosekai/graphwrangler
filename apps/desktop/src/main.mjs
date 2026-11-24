@@ -379,6 +379,43 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", showWindow);
   ipcMain.on("gw:show", showWindow);
+
+  // チャットの実行ボタンと「着手」からの「開く・実行する」（docs/design.md 3.18）。
+  // 呼べるのはこのアプリの UI（http://127.0.0.1:<port>）だけ——窓が別のページへ飛ばされても、
+  // そのページからは PC のものを開いたりコマンドを走らせたりできない
+  const fromOwnUi = (event) => {
+    try {
+      return new URL(event.senderFrame?.url ?? "").origin === new URL(localUrl()).origin;
+    } catch {
+      return false;
+    }
+  };
+  ipcMain.handle("gw:open", async (event, target) => {
+    if (!fromOwnUi(event)) return { ok: false, error: "このページからは開けません" };
+    if (typeof target !== "string" || !target.trim()) return { ok: false, error: "開く対象が空です" };
+    if (/^https?:\/\//i.test(target)) {
+      await shell.openExternal(target);
+      return { ok: true };
+    }
+    // フォルダ・ファイル。AI は区切りを / で書いてくるので OS の形へ直す。無いものは開かない
+    const file = path.normalize(target);
+    if (!fs.existsSync(file)) return { ok: false, error: `見つかりません: ${file}` };
+    const error = await shell.openPath(file);
+    return error ? { ok: false, error } : { ok: true };
+  });
+  ipcMain.handle("gw:run", (event, command) => {
+    if (!fromOwnUi(event)) return { ok: false, error: "このページからは実行できません" };
+    if (typeof command !== "string" || !command.trim()) return { ok: false, error: "コマンドが空です" };
+    try {
+      // 起動して手を離す（アプリやスクリプトを立ち上げる用途。終了は待たない）。作業場所はワークスペース
+      const child = spawn(command, { shell: true, cwd: config.workspace, detached: true, stdio: "ignore" });
+      child.on("error", () => {});
+      child.unref();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
   app.on("window-all-closed", () => {
     // 窓が無くてもトレイで常駐し続ける（何もしない）
   });

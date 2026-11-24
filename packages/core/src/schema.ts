@@ -201,6 +201,10 @@ export const NodeSchema = z.object({
    *  起きたとき1本にまとめて実行する。false = 止まっていた間の回は捨て、次の定刻から動く。
    *  保存済みノードには無いフィールドなので default 必須（無ければ true） */
   catchUp: z.boolean().default(true),
+  /** 担当=人間のノード用: 番が回ってくる前に AI が前準備をするか（3.18。既定 true）。
+   *  true なら、ランで順番が来たとき AI が材料・下書き・開くものを揃えてチャットへ発言し、
+   *  それから「あなたの番」になる。準備の要らない単純な作業は false にして AI を呼ばない */
+  prep: z.boolean().default(true),
   /** kind=wait 用の待ち方（"after 8d 09:00" / "after 3h" / "until monthly day 9 09:00"。
    *  文法の正本は wait.ts）。順番が回ってきたらこの待ち方で明ける時刻を決め、時刻が来たら
    *  エンジンが自動で完了にする（3.17）。それ以外の kind では null */
@@ -256,6 +260,7 @@ export const NodeInputSchema = z.object({
   fixed: z.boolean().default(false),
   schedule: z.string().nullable().default(null),
   catchUp: z.boolean().default(true),
+  prep: z.boolean().default(true),
   wait: z.string().nullable().default(null),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   choice: z.string().nullable().default(null),
@@ -490,6 +495,7 @@ export const NodeSnapshotSchema = z.object({
   fixed: z.boolean().default(false),
   schedule: z.string().nullable().default(null),
   catchUp: z.boolean().default(true),
+  prep: z.boolean().default(true),
   wait: z.string().nullable().default(null),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   /** 出力宣言（3.15）。null = 宣言なし */

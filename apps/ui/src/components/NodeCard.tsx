@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { describeSchedule, parseSchedule } from "@graphwrangler/core/schedule";
 import { describeWait } from "@graphwrangler/core/wait";
+import { runPrepActionsOnStart } from "../lib/desktop";
 import { optimisticPatchNode, optimisticPatchRunItem } from "../lib/optimistic";
 import { runTrigger } from "../lib/run";
 import { HINT_TEXT } from "../lib/hints";
@@ -70,6 +71,11 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   const patchRunItemStatus = async (status: RunItemStatus) => {
     if (!runItem || runBusy) return;
     setRunBusy(true);
+    // 人間の作業の着手 = AI の前準備に入っている「開く・実行する」をまとめて実行（3.18）。
+    // 準備の中身はパネルの会話が持っているので、パネルを開いていないときは何も起きない
+    if (status === "running" && node.executor === "human") {
+      void runPrepActionsOnStart(node.id, runItem.runId);
+    }
     try {
       await optimisticPatchRunItem(runItem.runId, node.id, status);
     } catch {

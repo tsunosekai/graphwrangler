@@ -34,6 +34,7 @@ import { autoRetryCounts, launchExecutor } from "./executor.js";
 import { truncate, withSubSteps } from "./format.js";
 import { log } from "./log.js";
 import { selectRunAction } from "./pickRun.js";
+import { prepareHumanTurn } from "./prep.js";
 import { tickRunDecision } from "./tickRunDecision.js";
 import type { Actor, Message, Node, Run } from "./types.js";
 
@@ -456,6 +457,10 @@ export async function tickRunItem(nodes: Node[]): Promise<void> {
       // 担当=人間のステップに順番が回ってきた。waiting へ上げるとサーバが
       // 「あなたの番」の Discord 通知を出し、UI にも橙ドットが出る（2026-08-08 追加。
       // 着手/完了は人間が押すので、ここでは状態を上げるだけ）
+      // その前に AI が前準備をして、結果をこのノードのチャットへ発言する（3.18。node.prep=false
+      // なら呼ばない。古いサーバは prep を返さないので undefined は「する」扱い）。準備の間
+      // アイテムは pending のまま——通知は準備が済んでから鳴らしたい。失敗しても番は必ず回す
+      if (action.node.prep !== false) await prepareHumanTurn(nodes, action.run, action.node);
       await patchRunItem(
         action.run.id,
         action.node.id,

@@ -206,6 +206,13 @@ server.registerTool(
           'kind=trigger 用の起動方式（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等の自由文字列）。' +
             "executor=script ならcron的なラン作成判定、executor=ai なら判定間隔として使う。既定 null",
         ),
+      prep: z
+        .boolean()
+        .optional()
+        .describe(
+          "担当=人間のノード用: ランで番が回ってくる前に AI が前準備（材料・下書き・開くものを揃えて" +
+            "チャットへ発言）をするか。既定 true。準備の要らない単純な作業は false",
+        ),
       wait: z
         .string()
         .nullable()

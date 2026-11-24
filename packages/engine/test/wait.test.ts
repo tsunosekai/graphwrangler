@@ -30,6 +30,7 @@ function node(partial: Partial<Node> = {}): Node {
     implTrial: partial.implTrial ?? null,
     schedule: partial.schedule ?? null,
     catchUp: true,
+    prep: true,
     wait: partial.wait ?? null,
     waitUntil: partial.waitUntil ?? null,
     branches: partial.branches ?? null,

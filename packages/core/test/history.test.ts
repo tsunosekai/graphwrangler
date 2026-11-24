@@ -146,6 +146,7 @@ describe("操作ログの辻褄合わせ（reconcileLog）", () => {
     pendingRequest: null,
     schedule: null,
     catchUp: true,
+    prep: true,
     wait: null,
     waitUntil: null,
     branches: null,

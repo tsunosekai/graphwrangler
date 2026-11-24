@@ -2,6 +2,7 @@
 // col-span-2 の行として並ぶ（トリガーの確定/取り消し・テンプレートのプラン化・
 // ラン投影の進捗・プロジェクトの進捗ボタン。docs/design.md 3.8 / 3.9）
 import { useState } from "react";
+import { runPrepActionsOnStart } from "../../lib/desktop";
 import { abortNodeWithConfirm, abortRunWithConfirm } from "../../lib/actions";
 import { api, type NodePatchInput } from "../../lib/api";
 import { optimisticPatchRunItem } from "../../lib/optimistic";
@@ -325,7 +326,12 @@ export function StatusSection({
                   size="sm"
                   className="active:scale-95"
                   disabled={runItemBusy}
-                  onClick={() => patchRunItemStatus("running")}
+                  // 着手 = AI の前準備に入っている「開く・実行する」をまとめて実行する（3.18）。
+                  // AI はここでは呼ばない（押してから待たされたら「パパっと」にならない）
+                  onClick={() => {
+                    void runPrepActionsOnStart(node.id, activeRun.id);
+                    void patchRunItemStatus("running");
+                  }}
                 >
                   着手
                 </Button>

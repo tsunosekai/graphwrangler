@@ -349,6 +349,21 @@ export function NodePanel({
   };
 
   const messages = thread?.messages ?? [];
+  // 前準備（3.18）のあるランの人間ノードは、開いた時点で会話を広くする——AI が揃えた材料
+  // （固定表示）が主役で、ノード詳細は見なくても作業できる。詳細を見たければ右端のトグルで戻せる
+  // （戻したらこのノードを開いている間はそのまま）。全体の既定（gw.metaOpen）は書き換えない
+  const [prepFocus, setPrepFocus] = useState(true);
+  const hasPrep =
+    !!runView && messages.some((m) => (m.payload as { prep?: unknown } | null)?.prep === true);
+  const metaShown = metaOpen && !(hasPrep && prepFocus);
+  const toggleMeta = () => {
+    if (hasPrep && prepFocus) {
+      setPrepFocus(false);
+      if (!metaOpen) setMetaOpen(() => true);
+      return;
+    }
+    setMetaOpen((v) => !v);
+  };
   // 「新しい会話」区切り（payload.chatBreak）以降だけを会話タブに出す（2026-07-31 本人要望。
   // スレッドは経緯の正史なので消さない。Task AI の応答文脈も server 側で同じ区切りを尊重する）
   const lastBreak = findLastBreak(messages);
@@ -381,7 +396,7 @@ export function NodePanel({
   // モバイルは「ノード詳細」か「会話」のどちらか一方だけを画面に出す（2026-08-02 本人指示
   // 「（詰まった会話節は）いらねぇっつってんだよ、その分上広げろよ」）。切替は一番下の
   // 「会話を広げる」トグル。デスクトップは従来どおり両方出す
-  const showTalk = !isMobile || !metaOpen;
+  const showTalk = !isMobile || !metaShown;
   // タブごとの未読ドット（2026-08-02 本人要望「ノード詳細のどこが未読なのか分からないので
   // ドットをつけてほしい」）。未読の実体はスレッドのメッセージなので、それを切り分けている
   // 3タブのどれに入るかを示す＝どのタブを見ればいいかが分かる。判定は Thread の
@@ -583,7 +598,7 @@ export function NodePanel({
           既定は会話が広い状態（メタ非表示）で、切替はタブ行の右端のボタンが担う。
           セクション全体が縦に長くなってもパネル（overflow-hidden）から溢れないよう
           スクロール容器で包む（2026-08-02 スクロール不能バグ修正の一環） */}
-      {metaOpen && (
+      {metaShown && (
         <div
           className={cn(
             "flex min-h-0 flex-col gap-3 overflow-y-auto",
@@ -759,6 +774,16 @@ export function NodePanel({
                   disabled={contentLocked}
                   onCheckedChange={(v) => patch({ approval: v })}
                 />
+              </label>
+            )}
+            {/* 前準備（3.18）: 担当=人間の作業で、番が回ってくる前に AI に下ごしらえをさせるか。
+                やり方ではなく手間の掛け方なので、ロック中も切り替えられる */}
+            {node.kind === "task" && node.executor === "human" && (
+              <label className="col-span-2 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                <span title="ルーティーンのランで番が回ってくる前に、AI が材料・下書き・開くものを揃えてチャットに出します。準備が済んでから通知が鳴ります。準備の要らない単純な作業はオフに">
+                  AI が前準備をする
+                </span>
+                <Switch checked={node.prep !== false} onCheckedChange={(v) => patch({ prep: v })} />
               </label>
             )}
             {/* 自律度（autonomy）は AI が実行するタスクにだけ意味を持つ。
@@ -990,9 +1015,9 @@ export function NodePanel({
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
-            onClick={() => setMetaOpen((v) => !v)}
+            onClick={toggleMeta}
           >
-            {metaOpen ? (
+            {metaShown ? (
               <>
                 <ChevronUp className="size-3.5" /> 会話を広げる
               </>
@@ -1056,16 +1081,16 @@ export function NodePanel({
           消えている状態なので、ここに同じボタンを出して会話へ切り替える。
           右寄せ＝デスクトップの右肩と同じ側に揃える（2026-08-02 本人指示
           「デスクトップと変えなくていいところは変えたくない」） */}
-      {isMobile && metaOpen && (
+      {isMobile && metaShown && (
         <div className="flex flex-shrink-0 justify-end">
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="text-muted-foreground"
-          onClick={() => setMetaOpen((v) => !v)}
+          onClick={toggleMeta}
         >
-          {metaOpen ? (
+          {metaShown ? (
             <>
               <ChevronUp className="size-3.5" /> 会話を広げる
             </>

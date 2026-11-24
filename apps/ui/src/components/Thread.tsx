@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../lib/api";
-import { Linkify, mdComponents } from "../lib/linkify";
+import { setCurrentPrep } from "../lib/desktop";
+import { Linkify } from "../lib/linkify";
+import { optimisticPatchRunItem } from "../lib/optimistic";
+import { richMdComponents } from "../lib/richMd";
 import { displayNameOf, useTeam, type TeamUser } from "../lib/team";
 import { threadKey } from "../lib/unread";
 import { cn } from "../lib/utils";
@@ -233,8 +236,24 @@ export function Thread({
   const openRequests = messages.filter(
     (m) => m.kind === "decision_request" && m.requestStatus === "open",
   );
+  // 前準備（3.18）: このランで AI が出した最新の準備の発言を、会話の上に固定する。
+  // 会話は流れるので、放っておくと「いまの準備」がやり取りの下に埋もれる。固定した発言は
+  // 流れの側からは外す（同じものが2回出ないように）
+  const prepMessage = runId
+    ? ([...messages].reverse().find((m) => (m.payload as { prep?: unknown } | null)?.prep === true) ?? null)
+    : null;
+  const prepBody = prepMessage?.body ?? null;
+  // 着手ボタン（StatusSection）が実行項目を引けるよう、いまの準備を登録しておく
+  useEffect(() => {
+    if (!runId) return;
+    setCurrentPrep(nodeId, runId, prepBody);
+    return () => setCurrentPrep(nodeId, runId, null);
+  }, [nodeId, runId, prepBody]);
+  const [reprepBusy, setReprepBusy] = useState(false);
+  const [prepOpen, setPrepOpen] = useState(true);
+
   const flow = messages.filter(
-    (m) => !(m.kind === "decision_request" && m.requestStatus === "open"),
+    (m) => !(m.kind === "decision_request" && m.requestStatus === "open") && m.id !== prepMessage?.id,
   );
 
   // 「ここから未読」区切りの位置: 前回既読より新しい最初のメッセージ。全部既読なら出さない。
@@ -273,6 +292,44 @@ export function Thread({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
+      {prepMessage && runId && (
+        <div className="gw-prep-pin">
+          <div className="flex items-center gap-2 text-xs text-text-lo">
+            <button type="button" className="font-medium text-ai" onClick={() => setPrepOpen((v) => !v)}>
+              {prepOpen ? "▾" : "▸"} AI の前準備
+            </button>
+            <span title="準備した時刻">{new Date(prepMessage.ts).toLocaleString("ja-JP")}</span>
+            <span className="flex-1" />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={reprepBusy}
+              title="このノードを着手前に戻し、AI に準備をやり直させます（数分かかることがあります。終わるとまた「あなたの番」になります）"
+              onClick={async () => {
+                setReprepBusy(true);
+                try {
+                  await optimisticPatchRunItem(runId, nodeId, "pending");
+                  onMutated();
+                } catch {
+                  // api() 側でトースト表示済み
+                } finally {
+                  setReprepBusy(false);
+                }
+              }}
+            >
+              準備し直す
+            </Button>
+          </div>
+          {prepOpen && (
+            <div className="chat-md mt-1 max-h-[60vh] overflow-y-auto break-words pr-1 text-sm">
+              <Markdown remarkPlugins={[remarkGfm]} components={richMdComponents(prepMessage.id)}>
+                {prepMessage.body}
+              </Markdown>
+            </div>
+          )}
+        </div>
+      )}
       <div
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1"
         ref={bodyRef}
@@ -349,7 +406,7 @@ export function Thread({
                   .chat-md）。人間・システムの本文は入力そのまま */}
               {m.author.kind === "agent" && m.body ? (
                 <div className="chat-md break-words text-sm">
-                  <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  <Markdown remarkPlugins={[remarkGfm]} components={richMdComponents(m.id)}>
                     {m.body}
                   </Markdown>
                 </div>

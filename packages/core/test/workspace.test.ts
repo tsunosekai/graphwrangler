@@ -113,6 +113,7 @@ describe("GraphStore.workspace: 起動と読み書き", () => {
       implTrial: null,
       schedule: null,
       catchUp: true,
+      prep: true,
       wait: null,
       waitUntil: null,
       branches: null,

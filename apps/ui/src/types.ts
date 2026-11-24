@@ -115,6 +115,8 @@ export interface Node {
   /** kind=trigger 用: 取りこぼしの追い付き。エンジンが止まっていた間に過ぎた定刻を、次に
    *  起きたとき1本にまとめて実行する（既定 true）。古いサーバは返さないので省略可＝true 扱い */
   catchUp?: boolean;
+  /** 担当=人間のノード用: 番が来る前に AI が前準備をするか（3.18。既定 true）。古いサーバは返さない */
+  prep?: boolean;
   /** kind=wait 用の待ち方（"after 8d 09:00" / "until monthly day 9 09:00" 等。3.17）。
    *  古いサーバは返さないので省略可 */
   wait?: string | null;
