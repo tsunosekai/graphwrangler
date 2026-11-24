@@ -108,7 +108,8 @@ export function useNodeMenu({
     async (id: string, executor: Node["executor"]) => {
       const n = nodes.find((x) => x.id === id);
       if (!n || n.executor === executor) return;
-      if (executor === "script") {
+      // 待ちノードにはテストするスクリプトが無い（3.17）
+      if (executor === "script" && n.kind !== "wait") {
         const verified = n.impl?.type === "script" && n.implTrial?.success === true;
         if (!verified && !(await confirmDialog(TRIAL_CONFIRM_MESSAGE, { confirmLabel: "続ける" }))) return;
       }

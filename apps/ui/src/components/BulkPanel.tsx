@@ -104,7 +104,7 @@ export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props)
   const unfixTargets = nodes.filter((n) => n.fixed);
 
   const commitAll = async () => {
-    if (commitTargets.some((n) => n.executor === "script" && n.kind !== "trigger")) {
+    if (commitTargets.some((n) => n.executor === "script" && n.kind !== "trigger" && n.kind !== "wait")) {
       const ok = await confirmDialog(
         "スクリプト担当のノードを含みます。テスト実行が済んでいない可能性がありますが続けますか？",
         { confirmLabel: "続ける" },

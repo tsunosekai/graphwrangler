@@ -241,6 +241,9 @@ export function NodePanel({
   // 昇格時警告（ハードブロックしない。docs/design.md 3.5 近く）: 担当をscriptに変更する時、
   // または担当=scriptのノードで「プラン済みにする」を押す時、試走が ok でなければ確認する
   const confirmPromotionIfNeeded = async (): Promise<boolean> => {
+    // 待ちノードは担当を script に揃えてあるだけで、走らせるスクリプトが無い（時刻が来たら
+    // エンジンが明けさせる。3.17）。テストするものが無いので確認は出さない
+    if (node.kind === "wait") return true;
     if (implStatus === "ok") return true;
     return confirmDialog(TRIAL_CONFIRM_MESSAGE, { confirmLabel: "続ける" });
   };
