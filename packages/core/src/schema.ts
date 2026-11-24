@@ -205,6 +205,10 @@ export const NodeSchema = z.object({
    *  true なら、ランで順番が来たとき AI が材料・下書き・開くものを揃えてチャットへ発言し、
    *  それから「あなたの番」になる。準備の要らない単純な作業は false にして AI を呼ばない */
   prep: z.boolean().default(true),
+  /** プロジェクト層の人間ノード用: 「AI に前準備をさせる／やり直させる」の依頼（3.18）。
+   *  UI が true にし、エンジンが準備を済ませたら false に戻す。やり方ではなく進捗の値。
+   *  ラン層では使わない（アイテムを pending へ戻すのが依頼になる） */
+  prepRequest: z.boolean().default(false),
   /** kind=wait 用の待ち方（"after 8d 09:00" / "after 3h" / "until monthly day 9 09:00"。
    *  文法の正本は wait.ts）。順番が回ってきたらこの待ち方で明ける時刻を決め、時刻が来たら
    *  エンジンが自動で完了にする（3.17）。それ以外の kind では null */

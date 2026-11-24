@@ -68,6 +68,7 @@ function snapshotTemplate(snap: NodeSnapshot, capturedAt: string): Node {
     pendingRequest: null,
     choice: null,
     waitUntil: null,
+    prepRequest: false,
     createdBy: null,
     members: [],
     created: capturedAt,

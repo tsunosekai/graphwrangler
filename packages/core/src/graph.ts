@@ -323,6 +323,7 @@ export class GraphStore {
       id: nextId("n", this.nodes.keys()),
       pendingRequest: null,
       waitUntil: null, // 待ちが明ける時刻はエンジンだけが書く（3.17）
+      prepRequest: false, // 前準備の依頼は作成後に UI が立てる（3.18）
       // 試走記録は新規作成時は必ず未試走（NodeInputSchema には含めない。desk と同じく
       // 「作成時に指定できるものではなく、試走APIだけが書く」フィールド）
       implTrial: null,

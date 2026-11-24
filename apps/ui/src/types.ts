@@ -117,6 +117,8 @@ export interface Node {
   catchUp?: boolean;
   /** 担当=人間のノード用: 番が来る前に AI が前準備をするか（3.18。既定 true）。古いサーバは返さない */
   prep?: boolean;
+  /** プロジェクト層の人間ノード: AI に前準備をさせる依頼（エンジンが済ませたら false に戻す） */
+  prepRequest?: boolean;
   /** kind=wait 用の待ち方（"after 8d 09:00" / "until monthly day 9 09:00" 等。3.17）。
    *  古いサーバは返さないので省略可 */
   wait?: string | null;

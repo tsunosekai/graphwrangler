@@ -102,6 +102,7 @@ export function NodeSummary({
   expanded,
   onToggle,
   onEdit,
+  onRequestPrep,
 }: {
   node: Node;
   /** ラン表示のときの一言（どのランの記録か）。テンプレート表示では null */
@@ -116,6 +117,8 @@ export function NodeSummary({
   expanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  /** プロジェクト層の人間ノードで、AI に前準備を頼む（頼めない場面では null） */
+  onRequestPrep: (() => void) | null;
 }) {
   const { users } = useTeam();
   const assigneeName = node.assignee ? displayNameOf(node.assignee, users) : null;
@@ -163,6 +166,21 @@ export function NodeSummary({
           </button>
         )}
         <span className="flex-1" />
+        {onRequestPrep &&
+          (node.prepRequest ? (
+            <span className="text-text-lo" title="AI が準備しています。終わると会話の上に出ます（数分かかることがあります）">
+              AI が準備中…
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-text-lo hover:bg-muted hover:text-foreground"
+              title="AI に、この作業の材料・下書き・開くものを揃えさせる（数分かかることがあります）"
+              onClick={onRequestPrep}
+            >
+              AI に準備させる
+            </button>
+          ))}
         <button
           type="button"
           className="rounded px-1.5 py-0.5 text-text-lo hover:bg-muted hover:text-foreground"

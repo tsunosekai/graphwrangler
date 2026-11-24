@@ -436,7 +436,11 @@ export function StatusSection({
                   variant="outline"
                   size="sm"
                   className="active:scale-95"
-                  onClick={() => void patch({ status: "running" })}
+                  onClick={() => {
+                    // プロジェクト層の人間ノードの着手でも、前準備の「開く・実行する」をまとめて実行（3.18）
+                    if (node.executor === "human") void runPrepActionsOnStart(node.id, null);
+                    void patch({ status: "running" });
+                  }}
                 >
                   着手
                 </Button>

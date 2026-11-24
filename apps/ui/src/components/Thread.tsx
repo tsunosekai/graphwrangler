@@ -236,16 +236,15 @@ export function Thread({
   const openRequests = messages.filter(
     (m) => m.kind === "decision_request" && m.requestStatus === "open",
   );
-  // 前準備（3.18）: このランで AI が出した最新の準備の発言を、会話の上に固定する。
+  // 前準備（3.18）: AI が出した最新の準備の発言を、会話の上に固定する（ランならそのランの、
+  // プロジェクト層のノードならテンプレート側の会話のもの。messages は呼び出し側で絞り込み済み）。
   // 会話は流れるので、放っておくと「いまの準備」がやり取りの下に埋もれる。固定した発言は
   // 流れの側からは外す（同じものが2回出ないように）
-  const prepMessage = runId
-    ? ([...messages].reverse().find((m) => (m.payload as { prep?: unknown } | null)?.prep === true) ?? null)
-    : null;
+  const prepMessage =
+    [...messages].reverse().find((m) => (m.payload as { prep?: unknown } | null)?.prep === true) ?? null;
   const prepBody = prepMessage?.body ?? null;
   // 着手ボタン（StatusSection）が実行項目を引けるよう、いまの準備を登録しておく
   useEffect(() => {
-    if (!runId) return;
     setCurrentPrep(nodeId, runId, prepBody);
     return () => setCurrentPrep(nodeId, runId, null);
   }, [nodeId, runId, prepBody]);
@@ -292,7 +291,7 @@ export function Thread({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      {prepMessage && runId && (
+      {prepMessage && (
         <div className="gw-prep-pin">
           <div className="flex items-center gap-2 text-xs text-text-lo">
             <button type="button" className="font-medium text-ai" onClick={() => setPrepOpen((v) => !v)}>
@@ -305,11 +304,14 @@ export function Thread({
               variant="ghost"
               size="sm"
               disabled={reprepBusy}
-              title="このノードを着手前に戻し、AI に準備をやり直させます（数分かかることがあります。終わるとまた「あなたの番」になります）"
+              title="AI に準備をやり直させます（数分かかることがあります。終わると新しい準備がここに出ます）"
               onClick={async () => {
                 setReprepBusy(true);
                 try {
-                  await optimisticPatchRunItem(runId, nodeId, "pending");
+                  // ラン: アイテムを着手前へ戻すと、エンジンがもう一度準備して「あなたの番」にする。
+                  // プロジェクト層: 準備の依頼を立てる（エンジンが準備して下ろす）
+                  if (runId) await optimisticPatchRunItem(runId, nodeId, "pending");
+                  else await api.patchNode(nodeId, { prepRequest: true });
                   onMutated();
                 } catch {
                   // api() 側でトースト表示済み

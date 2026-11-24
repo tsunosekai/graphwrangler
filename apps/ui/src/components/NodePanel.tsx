@@ -357,8 +357,7 @@ export function NodePanel({
   // （固定表示）が主役で、ノード詳細は見なくても作業できる。詳細を見たければ右端のトグルで戻せる
   // （戻したらこのノードを開いている間はそのまま）。全体の既定（gw.metaOpen）は書き換えない
   const [prepFocus, setPrepFocus] = useState(true);
-  const hasPrep =
-    !!runView && messages.some((m) => (m.payload as { prep?: unknown } | null)?.prep === true);
+  const hasPrep = messages.some((m) => (m.payload as { prep?: unknown } | null)?.prep === true);
   const metaShown = metaOpen && !(hasPrep && prepFocus);
   const toggleMeta = () => {
     if (hasPrep && prepFocus) {
@@ -726,6 +725,13 @@ export function NodePanel({
               expanded={metaShown}
               onToggle={toggleMeta}
               onEdit={() => setEditing(true)}
+              // プロジェクト層（ランでもルーティーンのテンプレートでもない）の人間の作業でだけ頼める。
+              // ランでは番が来たときに自動で準備され、やり直しは固定表示の「準備し直す」から
+              onRequestPrep={
+                !runView && !pageHasTrigger && node.kind === "task" && node.executor === "human" && node.prep !== false
+                  ? () => void patch({ prepRequest: true })
+                  : null
+              }
             />
           ) : (
           <>

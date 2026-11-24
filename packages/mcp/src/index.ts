@@ -213,6 +213,13 @@ server.registerTool(
           "担当=人間のノード用: ランで番が回ってくる前に AI が前準備（材料・下書き・開くものを揃えて" +
             "チャットへ発言）をするか。既定 true。準備の要らない単純な作業は false",
         ),
+      prepRequest: z
+        .boolean()
+        .optional()
+        .describe(
+          "プロジェクト層（ルーティーンでないページ）の担当=人間のノードで、AI に前準備をさせる／やり直させる依頼。" +
+            "true にするとエンジンが準備してチャットへ発言し、false に戻す",
+        ),
       wait: z
         .string()
         .nullable()

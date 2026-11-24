@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrepPrompt, upstreamProducers } from "../src/prep.js";
+import { buildPrepPrompt, selectProjectPrep, upstreamProducers } from "../src/prep.js";
 import type { Node } from "../src/types.js";
 
 let nodeSeq = 0;
@@ -29,7 +29,8 @@ function node(partial: Partial<Node> = {}): Node {
     implTrial: partial.implTrial ?? null,
     schedule: partial.schedule ?? null,
     catchUp: true,
-    prep: true,
+    prep: partial.prep ?? true,
+    prepRequest: partial.prepRequest ?? false,
     wait: null,
     waitUntil: null,
     branches: partial.branches ?? null,
@@ -94,5 +95,61 @@ describe("buildPrepPrompt（前準備のプロンプト）", () => {
     expect(p).toContain("送信・支払い・提出・公開・削除");
     expect(p).toContain("窓やアプリを自分で開くこと");
     expect(p).toContain("質問して止まること");
+  });
+});
+
+describe("selectProjectPrep（プロジェクト層の前準備の対象）", () => {
+  const NONE = new Set<string>();
+  const human = (p: Partial<Node>) => node({ group: "proj", executor: "human", ...p });
+
+  it("起動直後の1周目は覚えるだけで、溜まっているノードは準備しない", () => {
+    const a = human({ id: "a" });
+    const r = selectProjectPrep([a], NONE, null, []);
+    expect(r.target).toBeNull();
+    expect([...r.eligible]).toEqual(["a"]);
+    // 2周目も、前の周から着手できたものは対象にしない
+    expect(selectProjectPrep([a], NONE, r.eligible, r.queue).target).toBeNull();
+  });
+
+  it("新しく着手できるようになったノードを準備する（親が終わった・計画済みにした）", () => {
+    const parent = human({ id: "p", status: "running" });
+    const child = human({ id: "c", parents: ["p"] });
+    const draft = human({ id: "d", lifecycle: "draft" });
+    const first = selectProjectPrep([parent, child, draft], NONE, null, []);
+    expect([...first.eligible]).toEqual([]);
+
+    const parentDone = { ...parent, status: "done" as const };
+    const committed = { ...draft, lifecycle: "committed" as const };
+    const second = selectProjectPrep([parentDone, child, committed], NONE, first.eligible, first.queue);
+    expect(second.target?.id).toBe("c");
+    // 1周に1件。残りは待ち行列に残り、次の周に回る
+    expect(second.queue).toEqual(["d"]);
+    const third = selectProjectPrep([parentDone, child, committed], NONE, second.eligible, second.queue);
+    expect(third.target?.id).toBe("d");
+    expect(third.queue).toEqual([]);
+  });
+
+  it("待っている間に着手された・前準備オフにされたノードは行列から外す", () => {
+    const a = human({ id: "a" });
+    const started = { ...a, status: "running" as const };
+    expect(selectProjectPrep([started], NONE, new Set(["a"]), ["a"]).target).toBeNull();
+    const off = { ...a, prep: false };
+    expect(selectProjectPrep([off], NONE, new Set<string>(), []).target).toBeNull();
+  });
+
+  it("依頼（prepRequest）は最優先で、着手できる状態でなくても準備する", () => {
+    const queued = human({ id: "q" });
+    const asked = human({ id: "x", lifecycle: "draft", prepRequest: true });
+    const r = selectProjectPrep([queued, asked], NONE, new Set<string>(), []);
+    expect(r.target?.id).toBe("x");
+    expect(r.queue).toEqual(["q"]); // 自動のぶんは次の周へ
+  });
+
+  it("ルーティーンのメンバー・AI やスクリプトの担当は対象にしない", () => {
+    const member = node({ id: "m", executor: "human" }); // group=proc-1（ルーティーン）
+    const ai = human({ id: "ai", executor: "ai" });
+    const r = selectProjectPrep([member, ai], new Set(["proc-1"]), new Set<string>(), []);
+    expect(r.target).toBeNull();
+    expect([...r.eligible]).toEqual([]);
   });
 });

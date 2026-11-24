@@ -57,9 +57,10 @@ export async function runAction(action: GwAction): Promise<boolean> {
 // 着手ボタン（StatusSection）は会話のデータを持っていないので、ここ経由で受け取る。
 
 const currentPrep = new Map<string, string>();
-const prepKey = (nodeId: string, runId: string) => `${runId}:${nodeId}`;
+/** runId が null = テンプレート側（プロジェクト層のノード） */
+const prepKey = (nodeId: string, runId: string | null) => `${runId ?? "template"}:${nodeId}`;
 
-export function setCurrentPrep(nodeId: string, runId: string, body: string | null): void {
+export function setCurrentPrep(nodeId: string, runId: string | null, body: string | null): void {
   if (body === null) currentPrep.delete(prepKey(nodeId, runId));
   else currentPrep.set(prepKey(nodeId, runId), body);
 }
@@ -67,7 +68,7 @@ export function setCurrentPrep(nodeId: string, runId: string, body: string | nul
 /** 着手したとき: 前準備の実行項目のうち auto のものを上から順に実行する。
  *  この環境で実行できないもの（スマホでのフォルダ等）は黙って飛ばす——着手のたびに
  *  「開けません」が並ぶのを避ける（個別のボタンを押したときは理由を出す） */
-export async function runPrepActionsOnStart(nodeId: string, runId: string): Promise<void> {
+export async function runPrepActionsOnStart(nodeId: string, runId: string | null): Promise<void> {
   const body = currentPrep.get(prepKey(nodeId, runId));
   if (!body) return;
   for (const action of extractActions(body)) {

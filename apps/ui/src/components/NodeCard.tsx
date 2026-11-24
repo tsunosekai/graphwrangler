@@ -106,6 +106,10 @@ export function NodeCard({ data, selected }: { data: NodeCardData; selected?: bo
   // カードのボタンと右クリックメニューで同じ処理を呼ぶための切り出し（挙動の二重管理を避ける）
   const applyPhaseAction = async () => {
     if (!phaseAction) return;
+    // プロジェクト層の人間ノードの着手でも、前準備の「開く・実行する」をまとめて実行（3.18）
+    if (phaseAction.patch.status === "running" && node.executor === "human") {
+      void runPrepActionsOnStart(node.id, null);
+    }
     try {
       await optimisticPatchNode(node.id, phaseAction.patch);
     } catch {

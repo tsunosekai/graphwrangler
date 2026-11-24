@@ -56,6 +56,7 @@ function node(partial: Partial<Node> = {}): Node {
     schedule: partial.schedule ?? null,
     catchUp: true,
     prep: true,
+    prepRequest: false,
     wait: null,
     waitUntil: null,
     branches: partial.branches ?? null,

@@ -6,6 +6,7 @@
 import { getState, heartbeat } from "./api.js";
 import { refreshEngineConfig, refreshWorkspaceInfo } from "./settings.js";
 import { noteServerVersion } from "./selfRestart.js";
+import { tickProjectPrep } from "./prep.js";
 import { tickDecision } from "./tickDecision.js";
 import { tickProject } from "./tickProject.js";
 import { tickRunItem } from "./tickRun.js";
@@ -34,6 +35,9 @@ export async function tick(): Promise<void> {
 
   // タスク優先→分岐→ラン。上の層が1件処理したらこの周はそこで終わる（1tick=1件）
   if (await tickProject(nodes)) return;
+
+  // プロジェクト層の人間ノードの前準備（3.18）。AI を呼ぶ仕事なので「1tick=1件」の枠に入れる
+  if (await tickProjectPrep(nodes)) return;
 
   if (await tickDecision(nodes)) return;
 
