@@ -116,7 +116,7 @@ const chatFetch: typeof fetch = async (input, init) => {
 };
 
 export function ChatDrawer({ pageId, pageTitle, selectedNodeId, onMutated, onClose }: Props) {
-  const [width, startResize] = useResizableWidth("chatW", 360, 300, 640);
+  const [width, startResize] = useResizableWidth("panelW", 440, 300, 760);
   const [input, setInput] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
 

@@ -36,7 +36,7 @@ interface Props {
 }
 
 export function BulkPanel({ nodes, folders, pageId, onMutated, onClose }: Props) {
-  const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
+  const [width, startResize] = useResizableWidth("panelW", 440, 300, 760);
   // チーム化（2026-08-04）: 一括「担当者」設定。ロスターが2人未満の運用では出さない（degrade 原則）
   const { users, enabled: teamEnabled } = useTeam();
   const [busy, setBusy] = useState(false);

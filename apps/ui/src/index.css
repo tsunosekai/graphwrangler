@@ -555,3 +555,11 @@ body {
   background: color-mix(in srgb, var(--ai) 6%, var(--card));
   padding: 0.4em 0.7em 0.5em;
 }
+
+/* ノードの「読む」カード（会話の列の上に留める。docs/design.md 3.20） */
+.gw-node-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 0.5em 0.7em 0.55em;
+}

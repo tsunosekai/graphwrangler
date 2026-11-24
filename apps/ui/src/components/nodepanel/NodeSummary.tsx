@@ -1,14 +1,14 @@
-// 計画済みノードの「読む」表示（2026-11-24 本人要望「右のパネルの情報量が多く認知負荷が高い。
-// 計画済みにしたらスッキリした画面に。重要なのは手順とチャット欄ぐらいで、あとは小さく。
-// 基本的に何か入力されてるところだけ出せばいい」）。
+// 計画済みノードの「読む」表示（docs/design.md 3.19 / 3.20）。会話の列の上に留めるカード。
 //
-// 編集フォーム（種別・担当・起動方式・承認・自律度・関係者・実装・出力…）は、ノードを
-// 組み立てている間の道具で、計画が済んだあとに毎回見る必要は無い。計画済みになったら:
-//   - 設定は「入力されているものだけ」を小さなチップ1行にまとめる
-//   - 概要は書いてあるときだけ出す
-//   - 手順は Markdown として描く（主役）
-//   - 進捗の操作（着手・完了など）は残す
-// 直したいときは「編集」でフォームに戻る。
+// 2026-11-24 本人要望「右のパネルの情報量が多く認知負荷が高い。計画済みにしたらスッキリした
+// 画面に。重要なのは手順とチャット欄ぐらいで、あとは小さく。基本的に何か入力されてるところだけ
+// 出せばいい」→ 同日「会話パネルここじゃないような気がしてきた」を受けて、会話を列の主役にし、
+// ノードの中身はその上のたためるカードにした（前準備の固定表示と同じ扱い）。
+//
+//   - 1行目: 入力されている設定だけのチップ（常に見える。たたんだときの姿）
+//   - 進捗の操作（着手・完了など。常に見える——たたんでも押せる）
+//   - たためる中身: 概要（書いてあるときだけ）、手順（Markdown）、出力
+// 直したいときは「編集」でフォームに切り替える。
 import type { ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -82,7 +82,10 @@ function chipsOf(node: Node, assigneeName: string | null): Chip[] {
     chips.push({ text: "AI の前準備なし" });
   }
   if (node.aiModel || node.aiEffort) {
-    chips.push({ text: [node.aiModel, node.aiEffort].filter(Boolean).join(" / "), title: "このノードの AI のモデル / エフォート" });
+    chips.push({
+      text: [node.aiModel, node.aiEffort].filter(Boolean).join(" / "),
+      title: "このノードの AI のモデル / エフォート",
+    });
   }
   if (node.kind === "decision" && node.branches?.length) {
     chips.push({ text: node.branches.map((b) => b.label).join(" / "), title: "選択肢" });
@@ -96,31 +99,49 @@ export function NodeSummary({
   statusSection,
   implSection,
   outputsSection,
+  expanded,
+  onToggle,
   onEdit,
-  canEdit,
 }: {
   node: Node;
   /** ラン表示のときの一言（どのランの記録か）。テンプレート表示では null */
   runNote: string | null;
-  /** 進捗の操作（着手・完了・計画済みにする等）。編集フォームと同じものをそのまま使う */
+  /** 進捗の操作（着手・完了・計画済みにする等）。編集フォームと同じものをそのまま使う。
+   *  読むときに要らない場面（ルーティーンのテンプレート）では null */
   statusSection: ReactNode;
   /** 実装欄（スクリプトの引数・試走など）。手順書の文章が無いノードではこれをそのまま出す */
   implSection: ReactNode;
   outputsSection: ReactNode;
+  /** 中身（概要・手順）を開いているか。たたむと会話が列の高さを全部使える */
+  expanded: boolean;
+  onToggle: () => void;
   onEdit: () => void;
-  canEdit: boolean;
 }) {
   const { users } = useTeam();
   const assigneeName = node.assignee ? displayNameOf(node.assignee, users) : null;
   const chips = chipsOf(node, assigneeName);
+  const detail = node.detail?.trim() ?? "";
   const docText = node.impl?.type === "doc" ? (node.impl.text ?? "").trim() : "";
   // 手順書が文章で入っているノードは Markdown で読む。それ以外（スクリプト・ファイル参照の
   // 手順書）は、引数の入力や試走があるので実装欄をそのまま出す。何も無ければ欄ごと出さない
   const showImplSection = !docText && node.impl !== null && node.kind !== "wait";
+  const hasOutputs = !!node.outputs && node.outputs.length > 0;
+  const hasBody = !!detail || !!docText || showImplSection || hasOutputs || !!runNote;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+    <div className="gw-node-card flex min-h-0 flex-col">
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        {hasBody && (
+          <button
+            type="button"
+            className="-ml-1 rounded px-1 text-text-lo hover:bg-muted hover:text-foreground"
+            title={expanded ? "手順をたたむ（会話を広げる）" : "手順を開く"}
+            aria-expanded={expanded}
+            onClick={onToggle}
+          >
+            {expanded ? "▾" : "▸"}
+          </button>
+        )}
         {chips.map((c, i) => (
           <span
             key={i}
@@ -134,47 +155,45 @@ export function NodeSummary({
             {c.text}
           </span>
         ))}
-        {node.fixed && (
-          <span className="inline-flex items-center gap-1 px-1" title="ロック中（やり方を変えるには解除）">
-            🔒
-          </span>
-        )}
-        <span className="flex-1" />
-        {canEdit && (
-          <button
-            type="button"
-            className="rounded px-1.5 py-0.5 text-text-lo hover:bg-muted hover:text-foreground"
-            title="種別・担当・起動方式・手順などを編集する"
-            onClick={onEdit}
-          >
-            編集
+        {node.fixed && <span title="ロック中（やり方を変えるには解除）">🔒</span>}
+        {/* たたんでいる間は、手順があることだけ分かるようにする */}
+        {!expanded && docText && (
+          <button type="button" className="text-text-lo hover:text-foreground" onClick={onToggle}>
+            手順あり
           </button>
         )}
+        <span className="flex-1" />
+        <button
+          type="button"
+          className="rounded px-1.5 py-0.5 text-text-lo hover:bg-muted hover:text-foreground"
+          title="種別・担当・起動方式・手順などを編集する"
+          onClick={onEdit}
+        >
+          編集
+        </button>
       </div>
 
-      {runNote && <p className="text-xs text-text-lo">{runNote}</p>}
+      {statusSection && <div className="mt-2 flex-shrink-0">{statusSection}</div>}
 
-      {node.detail?.trim() && (
-        <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
-          <Linkify text={node.detail.trim()} />
-        </p>
+      {expanded && hasBody && (
+        <div className="mt-2 flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+          {runNote && <p className="text-xs text-text-lo">{runNote}</p>}
+          {detail && (
+            <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
+              <Linkify text={detail} />
+            </p>
+          )}
+          {docText && (
+            <div className="chat-md break-words text-sm">
+              <Markdown remarkPlugins={[remarkGfm]} components={richMdComponents(`impl:${node.id}`)}>
+                {docText}
+              </Markdown>
+            </div>
+          )}
+          {showImplSection && implSection}
+          {hasOutputs && outputsSection}
+        </div>
       )}
-
-      {statusSection}
-
-      {docText && (
-        <section className="flex flex-col gap-1">
-          <h3 className="text-xs font-medium text-text-lo">手順</h3>
-          <div className="chat-md break-words text-sm">
-            <Markdown remarkPlugins={[remarkGfm]} components={richMdComponents(`impl:${node.id}`)}>
-              {docText}
-            </Markdown>
-          </div>
-        </section>
-      )}
-      {showImplSection && implSection}
-
-      {node.outputs && node.outputs.length > 0 && outputsSection}
     </div>
   );
 }

@@ -161,7 +161,8 @@ function AppInner() {
   // スキップして URL に従う（2026-08-12）。前回開きっぱなしだったドロワーが通知リンクの着地画面に
   // 覆い被さり、URL にも ?chat=1 が書き戻されて「リンクと違う画面が開く」原因になっていた
   const [chatOpen, setChatOpen] = useState(() =>
-    initialRoute ? initialRoute.chat : loadUiState("gw.chatOpen") === "1",
+    // 既定は開く（2026-11-24。会話の列を常設にした——docs/design.md 3.20）。閉じた人はそのまま
+    initialRoute?.chat ? true : loadUiState("gw.chatOpen") !== "0",
   );
   // モバイル（<768px）はヘッダー+下部タブバーを除き、一覧/グラフ/ノード/チャットの
   // どれか1つが画面を専有する（2026-08-02 本人指定）。
@@ -623,7 +624,15 @@ function AppInner() {
             )
           ))}
         {(mv === null ? chatOpen : true) && (
-          <div className={cn("contents", mv !== null && mv !== "chat" && "hidden")}>
+          // 会話の列は1本（docs/design.md 3.20）: PC でノード（や複数選択）を開いている間は、その列を
+          // ノードの会話が使うので、全体のチャットは隠す。アンマウントはしない——応答の途中で
+          // ノードを選んでも、生成が切れないように
+          <div
+            className={cn(
+              "contents",
+              (mv !== null ? mv !== "chat" : selectedIds.length > 1 || !!panelNode) && "hidden",
+            )}
+          >
             <ChatDrawer
               pageId={pageId}
               pageTitle={pageNode?.title ?? null}

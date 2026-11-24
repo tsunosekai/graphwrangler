@@ -140,7 +140,7 @@ export function NodePanel({
       saveUiState("gw.metaOpen", next ? "1" : "0");
       return next;
     });
-  const [width, startResize] = useResizableWidth("panelW", 380, 300, 640);
+  const [width, startResize] = useResizableWidth("panelW", 440, 300, 760);
   // 会話・実行履歴はランごと（2026-08-08「会話や実行履歴もフォーク」）。
   // ランのページならそのランの分だけ、テンプレートなら設計図側の分だけが返る
   const { data: thread, refresh: refreshThread } = usePolling(
@@ -397,7 +397,17 @@ export function NodePanel({
   // モバイルは「ノード詳細」か「会話」のどちらか一方だけを画面に出す（2026-08-02 本人指示
   // 「（詰まった会話節は）いらねぇっつってんだよ、その分上広げろよ」）。切替は一番下の
   // 「会話を広げる」トグル。デスクトップは従来どおり両方出す
-  const showTalk = !isMobile || !metaShown;
+  // この列の3つの姿（docs/design.md 3.20）:
+  //   compact  … 計画済み／ランの表示。会話が主役で、ノードの中身は上のたためるカード
+  //   formOnly … 計画済みを「編集」中。フォームだけを列いっぱいに出す（会話は出さない）
+  //   それ以外 … 下書き。組み立てながら相談するので、従来どおりフォームと会話を上下に並べる
+  const [editing, setEditing] = useState(false);
+  const readable = node.lifecycle === "committed" || !!runView;
+  const compact = readable && !editing;
+  const formOnly = readable && editing;
+  // compact は PC でもスマホでも会話を出す（スマホでも手順カードを開けば、会話しながら読める）。
+  // 下書きのスマホだけは従来どおり「詳細か会話のどちらか」
+  const showTalk = compact ? true : formOnly ? false : !isMobile || !metaShown;
   // タブごとの未読ドット（2026-08-02 本人要望「ノード詳細のどこが未読なのか分からないので
   // ドットをつけてほしい」）。未読の実体はスレッドのメッセージなので、それを切り分けている
   // 3タブのどれに入るかを示す＝どのタブを見ればいいかが分かる。判定は Thread の
@@ -461,9 +471,6 @@ export function NodePanel({
   // 手順は Markdown で。編集フォームは「編集」を押したときだけ出す（2026-11-24 本人要望
   // 「計画済みにしたらスッキリした画面に」）。下書きは組み立て中なのでフォームのまま。
   // ランの表示は記録を読む場面なので常に「読む」側から始める
-  const [editing, setEditing] = useState(false);
-  const readable = node.lifecycle === "committed" || !!runView;
-  const compact = readable && !editing;
   // 進捗・実装・出力の3節は、フォームと「読む」表示で同じものを使う
   const statusSection = (
     <StatusSection
@@ -643,17 +650,19 @@ export function NodePanel({
           既定は会話が広い状態（メタ非表示）で、切替はタブ行の右端のボタンが担う。
           セクション全体が縦に長くなってもパネル（overflow-hidden）から溢れないよう
           スクロール容器で包む（2026-08-02 スクロール不能バグ修正の一環） */}
-      {metaShown && (
+      {(compact || formOnly || metaShown) && (
         <div
           className={cn(
-            "flex min-h-0 flex-col gap-3 overflow-y-auto",
+            "flex min-h-0 flex-col gap-3",
+            // compact はカードの中身が自分でスクロールする（チップと進捗の操作を上に残すため）
+            !compact && "overflow-y-auto",
             // モバイルで詳細を開いている間は会話節を出さないので、空いたぶんを全部ここに回す
             // （2026-08-02 本人指示「その分上広げろよ」）。デスクトップは会話と同居するので
             // 従来どおり上限60%の縮む節のまま
             showTalk ? "flex-shrink-0 basis-auto" : "flex-1",
           )}
           // 会話がまだ無いノードは、手順を読む場所を広めに取る
-          style={showTalk ? { maxHeight: messages.length === 0 ? "72%" : "60%" } : undefined}
+          style={showTalk ? { maxHeight: messages.length === 0 ? "70%" : compact ? "50%" : "60%" } : undefined}
         >
           {compact ? (
             <NodeSummary
@@ -667,7 +676,8 @@ export function NodePanel({
               }
               implSection={implSection}
               outputsSection={outputsSection}
-              canEdit
+              expanded={metaShown}
+              onToggle={toggleMeta}
               onEdit={() => setEditing(true)}
             />
           ) : (
@@ -1055,7 +1065,7 @@ export function NodePanel({
         {/* トグルは元どおりタブ行の右肩（＝会話の上）。モバイルでノード詳細だけを出して
             いる間はこのタブ行ごと消えるので、そのときだけ一番下の行に同じボタンを出す
             （下の isMobile && metaOpen のブロック） */}
-        {(
+        {!compact && (
           <Button
             type="button"
             variant="ghost"
@@ -1127,7 +1137,7 @@ export function NodePanel({
           消えている状態なので、ここに同じボタンを出して会話へ切り替える。
           右寄せ＝デスクトップの右肩と同じ側に揃える（2026-08-02 本人指示
           「デスクトップと変えなくていいところは変えたくない」） */}
-      {isMobile && metaShown && (
+      {isMobile && metaShown && !readable && (
         <div className="flex flex-shrink-0 justify-end">
         <Button
           type="button"
