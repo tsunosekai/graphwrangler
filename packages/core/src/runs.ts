@@ -77,6 +77,14 @@ export interface PatchItemInput {
   resolvedParams?: Record<string, string> | null;
 }
 
+/** 新しい順（created 降順）。created はミリ秒精度なので、同じミリ秒に作られたランは
+ *  id（r-YYYYMMDD-NNNN の連番）で決着を付ける——無いと並びが不定になり、速い機械で
+ *  「2回目が先頭」の保証が崩れる（CI で露見。2026-11-24） */
+function newestFirst(a: Run, b: Run): number {
+  if (a.created !== b.created) return a.created < b.created ? 1 : -1;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
 export class RunStore {
   private runsDir: string;
 
@@ -162,7 +170,7 @@ export class RunStore {
   list(pageId: string): Run[] {
     return this.all()
       .filter((r) => r.pageId === pageId)
-      .sort((a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0));
+      .sort(newestFirst);
   }
 
   /** 全ランをページ(pageId)ごとに束ねて返す。各配列は created 降順。
@@ -173,7 +181,7 @@ export class RunStore {
     // biome-ignore lint/suspicious/noAssignInExpressions: ??= で束を作りつつ push する定石（誤記ではない）
     for (const r of this.all()) (byPage[r.pageId] ??= []).push(r);
     for (const list of Object.values(byPage)) {
-      list.sort((a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0));
+      list.sort(newestFirst);
     }
     return byPage;
   }
