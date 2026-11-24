@@ -26,6 +26,7 @@ import type { Node } from "../../types";
 import { cn } from "../../lib/utils";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { Icon } from "../Icon";
 
 /** セレクトで選ぶ起動方式。none=未設定（手動▶のみ）、raw=解釈できない既存値の生編集 */
@@ -688,6 +689,28 @@ export function ScheduleSection({
             ? "未設定（既定の1時間ごとにAIが判定。条件は概要や手順書に書く）"
             : "自動では開始しません（ノードの ▶ で手動開始のみ）"}
         </p>
+      )}
+
+      {/* 取りこぼしの追い付き（2026-11-24）。定刻で動く script トリガーだけに出す——AI トリガーと
+          検知スクリプトの間隔チェックは、起きた直後にどのみち1回見に行く */}
+      {!intervalOnly && description && state.mode !== "once" && (
+        <label className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Switch
+            size="sm"
+            className="mt-0.5"
+            checked={node.catchUp !== false}
+            disabled={contentLocked}
+            onCheckedChange={(checked) => patch({ catchUp: checked })}
+          />
+          <span>
+            起動していなかった回は、次に起動したとき実行する
+            <span className="block opacity-80">
+              {node.catchUp !== false
+                ? "PCの電源が切れていた・スリープしていた間の回は、起きたときに1本にまとめて実行します"
+                : "止まっていた間の回は実行せず、次の定刻から動きます"}
+            </span>
+          </span>
+        </label>
       )}
     </div>
   );

@@ -445,3 +445,68 @@ describe("shouldCreateScheduledRun: every の週単位", () => {
     expect(shouldCreateScheduledRun(s, last, new Date(2026, 0, 15, 9, 0))).toBe(true);
   });
 });
+
+describe("取りこぼしの追い付き（catchUp。2026-11-24 デスクトップ常駐化）", () => {
+  const at = (y: number, mo: number, d: number, h: number, mi: number) => ({
+    created: new Date(y, mo, d, h, mi).toISOString(),
+  });
+
+  it("daily: 昨日を丸ごと取りこぼしていたら、今日の定刻前でも作る（既定オン）", () => {
+    const s = parseSchedule("daily 09:00")!;
+    const now = new Date(2026, 0, 3, 8, 0); // 1/3 08:00 に起動
+    const last = at(2026, 0, 1, 9, 0); // 最後は 1/1（1/2 は電源断）
+    expect(shouldCreateScheduledRun(s, last, now)).toBe(true);
+    expect(shouldCreateScheduledRun(s, last, now, { catchUp: false })).toBe(false);
+  });
+
+  it("daily: 昨日ぶんがあれば定刻前は作らない／一度もランが無いなら追い付かない", () => {
+    const s = parseSchedule("daily 09:00")!;
+    const now = new Date(2026, 0, 3, 8, 0);
+    expect(shouldCreateScheduledRun(s, at(2026, 0, 2, 9, 0), now)).toBe(false);
+    // 昨日の定刻前に手動で回していた日も「昨日ぶんは済み」（当日1本と同じ数え方）
+    expect(shouldCreateScheduledRun(s, at(2026, 0, 2, 7, 0), now)).toBe(false);
+    expect(shouldCreateScheduledRun(s, null, now)).toBe(false);
+  });
+
+  it("daily: 追い付いた日は、その日の定刻にもう1本は作らない", () => {
+    const s = parseSchedule("daily 09:00")!;
+    const caughtUp = at(2026, 0, 3, 8, 0);
+    expect(shouldCreateScheduledRun(s, caughtUp, new Date(2026, 0, 3, 9, 1))).toBe(false);
+    expect(shouldCreateScheduledRun(s, caughtUp, new Date(2026, 0, 4, 9, 1))).toBe(true);
+  });
+
+  it("cron: 最新ランより後に過ぎたマッチ分があれば、今がマッチしていなくても作る", () => {
+    const s = parseSchedule("0 9 * * *")!;
+    const now = new Date(2026, 0, 3, 13, 30); // 09:00 を過ぎてから起動
+    const last = at(2026, 0, 2, 9, 0);
+    expect(shouldCreateScheduledRun(s, last, now)).toBe(true);
+    expect(shouldCreateScheduledRun(s, last, now, { catchUp: false })).toBe(false);
+  });
+
+  it("cron: 取りこぼしが無ければ作らない／何回取りこぼしても1本／ラン無しは追い付かない", () => {
+    const s = parseSchedule("0 9 * * *")!;
+    expect(shouldCreateScheduledRun(s, at(2026, 0, 3, 9, 0), new Date(2026, 0, 3, 13, 30))).toBe(false);
+    // 5日ぶん取りこぼし → 1本作れば、その後は次の 09:00 まで false
+    expect(shouldCreateScheduledRun(s, at(2026, 0, 1, 9, 0), new Date(2026, 0, 6, 13, 30))).toBe(true);
+    expect(shouldCreateScheduledRun(s, at(2026, 0, 6, 13, 30), new Date(2026, 0, 6, 13, 31))).toBe(false);
+    expect(shouldCreateScheduledRun(s, null, new Date(2026, 0, 3, 13, 30))).toBe(false);
+  });
+
+  it("cron: 31日より長く止まっていた回は追い付かない（上限）", () => {
+    const s = parseSchedule("0 9 1 * *")!; // 毎月1日
+    // 1/1 09:00 が最後、2/1 を取りこぼして 2/20 に起動 → 19日前なので追い付く
+    expect(shouldCreateScheduledRun(s, at(2026, 0, 1, 9, 0), new Date(2026, 1, 20, 12, 0))).toBe(true);
+    // 3/10 に起動 → 直近のマッチは 3/1（9日前）なので追い付く。上限に掛かるのは、
+    // 最後のマッチが31日より前のとき（例: 年1回の cron）
+    const yearly = parseSchedule("0 9 1 1 *")!;
+    expect(shouldCreateScheduledRun(yearly, at(2025, 0, 1, 9, 0), new Date(2026, 2, 10, 12, 0))).toBe(false);
+  });
+
+  it("暦ベース（weekly）はオプション無しでも元から追い付く（オフは基準時刻の側で表す）", () => {
+    const s = parseSchedule("weekly mon 09:00")!;
+    const now = new Date(2026, 0, 7, 12, 0); // 水曜。月曜 1/5 09:00 を取りこぼし
+    const last = at(2025, 11, 29, 9, 0);
+    expect(shouldCreateScheduledRun(s, last, now)).toBe(true);
+    expect(shouldCreateScheduledRun(s, last, now, { catchUp: false })).toBe(true);
+  });
+});

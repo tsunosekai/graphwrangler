@@ -48,6 +48,7 @@ function toNodeSnapshot(n: Node): NodeSnapshot {
     status: n.status,
     fixed: n.fixed,
     schedule: n.schedule,
+    catchUp: n.catchUp,
     branches: n.branches,
     outputs: n.outputs,
     parentOptions: n.parentOptions,

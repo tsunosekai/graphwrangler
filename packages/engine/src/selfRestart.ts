@@ -7,7 +7,11 @@ import { log } from "./log.js";
 let seenServerVersion: string | null = null;
 
 function supervised(): boolean {
-  return Boolean(process.env.INVOCATION_ID) || process.env.pm_id !== undefined;
+  return (
+    Boolean(process.env.INVOCATION_ID) ||
+    process.env.pm_id !== undefined ||
+    process.env.GW_SUPERVISED === "desktop" // デスクトップ版（apps/desktop）が上げ直す
+  );
 }
 
 export function noteServerVersion(version: string | null): void {

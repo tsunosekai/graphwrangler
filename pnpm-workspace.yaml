@@ -1,3 +1,7 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+# electron は postinstall で本体バイナリを落とす（pnpm 10 は既定で依存のスクリプトを実行しない）
+onlyBuiltDependencies:
+  - electron

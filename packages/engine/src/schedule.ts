@@ -32,6 +32,10 @@ function isSameLocalDay(a: Date, b: Date): boolean {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** cron の取りこぼしを遡って探す上限（31日ぶんの分）。これより長く止まっていた月次・年次の
+ *  cron は追い付かない（その用途は「毎月」「毎年」の書式を使う——そちらは上限なく追い付く） */
+const CRON_CATCHUP_LOOKBACK_MINUTES = 31 * 24 * 60;
+
 /** 暦ベースの書式（every / cron / biweekly 以外）。「この日は対象日か」を1日単位で答えられる */
 type CalendarSchedule = Extract<
   ParsedSchedule,
@@ -147,7 +151,14 @@ export function shouldCreateScheduledRun(
   schedule: ParsedSchedule,
   latestRun: { created: string } | null,
   now: Date,
+  options: { catchUp?: boolean } = {},
 ): boolean {
+  // 取りこぼしの追い付き（node.catchUp。既定オン。2026-11-24）。暦ベース・every・once は
+  // 元から「直近の過ぎた定刻より前にしかランが無ければ作る」なので自然に追い付く。
+  // 追い付けなかったのは daily（当日ぶんしか見ない）と cron（今この分しか見ない）で、
+  // この2つだけ下で個別に足す。オフのときの「止まっていた間の回は捨てる」は判定式ではなく
+  // 基準時刻の側で表す（awake.ts の mergeAwakeBaseline）
+  const catchUp = options.catchUp ?? true;
   if (schedule.type === "every") {
     if (!latestRun) return true;
     const last = new Date(latestRun.created);
@@ -157,7 +168,16 @@ export function shouldCreateScheduledRun(
   if (schedule.type === "daily") {
     const target = new Date(now);
     target.setHours(schedule.hour, schedule.minute, 0, 0);
-    if (now.getTime() < target.getTime()) return false;
+    if (now.getTime() < target.getTime()) {
+      // 今日の定刻より前。追い付きオンなら「昨日ぶんを丸ごと取りこぼしたか」を見る:
+      // 最新ランが昨日の0時より前（＝昨日は1本も無い）なら、今ここで昨日ぶんを作る。
+      // 基準を昨日の定刻でなく0時にするのは、下の「今日の分は1本で足りる」と同じ数え方に
+      // 揃えるため（昨日の定刻前に手動で回していたら、昨日ぶんは済んでいる）。
+      // 一度もランが無いときは作らない——数え始めの錨が無く、作った瞬間に過去ぶんが走るため
+      if (!catchUp || !latestRun) return false;
+      const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      return new Date(latestRun.created).getTime() < yesterdayStart.getTime();
+    }
     if (!latestRun) return true;
     const last = new Date(latestRun.created);
     return !isSameLocalDay(last, now);
@@ -166,11 +186,25 @@ export function shouldCreateScheduledRun(
   if (schedule.type === "cron") {
     // 「今この分」がマッチしているときだけラン作成。同じ分に2回作らないよう、最新ランが
     // この分の開始以降なら見送る（エンジンは5秒間隔でここを通るため）
-    if (!matchesCron(schedule.fields, now)) return false;
-    if (!latestRun) return true;
     const minuteStart = new Date(now);
     minuteStart.setSeconds(0, 0);
-    return new Date(latestRun.created).getTime() < minuteStart.getTime();
+    if (matchesCron(schedule.fields, now)) {
+      if (!latestRun) return true;
+      return new Date(latestRun.created).getTime() < minuteStart.getTime();
+    }
+    // 追い付き: 最新ランより後に、マッチする分が1つでも過ぎていれば作る（何回取りこぼしても
+    // 1本）。遡るのは最新ランの時刻まで、最長 CRON_CATCHUP_LOOKBACK_MINUTES。
+    // 一度もランが無いときは遡らない——「いつから数えるか」の錨が無く、作った瞬間に
+    // 過去ぶんが走ってしまうため
+    if (!catchUp || !latestRun) return false;
+    const lastMs = new Date(latestRun.created).getTime();
+    const probe = new Date(minuteStart);
+    for (let i = 1; i <= CRON_CATCHUP_LOOKBACK_MINUTES; i++) {
+      probe.setTime(minuteStart.getTime() - i * 60_000);
+      if (probe.getTime() <= lastMs) return false; // 最新ランの分まで戻った＝取りこぼし無し
+      if (matchesCron(schedule.fields, probe)) return true;
+    }
+    return false;
   }
 
   if (schedule.type === "once") {

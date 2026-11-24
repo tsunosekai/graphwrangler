@@ -145,6 +145,7 @@ describe("操作ログの辻褄合わせ（reconcileLog）", () => {
     fixed: false,
     pendingRequest: null,
     schedule: null,
+    catchUp: true,
     branches: null,
     choice: null,
     parentOptions: {},

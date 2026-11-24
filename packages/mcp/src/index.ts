@@ -206,6 +206,13 @@ server.registerTool(
           'kind=trigger 用の起動方式（"every 15m" / "daily 09:00" / "weekly mon 09:00" 等の自由文字列）。' +
             "executor=script ならcron的なラン作成判定、executor=ai なら判定間隔として使う。既定 null",
         ),
+      catchUp: z
+        .boolean()
+        .optional()
+        .describe(
+          "kind=trigger 用: エンジンが止まっていた間（PCの電源断・スリープ）に過ぎた定刻を、次に起きたとき" +
+            "1本にまとめて実行するか。既定 true。false なら止まっていた間の回は捨てて次の定刻から動く",
+        ),
       fixed: z
         .boolean()
         .optional()

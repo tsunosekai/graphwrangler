@@ -4,6 +4,7 @@
 // 判定は trigger.ts / schedule.ts（純粋関数）、ここはその結果を API へ書く配線。
 import { getThread, listPageRuns, openRequest, postMessage, runTriggerNode } from "./api.js";
 import { ENGINE_ACTOR, VIA } from "./actor.js";
+import { getAwakeSince, mergeAwakeBaseline } from "./awake.js";
 import { extractGwMarkers } from "./context.js";
 import { aiExecutorName, runAiExecutor } from "./executor.js";
 import { truncate, withSubSteps } from "./format.js";
@@ -99,11 +100,15 @@ async function tickDetectScriptTrigger(trigger: Node, runsForTrigger: Run[]): Pr
   }
 
   const now = Date.now();
+  // catchUp=false: 止まっていた間に過ぎたチェック時刻は捨てる（起きた時刻を「最後に見た」扱いに）
+  const catchUp = trigger.catchUp !== false;
+  const lastChecked = detectTriggerLastCheckedAt.get(trigger.id) ?? null;
   if (
     !shouldRunDetectScript(
       trigger.schedule,
-      detectTriggerLastCheckedAt.get(trigger.id) ?? null,
+      catchUp ? lastChecked : Math.max(lastChecked ?? 0, getAwakeSince()),
       new Date(now),
+      { catchUp },
     )
   ) {
     return;
@@ -236,8 +241,13 @@ async function tickScriptTrigger(trigger: Node, runsForTrigger: Run[]): Promise<
   }
 
   // skip 回答はその回のラン作成とみなす（runBaseline）。承認なしのトリガーでは gate=none で従来どおり
-  const baseline = runBaseline(latestRun, gate);
-  const should = shouldRunScriptTrigger(trigger.schedule, baseline, new Date());
+  // 取りこぼしの追い付き（node.catchUp。既定オン）。オフなら、起きる前（電源断・スリープ中）に
+  // 過ぎた定刻は「済んだ」扱いにして次の定刻から動かす（awake.ts）。古いサーバは catchUp を
+  // 返さないので undefined もオン扱い
+  const catchUp = trigger.catchUp !== false;
+  const ranBaseline = runBaseline(latestRun, gate);
+  const baseline = catchUp ? ranBaseline : mergeAwakeBaseline(ranBaseline, getAwakeSince());
+  const should = shouldRunScriptTrigger(trigger.schedule, baseline, new Date(), { catchUp });
   if (should === null) {
     if (trigger.schedule) {
       log(`未対応のschedule書式のため無視: trigger=${trigger.id} schedule="${trigger.schedule}"`);
@@ -261,7 +271,10 @@ async function tickScriptTrigger(trigger: Node, runsForTrigger: Run[]): Promise<
     }
   }
   const merged = mergeScheduleSetBaseline(baseline, latestScheduleSetAt(threadMessages));
-  if (merged !== baseline && shouldRunScriptTrigger(trigger.schedule, merged, new Date()) !== true) {
+  if (
+    merged !== baseline &&
+    shouldRunScriptTrigger(trigger.schedule, merged, new Date(), { catchUp }) !== true
+  ) {
     return; // 設定・変更した回ぶんは済んだ扱い。次の定刻を待つ
   }
 

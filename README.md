@@ -172,6 +172,27 @@ lint と整形は Biome 1本（設定は `biome.jsonc`）。`pnpm lint` がチ�
 合わせてある（2スペース / ダブルクォート / セミコロン / 末尾カンマ / 幅110）。
 ルールは「実際のバグ・危険なパターン」中心で、スタイル系は切ってある。
 
+## デスクトップに常駐させる
+
+サーバとエンジンを別々に上げる代わりに、トレイに常駐するアプリとして動かせる
+（`apps/desktop`。Electron）。ログイン時に自動で起動し、ウィンドウを閉じても裏で回り続ける。
+
+```bash
+pnpm install
+pnpm --filter ui build
+pnpm desktop
+```
+
+- 一度起動すれば、次回からはログイン時に自動で立ち上がる（スタートメニューにも入る）。
+  止めるのはトレイのアイコン →「終了」
+- データは既定で `~/GraphWrangler`（空から始まる）。トレイの「ワークスペースを変更…」で
+  既存リポジトリのフォルダにも向けられる
+- PC の電源が切れていた・スリープしていた間のルーティーンは、次に起きたとき1本にまとめて
+  実行される（トリガーごとの「起動していなかった回は、次に起動したとき実行する」。既定オン）
+- スマホからは [Tailscale](https://tailscale.com/) 越しに開ける。トレイの「スマホで開く…」が
+  URL と QR を出す。受け付けるのは Tailscale 内の端末とこの PC だけで、同じ Wi-Fi の
+  他の機器からは開けない（初回は Windows のファイアウォールが許可を求める）
+
 ## 複数人で使う（ログイン）
 
 一人で使うぶんにはアカウント不要。`node scripts/gw-user.mjs <users.json> add <email>` で
@@ -217,6 +238,7 @@ packages/server  … HTTP API（Hono）+ 内蔵チャット + 試走 + UI配信
 packages/engine  … 実行エンジン（script / claude CLI、ラン実行、トリガーのラン作成）
 packages/mcp     … MCP サーバ（stdio）
 apps/ui          … Web UI（React + React Flow + shadcn/ui）
+apps/desktop     … デスクトップ常駐版（Electron。サーバとエンジンを抱えてトレイに常駐）
 ```
 
 ## 設計文書

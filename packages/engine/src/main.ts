@@ -3,6 +3,7 @@
 // （index.ts の tick）は import しても何も起きない副作用なしのモジュールに保つ
 // （そうしないと tick 系の配線がテストから触れない）。
 import { tick } from "./index.js";
+import { startAwakeWatch } from "./awake.js";
 import { log } from "./log.js";
 import { engineConfig, engineMode, refreshEngineConfig, refreshWorkspaceInfo } from "./settings.js";
 
@@ -14,6 +15,7 @@ function sleep(ms: number): Promise<void> {
 
 async function main(): Promise<void> {
   const url = process.env.GRAPHWRANGLER_URL ?? "http://localhost:8770";
+  startAwakeWatch(); // スリープ復帰の検知（catchUp=false のトリガー用。awake.ts）
   await refreshEngineConfig(true); // 起動時は必ず一度取得する
   await refreshWorkspaceInfo(); // 起動時に1回、サーバの動作モード（workspace/datadir）を読む
   log(

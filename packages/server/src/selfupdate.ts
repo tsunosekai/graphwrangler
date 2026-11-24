@@ -82,8 +82,10 @@ function run(
   });
 }
 
-/** プロセス管理下か。systemd は INVOCATION_ID、pm2 は pm_id を環境変数に置く */
-export function detectSupervisor(): "systemd" | "pm2" | null {
+/** プロセス管理下か。systemd は INVOCATION_ID、pm2 は pm_id を環境変数に置く。
+ *  デスクトップ版（apps/desktop）は子プロセスを自前で上げ直すので GW_SUPERVISED=desktop を渡す */
+export function detectSupervisor(): "systemd" | "pm2" | "desktop" | null {
+  if (process.env.GW_SUPERVISED === "desktop") return "desktop";
   if (process.env.INVOCATION_ID) return "systemd";
   if (process.env.pm_id !== undefined) return "pm2";
   return null;

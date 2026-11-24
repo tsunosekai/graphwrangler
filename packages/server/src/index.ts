@@ -8,6 +8,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import { GraphStore, ThreadStore, RunStore, GraphError, nowIso } from "@graphwrangler/core";
 import { z } from "zod";
 import { chatKeyMissing, completeText, handleChat } from "./chat.js";
@@ -47,6 +48,7 @@ import {
   resolveSessionUser,
 } from "./auth.js";
 import { ReadsStore } from "./reads.js";
+import { isRemoteAllowed, parseAllowRemote } from "./remote_access.js";
 import type { AppContext } from "./app_context.js";
 import { authRoutes } from "./routes/auth.js";
 import { graphRoutes } from "./routes/graph.js";
@@ -272,6 +274,23 @@ function readChatArchive(file: string): ChatArchiveSession[] {
 }
 
 const app = new Hono();
+
+// 接続元による受け入れ制限（remote_access.ts。デスクトップ版が VPN 越しのスマホにだけ開くため）。
+// 未設定なら何もしない。どのルートより先に置く（UI の静的配信も含めて断る）
+const allowRemote = parseAllowRemote(process.env.GRAPHWRANGLER_ALLOW_REMOTE);
+if (allowRemote !== null) {
+  app.use("*", async (c, next) => {
+    let address: string | undefined;
+    try {
+      address = getConnInfo(c).remote.address;
+    } catch {
+      address = undefined;
+    }
+    if (!isRemoteAllowed(address, allowRemote)) return c.text("forbidden", 403);
+    await next();
+  });
+}
+
 app.use("/api/*", cors());
 
 // ---- Cloudflare Access 連携: 「誰が操作しているか」の受け取り（2026-08-03 本人要望

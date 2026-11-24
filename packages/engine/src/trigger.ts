@@ -64,11 +64,12 @@ export function shouldRunScriptTrigger(
   scheduleText: string | null,
   latestRun: { created: string } | null,
   now: Date,
+  options: { catchUp?: boolean } = {},
 ): boolean | null {
   if (!scheduleText) return null;
   const schedule = parseSchedule(scheduleText);
   if (!schedule) return null;
-  return shouldCreateScheduledRun(schedule, latestRun, now);
+  return shouldCreateScheduledRun(schedule, latestRun, now, options);
 }
 
 /**
@@ -139,6 +140,7 @@ export function shouldRunDetectScript(
   scheduleText: string | null,
   lastCheckedAt: number | null,
   now: Date,
+  options: { catchUp?: boolean } = {},
 ): boolean {
   const schedule = scheduleText ? parseSchedule(scheduleText) : null;
   if (!schedule || schedule.type === "every") {
@@ -147,7 +149,7 @@ export function shouldRunDetectScript(
   }
   const baseline =
     lastCheckedAt === null ? null : { created: new Date(lastCheckedAt).toISOString() };
-  return shouldCreateScheduledRun(schedule, baseline, now);
+  return shouldCreateScheduledRun(schedule, baseline, now, options);
 }
 
 /** 検知スクリプトが emit した1イベント（= ラン1本の種）。3.8「payload 付きイベント」 */

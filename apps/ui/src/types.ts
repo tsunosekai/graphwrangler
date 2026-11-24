@@ -112,6 +112,9 @@ export interface Node {
    *  executor=script なら cron 的なラン作成の判定、executor=ai なら「ラン作成要否を判定させる間隔」
    *  （everyのみ解釈、無指定は既定1時間）、executor=human では使わない（手動でランを作る操作のみ） */
   schedule: string | null;
+  /** kind=trigger 用: 取りこぼしの追い付き。エンジンが止まっていた間に過ぎた定刻を、次に
+   *  起きたとき1本にまとめて実行する（既定 true）。古いサーバは返さないので省略可＝true 扱い */
+  catchUp?: boolean;
   /** ランのコンテキストへの出力宣言（docs/design.md 3.15）。null = 宣言なし。
    *  トリガーではラン作成フォームの項目、task では「このノードがランに書き足すキー」の宣言 */
   outputs: OutputParam[] | null;

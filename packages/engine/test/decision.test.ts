@@ -33,6 +33,7 @@ function node(partial: Partial<Node> = {}): Node {
     pendingRequest: partial.pendingRequest ?? null,
     implTrial: partial.implTrial ?? null,
     schedule: partial.schedule ?? null,
+    catchUp: true,
     branches: partial.branches ?? [
       { id: "a", label: "Aへ" },
       { id: "b", label: "Bへ", then: "Bの処理に進む" },

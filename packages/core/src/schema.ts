@@ -195,6 +195,11 @@ export const NodeSchema = z.object({
    *  判定させる間隔」として使う（every系のみ解釈、無指定は既定1時間）。executor=human では
    *  使わない（手動でランを作るのみ）。書式は自由文字列で、パースできないものは無視される */
   schedule: z.string().nullable(),
+  /** kind=trigger 用: 取りこぼしの追い付き（2026-11-24。デスクトップ常駐化に伴う）。
+   *  true（既定）= エンジンが止まっていた間（PCの電源断・スリープ）に過ぎた定刻を、次に
+   *  起きたとき1本にまとめて実行する。false = 止まっていた間の回は捨て、次の定刻から動く。
+   *  保存済みノードには無いフィールドなので default 必須（無ければ true） */
+  catchUp: z.boolean().default(true),
   /** kind=decision のみ意味を持つ選択肢一覧（最低2個。elseなし・単一選択。docs/design.md 3.9）。
    *  それ以外の kind では null */
   branches: z.array(NodeBranchSchema).nullable().default(null),
@@ -242,6 +247,7 @@ export const NodeInputSchema = z.object({
   status: StatusSchema.default("pending"),
   fixed: z.boolean().default(false),
   schedule: z.string().nullable().default(null),
+  catchUp: z.boolean().default(true),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   choice: z.string().nullable().default(null),
   outputs: z.array(OutputParamSchema).nullable().default(null),
@@ -471,6 +477,7 @@ export const NodeSnapshotSchema = z.object({
   status: StatusSchema,
   fixed: z.boolean().default(false),
   schedule: z.string().nullable().default(null),
+  catchUp: z.boolean().default(true),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   /** 出力宣言（3.15）。null = 宣言なし */
   outputs: z.array(OutputParamSchema).nullable().default(null),
