@@ -960,9 +960,10 @@ export function NodePanel({
                       <SelectItem value="default">
                         {aiDefaults ? `${modelLabel(aiDefaults.engineModel)}（既定）` : "既定（設定に従う）"}
                       </SelectItem>
-                      <SelectItem value="opus">Opus 5</SelectItem>
-                      <SelectItem value="sonnet">Sonnet 5</SelectItem>
-                      <SelectItem value="haiku">Haiku 4.5</SelectItem>
+                      <SelectItem value="fable">Fable 5.2</SelectItem>
+                      <SelectItem value="opus">Opus 5.5</SelectItem>
+                      <SelectItem value="sonnet">Sonnet 5.5</SelectItem>
+                      <SelectItem value="haiku">Haiku 5.5</SelectItem>
                       {/* 設定・MCP 等で直接入った値もそのまま見えて解除できるようにする */}
                       {node.aiModel && !["opus", "sonnet", "haiku"].includes(node.aiModel) && (
                         <SelectItem value={node.aiModel}>{node.aiModel}</SelectItem>

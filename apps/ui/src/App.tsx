@@ -184,9 +184,16 @@ function AppInner() {
   useEffect(() => saveUiState("gw.selectedId", selectedId), [selectedId]);
   useEffect(() => saveUiState("gw.pageId", pageIdRaw), [pageIdRaw]);
   useEffect(() => saveUiState("gw.chatOpen", chatOpen ? "1" : "0"), [chatOpen]);
+  // 会話の列は1本で、ノードを開いている間はノードの会話が使う（docs/design.md 3.20）。
+  // その状態で右上のチャットボタンを押したら、列を全体のチャットに切り替える（もう一度押すと
+  // ノードへ戻る）。別のノードを選び直したら、またノードの会話に戻す
+  const [globalChatFront, setGlobalChatFront] = useState(false);
 
   // ノードエディタ標準の複数選択: 選択中の id 一覧。2件以上で一括編集パネル（BulkPanel）を出す
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selectionKey = selectedIds.length > 1 ? selectedIds.join(",") : (selectedId ?? "");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 選択が変わったときにだけ戻す
+  useEffect(() => setGlobalChatFront(false), [selectionKey]);
   // 楽観更新オーバーレイ（lib/optimistic.ts）: 進捗ボタン等の期待値を、ポーリングが
   // 追いつくまで nodes / runs に重ねて描く（押した瞬間に画面が変わる）
   const optimisticVersion = useOptimisticVersion();
@@ -489,6 +496,8 @@ function AppInner() {
   // モバイルの実効ビュー: 「ノード」ビューで表示できるものが無ければグラフへ倒す
   // （選択解除・削除直後に空画面へ取り残されないように）。デスクトップは null（全ペイン共存）
   const hasNodeView = selectedIds.length > 1 || panelNode !== null;
+  /** 右の列を、ノード（または複数選択の一括操作）が使っているか */
+  const columnHasSelection = selectedIds.length > 1 || !!panelNode;
   const mv: MobileView | null = isMobile ? (mobileView === "node" && !hasNodeView ? "graph" : mobileView) : null;
 
   // モバイルのブラウザ「戻る」統合（ビュー切替・設定画面を history に積む）は
@@ -499,12 +508,13 @@ function AppInner() {
     // 背景色は body が持つ（格子と一体）。ここに不透明背景を敷くと格子が隠れる
     <div className="flex h-full flex-col text-foreground">
       <TopBar
-        chatOpen={mv !== null ? mv === "chat" : chatOpen}
-        onToggleChat={() =>
-          isMobile
-            ? setMobileView((v) => (v === "chat" ? "graph" : "chat"))
-            : setChatOpen((v) => !v)
-        }
+        chatOpen={mv !== null ? mv === "chat" : columnHasSelection ? globalChatFront : chatOpen}
+        onToggleChat={() => {
+          if (isMobile) setMobileView((v) => (v === "chat" ? "graph" : "chat"));
+          // ノード（や複数選択）が列を使っている間は、開閉ではなく「全体のチャットへ切り替え」
+          else if (columnHasSelection) setGlobalChatFront((v) => !v);
+          else setChatOpen((v) => !v);
+        }}
         onOpenSettings={openSettings}
         onUndo={handleUndo}
         onCaptureGoal={handleCaptureGoal}
@@ -591,7 +601,7 @@ function AppInner() {
             movePages={movePages}
           />
         </div>
-        {(mv === null || mv === "node") &&
+        {(mv === null ? !globalChatFront : mv === "node") &&
           (selectedIds.length > 1 ? (
             <BulkPanel
               nodes={nodes.filter((n) => selectedIds.includes(n.id))}
@@ -623,14 +633,14 @@ function AppInner() {
               />
             )
           ))}
-        {(mv === null ? chatOpen : true) && (
+        {(mv === null ? chatOpen || globalChatFront : true) && (
           // 会話の列は1本（docs/design.md 3.20）: PC でノード（や複数選択）を開いている間は、その列を
           // ノードの会話が使うので、全体のチャットは隠す。アンマウントはしない——応答の途中で
           // ノードを選んでも、生成が切れないように
           <div
             className={cn(
               "contents",
-              (mv !== null ? mv !== "chat" : selectedIds.length > 1 || !!panelNode) && "hidden",
+              (mv !== null ? mv !== "chat" : columnHasSelection && !globalChatFront) && "hidden",
             )}
           >
             <ChatDrawer
@@ -638,7 +648,12 @@ function AppInner() {
               pageTitle={pageNode?.title ?? null}
               selectedNodeId={selectedId}
               onMutated={handleMutated}
-              onClose={() => (isMobile ? setMobileView("graph") : setChatOpen(false))}
+              onClose={() => {
+                if (isMobile) setMobileView("graph");
+                // ノードの上に出していた全体のチャットを閉じたら、ノードの会話へ戻る
+                else if (globalChatFront) setGlobalChatFront(false);
+                else setChatOpen(false);
+              }}
             />
           </div>
         )}

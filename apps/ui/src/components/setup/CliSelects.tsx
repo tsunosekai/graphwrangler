@@ -1,14 +1,14 @@
 // ヘッドレスエージェント（CLI）用の共通入力部品。チャットAI・実行AIの両方で使う
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
-// CLI（claude -p）のモデルは選択式（本人指定 2026-07-31。既定は Opus 5）。
+// CLI（claude -p）のモデルは選択式（本人指定 2026-07-31。既定は Opus。版は CLI の別名が決める）。
 // claude CLI のエイリアス名をそのまま値にする。保存済みの値がリストに無い場合は
 // 「カスタム」として選択肢に足し、既存設定を壊さない
 const CLI_MODELS = [
-  { value: "fable", label: "Fable 5（最高性能）" },
-  { value: "opus", label: "Opus 5（高性能・既定）" },
-  { value: "sonnet", label: "Sonnet 5（標準）" },
-  { value: "haiku", label: "Haiku 4.5（高速）" },
+  { value: "fable", label: "Fable 5.2（最高性能）" },
+  { value: "opus", label: "Opus 5.5（高性能・既定）" },
+  { value: "sonnet", label: "Sonnet 5.5（標準）" },
+  { value: "haiku", label: "Haiku 5.5（高速）" },
 ];
 
 export function CliModelSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {

@@ -11,7 +11,7 @@ import { desc, field, heading, section } from "./styles";
 export type ChatMode = "api" | "cli";
 
 const CHAT_DEFAULT_MODEL: Record<"anthropic" | "openai", string> = {
-  anthropic: "claude-opus-5",
+  anthropic: "claude-opus-5-5",
   openai: "gpt-5",
 };
 

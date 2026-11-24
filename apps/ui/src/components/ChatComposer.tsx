@@ -270,10 +270,10 @@ export function ChatComposer({
                 <SelectItem value="default">
                   既定{defaults ? `（${modelLabel(defaults.chatModel)}）` : ""}
                 </SelectItem>
-                <SelectItem value="fable">Fable 5</SelectItem>
-                <SelectItem value="opus">Opus 5</SelectItem>
-                <SelectItem value="sonnet">Sonnet 5</SelectItem>
-                <SelectItem value="haiku">Haiku 4.5</SelectItem>
+                <SelectItem value="fable">Fable 5.2</SelectItem>
+                <SelectItem value="opus">Opus 5.5</SelectItem>
+                <SelectItem value="sonnet">Sonnet 5.5</SelectItem>
+                <SelectItem value="haiku">Haiku 5.5</SelectItem>
               </SelectContent>
             </Select>
           )}

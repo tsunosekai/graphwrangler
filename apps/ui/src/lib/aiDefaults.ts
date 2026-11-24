@@ -1,14 +1,17 @@
 // AI モデル/エフォートの表示ラベルと、「既定」が実際に何を指すかの解決
 // （2026-08-07 本人指摘「既定って書くときはそれが何なのか書いてほしい。○○（既定）でいい」）。
-// セレクタの既定オプションは「既定」とだけ書かず、設定の実値を「Opus 5（既定）」の形で見せる。
+// セレクタの既定オプションは「既定」とだけ書かず、設定の実値を「Opus 5.5（既定）」の形で見せる。
 import { useEffect, useState } from "react";
 import { api } from "./api";
 
+// 値は claude CLI の別名（fable / opus / sonnet / haiku）で、どの版を指すかは CLI の版が決める。
+// ここの表示名は 2026-11-24 に CLI 2.1.331 で実測したもの（fable→5.2、ほかは 5.5）。
+// CLI が古いと別名は古い版を指すので、表示とずれたら `claude update` する
 export const MODEL_LABELS: Record<string, string> = {
-  fable: "Fable 5",
-  opus: "Opus 5",
-  sonnet: "Sonnet 5",
-  haiku: "Haiku 4.5",
+  fable: "Fable 5.2",
+  opus: "Opus 5.5",
+  sonnet: "Sonnet 5.5",
+  haiku: "Haiku 5.5",
 };
 
 export const EFFORT_LABELS: Record<string, string> = {
