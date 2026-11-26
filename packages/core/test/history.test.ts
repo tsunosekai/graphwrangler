@@ -148,6 +148,7 @@ describe("操作ログの辻褄合わせ（reconcileLog）", () => {
     catchUp: true,
     prep: true,
     prepRequest: false,
+    muted: false,
     wait: null,
     waitUntil: null,
     branches: null,

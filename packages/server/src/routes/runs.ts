@@ -13,7 +13,7 @@ import {
 import { loadUsers } from "../auth.js";
 import { notifyTurn } from "../discord.js";
 import { notifyTargetOf } from "../notify_target.js";
-import { shouldNotifyTurn, turnParentOf } from "../open_request.js";
+import { shouldNotifyTurn, turnParentOf, notifyMutedIn } from "../open_request.js";
 import { resolveRecipients } from "../recipients.js";
 import { meta } from "../request_meta.js";
 import type { AppContext } from "../app_context.js";
@@ -69,6 +69,7 @@ function snapshotTemplate(snap: NodeSnapshot, capturedAt: string): Node {
     choice: null,
     waitUntil: null,
     prepRequest: false,
+    muted: false,
     createdBy: null,
     members: [],
     created: capturedAt,
@@ -232,6 +233,7 @@ export function runRoutes(ctx: AppContext): Hono {
     if (
       fromStatus !== "waiting" &&
       toStatus === "waiting" &&
+      !notifyMutedIn(graph, node) &&
       shouldNotifyTurn(node, (id) => turnParentOf(graph, run, id), {
         quietConsecutive: settings.get().notify.quietConsecutiveHumanTurns,
         turnNotifyOf: (email) => userSettings.get(email).discordTurnNotify,

@@ -209,6 +209,10 @@ export const NodeSchema = z.object({
    *  UI が true にし、エンジンが準備を済ませたら false に戻す。やり方ではなく進捗の値。
    *  ラン層では使わない（アイテムを pending へ戻すのが依頼になる） */
   prepRequest: z.boolean().default(false),
+  /** ページ（kind=goal）と棚（kind=folder）用: 通知を切る（3.22。既定 false）。
+   *  切ると、そのページ（棚なら中の全ページ）で起きたことで、あなたの番の通知（デスクトップ・
+   *  Discord）と左の一覧の未読バッジを出さない。進み方や「あなたの番」の表示そのものは変えない */
+  muted: z.boolean().default(false),
   /** kind=wait 用の待ち方（"after 8d 09:00" / "after 3h" / "until monthly day 9 09:00"。
    *  文法の正本は wait.ts）。順番が回ってきたらこの待ち方で明ける時刻を決め、時刻が来たら
    *  エンジンが自動で完了にする（3.17）。それ以外の kind では null */
@@ -265,6 +269,7 @@ export const NodeInputSchema = z.object({
   schedule: z.string().nullable().default(null),
   catchUp: z.boolean().default(true),
   prep: z.boolean().default(true),
+  muted: z.boolean().default(false),
   wait: z.string().nullable().default(null),
   branches: z.array(NodeBranchSchema).nullable().default(null),
   choice: z.string().nullable().default(null),

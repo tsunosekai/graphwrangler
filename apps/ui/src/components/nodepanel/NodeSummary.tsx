@@ -87,6 +87,9 @@ function chipsOf(node: Node, assigneeName: string | null): Chip[] {
       title: "このノードの AI のモデル / エフォート",
     });
   }
+  if (node.kind === "goal" && node.muted === true) {
+    chips.push({ text: "通知を切っています", title: "左の一覧の右クリックメニューから戻せます" });
+  }
   if (node.kind === "decision" && node.branches?.length) {
     chips.push({ text: node.branches.map((b) => b.label).join(" / "), title: "選択肢" });
   }

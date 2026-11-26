@@ -39,6 +39,8 @@ export interface PageActions {
   markRead: (keys: string[]) => void;
   moveToFolder: (f: Node, folderId: string | null) => Promise<void>;
   setPageArchived: (f: Node, archived: boolean) => Promise<void>;
+  /** ページ・棚の通知を切る／戻す（3.22） */
+  setMuted: (f: Node, muted: boolean) => Promise<void>;
   removePage: (f: Node) => Promise<void>;
   runPage: (f: Node, trigger: Node) => Promise<void>;
   renameRun: (r: Run) => Promise<void>;
@@ -179,6 +181,15 @@ export function usePageActions({
     }
   };
 
+  const setMuted = async (f: Node, muted: boolean) => {
+    try {
+      await api.patchNode(f.id, { muted });
+      onMutated();
+    } catch {
+      // api 側でトースト済み
+    }
+  };
+
   /** ページの削除。メンバーの巻き添えはサーバ（force）が面倒を見るので、こちらは
    *  NodePanel の削除と同じ警告（removeImpactWarnings）を出すだけにする。
    *  アーカイブ済みでないページには「消さずにアーカイブする」を推しとして並べる
@@ -255,6 +266,7 @@ export function usePageActions({
     markRead,
     moveToFolder,
     setPageArchived,
+    setMuted,
     removePage,
     runPage,
     renameRun,

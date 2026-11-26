@@ -56,3 +56,37 @@ export function isConsecutiveHumanTurn(
   if (ranParents.length === 0) return false;
   return ranParents.every((p) => isHumanWork(p) && sameTurnOwner(p.assignee, node.assignee));
 }
+
+// ---- 通知を切る（ページ・棚ごと。docs/design.md 3.22） ----
+
+/** 通知の判定に必要なノードの形 */
+export interface MuteNode {
+  kind: string;
+  group: string | null;
+  folder: string | null;
+  muted?: boolean;
+}
+
+/**
+ * そのノードで起きたことの通知が切られているか（純粋関数。サーバの Discord 通知と UI の
+ * デスクトップ通知・未読バッジが同じ判定を使う）。切られている＝
+ *   - そのノードが属するページ（自分がページなら自分）が muted、または
+ *   - そのページを入れている棚（入れ子の棚も辿る）のどれかが muted
+ */
+export function isNotifyMuted(node: MuteNode, byId: (id: string) => MuteNode | undefined): boolean {
+  // ノード → ページ（入れ子グループは外側へ辿る）
+  let page: MuteNode | undefined = node;
+  for (let i = 0; i < 20 && page && page.group; i++) {
+    if (page.muted) return true;
+    page = byId(page.group);
+  }
+  if (!page) return false;
+  if (page.muted) return true;
+  // ページ → 棚（入れ子の棚も辿る）
+  let shelf = page.folder ? byId(page.folder) : undefined;
+  for (let i = 0; i < 20 && shelf; i++) {
+    if (shelf.muted) return true;
+    shelf = shelf.folder ? byId(shelf.folder) : undefined;
+  }
+  return false;
+}

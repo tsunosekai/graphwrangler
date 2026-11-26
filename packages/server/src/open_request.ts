@@ -8,18 +8,7 @@
 //   - POST /api/nodes/:id/request … agent/engine から（AI実行中の QUESTION・承認ゲート・
 //     失敗リカバリ・分岐が全部ここへ来る）
 //   - スレッドの Task AI … 会話中に QUESTION プロトコルで人間の判断を求めたとき（thread_ai.ts）
-import {
-  isConsecutiveHumanTurn,
-  type Actor,
-  type DecisionRequest,
-  type GraphStore,
-  type Message,
-  type Run,
-  type RunStore,
-  type ThreadStore,
-  type TurnNode,
-  type TurnParent,
-} from "@graphwrangler/core";
+import { isConsecutiveHumanTurn, type Actor, type DecisionRequest, type GraphStore, type Message, type Run, type RunStore, type ThreadStore, type TurnNode, type TurnParent, isNotifyMuted, type MuteNode } from "@graphwrangler/core";
 import { loadUsers } from "./auth.js";
 import { notifyTurn } from "./discord.js";
 import { notifyTargetOf } from "./notify_target.js";
@@ -40,6 +29,15 @@ export function isTurnAlreadyAnnounced(
   nodeId: string,
 ): boolean {
   return pageRuns.some((r) => r.status === "running" && r.items[nodeId]?.status === "waiting");
+}
+
+/** そのノードのページ・棚で通知が切られているか（3.22。判定の正本は core の isNotifyMuted） */
+export function notifyMutedIn(graph: GraphStore, node: { id: string; kind: string; group: string | null }): boolean {
+  const byId = new Map(graph.state().nodes.map((n) => [n.id, n]));
+  // いまのグラフに居ればそれを使う（棚は今の置き場所で決まる）。消えたテンプレートのラン
+  // （スナップショットのノード）は、属していたページを group から辿る
+  const self: MuteNode = byId.get(node.id) ?? { kind: node.kind, group: node.group, folder: null };
+  return isNotifyMuted(self, (id) => byId.get(id));
 }
 
 /**
@@ -149,6 +147,7 @@ export function openHumanRequest(
   // 宛先は assignee 1本ではなく関係者まで広げて解決する（2026-08-11。recipients.ts）
   if (
     !announced &&
+    !notifyMutedIn(graph, node) &&
     shouldNotifyTurn(node, (id) => turnParentOf(graph, run, id), {
       quietConsecutive: settings.get().notify.quietConsecutiveHumanTurns,
       turnNotifyOf: (email) => userSettings.get(email).discordTurnNotify,

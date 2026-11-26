@@ -6,6 +6,8 @@
 import {
   Archive,
   ArchiveRestore,
+  Bell,
+  BellOff,
   CheckCheck,
   ChevronDown,
   ChevronRight,
@@ -15,6 +17,7 @@ import {
   Play,
   Trash2,
 } from "lucide-react";
+import { isNotifyMuted } from "@graphwrangler/core/turn";
 import { hashForUnread } from "../../lib/unread";
 import type { RailDnd } from "../../hooks/useRailDnd";
 import { hasUnread } from "../../lib/actions";
@@ -112,9 +115,15 @@ export function PageRow({
   const shown = dots.slice(0, MAX_DOTS);
   const rest = dots.length - shown.length;
 
-  // 最新のランの進捗ドット。畳んでいる間は、これをタイトル行の右端に出す（2026-11-26 本人要望:
-  // 最新ランの行を毎回出すのは情報量が多く、行の高さも揃わない。開閉ボタンとドットだけを
-  // タイトル行に溶け込ませる）。開けば下にラン行が並ぶので、そのときは出さない
+  // 通知を切っているか（このページ自身か、入っている棚のどれか。3.22）。切っている間は
+  // 未読バッジを出さず、タイトルの右に小さなベルの印を出す
+  const mutedSelf = f.muted === true;
+  const muted = isNotifyMuted(f, (id) => rail.nodeById.get(id));
+
+  // 最新のランの進捗ドット。畳んでいる間は、ドットの行の右端に出す（2026-11-26 本人要望:
+  // 最新ランの行を毎回出すのは情報量が多く、行の高さも揃わない→開閉ボタンとドットだけを残す。
+  // 同日「ちょぼを下に。右と左を同じ高さに」→ テンプレートのドット（左）と同じ行に置いた）。
+  // 開けば下にラン行が並ぶので、そのときは出さない
   const latestRun = runs[0] ?? null;
   const latestDots = latestRun && !runsOpen ? runDots(latestRun, rail.nodeById, me.email) : [];
   const latestShown = latestDots.slice(0, MAX_DOTS);
@@ -265,24 +274,18 @@ export function PageRow({
                   <Trash2 className="size-3" />
                 </Button>
               </Hint>
-              {/* 最新のランの進捗ドット（畳んでいる間だけ）。押すとそのランを開く */}
-              {latestRun && latestDots.length > 0 && (
-                <button
-                  type="button"
-                  className="flex max-w-[40%] flex-shrink-0 cursor-pointer flex-wrap items-center justify-end gap-[3px] rounded-sm px-0.5 hover:bg-accent"
-                  title={`最新のラン: ${latestRun.title}（押すと開く）`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectRun(f.id, latestRun.id);
-                  }}
+              {/* 通知を切っている印（3.22）。棚ごと切っているときも出す */}
+              {muted && (
+                <span
+                  className="flex-shrink-0 text-text-lo"
+                  title={mutedSelf ? "通知を切っています" : "入っているフォルダの通知を切っています"}
                 >
-                  {latestShown.map(dotEl)}
-                  {latestRest > 0 && <span className="font-mono text-[10px] text-text-lo">+{latestRest}</span>}
-                </button>
+                  <BellOff className="size-3" />
+                </span>
               )}
               {/* 未読数も行の一番右（2026-08-09 本人指示「数字は必ず一番右」）。
                   hover で出る ✎🗑 より右に置かないと、hover のたびに右端から浮いて見える */}
-              {unreadCount > 0 && (
+              {unreadCount > 0 && !muted && (
                 <Hint
                   id="unread"
                   always={`未読メッセージのあるノード ${unreadCount} 件（押すとその場所を開く）`}
@@ -304,9 +307,30 @@ export function PageRow({
             {/* ドットの行は、ドットが無いページにも同じ高さで置く（2026-11-26 本人要望「ぽちぽちや
                 ランの有無にかかわらず縦幅をそろえてほしい」）。折り返すと高さが変わるので1行に
                 固定し、はみ出したぶんは切る（粒は MAX_DOTS まで。超えたぶんは +n） */}
-            <span className="flex h-[6px] flex-nowrap items-center gap-[3px] overflow-hidden pl-5">
-              {shown.map(dotEl)}
-              {rest > 0 && <span className="font-mono text-[9px] leading-none text-text-lo">+{rest}</span>}
+            <span className="flex h-[6px] items-center gap-2 pl-5">
+              {/* 左: テンプレート（設計図）のドット */}
+              <span className="flex min-w-0 flex-1 flex-nowrap items-center gap-[3px] overflow-hidden">
+                {shown.map(dotEl)}
+                {rest > 0 && <span className="font-mono text-[9px] leading-none text-text-lo">+{rest}</span>}
+              </span>
+              {/* 右: 最新のランの進捗ドット（畳んでいる間だけ）。左と同じ高さに並べる。押すとそのランを開く。
+                  行の高さは変えずに、押せる範囲だけ上下に広げてある */}
+              {latestRun && latestDots.length > 0 && (
+                <button
+                  type="button"
+                  className="-my-1.5 flex max-w-[45%] flex-shrink-0 cursor-pointer flex-nowrap items-center justify-end gap-[3px] overflow-hidden rounded-sm px-0.5 py-1.5 hover:bg-accent"
+                  title={`最新のラン: ${latestRun.title}（押すと開く）`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectRun(f.id, latestRun.id);
+                  }}
+                >
+                  {latestShown.map(dotEl)}
+                  {latestRest > 0 && (
+                    <span className="font-mono text-[9px] leading-none text-text-lo">+{latestRest}</span>
+                  )}
+                </button>
+              )}
             </span>
           </div>
         </ContextMenuTrigger>
@@ -319,6 +343,11 @@ export function PageRow({
             onSelect={() => actions.markRead(pageKeys)}
           >
             <CheckCheck className="size-3.5" /> 既読にする
+          </ContextMenuItem>
+          {/* 通知を切る／戻す（3.22）。棚ごと切っているときは、棚の側で戻す */}
+          <ContextMenuItem onSelect={() => void actions.setMuted(f, !mutedSelf)}>
+            {mutedSelf ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+            {mutedSelf ? "通知を戻す" : "通知を切る"}
           </ContextMenuItem>
           {/* ラン作成はルーティーン（トリガーを持つページ）だけ。トリガーが複数あるページでは
               どれをランを作るか選ばせる（カードの▶と同じフォームが出る） */}

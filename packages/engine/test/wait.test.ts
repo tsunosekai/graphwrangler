@@ -32,6 +32,7 @@ function node(partial: Partial<Node> = {}): Node {
     catchUp: true,
     prep: true,
     prepRequest: false,
+    muted: false,
     wait: partial.wait ?? null,
     waitUntil: partial.waitUntil ?? null,
     branches: partial.branches ?? null,

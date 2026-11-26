@@ -2,7 +2,13 @@
 // 2026-08-20 本人指示「人間実行ノードかつ担当者が同じタスクが連続している場合のみ
 // 通知が出ないようにしてね」の仕様をここで固定する。
 import { describe, expect, it } from "vitest";
-import { isConsecutiveHumanTurn, sameTurnOwner, type TurnParent } from "../src/turn.js";
+import {
+  isConsecutiveHumanTurn,
+  isNotifyMuted,
+  sameTurnOwner,
+  type MuteNode,
+  type TurnParent,
+} from "../src/turn.js";
 
 const human = (assignee: string | null = null, ran = true): TurnParent => ({
   kind: "task",
@@ -84,5 +90,36 @@ describe("isConsecutiveHumanTurn", () => {
 
   it("消えた親（引き当てられない）は数えない", () => {
     expect(isConsecutiveHumanTurn(node(), from({}))).toBe(false);
+  });
+});
+
+describe("isNotifyMuted（通知を切る。ページ・棚ごと）", () => {
+  const nodes: Record<string, MuteNode> = {
+    shelf: { kind: "folder", group: null, folder: null, muted: true },
+    inner: { kind: "folder", group: null, folder: "shelf" },
+    open: { kind: "folder", group: null, folder: null },
+    pageInShelf: { kind: "goal", group: null, folder: "inner" },
+    pageMuted: { kind: "goal", group: null, folder: "open", muted: true },
+    pagePlain: { kind: "goal", group: null, folder: "open" },
+    a: { kind: "task", group: "pageInShelf", folder: null },
+    b: { kind: "task", group: "pageMuted", folder: null },
+    c: { kind: "task", group: "pagePlain", folder: null },
+  };
+  const byId = (id: string) => nodes[id];
+
+  it("ページを切ると、そのページのノードで起きたことは鳴らさない", () => {
+    expect(isNotifyMuted(nodes.b, byId)).toBe(true);
+    expect(isNotifyMuted(nodes.pageMuted, byId)).toBe(true);
+    expect(isNotifyMuted(nodes.c, byId)).toBe(false);
+    expect(isNotifyMuted(nodes.pagePlain, byId)).toBe(false);
+  });
+
+  it("棚を切ると、中の全ページに効く（入れ子の棚も辿る）", () => {
+    expect(isNotifyMuted(nodes.a, byId)).toBe(true);
+    expect(isNotifyMuted(nodes.pageInShelf, byId)).toBe(true);
+  });
+
+  it("ページが見つからないノードは切られていない扱い", () => {
+    expect(isNotifyMuted({ kind: "task", group: "gone", folder: null }, byId)).toBe(false);
   });
 });

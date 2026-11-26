@@ -2,7 +2,7 @@
 // 入れ物。棚はページを束ねるだけでグラフ・実行・ランには関与しない（docs/design.md 3.1）。
 // 右クリックは行の✎🗑と同じ操作を出すだけ（ボタンは残す。2026-08-09）。
 import type { ReactNode } from "react";
-import { ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { Bell, BellOff, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import type { RailDnd } from "../../hooks/useRailDnd";
 import { cn } from "../../lib/utils";
 import type { Node } from "../../types";
@@ -61,6 +61,12 @@ export function FolderRow({ f, open, onToggle, count, dnd, actions, children }: 
               <ChevronRight className="size-3.5 flex-shrink-0" />
             )}
             <span className="min-w-0 flex-1 truncate text-sm">{f.title || "（無題）"}</span>
+            {/* 通知を切っている印（3.22）。中の全ページに効く */}
+            {f.muted === true && (
+              <span className="flex-shrink-0 text-text-lo" title="このフォルダの通知を切っています（中の全ページ）">
+                <BellOff className="size-3" />
+              </span>
+            )}
             <Hint id="folder-rename" always="フォルダ名を変更">
               <Button
                 type="button"
@@ -98,6 +104,10 @@ export function FolderRow({ f, open, onToggle, count, dnd, actions, children }: 
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => void actions.renameFolder(f)}>
             <Pencil className="size-3.5" /> 名前を変更
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => void actions.setMuted(f, f.muted !== true)}>
+            {f.muted === true ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+            {f.muted === true ? "通知を戻す" : "通知を切る（中の全ページ）"}
           </ContextMenuItem>
           <ContextMenuItem variant="destructive" onSelect={() => void actions.removeFolder(f)}>
             <Trash2 className="size-3.5" /> 削除

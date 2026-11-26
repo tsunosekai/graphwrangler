@@ -213,6 +213,13 @@ server.registerTool(
           "担当=人間のノード用: ランで番が回ってくる前に AI が前準備（材料・下書き・開くものを揃えて" +
             "チャットへ発言）をするか。既定 true。準備の要らない単純な作業は false",
         ),
+      muted: z
+        .boolean()
+        .optional()
+        .describe(
+          "ページ（kind=goal）と棚（kind=folder）用: 通知を切る。true にすると、そのページ（棚なら中の全ページ）の" +
+            "あなたの番の通知と未読バッジを出さない。既定 false",
+        ),
       prepRequest: z
         .boolean()
         .optional()

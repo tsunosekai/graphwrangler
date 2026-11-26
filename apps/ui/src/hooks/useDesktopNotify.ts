@@ -5,7 +5,7 @@
 // notify.quietConsecutiveHumanTurns）は Discord のグラフ通知と同じ規則で、判定は
 // @graphwrangler/core/turn の isConsecutiveHumanTurn（サーバと共通の正本）を使う。
 import { useEffect, useMemo, useRef } from "react";
-import { isConsecutiveHumanTurn, type TurnParent } from "@graphwrangler/core/turn";
+import { isConsecutiveHumanTurn, isNotifyMuted, type TurnParent } from "@graphwrangler/core/turn";
 import type { RunWaitItem } from "../components/TopBar";
 import { isMyTurn, turnIsMine } from "../lib/team";
 import type { Node, Run } from "../types";
@@ -47,6 +47,12 @@ export function useDesktopNotify({
       };
   }, [nodes]);
 
+  // 通知を切ったページ・棚（3.22）で起きたことは鳴らさない。判定はサーバの Discord 通知と同じ正本
+  const mutedOf = useMemo(() => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    return (n: Node) => isNotifyMuted(n, (id) => byId.get(id));
+  }, [nodes]);
+
   // 実行中ランのワークアイテムで status=waiting のものを集める（あなたの番の一覧。
   // 受信箱UIは廃止済み（docs/design.md 4章②）で、今の用途はデスクトップ通知だけ）。
   // 同じルーティーンは並列で回せる（並行ラン）ため、各ページの最新1本ではなく
@@ -61,6 +67,7 @@ export function useDesktopNotify({
           const tmpl = nodes.find((n) => n.id === nodeId);
           // 他人の番（テンプレートの assignee が他人）は自分への通知対象にしない（チーム化 2026-08-04）
           if (tmpl && !turnIsMine(tmpl.assignee, myEmail)) continue;
+          if (tmpl && mutedOf(tmpl)) continue;
           // 同じ人の人間作業の続きは鳴らさない（Discord のグラフ通知と同じ規則。2026-08-20）
           if (tmpl && quietConsecutive && isConsecutiveHumanTurn(tmpl, parentOf(run.items))) continue;
           const title = tmpl?.title || "（無題）";
@@ -70,7 +77,7 @@ export function useDesktopNotify({
       }
     }
     return items;
-  }, [railRuns, nodes, myEmail, quietConsecutive, parentOf]);
+  }, [railRuns, nodes, myEmail, quietConsecutive, parentOf, mutedOf]);
 
   // あなたの番が増えたらデスクトップ通知（タブが非表示の時だけ。gw.notify がオン + 許可済み時のみ）。
   // 他人の番（assignee が他人）は通知しない（チーム化 2026-08-04。isMyTurn が判定を一元化）
@@ -79,6 +86,7 @@ export function useDesktopNotify({
     const combined: { id: string; title: string }[] = [
       ...nodes
         .filter((n) => isMyTurn(n, myEmail))
+        .filter((n) => !mutedOf(n))
         .filter((n) => !(quietConsecutive && isConsecutiveHumanTurn(n, parentOf(null))))
         .map((n) => ({ id: n.id, title: n.title || "（無題）" })),
       ...runWaitItems.map((item) => ({ id: item.key, title: item.label })),
@@ -99,5 +107,5 @@ export function useDesktopNotify({
       }
     }
     inboxItemsRef.current = combined;
-  }, [nodes, runWaitItems, myEmail, siteTitle, quietConsecutive, parentOf]);
+  }, [nodes, runWaitItems, myEmail, siteTitle, quietConsecutive, parentOf, mutedOf]);
 }
