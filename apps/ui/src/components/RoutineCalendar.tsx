@@ -7,11 +7,21 @@
 // 2026-11-26 本人要望「フォルダごとに表示非表示出来るように」「フォルダからも開けるように」:
 // - 上に、ルーティーンの入っているフォルダのチップを並べ、押すと表示・非表示が切り替わる。
 //   どれを隠しているかは覚えておく（次に開いたときも同じ）
+// - 予定はフォルダごとに色が付く。何も選ばなくても自動でフォルダごとに違う色になり、チップの丸から
+//   選び直せる（選んだ色はフォルダに持つ＝どの端末でも同じ。lib/folderColor.ts）
 // - フォルダの行から開いたときは、**そのフォルダだけ**を表示した状態で開く。これは一時的な絞り込みで、
 //   覚えている表示設定は書き換えない（フォルダから1回覗いただけで、普段の表示が変わらないように）
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { loadUiState, saveUiState } from "../hooks/uiState";
+import {
+  FOLDER_COLORS,
+  assignFolderColors,
+  folderColorSolid,
+  folderColorStyle,
+  isFolderColorKey,
+} from "../lib/folderColor";
+import { optimisticPatchNode } from "../lib/optimistic";
 import { NO_FOLDER, buildMonthCells, collectCalendarTriggers } from "../lib/routineCalendar";
 import { cn } from "../lib/utils";
 import type { Node, Run } from "../types";
@@ -60,6 +70,22 @@ export function RoutineCalendarDialog({
       .map((id) => ({ id, title: id === NO_FOLDER ? "フォルダなし" : (titleOf.get(id) ?? "（無題）") }))
       .sort((a, b) => (a.id === NO_FOLDER ? 1 : b.id === NO_FOLDER ? -1 : a.title.localeCompare(b.title, "ja")));
   }, [allNodes, triggers]);
+  // フォルダごとの色。自動の割り当てが開くたびに変わらないよう、カレンダーに出ていないフォルダも
+  // 含めた全フォルダで決める（フォルダなしのページは色なし）
+  const folderColors = useMemo(
+    () => assignFolderColors(allNodes.filter((n) => n.kind === "folder").map((n) => ({ id: n.id, color: n.color }))),
+    [allNodes],
+  );
+  const chosenColor = useMemo(
+    () => new Map(allNodes.filter((n) => n.kind === "folder").map((n) => [n.id, isFolderColorKey(n.color) ? n.color : null])),
+    [allNodes],
+  );
+  // 色を選び直しているフォルダ（チップの丸を押すと、下に色の見本が並ぶ）
+  const [colorPickFor, setColorPickFor] = useState<string | null>(null);
+  const setFolderColor = (id: string, color: string | null) => {
+    void optimisticPatchNode(id, { color }).catch(() => {});
+    setColorPickFor(null);
+  };
   // 覚えている「隠すフォルダ」
   const [savedHidden, setSavedHidden] = useState<Set<string>>(() => {
     try {
@@ -143,27 +169,43 @@ export function RoutineCalendarDialog({
         </div>
 
         {/* フォルダごとの表示切替。フォルダが1つだけ（＝切り替える意味が無い）なら出さない */}
-        {folders.length > 1 && (
+        {(folders.length > 1 || folders.some((f) => f.id !== NO_FOLDER)) && (
           <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 text-xs">
             <span className="text-muted-foreground">フォルダ:</span>
             {folders.map((f) => {
               const shown = !hiddenFolders.has(f.id);
+              const color = folderColors.get(f.id) ?? null;
               return (
-                <button
+                <span
                   key={f.id || "none"}
-                  type="button"
-                  aria-pressed={shown}
-                  title={shown ? "押すと隠す" : "押すと表示する"}
                   className={cn(
-                    "rounded-full border px-2 py-0.5",
-                    shown
-                      ? "border-ai/60 bg-ai/10 text-foreground"
-                      : "border-border text-text-lo line-through opacity-70",
+                    "inline-flex items-center gap-1 rounded-full border py-0.5 pl-1.5 pr-2",
+                    shown ? "border-border text-foreground" : "border-border text-text-lo opacity-70",
                   )}
-                  onClick={() => toggleFolder(f.id)}
                 >
-                  {f.title}
-                </button>
+                  {color ? (
+                    <button
+                      type="button"
+                      data-folder-color={color.key}
+                      title={`色: ${color.label}${chosenColor.get(f.id) ? "" : "（自動）"}。押すと選び直せます`}
+                      aria-label={`${f.title} の色を変える`}
+                      className="size-3 flex-shrink-0 rounded-full ring-offset-background hover:ring-2 hover:ring-ring hover:ring-offset-1"
+                      style={{ backgroundColor: folderColorSolid(color) }}
+                      onClick={() => setColorPickFor((v) => (v === f.id ? null : f.id))}
+                    />
+                  ) : (
+                    <span className="size-3 flex-shrink-0 rounded-full border border-border" />
+                  )}
+                  <button
+                    type="button"
+                    aria-pressed={shown}
+                    title={shown ? "押すと隠す" : "押すと表示する"}
+                    className={cn(!shown && "line-through")}
+                    onClick={() => toggleFolder(f.id)}
+                  >
+                    {f.title}
+                  </button>
+                </span>
               );
             })}
             {focusHidden && (
@@ -176,6 +218,38 @@ export function RoutineCalendarDialog({
                 ふだんの表示に戻す
               </button>
             )}
+          </div>
+        )}
+
+        {/* 色の選び直し（チップの丸を押したフォルダについて）。「自動」に戻すと棚ごとの自動の色へ */}
+        {colorPickFor && (
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 text-xs" data-folder-color-picker>
+            <span className="text-muted-foreground">
+              「{folders.find((f) => f.id === colorPickFor)?.title ?? ""}」の色:
+            </span>
+            {FOLDER_COLORS.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                title={c.label}
+                aria-label={c.label}
+                aria-pressed={chosenColor.get(colorPickFor) === c.key}
+                className={cn(
+                  "size-5 rounded-full ring-offset-background hover:ring-2 hover:ring-ring hover:ring-offset-1",
+                  folderColors.get(colorPickFor)?.key === c.key && "ring-2 ring-foreground ring-offset-1",
+                )}
+                style={{ backgroundColor: folderColorSolid(c) }}
+                onClick={() => setFolderColor(colorPickFor, c.key)}
+              />
+            ))}
+            <button
+              type="button"
+              className="ml-1 text-text-lo underline hover:text-foreground"
+              title="選んだ色をやめて、自動の色に戻す"
+              onClick={() => setFolderColor(colorPickFor, null)}
+            >
+              自動に戻す
+            </button>
           </div>
         )}
 
@@ -216,18 +290,25 @@ export function RoutineCalendarDialog({
                   >
                     {day}
                   </span>
-                  {entries.map((t) => (
-                    <button
-                      key={`${t.triggerId}-${day}`}
-                      type="button"
-                      title={`${t.pageTitle}（${t.description}）`}
-                      className="w-full flex-shrink-0 truncate bg-accent px-1 py-0.5 text-left text-xs leading-tight hover:bg-accent/70"
-                      onClick={() => onOpenPage(t.pageId)}
-                    >
-                      {t.time && <span className="mr-1 tabular-nums text-muted-foreground">{t.time}</span>}
-                      {t.pageTitle}
-                    </button>
-                  ))}
+                  {entries.map((t) => {
+                    const color = folderColors.get(t.folderId);
+                    return (
+                      <button
+                        key={`${t.triggerId}-${day}`}
+                        type="button"
+                        title={`${t.pageTitle}（${t.description}）`}
+                        className={cn(
+                          "w-full flex-shrink-0 truncate border-l-[3px] px-1 py-0.5 text-left text-xs leading-tight hover:brightness-110",
+                          !color && "border-l-transparent bg-accent hover:bg-accent/70",
+                        )}
+                        style={color ? folderColorStyle(color) : undefined}
+                        onClick={() => onOpenPage(t.pageId)}
+                      >
+                        {t.time && <span className="mr-1 tabular-nums text-muted-foreground">{t.time}</span>}
+                        {t.pageTitle}
+                      </button>
+                    );
+                  })}
                 </div>
               );
             })}

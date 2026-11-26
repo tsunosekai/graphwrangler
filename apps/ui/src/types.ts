@@ -121,6 +121,8 @@ export interface Node {
   prepRequest?: boolean;
   /** ページ・棚用: 通知を切る（3.22）。古いサーバは返さない */
   muted?: boolean;
+  /** 棚用: 予定カレンダーでの色の名前（3.20d）。未設定なら自動 */
+  color?: string | null;
   /** kind=wait 用の待ち方（"after 8d 09:00" / "until monthly day 9 09:00" 等。3.17）。
    *  古いサーバは返さないので省略可 */
   wait?: string | null;

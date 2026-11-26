@@ -23,6 +23,7 @@ import { optimisticPatchNode } from "../lib/optimistic";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useDraftField } from "../hooks/useDraftField";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { isPageNode } from "../lib/pageSummary";
 import { isRoutinePage } from "../lib/routine";
 import { threadKey } from "../lib/unread";
 import { usePolling } from "../hooks/usePolling";
@@ -50,6 +51,7 @@ import { OutputsSection } from "./nodepanel/OutputsSection";
 import { ScheduleSection } from "./nodepanel/ScheduleSection";
 import { WaitSection } from "./nodepanel/WaitSection";
 import { NodeSummary } from "./nodepanel/NodeSummary";
+import { PageSummary } from "./nodepanel/PageSummary";
 import { StatusSection } from "./nodepanel/StatusSection";
 import {
   AUTHOR_AI,
@@ -411,7 +413,10 @@ export function NodePanel({
   //   formOnly … 計画済みを「編集」中。フォームだけを列いっぱいに出す（会話は出さない）
   //   それ以外 … 下書き。組み立てながら相談するので、従来どおりフォームと会話を上下に並べる
   const [editing, setEditing] = useState(false);
-  const readable = node.lifecycle === "committed" || !!runView;
+  // ページ本体（プロジェクト／ルーティーン）は入れ物で、実行ノード用の欄を持たない（3.23）。
+  // 下書き・計画済みの別なく、いつも「読む」表示から始める
+  const pageRoot = isPageNode(node);
+  const readable = pageRoot || node.lifecycle === "committed" || !!runView;
   const compact = readable && !editing;
   const formOnly = readable && editing;
   // compact は PC でもスマホでも会話を出す（スマホでも手順カードを開けば、会話しながら読める）。
@@ -606,6 +611,7 @@ export function NodePanel({
           );
         })()}
         <span className="flex-1" />
+        {!pageRoot && (
         <Hint
           id="fixed"
           always={node.fixed ? "ロック済み" : "未ロック（改善中）"}
@@ -622,6 +628,8 @@ export function NodePanel({
             {node.fixed ? <Lock /> : <Unlock />}
           </Button>
         </Hint>
+        )}
+        {!pageRoot && (
         <Hint
           id="node-duplicate"
           always="このノードを複製"
@@ -631,9 +639,10 @@ export function NodePanel({
             <Copy />
           </Button>
         </Hint>
+        )}
         <Hint
           id="node-delete"
-          always={node.fixed ? "このノードを削除（ロック中なので確認します）" : "このノードを削除"}
+          always={pageRoot ? "このページを削除（アーカイブも選べます）" : node.fixed ? "このノードを削除（ロック中なので確認します）" : "このノードを削除"}
           text="Ctrl+Z で戻せる。子や依存の巻き添えがあるときは削除前に確認が出る"
         >
           <Button
@@ -748,7 +757,17 @@ export function NodePanel({
                 : undefined
           }
         >
-          {compact ? (
+          {compact && pageRoot ? (
+            <PageSummary
+              node={node}
+              allNodes={allNodes}
+              expanded={metaShown}
+              onToggle={toggleMeta}
+              onEdit={() => setEditing(true)}
+              onSelect={onSelect}
+              onSetArchived={(archived) => void patch({ status: archived ? "done" : "pending" })}
+            />
+          ) : compact ? (
             <NodeSummary
               node={node}
               runNote={runView ? `このランの記録（${runView.title}）` : null}
@@ -825,6 +844,8 @@ export function NodePanel({
           {/* 待ちノードの待ち方（docs/design.md 3.17） */}
           {node.kind === "wait" && <WaitSection node={node} contentLocked={contentLocked} patch={patch} />}
 
+          {/* ここから下の種別・担当・承認・進捗などは実行ノードの欄。ページ本体には出さない（3.23） */}
+          {!pageRoot && (
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-sm text-muted-foreground">
               <Hint id="kind" text={HINT_TEXT.kind}>
@@ -1034,15 +1055,16 @@ export function NodePanel({
             )}
             {statusSection}
           </div>
+          )}
 
           <MembersSection node={node} allNodes={allNodes} patch={patch} />
 
           {/* 待ちノードには実装も出力宣言も無い（待つだけ） */}
-          {node.kind !== "wait" && implSection}
+          {!pageRoot && node.kind !== "wait" && implSection}
 
-          {node.kind !== "wait" && outputsSection}
+          {!pageRoot && node.kind !== "wait" && outputsSection}
 
-          <BranchesEditor node={node} contentLocked={contentLocked} patch={patch} />
+          {!pageRoot && <BranchesEditor node={node} contentLocked={contentLocked} patch={patch} />}
 
           {/* 作成者の刻印は関係者セクション内の「作成者: ○○」に統一した（2026-08-04 追修。
               旧: 非 goal はここに「作成: ○○」を出していたが、関係者を全ノード種へ開放したので重複） */}
