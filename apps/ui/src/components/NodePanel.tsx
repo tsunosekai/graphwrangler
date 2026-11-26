@@ -557,6 +557,21 @@ export function NodePanel({
       refreshThread={refreshThread}
     />
   );
+  // 「読む」表示用の実装欄（編集の欄を出さない版。3.19）
+  const implReadSection = (
+    <ImplSection
+      node={node}
+      activeRun={activeRun}
+      activeRunItem={activeRunItem}
+      runView={runView}
+      contentLocked={contentLocked}
+      implStatus={implStatus}
+      patch={patch}
+      onMutated={onMutated}
+      refreshThread={refreshThread}
+      variant="read"
+    />
+  );
   const outputsSection = (
     <OutputsSection
       node={node}
@@ -777,7 +792,7 @@ export function NodePanel({
               statusSection={
                 !runView && pageHasTrigger && node.kind !== "trigger" ? null : statusSection
               }
-              implSection={implSection}
+              implSection={implReadSection}
               outputsSection={outputsSection}
               expanded={metaShown}
               onToggle={toggleMeta}

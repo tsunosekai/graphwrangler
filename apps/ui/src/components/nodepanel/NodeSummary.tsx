@@ -113,7 +113,8 @@ export function NodeSummary({
   /** 進捗の操作（着手・完了・計画済みにする等）。編集フォームと同じものをそのまま使う。
    *  読むときに要らない場面（ルーティーンのテンプレート）では null */
   statusSection: ReactNode;
-  /** 実装欄（スクリプトの引数・試走など）。手順書の文章が無いノードではこれをそのまま出す */
+  /** 実装欄の「読む」版（スクリプトの引数・試走・折りたたんだコマンド／ファイルを指す手順書のパス）。
+   *  手順書の文章が無いノードで出す。編集の欄は持たない（直すのは「編集」から） */
   implSection: ReactNode;
   outputsSection: ReactNode;
   /** 中身（概要・手順）を開いているか。たたむと会話が列の高さを全部使える */
@@ -130,7 +131,10 @@ export function NodeSummary({
   const docText = node.impl?.type === "doc" ? (node.impl.text ?? "").trim() : "";
   // 手順書が文章で入っているノードは Markdown で読む。それ以外（スクリプト・ファイル参照の
   // 手順書）は、引数の入力や試走があるので実装欄をそのまま出す。何も無ければ欄ごと出さない
-  const showImplSection = !docText && node.impl !== null && node.kind !== "wait";
+  const showImplSection =
+    !docText &&
+    node.kind !== "wait" &&
+    (node.impl?.type === "script" || (node.impl?.type === "doc" && !!node.impl.path));
   const hasOutputs = !!node.outputs && node.outputs.length > 0;
   const hasBody = !!detail || !!docText || showImplSection || hasOutputs || !!runNote;
 

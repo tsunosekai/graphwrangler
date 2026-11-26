@@ -91,6 +91,10 @@ interface Props {
   patch: (fields: NodePatchInput) => Promise<void>;
   onMutated: () => void;
   refreshThread: () => void;
+  /** read = 計画済みノードの「読む」表示用（3.19）。編集の欄（種類のセレクト・コマンドの入力欄・
+   *  枠と見出し）を出さず、試走の状態と操作、実行時に入れる引数だけを小さく出す。
+   *  コマンドの中身は折りたたみの中。直すのは「編集」から。既定は form（編集フォーム） */
+  variant?: "form" | "read";
 }
 
 export function ImplSection({
@@ -103,6 +107,7 @@ export function ImplSection({
   patch,
   onMutated,
   refreshThread,
+  variant = "form",
 }: Props) {
   const githubBase = useGithubBlobBase();
 
@@ -202,6 +207,170 @@ export function ImplSection({
     const v = implCommand.draft.trim();
     if (v && v !== node.impl.command) await patch({ impl: { type: "script", command: v } });
   };
+
+  const scriptParams = node.impl?.type === "script" && (
+    <>
+          {/* ラン表示で実行済みの記録があるとき: 解決済みの値（RunItem.resolvedParams）を
+              値入り・読み取り専用で見せる（docs/design.md 3.15 実行時の読み）。実行後に
+              run.context が変わってずれたキーには「古い値で実行済み」を出す——**自動では
+              再実行しない**（task graph は cook graph ではない。やり直しは人間の判断） */}
+          {runView && activeRunItem?.resolvedParams ? (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">
+                パラメータ（このランで実行された値）
+              </span>
+              {Object.entries(activeRunItem.resolvedParams).map(([name, value]) => {
+                const decl =
+                  node.impl?.type === "script"
+                    ? node.impl.params?.find((p) => p.name === name)
+                    : undefined;
+                const current = activeRun?.context?.[name];
+                const stale = current !== undefined && current !== value;
+                return (
+                  <div key={name} className="flex items-center gap-1.5">
+                    <span
+                      className="w-24 flex-shrink-0 truncate text-xs text-muted-foreground"
+                      title={name}
+                    >
+                      {decl?.label ?? name}
+                    </span>
+                    <Input className="h-8 flex-1" value={value} readOnly disabled />
+                    {stale && (
+                      <Hint
+                        id="resolved-stale"
+                        always="古い値で実行済み"
+                        text={`実行後にランのコンテキストが変わっています（現在: ${current}）。自動では再実行しない——やり直すかは人間が判断する`}
+                      >
+                        <span className="flex-shrink-0" style={{ color: "var(--attention)" }}>
+                          <Icon name="alert" size={12} />
+                        </span>
+                      </Hint>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* パラメータ宣言（docs/design.md 3.5.1）: 宣言=AI、値=人間がここで入力。
+               Fix中でも値の入力だけは活かす（docs/design.md 3.5 実効化: 値は実行時入力でやり方ではない）。
+               宣言の追加/削除UIはv1では作らない（GraphWrangler AIが command と一緒に書く想定） */
+            (node.impl.params?.length ?? 0) > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-muted-foreground">パラメータ</span>
+                {node.impl.params!.map((p) => (
+                  <ParamRow
+                    key={p.name}
+                    param={p}
+                    onCommit={(value) => {
+                      if (node.impl?.type !== "script") return;
+                      const params = (node.impl.params ?? []).map((x) =>
+                        x.name === p.name ? { ...x, value: value || null } : x,
+                      );
+                      patch({ impl: { type: "script", command: node.impl.command, params } });
+                    }}
+                  />
+                ))}
+              </div>
+            )
+          )}
+    </>
+  );
+  const scriptTrial = node.impl?.type === "script" && (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* ラベルは「試走」だけにし、説明はツールチップへ（2026-07-31 本人指定）。
+                試走=常に--dry-runの予告編なので、実行前承認ノードでも試走できる
+                （旧「承認ノードは試走不可」ルールは撤廃） */}
+            <Hint
+              id="trial"
+              text="--dry-run を付けて実行し、何も変えずに「やる予定の操作」だけを表示する。実行前承認のノードでも安全に試せる"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={trialRunning || missingParams.length > 0}
+                // disabled 理由だけは native title（disabled にはポインタイベントが来ない）
+                title={missingParams.length > 0 ? `未入力: ${missingParams.join(", ")}` : undefined}
+                onClick={runTrial}
+              >
+                {trialRunning && <Loader2 className="size-3.5 animate-spin" />}
+                試走
+              </Button>
+            </Hint>
+            {missingParams.length > 0 && (
+              <span className="text-xs text-destructive">未入力: {missingParams.join(", ")}</span>
+            )}
+            {implStatus === "ok" && node.implTrial && (
+              <span className="text-xs text-ok">
+                ✓ テスト成功（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
+              </span>
+            )}
+            {implStatus === "stale" && (
+              <span className="text-xs text-destructive">
+                ⚠ コマンドが変更されています（再試走を推奨）
+              </span>
+            )}
+            {implStatus === "unverified" && node.implTrial && !node.implTrial.success && (
+              <span className="text-xs text-destructive">
+                ✗ テスト失敗（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
+              </span>
+            )}
+            {implStatus === "unverified" && !node.implTrial && (
+              <span className="text-xs text-muted-foreground">未検証</span>
+            )}
+          </div>
+  );
+  // 引数の入力と試走の行は、編集フォームと「読む」表示で同じものを使う
+  const scriptRuntime = node.impl?.type === "script" && (
+    <>
+      {scriptParams}
+      {scriptTrial}
+    </>
+  );
+
+  if (variant === "read") {
+    // 「読む」表示（2026-11-26 本人指摘「ここが認知負荷の高い UI が残ってる」）。スクリプトのノードは
+    // 手順の文章が無いので、それまでは編集フォームをそのまま出していた
+    if (node.impl?.type === "script") {
+      return (
+        <div className="flex flex-col gap-1.5" data-impl-read>
+          {scriptRuntime}
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer select-none hover:text-foreground">コマンドを見る</summary>
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted px-2 py-1.5 font-mono text-[11px] leading-snug text-foreground">
+              {node.impl.command}
+            </pre>
+          </details>
+          {node.executor !== "script" && (
+            <p className="text-xs text-muted-foreground">
+              このスクリプトは実行されません（担当がスクリプトではないため）
+            </p>
+          )}
+        </div>
+      );
+    }
+    // ファイルを指すだけの手順書（本文なし）: パスを1行で
+    if (node.impl?.type === "doc" && node.impl.path) {
+      return (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground" data-impl-read>
+          <Icon name="doc" size={12} />
+          <span className="break-all font-mono">{node.impl.path}</span>
+          {githubBase && (
+            <a
+              href={`${githubBase}/${node.impl.path.split("/").map(encodeURIComponent).join("/")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-shrink-0 text-text-lo transition-colors hover:text-foreground"
+              title="GitHub でこの手順書を開く"
+            >
+              <ExternalLink className="size-3.5" />
+            </a>
+          )}
+        </p>
+      );
+    }
+    return null;
+  }
 
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2.5">
@@ -306,113 +475,7 @@ export function ImplSection({
             }}
           />
 
-          {/* ラン表示で実行済みの記録があるとき: 解決済みの値（RunItem.resolvedParams）を
-              値入り・読み取り専用で見せる（docs/design.md 3.15 実行時の読み）。実行後に
-              run.context が変わってずれたキーには「古い値で実行済み」を出す——**自動では
-              再実行しない**（task graph は cook graph ではない。やり直しは人間の判断） */}
-          {runView && activeRunItem?.resolvedParams ? (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">
-                パラメータ（このランで実行された値）
-              </span>
-              {Object.entries(activeRunItem.resolvedParams).map(([name, value]) => {
-                const decl =
-                  node.impl?.type === "script"
-                    ? node.impl.params?.find((p) => p.name === name)
-                    : undefined;
-                const current = activeRun?.context?.[name];
-                const stale = current !== undefined && current !== value;
-                return (
-                  <div key={name} className="flex items-center gap-1.5">
-                    <span
-                      className="w-24 flex-shrink-0 truncate text-xs text-muted-foreground"
-                      title={name}
-                    >
-                      {decl?.label ?? name}
-                    </span>
-                    <Input className="h-8 flex-1" value={value} readOnly disabled />
-                    {stale && (
-                      <Hint
-                        id="resolved-stale"
-                        always="古い値で実行済み"
-                        text={`実行後にランのコンテキストが変わっています（現在: ${current}）。自動では再実行しない——やり直すかは人間が判断する`}
-                      >
-                        <span className="flex-shrink-0" style={{ color: "var(--attention)" }}>
-                          <Icon name="alert" size={12} />
-                        </span>
-                      </Hint>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            /* パラメータ宣言（docs/design.md 3.5.1）: 宣言=AI、値=人間がここで入力。
-               Fix中でも値の入力だけは活かす（docs/design.md 3.5 実効化: 値は実行時入力でやり方ではない）。
-               宣言の追加/削除UIはv1では作らない（GraphWrangler AIが command と一緒に書く想定） */
-            (node.impl.params?.length ?? 0) > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-xs text-muted-foreground">パラメータ</span>
-                {node.impl.params!.map((p) => (
-                  <ParamRow
-                    key={p.name}
-                    param={p}
-                    onCommit={(value) => {
-                      if (node.impl?.type !== "script") return;
-                      const params = (node.impl.params ?? []).map((x) =>
-                        x.name === p.name ? { ...x, value: value || null } : x,
-                      );
-                      patch({ impl: { type: "script", command: node.impl.command, params } });
-                    }}
-                  />
-                ))}
-              </div>
-            )
-          )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* ラベルは「試走」だけにし、説明はツールチップへ（2026-07-31 本人指定）。
-                試走=常に--dry-runの予告編なので、実行前承認ノードでも試走できる
-                （旧「承認ノードは試走不可」ルールは撤廃） */}
-            <Hint
-              id="trial"
-              text="--dry-run を付けて実行し、何も変えずに「やる予定の操作」だけを表示する。実行前承認のノードでも安全に試せる"
-            >
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={trialRunning || missingParams.length > 0}
-                // disabled 理由だけは native title（disabled にはポインタイベントが来ない）
-                title={missingParams.length > 0 ? `未入力: ${missingParams.join(", ")}` : undefined}
-                onClick={runTrial}
-              >
-                {trialRunning && <Loader2 className="size-3.5 animate-spin" />}
-                試走
-              </Button>
-            </Hint>
-            {missingParams.length > 0 && (
-              <span className="text-xs text-destructive">未入力: {missingParams.join(", ")}</span>
-            )}
-            {implStatus === "ok" && node.implTrial && (
-              <span className="text-xs text-ok">
-                ✓ テスト成功（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
-              </span>
-            )}
-            {implStatus === "stale" && (
-              <span className="text-xs text-destructive">
-                ⚠ コマンドが変更されています（再試走を推奨）
-              </span>
-            )}
-            {implStatus === "unverified" && node.implTrial && !node.implTrial.success && (
-              <span className="text-xs text-destructive">
-                ✗ テスト失敗（{new Date(node.implTrial.ts).toLocaleString("ja-JP")}）
-              </span>
-            )}
-            {implStatus === "unverified" && !node.implTrial && (
-              <span className="text-xs text-muted-foreground">未検証</span>
-            )}
-          </div>
+          {scriptRuntime}
         </>
       )}
 
