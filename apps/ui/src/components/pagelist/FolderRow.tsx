@@ -1,8 +1,8 @@
 // 左レールの棚（kind=folder）1行（PageList から切り出し）。開閉と、中のページ（children）の
 // 入れ物。棚はページを束ねるだけでグラフ・実行・ランには関与しない（docs/design.md 3.1）。
-// 右クリックは行の✎🗑と同じ操作を出すだけ（ボタンは残す。2026-08-09）。
+// 右クリックは行の⚙🗑と同じ操作を出すだけ（ボタンは残す。2026-08-09）。
 import type { ReactNode } from "react";
-import { Bell, BellOff, CalendarDays, ChevronDown, ChevronRight, Pencil, Settings2, Trash2 } from "lucide-react";
+import { Bell, BellOff, CalendarDays, ChevronDown, ChevronRight, Settings2, Trash2 } from "lucide-react";
 import type { RailDnd } from "../../hooks/useRailDnd";
 import { cn } from "../../lib/utils";
 import type { Node } from "../../types";
@@ -93,20 +93,28 @@ export function FolderRow({ f, open, onToggle, count, dnd, actions, onOpenCalend
                 </Button>
               </Hint>
             )}
-            <Hint id="folder-rename" always="フォルダ名を変更">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={cn("size-5 flex-shrink-0 text-text-lo hover:text-foreground", ROW_ACTION)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void actions.renameFolder(f);
-                }}
+            {/* 名前の変更は設定の画面に入れた（2026-11-26 本人指示「フォルダ名の設定モーダルと融合して。
+                今編集アイコンがあるのを設定アイコンにかえて」） */}
+            {onOpenSettings && (
+              <Hint
+                id="folder-settings"
+                always="フォルダの設定"
+                text="名前・AI の作業範囲・モデル・通知・カレンダーの色"
               >
-                <Pencil className="size-3" />
-              </Button>
-            </Hint>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn("size-5 flex-shrink-0 text-text-lo hover:text-foreground", ROW_ACTION)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenSettings();
+                  }}
+                >
+                  <Settings2 className="size-3" />
+                </Button>
+              </Hint>
+            )}
             <Hint id="folder-remove" always="フォルダを削除" text="中のページは消えず、直下へ出る">
               <Button
                 type="button"
@@ -128,12 +136,9 @@ export function FolderRow({ f, open, onToggle, count, dnd, actions, onOpenCalend
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem onSelect={() => void actions.renameFolder(f)}>
-            <Pencil className="size-3.5" /> 名前を変更
-          </ContextMenuItem>
           {onOpenSettings && (
             <ContextMenuItem onSelect={() => onOpenSettings()}>
-              <Settings2 className="size-3.5" /> フォルダの設定（AI の作業範囲など）
+              <Settings2 className="size-3.5" /> フォルダの設定（名前・AI の作業範囲など）
             </ContextMenuItem>
           )}
           {calendar && (

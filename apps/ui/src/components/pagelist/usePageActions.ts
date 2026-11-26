@@ -32,7 +32,6 @@ export interface PageActionsDeps {
 export interface PageActions {
   applyDrop: (st: DragState, target: DropTarget) => Promise<void>;
   addFolder: (section: Section) => Promise<void>;
-  renameFolder: (f: Node) => Promise<void>;
   removeFolder: (f: Node) => Promise<void>;
   renamePage: (f: Node) => Promise<void>;
   /** 指定キーを既読にする（サーバへ送る + ローカル上書きで即バッジを消す） */
@@ -113,16 +112,6 @@ export function usePageActions({
         folderSection: section === "routine" ? "routine" : null,
         order: shelvesIn(section).length,
       });
-      onMutated();
-    } catch {
-      // api 側でトースト済み
-    }
-  };
-  const renameFolder = async (f: Node) => {
-    const name = await promptDialog("フォルダ名", { defaultValue: f.title, confirmLabel: "変更" });
-    if (name === null || !name.trim() || name.trim() === f.title) return;
-    try {
-      await api.patchNode(f.id, { title: name.trim() });
       onMutated();
     } catch {
       // api 側でトースト済み
@@ -260,7 +249,6 @@ export function usePageActions({
   return {
     applyDrop,
     addFolder,
-    renameFolder,
     removeFolder,
     renamePage,
     markRead,

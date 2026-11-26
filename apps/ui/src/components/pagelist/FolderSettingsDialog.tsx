@@ -1,7 +1,8 @@
-// フォルダ（棚）の設定（docs/design.md 3.24）。左の一覧のフォルダの右クリック →「フォルダの設定」。
+// フォルダ（棚）の設定（docs/design.md 3.24）。左の一覧のフォルダの行の⚙、または右クリック →「フォルダの設定」。
 //
 // 2026-11-26 本人要望「AI の作業範囲をフォルダごとに分けられるようにしてほしい。その他の設定でも
 // フォルダごとにした方がいいものはそうしたい」。フォルダごとに持てるものを1か所に集める:
+//   - 名前（同日「フォルダ名の設定モーダルと融合して」。以前は行の✎から名前だけを変える小窓だった）
 //   - AI の作業範囲（ワークスペースの外で読み書きできる場所）
 //   - AI に追加で許可するツール
 //   - AI のモデル・思考の深さ（中のノードの既定）
@@ -24,6 +25,7 @@ import { cn } from "../../lib/utils";
 import type { Node } from "../../types";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
@@ -77,6 +79,7 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
     };
   }, []);
 
+  const [title, setTitle] = useState(folder.title);
   const [ownDirs, setOwnDirs] = useState(Array.isArray(folder.aiDirs));
   const [dirsText, setDirsText] = useState((folder.aiDirs ?? []).join("\n"));
   const [ownTools, setOwnTools] = useState(Array.isArray(folder.aiTools));
@@ -101,6 +104,8 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
     setSaving(true);
     try {
       await optimisticPatchNode(folder.id, {
+        // 名前を空にして保存したときは、名前だけ今のままにする
+        ...(title.trim() && title.trim() !== folder.title ? { title: title.trim() } : {}),
         aiDirs: ownDirs ? toList(dirsText) : null,
         aiTools: ownTools ? toList(toolsText) : null,
         aiModel: model === INHERIT ? null : model,
@@ -123,9 +128,22 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
   return (
     <>
       <DialogHeader>
-        <DialogTitle>「{folder.title || "（無題）"}」の設定</DialogTitle>
+        <DialogTitle>フォルダの設定</DialogTitle>
       </DialogHeader>
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1" data-folder-settings>
+        <label className="flex flex-col gap-1">
+          <span className={heading}>名前</span>
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              // 変換の確定の Enter では保存しない
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) void save();
+            }}
+            aria-label="フォルダの名前"
+            autoFocus
+          />
+        </label>
         <div className={section}>
           <div className="flex items-center justify-between gap-2">
             <span className={heading}>AI の作業範囲</span>
