@@ -2,7 +2,14 @@
 // 2026-01: 1日=木曜。月曜は 5,12,19,26 / 金曜は 2,9,16,23,30（第5金曜あり）
 import { describe, expect, it } from "vitest";
 import { parseSchedule } from "@graphwrangler/core/schedule";
-import { isFineSchedule, latestRunCreatedOf, occurrenceDays } from "./routineCalendar";
+import {
+  NO_FOLDER,
+  buildMonthCells,
+  collectCalendarTriggers,
+  isFineSchedule,
+  latestRunCreatedOf,
+  occurrenceDays,
+} from "./routineCalendar";
 import type { Run } from "../types";
 
 const opts = { latestRunCreated: null, today: new Date(2026, 0, 14) };
@@ -131,5 +138,48 @@ describe("occurrenceDays: 追加書式（毎月◯日・最終日・最終◯曜
     const s = parseSchedule("every 3d")!;
     const withRun = { latestRunCreated: new Date(2026, 0, 1, 9, 0).toISOString(), today: new Date(2026, 0, 14) };
     expect(occurrenceDays(s, 2026, 0, withRun)).toEqual([1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31]);
+  });
+});
+
+describe("フォルダごとの表示切替（2026-11-26）", () => {
+  const mk = (id: string, over: Record<string, unknown>) =>
+    ({
+      id,
+      title: id,
+      kind: "task",
+      executor: "human",
+      lifecycle: "committed",
+      status: "pending",
+      group: null,
+      folder: null,
+      schedule: null,
+      parents: [],
+      ...over,
+    }) as unknown as Parameters<typeof collectCalendarTriggers>[0][number];
+  const nodes = [
+    mk("life", { kind: "folder" }),
+    mk("p1", { kind: "goal", folder: "life" }),
+    mk("p2", { kind: "goal" }),
+    mk("t1", { kind: "trigger", executor: "script", group: "p1", schedule: "weekly mon 09:00" }),
+    mk("t2", { kind: "trigger", executor: "script", group: "p2", schedule: "weekly mon 10:00" }),
+  ];
+
+  it("トリガーは、ページの入っているフォルダ（無ければ NO_FOLDER）を持つ", () => {
+    const ts = collectCalendarTriggers(nodes);
+    expect(ts.map((t) => [t.pageId, t.folderId])).toEqual([
+      ["p1", "life"],
+      ["p2", NO_FOLDER],
+    ]);
+  });
+
+  it("隠したフォルダのルーティーンはセルに出ない（フォルダなしも隠せる）", () => {
+    const ts = collectCalendarTriggers(nodes);
+    const today = new Date(2026, 10, 1);
+    const pagesIn = (hidden: string[]) =>
+      [...new Set([...buildMonthCells(ts, 2026, 10, {}, today, true, new Set(hidden)).values()].flat().map((t) => t.pageId))].sort();
+    expect(pagesIn([])).toEqual(["p1", "p2"]);
+    expect(pagesIn(["life"])).toEqual(["p2"]);
+    expect(pagesIn([NO_FOLDER])).toEqual(["p1"]);
+    expect(pagesIn(["life", NO_FOLDER])).toEqual([]);
   });
 });

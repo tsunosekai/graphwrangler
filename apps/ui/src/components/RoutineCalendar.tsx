@@ -3,9 +3,16 @@
 // 毎日以下は非表示）」）。
 // 左レールのルーティーン節のカレンダーボタンから開くダイアログ。計算は lib/routineCalendar.ts
 // （文法・暦は core/schedule と共通）。チップを押すとそのルーティーンのページへ移動する。
-import { useMemo, useState } from "react";
+//
+// 2026-11-26 本人要望「フォルダごとに表示非表示出来るように」「フォルダからも開けるように」:
+// - 上に、ルーティーンの入っているフォルダのチップを並べ、押すと表示・非表示が切り替わる。
+//   どれを隠しているかは覚えておく（次に開いたときも同じ）
+// - フォルダの行から開いたときは、**そのフォルダだけ**を表示した状態で開く。これは一時的な絞り込みで、
+//   覚えている表示設定は書き換えない（フォルダから1回覗いただけで、普段の表示が変わらないように）
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { buildMonthCells, collectCalendarTriggers } from "../lib/routineCalendar";
+import { loadUiState, saveUiState } from "../hooks/uiState";
+import { NO_FOLDER, buildMonthCells, collectCalendarTriggers } from "../lib/routineCalendar";
 import { cn } from "../lib/utils";
 import type { Node, Run } from "../types";
 import { Button } from "./ui/button";
@@ -19,6 +26,7 @@ export function RoutineCalendarDialog({
   allNodes,
   pageRuns,
   onOpenPage,
+  focusFolderId = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -27,6 +35,9 @@ export function RoutineCalendarDialog({
   pageRuns: Record<string, Run[]>;
   /** チップのクリック → そのルーティーンのページを開く（呼び出し側でダイアログも閉じる） */
   onOpenPage: (pageId: string) => void;
+  /** フォルダの行から開いたとき、そのフォルダの id（そのフォルダだけを表示して開く）。
+   *  ルーティーン節のボタンから開いたときは null */
+  focusFolderId?: string | null;
 }) {
   // 表示中の月（今月からの相対。ダイアログを開き直したら今月に戻る値でもよいが、
   // 「来月を見て閉じてもう一度開く」で戻るのは煩わしいので保持する）
@@ -40,13 +51,51 @@ export function RoutineCalendarDialog({
   const monthIndex = shown.getMonth();
 
   const triggers = useMemo(() => collectCalendarTriggers(allNodes), [allNodes]);
-  const fineCount = useMemo(() => triggers.filter((t) => t.fine).length, [triggers]);
+
+  // フォルダごとの表示切替。チップに並べるのは、定刻つきルーティーンが実際に入っているフォルダだけ
+  const folders = useMemo(() => {
+    const titleOf = new Map(allNodes.filter((n) => n.kind === "folder").map((n) => [n.id, n.title || "（無題）"]));
+    const ids = [...new Set(triggers.map((t) => t.folderId))];
+    return ids
+      .map((id) => ({ id, title: id === NO_FOLDER ? "フォルダなし" : (titleOf.get(id) ?? "（無題）") }))
+      .sort((a, b) => (a.id === NO_FOLDER ? 1 : b.id === NO_FOLDER ? -1 : a.title.localeCompare(b.title, "ja")));
+  }, [allNodes, triggers]);
+  // 覚えている「隠すフォルダ」
+  const [savedHidden, setSavedHidden] = useState<Set<string>>(() => {
+    try {
+      const raw = loadUiState("gw.calHiddenFolders");
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  // フォルダの行から開いたときの一時的な絞り込み（null = 絞り込みなし＝覚えている設定を使う）
+  const [focusHidden, setFocusHidden] = useState<Set<string> | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 開いた瞬間（と開き先のフォルダ）にだけ決め直す
+  useEffect(() => {
+    if (!open) return;
+    setFocusHidden(focusFolderId ? new Set(folders.map((f) => f.id).filter((id) => id !== focusFolderId)) : null);
+  }, [open, focusFolderId]);
+  const hiddenFolders = focusHidden ?? savedHidden;
+  const toggleFolder = (id: string) => {
+    const next = new Set(hiddenFolders);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    if (focusHidden) setFocusHidden(next);
+    else {
+      setSavedHidden(next);
+      saveUiState("gw.calHiddenFolders", JSON.stringify([...next]));
+    }
+  };
+
+  const visible = useMemo(() => triggers.filter((t) => !hiddenFolders.has(t.folderId)), [triggers, hiddenFolders]);
+  const fineCount = useMemo(() => visible.filter((t) => t.fine).length, [visible]);
   // today は分単位で変わっても結果に効かないので日付文字列で依存を安定させる
   const todayKey = today.toDateString();
   // biome-ignore lint/correctness/useExhaustiveDependencies: today は日付だけ効く（todayKey で代表させる）
   const cells = useMemo(
-    () => buildMonthCells(triggers, year, monthIndex, pageRuns, today, showFine),
-    [triggers, year, monthIndex, pageRuns, showFine, todayKey],
+    () => buildMonthCells(triggers, year, monthIndex, pageRuns, today, showFine, hiddenFolders),
+    [triggers, year, monthIndex, pageRuns, showFine, todayKey, hiddenFolders],
   );
 
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
@@ -92,6 +141,43 @@ export function RoutineCalendarDialog({
             毎日以下の頻度も表示{fineCount > 0 && !showFine ? `（${fineCount}件 非表示中）` : ""}
           </label>
         </div>
+
+        {/* フォルダごとの表示切替。フォルダが1つだけ（＝切り替える意味が無い）なら出さない */}
+        {folders.length > 1 && (
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground">フォルダ:</span>
+            {folders.map((f) => {
+              const shown = !hiddenFolders.has(f.id);
+              return (
+                <button
+                  key={f.id || "none"}
+                  type="button"
+                  aria-pressed={shown}
+                  title={shown ? "押すと隠す" : "押すと表示する"}
+                  className={cn(
+                    "rounded-full border px-2 py-0.5",
+                    shown
+                      ? "border-ai/60 bg-ai/10 text-foreground"
+                      : "border-border text-text-lo line-through opacity-70",
+                  )}
+                  onClick={() => toggleFolder(f.id)}
+                >
+                  {f.title}
+                </button>
+              );
+            })}
+            {focusHidden && (
+              <button
+                type="button"
+                className="ml-1 text-text-lo underline hover:text-foreground"
+                title="フォルダから開いたときの一時的な絞り込みをやめ、ふだんの表示設定に戻す"
+                onClick={() => setFocusHidden(null)}
+              >
+                ふだんの表示に戻す
+              </button>
+            )}
+          </div>
+        )}
 
         {/* グリッドは常に「見出し1行 + 6週」の固定レイアウト（rows-[auto_repeat(6,1fr)]）で
             高さいっぱいに広げる。角丸なし（2026-08-12 本人指定）。1日に予定が多い日だけ
@@ -150,9 +236,11 @@ export function RoutineCalendarDialog({
               <div key={`trail-${i}`} className="min-h-0 bg-background/60" />
             ))}
         </div>
-        {triggers.filter((t) => showFine || !t.fine).length === 0 && (
+        {visible.filter((t) => showFine || !t.fine).length === 0 && (
           <p className="flex-shrink-0 text-center text-sm text-muted-foreground">
-            {fineCount > 0
+            {triggers.length > 0 && visible.length === 0
+              ? "表示するフォルダがありません（上のフォルダのチップで表示できます）"
+              : fineCount > 0
               ? "週次以上のルーティーンはありません（毎日以下は上のチェックで表示できます）"
               : "定刻つきのルーティーンがありません（トリガーの起動方式で設定できます）"}
           </p>

@@ -128,6 +128,8 @@ export function PageList({
   const [archiveOpen, setArchiveOpen] = useState(false);
   // ルーティーンの予定カレンダー（2026-08-12 本人要望）。ルーティーン節ヘッダの📅から開く
   const [calendarOpen, setCalendarOpen] = useState(false);
+  // フォルダの行から開いたときの、そのフォルダ（null = ルーティーン節のボタンから＝全体）
+  const [calendarFolder, setCalendarFolder] = useState<string | null>(null);
   // レール自体の開閉（2026-07-31 本人要望）。閉じると細い縦帯だけ残す
   const [railOpen, setRailOpen] = useState(() => loadUiState("gw.railOpen") !== "0");
   const toggleRail = () =>
@@ -184,6 +186,10 @@ export function PageList({
             count={children.length}
             dnd={dnd}
             actions={actions}
+            onOpenCalendar={() => {
+              setCalendarFolder(f.id);
+              setCalendarOpen(true);
+            }}
           >
             {children.map((c) => renderRow(c, false, true))}
           </FolderRow>
@@ -315,7 +321,10 @@ export function PageList({
                   variant="ghost"
                   size="icon"
                   className="size-5 flex-shrink-0 text-text-lo hover:text-foreground"
-                  onClick={() => setCalendarOpen(true)}
+                  onClick={() => {
+                    setCalendarFolder(null);
+                    setCalendarOpen(true);
+                  }}
                 >
                   <CalendarDays className="size-3.5" />
                 </Button>
@@ -369,6 +378,7 @@ export function PageList({
         onOpenChange={setCalendarOpen}
         allNodes={allNodes}
         pageRuns={pageRuns}
+        focusFolderId={calendarFolder}
         onOpenPage={(pid) => {
           setCalendarOpen(false);
           onSelectPage(pid);

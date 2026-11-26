@@ -29,8 +29,13 @@ export interface CalendarTrigger {
   description: string;
   /** 「毎日以下」の細かい頻度か（既定フィルタで隠す対象） */
   fine: boolean;
+  /** そのページが入っているフォルダの id（フォルダの外なら NO_FOLDER）。フォルダごとの表示切替に使う */
+  folderId: string;
   parsed: ParsedSchedule;
 }
+
+/** フォルダに入っていないページを表すキー（フォルダ id と衝突しない値） */
+export const NO_FOLDER = "";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
@@ -70,6 +75,7 @@ export function collectCalendarTriggers(allNodes: Node[]): CalendarTrigger[] {
     out.push({
       triggerId: n.id,
       pageId: page.id,
+      folderId: page.folder ?? NO_FOLDER,
       pageTitle: page.title || "（無題）",
       time,
       label: time ?? description,
@@ -218,10 +224,13 @@ export function buildMonthCells(
   pageRuns: Record<string, Run[]>,
   today: Date,
   showFine: boolean,
+  /** 表示しないフォルダ（id の集合。NO_FOLDER も入りうる）。省略時は全部表示 */
+  hiddenFolders: ReadonlySet<string> = new Set(),
 ): Map<number, CalendarTrigger[]> {
   const cells = new Map<number, CalendarTrigger[]>();
   for (const t of triggers) {
     if (t.fine && !showFine) continue;
+    if (hiddenFolders.has(t.folderId)) continue;
     const days = occurrenceDays(t.parsed, year, monthIndex, {
       latestRunCreated: latestRunCreatedOf(pageRuns, t.pageId, t.triggerId),
       today,

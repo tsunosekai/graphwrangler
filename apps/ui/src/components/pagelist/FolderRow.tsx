@@ -2,7 +2,7 @@
 // 入れ物。棚はページを束ねるだけでグラフ・実行・ランには関与しない（docs/design.md 3.1）。
 // 右クリックは行の✎🗑と同じ操作を出すだけ（ボタンは残す。2026-08-09）。
 import type { ReactNode } from "react";
-import { Bell, BellOff, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { Bell, BellOff, CalendarDays, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import type { RailDnd } from "../../hooks/useRailDnd";
 import { cn } from "../../lib/utils";
 import type { Node } from "../../types";
@@ -21,12 +21,16 @@ interface Props {
   count: number;
   dnd: RailDnd;
   actions: PageActions;
+  /** このフォルダのルーティーンだけを表示して、予定カレンダーを開く（ルーティーンの節のフォルダだけ使う） */
+  onOpenCalendar?: () => void;
   /** 中のページ行（open のときだけ描く） */
   children: ReactNode;
 }
 
-export function FolderRow({ f, open, onToggle, count, dnd, actions, children }: Props) {
+export function FolderRow({ f, open, onToggle, count, dnd, actions, onOpenCalendar, children }: Props) {
   const section = shelfSectionOf(f);
+  // 予定カレンダーはルーティーンのもの。プロジェクトの節のフォルダには出さない
+  const calendar = section === "routine" ? onOpenCalendar : undefined;
   return (
     <div className="flex flex-col gap-px">
       <ContextMenu>
@@ -67,6 +71,26 @@ export function FolderRow({ f, open, onToggle, count, dnd, actions, children }: 
                 <BellOff className="size-3" />
               </span>
             )}
+            {calendar && (
+              <Hint
+                id="folder-calendar"
+                always="このフォルダの予定カレンダー"
+                text="このフォルダのルーティーンだけを表示して、予定カレンダーを開く"
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn("size-5 flex-shrink-0 text-text-lo hover:text-foreground", ROW_ACTION)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    calendar();
+                  }}
+                >
+                  <CalendarDays className="size-3" />
+                </Button>
+              </Hint>
+            )}
             <Hint id="folder-rename" always="フォルダ名を変更">
               <Button
                 type="button"
@@ -105,6 +129,11 @@ export function FolderRow({ f, open, onToggle, count, dnd, actions, children }: 
           <ContextMenuItem onSelect={() => void actions.renameFolder(f)}>
             <Pencil className="size-3.5" /> 名前を変更
           </ContextMenuItem>
+          {calendar && (
+            <ContextMenuItem onSelect={() => calendar()}>
+              <CalendarDays className="size-3.5" /> 予定カレンダー
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onSelect={() => void actions.setMuted(f, f.muted !== true)}>
             {f.muted === true ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
             {f.muted === true ? "通知を戻す" : "通知を切る（中の全ページ）"}
