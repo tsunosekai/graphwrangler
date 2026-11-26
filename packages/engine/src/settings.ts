@@ -31,6 +31,8 @@ export function configFor(node: Pick<Node, "id" | "group" | "aiModel" | "aiEffor
     effort: node.aiEffort ?? scope.effort ?? engineConfig.effort,
     extraTools: scope.tools ?? engineConfig.extraTools,
     addDirs: scope.dirs ?? engineConfig.addDirs,
+    // ブラウザの操作はフォルダで ON にしたところだけ（全体の設定は無い。3.24b）
+    browser: scope.browser === true,
   };
 }
 

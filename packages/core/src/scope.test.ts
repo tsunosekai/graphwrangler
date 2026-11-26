@@ -7,6 +7,21 @@ const graph = (nodes: ScopeNode[]) => {
 };
 
 describe("folderAiScope", () => {
+  it("ブラウザの操作は、いちばん近い設定のあるフォルダが true のときだけ付く", () => {
+    const byId = graph([
+      { id: "outer", aiBrowser: true },
+      { id: "inner", folder: "outer" },
+      { id: "off", folder: "outer", aiBrowser: false },
+      { id: "p1", folder: "inner" },
+      { id: "p2", folder: "off" },
+      { id: "p3", folder: null },
+      { id: "t1", group: "p1" },
+    ]);
+    expect(folderAiScope(byId("t1"), byId).browser).toBe(true);
+    expect(folderAiScope(byId("p2"), byId).browser).toBeUndefined();
+    expect(folderAiScope(byId("p3"), byId).browser).toBeUndefined();
+  });
+
   it("フォルダに入っていない、または設定の無いフォルダなら、全部「全体の設定に従う」", () => {
     const byId = graph([
       { id: "page", folder: null },

@@ -84,6 +84,7 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
   const [dirsText, setDirsText] = useState((folder.aiDirs ?? []).join("\n"));
   const [ownTools, setOwnTools] = useState(Array.isArray(folder.aiTools));
   const [toolsText, setToolsText] = useState((folder.aiTools ?? []).join("\n"));
+  const [browser, setBrowser] = useState(folder.aiBrowser === true);
   const [model, setModel] = useState(folder.aiModel ?? INHERIT);
   const [effort, setEffort] = useState<string>(folder.aiEffort ?? INHERIT);
   const [muted, setMuted] = useState(folder.muted === true);
@@ -108,6 +109,8 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
         ...(title.trim() && title.trim() !== folder.title ? { title: title.trim() } : {}),
         aiDirs: ownDirs ? toList(dirsText) : null,
         aiTools: ownTools ? toList(toolsText) : null,
+        // 変えていなければ送らない（未設定のまま＝外側のフォルダの設定に従う、を保つ）
+        ...(browser !== (folder.aiBrowser === true) ? { aiBrowser: browser } : {}),
         aiModel: model === INHERIT ? null : model,
         aiEffort: effort === INHERIT ? null : (effort as Node["aiEffort"]),
         muted,
@@ -208,6 +211,18 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
               </span>
             </p>
           )}
+        </div>
+
+        <div className={section}>
+          <div className="flex items-center justify-between gap-2">
+            <span className={heading}>AI にブラウザを操作させる</span>
+            <Switch checked={browser} onCheckedChange={setBrowser} aria-label="AI にブラウザを操作させる" />
+          </div>
+          <p className={note}>
+            ON にすると、このフォルダの中の AI のノードが、Claude の拡張を入れたブラウザ（いま開いているもの）でページを開いて
+            読んだり操作したりできます。ログイン済みのサイトにも届くので、必要なフォルダだけ ON にしてください。
+            効くのは実行AIだけです（ノードの会話・全体チャットには効きません）。
+          </p>
         </div>
 
         <div className={section}>

@@ -21,6 +21,19 @@ describe("configFor（フォルダごとの AI 設定。3.24）", () => {
     const outside = configFor({ id: "t3", group: "free", aiModel: null, aiEffort: null });
     expect(outside.addDirs).toEqual(engineConfig.addDirs);
     expect(outside.model).toBe(engineConfig.model);
+    expect(inShelf.browser).toBe(false);
+    expect(outside.browser).toBe(false);
+    setScopeNodes([]);
+  });
+
+  it("ブラウザの操作は、フォルダで ON にしたところだけ", () => {
+    setScopeNodes([
+      { id: "shelf", aiBrowser: true },
+      { id: "page", folder: "shelf" },
+      { id: "free", folder: null },
+    ]);
+    expect(configFor({ id: "t1", group: "page", aiModel: null, aiEffort: null }).browser).toBe(true);
+    expect(configFor({ id: "t2", group: "free", aiModel: null, aiEffort: null }).browser).toBe(false);
     setScopeNodes([]);
   });
 });

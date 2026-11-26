@@ -222,6 +222,9 @@ export const NodeSchema = z.object({
   aiDirs: z.array(z.string().min(1).max(500)).max(50).nullable().optional(),
   /** 棚用: 中のページで動く AI に追加で許可するツール（MCP など。3.24）。設定したら全体の設定の代わり */
   aiTools: z.array(z.string().min(1).max(200)).max(100).nullable().optional(),
+  /** 棚用: 中のページの実行AIにブラウザ（Claude in Chrome の拡張）を操作させる（3.24b）。
+   *  true のフォルダだけ。未設定（null・無し）・false なら渡さない。全体の設定は無い */
+  aiBrowser: z.boolean().nullable().optional(),
   /** kind=wait 用の待ち方（"after 8d 09:00" / "after 3h" / "until monthly day 9 09:00"。
    *  文法の正本は wait.ts）。順番が回ってきたらこの待ち方で明ける時刻を決め、時刻が来たら
    *  エンジンが自動で完了にする（3.17）。それ以外の kind では null */

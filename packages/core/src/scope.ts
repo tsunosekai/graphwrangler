@@ -10,6 +10,7 @@
 //                空の配列は「ワークスペースの中だけ」
 //   - aiTools … 追加で許可するツール（MCP など）。これも設定したら全体の設定の代わり
 //   - aiModel / aiEffort … 中のノードの既定のモデル・思考の深さ（ノード自身の指定が優先）
+//   - aiBrowser … 実行AIにブラウザ（Claude in Chrome の拡張）を操作させる（3.24b）。true のときだけ
 //
 // 入れ子のフォルダは、項目ごとに「いちばん近い、設定のあるフォルダ」の値を使う。
 // 実行AI（engine）・ノードの会話の AI・全体チャットの3つが同じこの関数で決める。
@@ -22,6 +23,7 @@ export interface ScopeNode {
   aiTools?: string[] | null;
   aiModel?: string | null;
   aiEffort?: string | null;
+  aiBrowser?: boolean | null;
 }
 
 export interface FolderAiScope {
@@ -31,6 +33,8 @@ export interface FolderAiScope {
   tools: string[] | null;
   model: string | null;
   effort: string | null;
+  /** ブラウザを操作させる。いちばん近い「設定のあるフォルダ」が true のときだけ付く（無ければ渡さない） */
+  browser?: true;
 }
 
 export const NO_FOLDER_SCOPE: FolderAiScope = { dirs: null, tools: null, model: null, effort: null };
@@ -59,12 +63,17 @@ export function folderAiScope(
   if (!page) return NO_FOLDER_SCOPE;
 
   const out: FolderAiScope = { dirs: null, tools: null, model: null, effort: null };
+  let browserDecided = false;
   let shelf = page.folder ? byId(page.folder) : undefined;
   for (let i = 0; i < 20 && shelf; i++) {
     if (out.dirs === null) out.dirs = cleanList(shelf.aiDirs);
     if (out.tools === null) out.tools = cleanList(shelf.aiTools);
     if (out.model === null && typeof shelf.aiModel === "string" && MODEL_RE.test(shelf.aiModel)) out.model = shelf.aiModel;
     if (out.effort === null && typeof shelf.aiEffort === "string" && EFFORTS.has(shelf.aiEffort)) out.effort = shelf.aiEffort;
+    if (!browserDecided && typeof shelf.aiBrowser === "boolean") {
+      browserDecided = true;
+      if (shelf.aiBrowser) out.browser = true;
+    }
     shelf = shelf.folder ? byId(shelf.folder) : undefined;
   }
   return out;

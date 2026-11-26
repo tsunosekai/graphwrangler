@@ -127,7 +127,18 @@ export interface ClaudeExecutorConfig {
    *  ファイルツールは cwd=workspace root に閉じるため、外のパスはここで開放する
    *  （2026-08-04 本人指示「AI が stremix-document 外も触れるように」） */
   addDirs: string[];
+  /** ブラウザ（Claude in Chrome の拡張）を操作させる（フォルダの設定 aiBrowser。3.24b）。
+   *  true のときだけ、拡張への接続を有効にして mcp__claude-in-chrome のツールを許可する */
+  browser?: boolean;
 }
+
+/** ブラウザ操作を許可するときに足すツール（Claude in Chrome の MCP サーバ全体） */
+export const BROWSER_TOOLS = ["mcp__claude-in-chrome"];
+
+/** ブラウザ操作を有効にする環境変数。**`--chrome` は使わない**——`--chrome` を付けて起動すると、
+ *  拡張の入っていない Google Chrome が毎回立ち上がる（2026-11-26 実測。拡張は Brave にある）。
+ *  この環境変数なら Chrome は起動せず、接続済みのブラウザ（Brave）だけが見える（同日実測） */
+export const BROWSER_ENV = { CLAUDE_CODE_ENABLE_CFC: "1" } as const;
 
 export interface AiPromptInput {
   node: Pick<Node, "title" | "detail" | "impl" | "outputs">;
@@ -310,6 +321,7 @@ export function runClaude(
       ...(mcpConfigFile ? ALLOWED_MCP_TOOLS : []),
       ...ALLOWED_TOOLS,
       ...sanitizeExtraTools(config.extraTools),
+      ...(config.browser ? BROWSER_TOOLS : []),
       // Windows は shell:true で起動するので、空白を含むパスが割れないよう引用符で包む
       ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", q(d)]),
       // 内訳（サブステップ）を復元するため、1行1JSONの詳細ログで出させる（stream_trace.ts）
@@ -348,7 +360,7 @@ export function runClaude(
       child = spawn(config.cliPath, args, {
         ...(isWindows ? { shell: true } : { detached: true }),
         ...(cwd ? { cwd } : {}),
-        env: sanitizedClaudeEnv(),
+        env: config.browser ? { ...sanitizedClaudeEnv(), ...BROWSER_ENV } : sanitizedClaudeEnv(),
         windowsHide: true, // コンソールの無い親（デスクトップ常駐版）の下で黒い窓を出さない
       });
     } catch (err) {
