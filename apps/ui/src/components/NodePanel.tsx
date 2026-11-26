@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { hashForUnread, unreadLocationsForNode } from "../lib/unread";
 import {
   ChevronDown,
   ChevronUp,
@@ -72,6 +73,10 @@ interface Props {
   activeRun: Run | null;
   /** ノードid → 既読時刻（サーバ持ち。2026-08-02 localStorage から移行＝端末間で一致） */
   reads: Record<string, string>;
+  /** 会話キー → 最終メッセージ時刻（未読の場所を示すのに使う）。渡されなければ示さない */
+  threadMeta?: Record<string, string>;
+  /** ランの id → 名前（未読がランの会話にあるとき、どのランかを書くため） */
+  runTitles?: Record<string, string>;
   /** ランのページを見ているか（2026-08-08 本人指定「ランは個別ページ」）。非 null のとき:
    *  - node はそのランのフォーク（ラン作成時点の中身）＝やり方の編集はできない
    *  - 会話・実行履歴もそのランのものだけを出し、書き込みもそのランに属する */
@@ -109,6 +114,8 @@ export function NodePanel({
   allNodes,
   activeRun,
   reads,
+  threadMeta,
+  runTitles,
   runView = null,
   onViewed,
   onMutated,
@@ -510,6 +517,14 @@ export function NodePanel({
   // 手順は Markdown で。編集フォームは「編集」を押したときだけ出す（2026-11-24 本人要望
   // 「計画済みにしたらスッキリした画面に」）。下書きは組み立て中なのでフォームのまま。
   // ランの表示は記録を読む場面なので常に「読む」側から始める
+  // このページのメンバーで未読のある場所（ページを開いているときだけ。ランの表示では出さない——
+  // そこではカードの未読ドットがそのまま場所を示している）
+  const unreadHere =
+    threadMeta && !runView && (node.kind === "goal" || allNodes.some((n) => n.group === node.id))
+      ? allNodes
+          .filter((n) => n.group === node.id)
+          .flatMap((n) => unreadLocationsForNode(n.id, threadMeta, reads).map((u) => ({ ...u, title: n.title })))
+      : [];
   // 進捗・実装・出力の3節は、フォームと「読む」表示で同じものを使う
   const statusSection = (
     <StatusSection
@@ -658,6 +673,29 @@ export function NodePanel({
           }
         }}
       />
+
+      {/* ページ（プロジェクト／ルーティーン）を開いているとき、未読がどのノードにあるかを並べる。
+          左のバッジは「このページのどこかに新しいことがある」しか言わないので、開いた先で
+          行き先を示す（2026-11-26 本人指摘「結局どこ見ればいいのかわからない」）。押すとそこへ飛ぶ */}
+      {unreadHere.length > 0 && (
+        <div className="flex flex-shrink-0 flex-col gap-1 rounded-md border border-ai/40 bg-ai/5 px-3 py-2 text-sm">
+          <span className="text-xs text-text-lo">未読はここ（{unreadHere.length} 件）</span>
+          {unreadHere.slice(0, 8).map((u) => (
+            <a
+              key={`${u.nodeId}@${u.runId ?? ""}`}
+              href={hashForUnread(node.id, u)}
+              className="flex items-center gap-1.5 hover:underline"
+            >
+              <span className="size-1.5 flex-shrink-0 rounded-full bg-ai" />
+              <span className="truncate">
+                {u.runId ? `${runTitles?.[u.runId] ?? "ラン"} › ` : ""}
+                {u.title || "（無題）"}
+              </span>
+            </a>
+          ))}
+          {unreadHere.length > 8 && <span className="text-xs text-text-lo">ほか {unreadHere.length - 8} 件</span>}
+        </div>
+      )}
 
       <DecisionChoice
         node={node}

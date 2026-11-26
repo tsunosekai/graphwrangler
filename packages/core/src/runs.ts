@@ -100,6 +100,11 @@ export class RunStore {
     return path.join(this.runsDir, `${runId}.json`);
   }
 
+  /** いま存在するランの id 一覧（未読の集計が「もう無いランの会話」を数えないために使う） */
+  ids(): string[] {
+    return this.existingIds();
+  }
+
   /** 既存ランidの一覧（ファイル名から拡張子を除いたもの）。id採番に使う */
   private existingIds(): string[] {
     ensureDir(this.runsDir);

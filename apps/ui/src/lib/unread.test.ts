@@ -2,6 +2,7 @@
 // （"<ノードid>" / "<ノードid>@<ランid>"）と「初見＝未読」の規約を固める。
 import { describe, expect, it } from "vitest";
 import { isUnreadKey, threadKey, unreadCountForNode } from "./unread";
+import { hashForUnread, unreadLocationsForNode } from "./unread";
 
 describe("threadKey", () => {
   it("ラン指定なしはノードid そのもの（テンプレート側の会話）", () => {
@@ -57,5 +58,20 @@ describe("unreadCountForNode", () => {
 
   it("会話が1つも無ければ 0", () => {
     expect(unreadCountForNode("n1", {}, {})).toBe(0);
+  });
+});
+
+describe("unreadLocationsForNode / hashForUnread（未読の出どころ）", () => {
+  const meta = { n1: "2026-01-02", "n1@r1": "2026-01-03", "n1@r2": "2026-01-01", n10: "2026-01-05" };
+  it("テンプレート側と各ランの未読を、場所として列挙する（前方一致の別ノードは混ぜない）", () => {
+    const locs = unreadLocationsForNode("n1", meta, { "n1@r2": "2026-01-01" });
+    expect(locs).toEqual([
+      { nodeId: "n1", runId: null },
+      { nodeId: "n1", runId: "r1" },
+    ]);
+  });
+  it("ランの会話はランのページの中のノードへ、それ以外はページの中のノードへ飛ぶ", () => {
+    expect(hashForUnread("p1", { nodeId: "n1", runId: null })).toBe("#/p/p1/n/n1");
+    expect(hashForUnread("p1", { nodeId: "n1", runId: "r1" })).toBe("#/r/r1/n/n1");
   });
 });

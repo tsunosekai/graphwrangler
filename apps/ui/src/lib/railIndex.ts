@@ -5,7 +5,7 @@
 // 行の描画はどちらも引いた件数ぶんで済み、全体で O(全ノード + threadMeta のキー数 + ページ数)
 // になる。集合の中身は素朴な走査と同じ——出る数も色も変えないための索引でしかない。
 import type { Node } from "../types";
-import { isUnreadKey } from "./unread";
+import { isUnreadKey, unreadLocationsForNode, type UnreadLocation } from "./unread";
 
 /** 引くたびに空配列を作らないための共有の空（返り値は読み取り専用に扱う） */
 const NO_NODES: Node[] = [];
@@ -24,6 +24,8 @@ export interface RailIndex {
   readKeysForPage(pageId: string): string[];
   /** そのノードの未読数（テンプレート側 + 全ランぶん）。lib/unread.ts の unreadCountForNode と同じ */
   unreadCount(nodeId: string, reads: Record<string, string>): number;
+  /** そのノードの未読のある場所（テンプレート側 + 各ラン）。バッジから飛ぶ先を決めるのに使う */
+  unreadLocations(nodeId: string, reads: Record<string, string>): UnreadLocation[];
 }
 
 export function buildRailIndex(allNodes: Node[], threadMeta: Record<string, string>): RailIndex {
@@ -73,6 +75,9 @@ export function buildRailIndex(allNodes: Node[], threadMeta: Record<string, stri
       let count = 0;
       for (const key of keysOf(nodeId)) if (isUnreadKey(key, threadMeta, reads)) count += 1;
       return count;
+    },
+    unreadLocations(nodeId: string, reads: Record<string, string>): UnreadLocation[] {
+      return unreadLocationsForNode(nodeId, threadMeta, reads);
     },
   };
 }

@@ -32,6 +32,9 @@ export function graphRoutes(ctx: AppContext): Hono {
     // （2026-08-08 本人指摘「テンプレートのノードにも通知が出るが、こちらに新情報は無い」）。
     // ランで起きたことでテンプレートのノードを未読にしない＝通知もフォークする
     const threadMeta: Record<string, string> = {};
+    // もう存在しないランの会話は未読にしない（2026-11-26 実害: ランを消したあとも、そのランに
+    // 属する発言が未読として残り、ページに「1」が出るのに開ける場所がどこにも無かった）
+    const liveRuns = new Set(runs.ids());
     for (const n of graph.state().nodes) {
       for (const m of threads.list(n.id)) {
         // 実行履歴（kind=status: 状態遷移・ラン作成・実行成否）は未読にしない
@@ -39,6 +42,7 @@ export function graphRoutes(ctx: AppContext): Hono {
         //  会話・質問・成果物＝say / decision_request / decision_answer / artifact だけ数える）
         if (m.kind === "status") continue;
         const rid = runIdOf(m);
+        if (rid && !liveRuns.has(rid)) continue;
         threadMeta[rid ? `${n.id}@${rid}` : n.id] = m.ts; // 時系列順なので最後の代入が最新
       }
     }

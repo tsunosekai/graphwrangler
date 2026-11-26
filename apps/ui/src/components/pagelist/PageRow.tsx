@@ -4,6 +4,7 @@
 // （＝パネル・台帳・ドラッグと同じ api・同じ確認文）。該当しない項目は disabled にせず
 // 出さない（メニューを短く保つ）——例外は「既読にする」で、押しても意味が無いだけなので残す。
 import { Archive, ArchiveRestore, CheckCheck, Folder, FolderInput, Pencil, Play, Trash2 } from "lucide-react";
+import { hashForUnread } from "../../lib/unread";
 import type { RailDnd } from "../../hooks/useRailDnd";
 import { hasUnread } from "../../lib/actions";
 import { HINT_TEXT } from "../../lib/hints";
@@ -82,6 +83,17 @@ export function PageRow({
   const unreadCount = [f.id, ...members.map((n) => n.id)]
     .map((id) => rail.unreadCount(id, reads))
     .reduce((a, b) => a + b, 0);
+  // バッジを押したら、未読のある場所（ノード。ランの会話ならそのランの中）へ直接飛ぶ
+  // （2026-11-26 本人指摘「プロジェクトとかルーティン開いて結局どこ見ればいいのかわからない」）
+  const jumpToUnread = () => {
+    for (const id of [...members.map((n) => n.id), f.id]) {
+      const loc = rail.unreadLocations(id, reads)[0];
+      if (loc) {
+        window.location.hash = hashForUnread(f.id, loc);
+        return;
+      }
+    }
+  };
 
   // ページ行のドットはテンプレート（メンバーノード）構成。ルーティーンも同じ規則で、
   // ランの進捗は下のラン子行が持つ（2026-08-08 本人確認済みの分担）
@@ -217,12 +229,19 @@ export function PageRow({
               {unreadCount > 0 && (
                 <Hint
                   id="unread"
-                  always={`未読メッセージのあるノード ${unreadCount} 件`}
+                  always={`未読メッセージのあるノード ${unreadCount} 件（押すとその場所を開く）`}
                   text={HINT_TEXT.unread}
                 >
-                  <span className="flex-shrink-0 rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white">
+                  <button
+                    type="button"
+                    className="flex-shrink-0 cursor-pointer rounded-full bg-ai px-1.5 text-[10px] font-semibold leading-4 text-white hover:brightness-110"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      jumpToUnread();
+                    }}
+                  >
                     {unreadCount}
-                  </span>
+                  </button>
                 </Hint>
               )}
             </span>

@@ -37,3 +37,30 @@ export function unreadCountForNode(
   }
   return count;
 }
+
+/** 未読のある場所1件。runId が null ならテンプレート（設計図）側の会話 */
+export interface UnreadLocation {
+  nodeId: string;
+  runId: string | null;
+}
+
+/** そのノードの未読のある場所（テンプレート側 + 各ラン）を列挙する */
+export function unreadLocationsForNode(
+  nodeId: string,
+  threadMeta: Record<string, string>,
+  reads: Record<string, string>,
+): UnreadLocation[] {
+  const out: UnreadLocation[] = [];
+  const prefix = `${nodeId}@`;
+  for (const key of Object.keys(threadMeta)) {
+    if (key !== nodeId && !key.startsWith(prefix)) continue;
+    if (!isUnreadKey(key, threadMeta, reads)) continue;
+    out.push({ nodeId, runId: key === nodeId ? null : key.slice(prefix.length) });
+  }
+  return out;
+}
+
+/** その場所を開く URL（ハッシュ）。ランの会話はランのページの中のノード、それ以外はページの中のノード */
+export function hashForUnread(pageId: string, loc: UnreadLocation): string {
+  return loc.runId ? `#/r/${loc.runId}/n/${loc.nodeId}` : `#/p/${pageId}/n/${loc.nodeId}`;
+}

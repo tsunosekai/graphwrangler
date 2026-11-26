@@ -496,6 +496,12 @@ function AppInner() {
   // モバイルの実効ビュー: 「ノード」ビューで表示できるものが無ければグラフへ倒す
   // （選択解除・削除直後に空画面へ取り残されないように）。デスクトップは null（全ペイン共存）
   const hasNodeView = selectedIds.length > 1 || panelNode !== null;
+  /** ランの id → 名前（右パネルが「未読はどのランか」を書くのに使う） */
+  const runTitles = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const list of Object.values(railRuns)) for (const r of list) out[r.id] = r.title;
+    return out;
+  }, [railRuns]);
   /** 右の列を、ノード（または複数選択の一括操作）が使っているか */
   const columnHasSelection = selectedIds.length > 1 || !!panelNode;
   const mv: MobileView | null = isMobile ? (mobileView === "node" && !hasNodeView ? "graph" : mobileView) : null;
@@ -623,6 +629,8 @@ function AppInner() {
                 activeRun={activeRun}
                 runView={inRunPage && openRun ? { id: openRun.id, title: openRun.title } : null}
                 reads={reads}
+                threadMeta={threadMeta}
+                runTitles={runTitles}
                 onViewed={markViewed}
                 onMutated={handleMutated}
                 onClose={() => {
