@@ -11,7 +11,7 @@
 //   選び直せる（選んだ色はフォルダに持つ＝どの端末でも同じ。lib/folderColor.ts）
 // - フォルダの行から開いたときは、**そのフォルダだけ**を表示した状態で開く。これは一時的な絞り込みで、
 //   覚えている表示設定は書き換えない（フォルダから1回覗いただけで、普段の表示が変わらないように）
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { loadUiState, saveUiState } from "../hooks/uiState";
 import {
@@ -19,6 +19,7 @@ import {
   assignFolderColors,
   folderColorSolid,
   folderColorStyle,
+  isCustomFolderColor,
   isFolderColorKey,
 } from "../lib/folderColor";
 import { optimisticPatchNode } from "../lib/optimistic";
@@ -27,6 +28,31 @@ import { cn } from "../lib/utils";
 import type { Node, Run } from "../types";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+
+/** カラーピッカー。React の onChange は動かしている間じゅう発火する（＝input イベント）ので、
+ *  選び終えたときだけ知らせるよう、ブラウザの change イベントを直接聞く */
+function CommitColorInput({ initial, onCommit }: { initial: string; onCommit: (hex: string) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onChange = () => commitRef.current(el.value);
+    el.addEventListener("change", onChange);
+    return () => el.removeEventListener("change", onChange);
+  }, []);
+  return (
+    <input
+      ref={ref}
+      type="color"
+      data-folder-color-custom
+      aria-label="好きな色を選ぶ"
+      className="size-4 cursor-pointer border-0 bg-transparent p-0"
+      defaultValue={initial}
+    />
+  );
+}
 
 const DOW_HEADER = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -242,6 +268,26 @@ export function RoutineCalendarDialog({
                 onClick={() => setFolderColor(colorPickFor, c.key)}
               />
             ))}
+            {/* 見本に無い色はカラーピッカーで。選び終えたとき（change）に保存する——動かしている
+                間（input）は保存しない */}
+            <label
+              className={cn(
+                "ml-1 inline-flex cursor-pointer items-center gap-1 rounded-full border border-border py-0.5 pl-1 pr-2 text-text-lo hover:text-foreground",
+                isCustomFolderColor(chosenColor.get(colorPickFor)) && "border-foreground text-foreground",
+              )}
+              title="見本に無い色を自由に選ぶ"
+            >
+              <CommitColorInput
+                key={colorPickFor}
+                initial={
+                  isCustomFolderColor(chosenColor.get(colorPickFor))
+                    ? (chosenColor.get(colorPickFor) as string)
+                    : "#4f8ef7"
+                }
+                onCommit={(hex) => setFolderColor(colorPickFor, hex)}
+              />
+              好きな色
+            </label>
             <button
               type="button"
               className="ml-1 text-text-lo underline hover:text-foreground"
