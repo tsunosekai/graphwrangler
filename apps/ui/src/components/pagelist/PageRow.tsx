@@ -301,12 +301,13 @@ export function PageRow({
                 </Hint>
               )}
             </span>
-            {dots.length > 0 && (
-              <span className="flex flex-wrap items-center gap-[3px] pl-5">
-                {shown.map(dotEl)}
-                {rest > 0 && <span className="font-mono text-xs text-text-lo">+{rest}</span>}
-              </span>
-            )}
+            {/* ドットの行は、ドットが無いページにも同じ高さで置く（2026-11-26 本人要望「ぽちぽちや
+                ランの有無にかかわらず縦幅をそろえてほしい」）。折り返すと高さが変わるので1行に
+                固定し、はみ出したぶんは切る（粒は MAX_DOTS まで。超えたぶんは +n） */}
+            <span className="flex h-[6px] flex-nowrap items-center gap-[3px] overflow-hidden pl-5">
+              {shown.map(dotEl)}
+              {rest > 0 && <span className="font-mono text-[9px] leading-none text-text-lo">+{rest}</span>}
+            </span>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
