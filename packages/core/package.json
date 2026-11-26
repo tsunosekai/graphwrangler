@@ -12,7 +12,8 @@
     "./wait": "./src/wait.ts",
     "./prep": "./src/prep.ts",
     "./holidays": "./src/holidays.ts",
-    "./turn": "./src/turn.ts"
+    "./turn": "./src/turn.ts",
+    "./scope": "./src/scope.ts"
   },
   "scripts": {
     "test": "vitest run",

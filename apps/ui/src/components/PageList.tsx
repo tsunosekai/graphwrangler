@@ -40,6 +40,7 @@ import type { Node, Run } from "../types";
 import { Button } from "./ui/button";
 import { Hint } from "./Hint";
 import { FolderRow } from "./pagelist/FolderRow";
+import { FolderSettingsDialog } from "./pagelist/FolderSettingsDialog";
 import { RoutineCalendarDialog } from "./RoutineCalendar";
 import { PageRow } from "./pagelist/PageRow";
 import { PersonFilter, usePersonFilter } from "./pagelist/PersonFilter";
@@ -130,6 +131,8 @@ export function PageList({
   const [calendarOpen, setCalendarOpen] = useState(false);
   // フォルダの行から開いたときの、そのフォルダ（null = ルーティーン節のボタンから＝全体）
   const [calendarFolder, setCalendarFolder] = useState<string | null>(null);
+  // フォルダの設定ダイアログ（開いているフォルダの id）
+  const [settingsFolderId, setSettingsFolderId] = useState<string | null>(null);
   // レール自体の開閉（2026-07-31 本人要望）。閉じると細い縦帯だけ残す
   const [railOpen, setRailOpen] = useState(() => loadUiState("gw.railOpen") !== "0");
   const toggleRail = () =>
@@ -190,6 +193,7 @@ export function PageList({
               setCalendarFolder(f.id);
               setCalendarOpen(true);
             }}
+            onOpenSettings={() => setSettingsFolderId(f.id)}
           >
             {children.map((c) => renderRow(c, false, true))}
           </FolderRow>
@@ -373,6 +377,13 @@ export function PageList({
           </>
         )}
       </div>
+      <FolderSettingsDialog
+        folder={settingsFolderId ? (allNodes.find((n) => n.id === settingsFolderId && n.kind === "folder") ?? null) : null}
+        allNodes={allNodes}
+        onOpenChange={(o) => {
+          if (!o) setSettingsFolderId(null);
+        }}
+      />
       <RoutineCalendarDialog
         open={calendarOpen}
         onOpenChange={setCalendarOpen}

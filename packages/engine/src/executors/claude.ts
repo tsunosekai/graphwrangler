@@ -310,7 +310,8 @@ export function runClaude(
       ...(mcpConfigFile ? ALLOWED_MCP_TOOLS : []),
       ...ALLOWED_TOOLS,
       ...sanitizeExtraTools(config.extraTools),
-      ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", d]),
+      // Windows は shell:true で起動するので、空白を含むパスが割れないよう引用符で包む
+      ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", q(d)]),
       // 内訳（サブステップ）を復元するため、1行1JSONの詳細ログで出させる（stream_trace.ts）
       "--output-format",
       "stream-json",

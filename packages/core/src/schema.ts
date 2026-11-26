@@ -216,6 +216,12 @@ export const NodeSchema = z.object({
   /** 棚（kind=folder）用: 予定カレンダーでの色の名前（3.20d。"blue" など。色の一覧と実際の色は
    *  UI の lib/folderColor.ts）。未設定（null・無し）なら UI が棚ごとに自動で色を割り当てる */
   color: z.string().max(24).nullable().optional(),
+  /** 棚（kind=folder）用: 中のページで動く AI の追加の作業場所（3.24。scope.ts）。
+   *  設定したら全体の設定（ai.addDirs）の代わりにこれだけを使う。空配列＝ワークスペースの中だけ。
+   *  未設定（null・無し）なら全体の設定に従う */
+  aiDirs: z.array(z.string().min(1).max(500)).max(50).nullable().optional(),
+  /** 棚用: 中のページで動く AI に追加で許可するツール（MCP など。3.24）。設定したら全体の設定の代わり */
+  aiTools: z.array(z.string().min(1).max(200)).max(100).nullable().optional(),
   /** kind=wait 用の待ち方（"after 8d 09:00" / "after 3h" / "until monthly day 9 09:00"。
    *  文法の正本は wait.ts）。順番が回ってきたらこの待ち方で明ける時刻を決め、時刻が来たら
    *  エンジンが自動で完了にする（3.17）。それ以外の kind では null */

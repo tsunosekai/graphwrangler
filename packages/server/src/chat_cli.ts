@@ -3,6 +3,7 @@
 // tool-calling（chat.ts の add_node 等）ではなく、自前の MCP サーバ（packages/mcp）を
 // CLI に接続して行わせる。そのため via は "mcp"（actor:{kind:"agent",name:"mcp"}）になる。「チャットAI＝via:chat」という慣例からは外れるが、
 // CLI 経由の唯一の操作口が MCP である以上この帰属が実態を正しく表しているので許容する。
+import { aiScopeFor } from "./ai_scope.js";
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -581,11 +582,15 @@ export function handleChatCli(
   const pageId = body.pageId ?? null;
   const { cliPath, cliModel, cliEffort, cliExtraTools } = settings.get().chat;
   const { addDirs: settingsAddDirs } = settings.get().ai;
-  const addDirs = attachmentsDir ? [...settingsAddDirs, attachmentsDir] : settingsAddDirs;
+  // フォルダごとの AI 設定（3.24）: 表示中のページが入っているフォルダの設定を当てる。
+  // ページを開いていない全体チャットは全体の設定のまま
+  const scope = aiScopeFor(graph, pageId);
+  const baseDirs = scope.dirs ?? settingsAddDirs;
+  const addDirs = attachmentsDir ? [...baseDirs, attachmentsDir] : baseDirs;
   // この会話でのモデル/エフォート上書き（ChatDrawer のセレクタ → body。2026-08-07）。
   // 不正値はサニタイズで落ちて設定の既定に戻る
-  const model = sanitizeModelOverride(body.model) ?? cliModel;
-  const effort = sanitizeEffortOverride(body.effort) ?? cliEffort;
+  const model = sanitizeModelOverride(body.model) ?? scope.model ?? cliModel;
+  const effort = sanitizeEffortOverride(body.effort) ?? scope.effort ?? cliEffort;
   const system = [
     systemPrompt(graph, threads, pageId, body.selectedNodeId ?? null),
     "グラフの操作（ノード作成・更新・削除・スレッド投稿等）は graphwrangler の MCP ツールで行うこと。",
@@ -624,7 +629,7 @@ export function handleChatCli(
         mcpConfigFile,
         controller,
         encoder,
-        cliExtraTools,
+        scope.tools ?? cliExtraTools,
         addDirs,
         stopper.signal,
         effort,

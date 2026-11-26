@@ -4,7 +4,7 @@
 // 常駐ループ・プロセス終了はエントリの main.ts が持つ（このモジュールは import しても
 // 何も起きない＝テストから tick を直接呼べる状態に保つこと）。
 import { getState, heartbeat } from "./api.js";
-import { refreshEngineConfig, refreshWorkspaceInfo } from "./settings.js";
+import { refreshEngineConfig, refreshWorkspaceInfo, setScopeNodes } from "./settings.js";
 import { noteServerVersion } from "./selfRestart.js";
 import { tickProjectPrep } from "./prep.js";
 import { tickDecision } from "./tickDecision.js";
@@ -26,6 +26,7 @@ export async function tick(): Promise<void> {
     .catch(() => {});
 
   const { nodes } = await getState();
+  setScopeNodes(nodes);
 
   await triggerTick(nodes);
 

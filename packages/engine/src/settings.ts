@@ -1,5 +1,6 @@
 // サーバ設定への追随（エンジンAI設定とワークスペースモード）。どちらも「起動時+10分ごとに
 // 取得し、失敗したら前回値のまま継続する」同じ作法なのでここに束ねる。
+import { type ScopeNode, folderAiScope } from "@graphwrangler/core/scope";
 import { getSettings, getWorkspace } from "./api.js";
 import { log } from "./log.js";
 import type { ClaudeExecutorConfig } from "./executors/claude.js";
@@ -20,12 +21,23 @@ const DEFAULT_ENGINE_CONFIG: ClaudeExecutorConfig = {
 
 /** ノード側の aiModel/aiEffort（2026-08-07 切替機能）を設定の既定へ重ねた実行時設定。
  *  null（未指定）のフィールドだけ engineConfig に従う */
-export function configFor(node: Pick<Node, "aiModel" | "aiEffort">): ClaudeExecutorConfig {
+export function configFor(node: Pick<Node, "id" | "group" | "aiModel" | "aiEffort">): ClaudeExecutorConfig {
+  // フォルダごとの AI 設定（3.24）: 作業場所とツールは、フォルダに設定があれば全体の設定の代わりに使う。
+  // モデルと深さは ノード > フォルダ > 全体 の順
+  const scope = folderAiScope(node, (id) => scopeNodes.get(id));
   return {
     ...engineConfig,
-    model: node.aiModel ?? engineConfig.model,
-    effort: node.aiEffort ?? engineConfig.effort,
+    model: node.aiModel ?? scope.model ?? engineConfig.model,
+    effort: node.aiEffort ?? scope.effort ?? engineConfig.effort,
+    extraTools: scope.tools ?? engineConfig.extraTools,
+    addDirs: scope.dirs ?? engineConfig.addDirs,
   };
+}
+
+// フォルダの設定を引くための、いまのグラフ（ページとフォルダを辿るのに使う）。tick のたびに差し替える
+let scopeNodes = new Map<string, ScopeNode>();
+export function setScopeNodes(nodes: ScopeNode[]): void {
+  scopeNodes = new Map(nodes.map((n) => [n.id, n]));
 }
 
 // engineConfig / engineMode / workspaceRoot は「今の値」を読む側が多い（実行のたびに参照する）。

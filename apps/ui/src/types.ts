@@ -123,6 +123,10 @@ export interface Node {
   muted?: boolean;
   /** 棚用: 予定カレンダーでの色の名前（3.20d）。未設定なら自動 */
   color?: string | null;
+  /** 棚用: 中の AI の追加の作業場所（3.24）。未設定なら全体の設定に従う。空配列＝ワークスペースの中だけ */
+  aiDirs?: string[] | null;
+  /** 棚用: 中の AI に追加で許可するツール（3.24）。未設定なら全体の設定に従う */
+  aiTools?: string[] | null;
   /** kind=wait 用の待ち方（"after 8d 09:00" / "until monthly day 9 09:00" 等。3.17）。
    *  古いサーバは返さないので省略可 */
   wait?: string | null;

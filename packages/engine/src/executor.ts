@@ -64,7 +64,10 @@ export function aiExecutorName(): string {
 }
 
 /** ai 実行の起動。engine.mode で API / claude CLI を切り替える（cwd は workspace root） */
-export function runAiExecutor(prompt: string, node: Pick<Node, "aiModel" | "aiEffort">): Promise<ExecResult> {
+export function runAiExecutor(
+  prompt: string,
+  node: Pick<Node, "id" | "group" | "aiModel" | "aiEffort">,
+): Promise<ExecResult> {
   return engineMode === "api"
     ? runApi(prompt)
     : runClaude(prompt, configFor(node), { cwd: workspaceRoot ?? undefined });

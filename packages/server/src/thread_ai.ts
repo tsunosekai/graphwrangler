@@ -7,6 +7,7 @@
 // ラリーへの応答ではカードを開いたままにする（決めるのは人間。AI は疑問に答えて選びやすくするだけ）。
 // 呼び出し元は index.ts の POST /api/nodes/:id/messages（メッセージ保存レスポンスを
 // 返した直後、await せずに maybeTriggerThreadAi を呼ぶ）。
+import { aiScopeFor } from "./ai_scope.js";
 import {
   type Actor,
   type AiQuestion,
@@ -210,7 +211,10 @@ export function runPlainClaude(
       ...DEFAULT_CLI_TOOLS,
       ...extraTools.filter((t) => !t.startsWith("-")),
       // 設定 ai.addDirs: ワークスペースルート外もファイルツールで触れるようにする（chat_cli.ts と同じ）
-      ...addDirs.filter((d) => !d.startsWith("-")).flatMap((d) => ["--add-dir", d]),
+      ...addDirs
+        .filter((d) => !d.startsWith("-"))
+        // Windows は shell:true で起動するので、空白を含むパスが割れないよう引用符で包む（chat_cli.ts と同じ）
+        .flatMap((d) => ["--add-dir", process.platform === "win32" ? `"${d.replace(/"/g, '\\"')}"` : d]),
     ];
     const isWindows = process.platform === "win32";
     let child: ChildProcess;
@@ -397,24 +401,26 @@ async function respondInThread(
     // aiModel はスキーマ上自由な文字列（MCP/HTTP の patch で入る）で、Windows は shell:true
     // 起動＝空白で argv が割れてフラグを注入できるため、chat_cli.ts のモデル上書きと同じ
     // サニタイズを通し、不正なら設定の既定へ（aiEffort はスキーマの enum で閉じている）
-    const model = sanitizeModelOverride(node.aiModel) ?? chat.cliModel;
+    // フォルダごとの AI 設定（3.24）: モデルと深さは ノード > フォルダ > 全体。作業場所とツールは、
+    // フォルダに設定があれば全体の設定の代わりに使う
+    const scope = aiScopeFor(graph, node.id);
+    const model = sanitizeModelOverride(node.aiModel) ?? scope.model ?? chat.cliModel;
     if (node.aiModel !== null && model !== node.aiModel) {
       console.warn(
         `[thread-ai] node ${node.id}: aiModel "${node.aiModel}" は不正な形式のため既定 ${chat.cliModel} を使います`,
       );
     }
-    const effort = node.aiEffort ?? chat.cliEffort;
+    const effort = node.aiEffort ?? scope.effort ?? chat.cliEffort;
     modelLabel = model;
     // attachmentsDir を --add-dir に足す: datadir モードでは添付置き場が cwd の外（chat_cli と同じ）
-    const addDirs = attachmentsDir
-      ? [...settings.get().ai.addDirs, attachmentsDir]
-      : settings.get().ai.addDirs;
+    const baseDirs = scope.dirs ?? settings.get().ai.addDirs;
+    const addDirs = attachmentsDir ? [...baseDirs, attachmentsDir] : baseDirs;
     const result = await runPlainClaude(
       chat.cliPath,
       model,
       prompt,
       graph.workspaceInfo().root ?? os.tmpdir(),
-      chat.cliExtraTools,
+      scope.tools ?? chat.cliExtraTools,
       addDirs,
       signal,
       effort,

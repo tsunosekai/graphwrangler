@@ -2,7 +2,7 @@
 // 入れ物。棚はページを束ねるだけでグラフ・実行・ランには関与しない（docs/design.md 3.1）。
 // 右クリックは行の✎🗑と同じ操作を出すだけ（ボタンは残す。2026-08-09）。
 import type { ReactNode } from "react";
-import { Bell, BellOff, CalendarDays, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { Bell, BellOff, CalendarDays, ChevronDown, ChevronRight, Pencil, Settings2, Trash2 } from "lucide-react";
 import type { RailDnd } from "../../hooks/useRailDnd";
 import { cn } from "../../lib/utils";
 import type { Node } from "../../types";
@@ -23,11 +23,13 @@ interface Props {
   actions: PageActions;
   /** このフォルダのルーティーンだけを表示して、予定カレンダーを開く（ルーティーンの節のフォルダだけ使う） */
   onOpenCalendar?: () => void;
+  /** フォルダの設定（AI の作業範囲・モデル・通知・色。3.24）を開く */
+  onOpenSettings?: () => void;
   /** 中のページ行（open のときだけ描く） */
   children: ReactNode;
 }
 
-export function FolderRow({ f, open, onToggle, count, dnd, actions, onOpenCalendar, children }: Props) {
+export function FolderRow({ f, open, onToggle, count, dnd, actions, onOpenCalendar, onOpenSettings, children }: Props) {
   const section = shelfSectionOf(f);
   // 予定カレンダーはルーティーンのもの。プロジェクトの節のフォルダには出さない
   const calendar = section === "routine" ? onOpenCalendar : undefined;
@@ -129,6 +131,11 @@ export function FolderRow({ f, open, onToggle, count, dnd, actions, onOpenCalend
           <ContextMenuItem onSelect={() => void actions.renameFolder(f)}>
             <Pencil className="size-3.5" /> 名前を変更
           </ContextMenuItem>
+          {onOpenSettings && (
+            <ContextMenuItem onSelect={() => onOpenSettings()}>
+              <Settings2 className="size-3.5" /> フォルダの設定（AI の作業範囲など）
+            </ContextMenuItem>
+          )}
           {calendar && (
             <ContextMenuItem onSelect={() => calendar()}>
               <CalendarDays className="size-3.5" /> 予定カレンダー

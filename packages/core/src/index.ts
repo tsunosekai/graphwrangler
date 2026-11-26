@@ -10,5 +10,6 @@ export * from "./prep.js";
 export * from "./holidays.js";
 export * from "./ask.js";
 export * from "./turn.js";
+export * from "./scope.js";
 export { nowIso, nextId } from "./ids.js";
 export { stableStringify } from "./stable-stringify.js";
