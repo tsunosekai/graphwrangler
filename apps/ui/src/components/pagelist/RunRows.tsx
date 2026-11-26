@@ -1,8 +1,10 @@
 // ページ行の下にぶら下がるラン子行（2026-08-08。PageList から切り出し）。
-// 畳み時は最新1本 + 総本数、開くと全部（RUN_ROWS_VISIBLE 行を超えたら子リスト内スクロール）。
-// クリックでそのランをグラフに投影する。開閉はフォルダ行と同じ絵（chevron。ただし小さめ）で、
-// 行の**前**に置く（2026-08-08 本人指定。旧: 行末の「+n」ボタンで開いていた）。
-import { Ban, CheckCheck, ChevronDown, ChevronRight, ExternalLink, Pencil } from "lucide-react";
+// **開いているときだけ**出す（RUN_ROWS_VISIBLE 行を超えたら子リスト内スクロール）。
+// クリックでそのランをグラフに投影する。
+// 畳んでいる間の「最新1本の行 + 総本数」は 2026-11-26 に廃止（本人「情報量が多くて疲れる。
+// 行の高さが揃ってなくて気持ち悪い」）。開閉ボタンと最新ランのドットは、ページ行のタイトルの
+// 行へ移した（PageRow）。
+import { Ban, CheckCheck, ExternalLink, Pencil } from "lucide-react";
 import { hasUnread } from "../../lib/actions";
 import { HINT_TEXT } from "../../lib/hints";
 import { isUnreadKey, threadKey } from "../../lib/unread";
@@ -32,7 +34,6 @@ interface Props {
   /** そのページのラン（新しい順） */
   runs: Run[];
   open: boolean;
-  onToggle: () => void;
   /** そのページの既読キー全部（呼び出し側で1回だけ集める。行ごとに集め直すと
    *  ページ数 × ラン数ぶん全ノードを走ることになる） */
   pageKeys: string[];
@@ -49,7 +50,6 @@ export function RunRows({
   members,
   runs,
   open,
-  onToggle,
   pageKeys,
   selectedRunId,
   nodeById,
@@ -140,37 +140,16 @@ export function RunRows({
     );
   };
 
-  if (runs.length === 0) return null;
-  const rows = open ? runs : runs.slice(0, 1);
+  if (!open || runs.length === 0) return null;
   return (
-    <div className="flex items-start gap-0.5 pl-3">
-      <Hint
-        id="runs-toggle"
-        always={open ? "ランを畳む" : `ラン ${runs.length} 本を表示`}
-        text="このページのラン。クリックしたランの進捗がグラフに出る"
-      >
-        <button
-          type="button"
-          className="mt-1 flex flex-shrink-0 items-center rounded-sm text-text-lo hover:text-foreground"
-          onClick={onToggle}
-        >
-          {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-        </button>
-      </Hint>
-      <div
-        className={cn(
-          "flex min-w-0 flex-1 flex-col gap-px",
-          // 10行ぶんで打ち止め（1行 ≈ 24px + gap）。それ以上は子リスト内スクロール
-          open && runs.length > RUN_ROWS_VISIBLE && "max-h-[250px] overflow-y-auto",
-        )}
-      >
-        {rows.map(renderRunRow)}
-      </div>
-      {/* 畳んでいる間の総本数。▸ の横ではなくブロックの一番右に出す
-          （2026-08-09 本人指示「数字は必ず一番右」）。展開中は行数で分かるので出さない */}
-      {!open && runs.length > 1 && (
-        <span className="mt-1 flex-shrink-0 text-[10px] leading-none text-text-lo">{runs.length}</span>
+    <div
+      className={cn(
+        "flex min-w-0 flex-col gap-px pl-5",
+        // 10行ぶんで打ち止め（1行 ≈ 24px + gap）。それ以上は子リスト内スクロール
+        runs.length > RUN_ROWS_VISIBLE && "max-h-[250px] overflow-y-auto",
       )}
+    >
+      {runs.map(renderRunRow)}
     </div>
   );
 }

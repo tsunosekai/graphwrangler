@@ -3,7 +3,18 @@
 // 右クリックメニューは「既存操作への近道（第0層）」で、実体は usePageActions の関数
 // （＝パネル・台帳・ドラッグと同じ api・同じ確認文）。該当しない項目は disabled にせず
 // 出さない（メニューを短く保つ）——例外は「既読にする」で、押しても意味が無いだけなので残す。
-import { Archive, ArchiveRestore, CheckCheck, Folder, FolderInput, Pencil, Play, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  CheckCheck,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderInput,
+  Pencil,
+  Play,
+  Trash2,
+} from "lucide-react";
 import { hashForUnread } from "../../lib/unread";
 import type { RailDnd } from "../../hooks/useRailDnd";
 import { hasUnread } from "../../lib/actions";
@@ -27,7 +38,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "../ui/context-menu";
-import { MAX_DOTS, pageDots } from "./dots";
+import { MAX_DOTS, pageDots, runDots } from "./dots";
 import { dotEl, RailGrip, ROW_ACTION } from "./rowParts";
 import { RunRows } from "./RunRows";
 import type { RailSections } from "./sections";
@@ -101,6 +112,14 @@ export function PageRow({
   const shown = dots.slice(0, MAX_DOTS);
   const rest = dots.length - shown.length;
 
+  // 最新のランの進捗ドット。畳んでいる間は、これをタイトル行の右端に出す（2026-11-26 本人要望:
+  // 最新ランの行を毎回出すのは情報量が多く、行の高さも揃わない。開閉ボタンとドットだけを
+  // タイトル行に溶け込ませる）。開けば下にラン行が並ぶので、そのときは出さない
+  const latestRun = runs[0] ?? null;
+  const latestDots = latestRun && !runsOpen ? runDots(latestRun, rail.nodeById, me.email) : [];
+  const latestShown = latestDots.slice(0, MAX_DOTS);
+  const latestRest = latestDots.length - latestShown.length;
+
   // イニシャルバッジは実効関係者（手動 members + 配下ノードからの自動集計。2026-08-04 追修。
   // 手動だけだと配下に担当者が居てもバッジが出ず「誰のページか」が見えない）
   const effMembers = teamEnabled ? effectiveMembers(f, members) : [];
@@ -155,6 +174,28 @@ export function PageRow({
           >
             <span className="flex min-w-0 items-center gap-1.5">
               {!archived && <RailGrip st={{ id: f.id, kind: "page", section }} dnd={dnd} />}
+              {/* ランの開閉。ランがあるページにだけ出す。行のクリック（ページ選択）とは別の操作 */}
+              {runs.length > 0 && (
+                <Hint
+                  id="runs-toggle"
+                  always={runsOpen ? "ランを畳む" : `ラン ${runs.length} 本を表示`}
+                  text="このページのラン。クリックしたランの進捗がグラフに出る"
+                >
+                  <button
+                    type="button"
+                    className="-ml-1 flex size-3.5 flex-shrink-0 items-center justify-center rounded-sm text-text-lo hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleRuns();
+                    }}
+                  >
+                    {runsOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                  </button>
+                </Hint>
+              )}
+              {/* ランがまだ無いルーティーンにも同じ幅の空きを置く（開閉ボタンの有無でタイトルの
+                  頭が左右にずれないように） */}
+              {routine && runs.length === 0 && <span className="-ml-1 size-3.5 flex-shrink-0" />}
               {routine ? (
                 <Hint id="page-routine" always="ルーティーンページ" text={HINT_TEXT.pageRoutine}>
                   <span className="inline-flex size-3 flex-shrink-0 text-muted-foreground">
@@ -224,6 +265,21 @@ export function PageRow({
                   <Trash2 className="size-3" />
                 </Button>
               </Hint>
+              {/* 最新のランの進捗ドット（畳んでいる間だけ）。押すとそのランを開く */}
+              {latestRun && latestDots.length > 0 && (
+                <button
+                  type="button"
+                  className="flex max-w-[40%] flex-shrink-0 cursor-pointer flex-wrap items-center justify-end gap-[3px] rounded-sm px-0.5 hover:bg-accent"
+                  title={`最新のラン: ${latestRun.title}（押すと開く）`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectRun(f.id, latestRun.id);
+                  }}
+                >
+                  {latestShown.map(dotEl)}
+                  {latestRest > 0 && <span className="font-mono text-[10px] text-text-lo">+{latestRest}</span>}
+                </button>
+              )}
               {/* 未読数も行の一番右（2026-08-09 本人指示「数字は必ず一番右」）。
                   hover で出る ✎🗑 より右に置かないと、hover のたびに右端から浮いて見える */}
               {unreadCount > 0 && (
@@ -335,7 +391,6 @@ export function PageRow({
         members={members}
         runs={runs}
         open={runsOpen}
-        onToggle={onToggleRuns}
         pageKeys={pageKeys}
         selectedRunId={selectedRunId}
         nodeById={rail.nodeById}
