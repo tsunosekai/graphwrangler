@@ -425,3 +425,20 @@ test("ラン打ち切り(cancel): 未決着アイテムが skipped になり、�
   assert.equal(body.items[task.id].status, "skipped");
   assert.ok(threads.list(page.id).some((m) => m.kind === "status" && m.body.startsWith("ラン打ち切り")));
 });
+
+// ---- 振り返りの依頼（POST /api/runs/:id/retro。docs/design.md 3.25） ----
+
+test("振り返りの依頼: 終わったランは立てられ、request=false で下ろせる。走っているランは 409", async () => {
+  const { graph, runs, app } = harness();
+  const { trigger } = simplePage(graph);
+  const run = await createRun(app, trigger.id);
+  assert.equal((await postJson(app, `/api/runs/${run.id}/retro`, {})).status, 409);
+  assert.equal(runs.get(run.id).retroRequest, false);
+  await postJson(app, `/api/runs/${run.id}/cancel`, {});
+  const on = await postJson(app, `/api/runs/${run.id}/retro`, {});
+  assert.equal(on.status, 200);
+  assert.equal(((await on.json()) as Run).retroRequest, true);
+  const off = await postJson(app, `/api/runs/${run.id}/retro`, { request: false });
+  assert.equal(((await off.json()) as Run).retroRequest, false);
+  assert.equal((await postJson(app, "/api/runs/r-nope-0001/retro", {})).status, 404);
+});

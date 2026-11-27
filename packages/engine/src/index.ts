@@ -7,6 +7,7 @@ import { getState, heartbeat } from "./api.js";
 import { refreshEngineConfig, refreshWorkspaceInfo, setScopeNodes } from "./settings.js";
 import { noteServerVersion } from "./selfRestart.js";
 import { tickProjectPrep } from "./prep.js";
+import { tickRetro } from "./retro.js";
 import { tickDecision } from "./tickDecision.js";
 import { tickProject } from "./tickProject.js";
 import { tickRunItem } from "./tickRun.js";
@@ -42,5 +43,10 @@ export async function tick(): Promise<void> {
 
   if (await tickDecision(nodes)) return;
 
-  await tickRunItem(nodes);
+  if (await tickRunItem(nodes)) return;
+
+  // 振り返り（3.25）。ランの終わりは周ごとの差分で拾うので、手前の層が仕事をした周に
+  // 見送っても取りこぼさない。AI を呼ぶ仕事なので「1tick=1件」の枠の最後に置く
+  // （ランを進める仕事より後回しでよい）
+  await tickRetro(nodes);
 }

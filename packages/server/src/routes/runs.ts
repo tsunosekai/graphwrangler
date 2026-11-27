@@ -305,6 +305,22 @@ export function runRoutes(ctx: AppContext): Hono {
     return c.json(runs.rename(c.req.param("id"), title));
   });
 
+  const RetroRequestSchema = z.object({ request: z.boolean().default(true) });
+
+  /** 振り返りを頼む（3.25。UI の「振り返る」・MCP の run_retro）。request=false はエンジンが
+   *  振り返りを始めるときに依頼を下ろす口。終わっていないラン（running）は振り返れない——
+   *  起きたことが出そろっていないうえ、進行中に手順書を直すと残りの手順と食い違うため */
+  app.post("/api/runs/:id/retro", async (c) => {
+    const runId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const { request } = RetroRequestSchema.parse(body);
+    const run = runs.get(runId);
+    if (request && run.status === "running") {
+      throw new GraphError("まだ終わっていないランは振り返れません。終わってから頼んでください", 409);
+    }
+    return c.json(runs.setRetroRequest(runId, request));
+  });
+
   /** ランの打ち切り。未決着のアイテムは skipped になる（RunStore.cancel）。ページのスレッドへ記録 */
   app.post("/api/runs/:id/cancel", async (c) => {
     const runId = c.req.param("id");

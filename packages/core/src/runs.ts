@@ -367,6 +367,14 @@ export class RunStore {
     return updated;
   }
 
+  /** 振り返りの依頼を立てる／下ろす（3.25）。立てるのは人（UI・MCP）、下ろすのはエンジン */
+  setRetroRequest(runId: string, retroRequest: boolean): Run {
+    const run = this.get(runId);
+    const updated: Run = { ...run, retroRequest };
+    this.write(updated);
+    return updated;
+  }
+
   /** ランを打ち切る。未決着のアイテム（pending/waiting/running）は skipped にして台帳上も
    *  「もう進まない」が見えるようにする（2026-09-09。以前は status だけ cancelled にして
    *  アイテムは pending のまま残していた）。done/dropped は触らない */

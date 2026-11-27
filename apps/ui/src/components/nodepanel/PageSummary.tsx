@@ -23,6 +23,7 @@ export function PageSummary({
   onEdit,
   onSelect,
   onSetArchived,
+  retro = null,
 }: {
   node: Node;
   allNodes: Node[];
@@ -32,6 +33,8 @@ export function PageSummary({
   /** 中のノード（トリガー）へ飛ぶ */
   onSelect: (id: string) => void;
   onSetArchived: (archived: boolean) => void;
+  /** 終わったランのページを見ているときだけ渡す: 振り返りを頼む（3.25） */
+  retro?: { requested: boolean; onRequest: () => void | Promise<void> } | null;
 }) {
   const triggers = pageTriggerLines(node, allNodes);
   const routine = triggers.length > 0;
@@ -98,6 +101,23 @@ export function PageSummary({
             onClick={() => onSetArchived(!archived)}
           >
             {archived ? "アーカイブから戻す" : "アーカイブする"}
+          </Button>
+        )}
+        {retro && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 text-xs text-text-lo"
+            disabled={retro.requested}
+            title={
+              retro.requested
+                ? "頼みました。AI がこのランを読み返したら、この会話に結果が出ます"
+                : "このランで起きたことを AI が読み返し、手順を直す案を会話に出します（反映するかはあとで選べます）"
+            }
+            onClick={() => void retro.onRequest()}
+          >
+            {retro.requested ? "振り返りを頼みました" : "振り返る"}
           </Button>
         )}
         <button

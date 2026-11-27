@@ -431,13 +431,13 @@ async function tickRunAiQuestions(nodes: Node[], runs: Run[]): Promise<boolean> 
 
 /** プロジェクト側に実行候補が無かったとき、ランのワークアイテムを1件処理する。
  *  承認待ちアイテムの回答チェックをランの通常実行候補選択より先に行う。通常タスクの実行候補が
- *  無ければ分岐アイテム(kind=decision)を見る */
-export async function tickRunItem(nodes: Node[]): Promise<void> {
+ *  無ければ分岐アイテム(kind=decision)を見る。処理したら true（振り返りは何もしなかった周だけ回す） */
+export async function tickRunItem(nodes: Node[]): Promise<boolean> {
   const runningRuns = await fetchRunningRuns(nodes);
-  if (runningRuns.length === 0) return;
+  if (runningRuns.length === 0) return false;
 
-  if (await tickRunApprovals(nodes, runningRuns)) return;
-  if (await tickRunAiQuestions(nodes, runningRuns)) return;
+  if (await tickRunApprovals(nodes, runningRuns)) return true;
+  if (await tickRunAiQuestions(nodes, runningRuns)) return true;
 
   const action = selectRunAction(nodes, runningRuns);
   switch (action.type) {
@@ -452,7 +452,7 @@ export async function tickRunItem(nodes: Node[]): Promise<void> {
         VIA,
       );
       log(`不可逆のため承認待ちへ: run=${action.run.id} node=${action.node.id} title=${action.node.title}`);
-      return;
+      return true;
     case "human-turn":
       // 担当=人間のステップに順番が回ってきた。waiting へ上げるとサーバが
       // 「あなたの番」の Discord 通知を出し、UI にも橙ドットが出る（2026-08-08 追加。
@@ -469,13 +469,13 @@ export async function tickRunItem(nodes: Node[]): Promise<void> {
         VIA,
       );
       log(`あなたの番へ: run=${action.run.id} node=${action.node.id} title=${action.node.title}`);
-      return;
+      return true;
     case "execute":
       await executeRunItem(nodes, action.run, action.node);
-      return;
+      return true;
     case "none":
       break; // 通常タスクの候補が無ければ分岐アイテムを見る
   }
 
-  await tickRunDecision(nodes, runningRuns);
+  return await tickRunDecision(nodes, runningRuns);
 }

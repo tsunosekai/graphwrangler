@@ -551,6 +551,10 @@ export const RunSchema = z.object({
       nodes: z.array(NodeSnapshotSchema),
     })
     .optional(),
+  /** 振り返りの依頼（3.25。2026-11-27）。UI の「振り返る」・MCP の run_retro が true にし、
+   *  エンジンが振り返りを始めるときに false に戻す。進捗の値でテンプレートには関係しない。
+   *  保存済みランには無いフィールドなので default 必須 */
+  retroRequest: z.boolean().default(false),
   created: z.string(),
 });
 export type Run = z.infer<typeof RunSchema>;

@@ -229,6 +229,9 @@ export interface Run {
   /** ランのコンテキスト（docs/design.md 3.15）。ラン作成時の初期値 + ノードが ##gw / API で
    *  書き足す key→現在値。同一ラン内は last-write-wins */
   context: Record<string, string>;
+  /** 振り返りの依頼（docs/design.md 3.25）。立てるとエンジンが次の手すきの周で振り返り、
+   *  始めるときに下ろす。旧サーバは返さないので optional */
+  retroRequest?: boolean;
   created: string;
 }
 

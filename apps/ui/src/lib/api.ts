@@ -548,6 +548,10 @@ export const api = {
 
   cancelRun: (runId: string) => request<Run>(`/runs/${runId}/cancel`, { method: "POST", body: "{}" }),
 
+  /** 終わったランの振り返りを頼む（docs/design.md 3.25）。結果はページの会話（このラン）に出る */
+  requestRetro: (runId: string) =>
+    request<Run>(`/runs/${runId}/retro`, { method: "POST", body: JSON.stringify({ request: true }) }),
+
   getRunTrace: (runId: string, opts: { silent?: boolean } = {}) =>
     request<{ events: TraceEvent[] }>(`/runs/${runId}/trace`, { silent: opts.silent }),
 

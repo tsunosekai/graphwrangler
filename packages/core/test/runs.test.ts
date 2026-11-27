@@ -365,6 +365,20 @@ describe("RunStore.rename", () => {
   });
 });
 
+describe("RunStore.setRetroRequest", () => {
+  it("振り返りの依頼を立てて下ろせる（既定は false。他フィールドは不変）", () => {
+    const runs = new RunStore(dir);
+    const { page, trigger } = setupTriggerPage();
+    const run = runs.createFromTrigger(page.id, trigger.id, membersOf(page.id));
+    expect(run.retroRequest).toBe(false);
+    const on = runs.setRetroRequest(run.id, true);
+    expect(on.retroRequest).toBe(true);
+    expect(on.items).toEqual(run.items);
+    expect(runs.get(run.id).retroRequest).toBe(true);
+    expect(runs.setRetroRequest(run.id, false).retroRequest).toBe(false);
+  });
+});
+
 describe("RunStore.listByPage", () => {
   it("全ランをページごとに束ね、各配列は新しい順（左レールの1リクエスト取得用）", () => {
     const runs = new RunStore(dir);

@@ -81,6 +81,7 @@ cwd をワークスペースルートにし（AI の Read/Grep/Glob がリポジ
 | `src/tickDecision.ts` | プロジェクト層の分岐ノード |
 | `src/tickRun.ts` | ラン層のワークアイテム（実行・不可逆承認・AI質問の往復） |
 | `src/tickRunDecision.ts` | ラン層の分岐アイテム |
+| `src/retro.ts` | 振り返り（ランが終わったら AI が手順を直す案を出し、人の「反映する」で書き換える。design.md 3.25） |
 | `src/executor.ts` | script/ai executor 起動の組み立て（プロジェクト層とラン層の共通部） |
 | `src/settings.ts` | サーバ設定への追随（エンジンAI設定・ワークスペースモード） |
 | `src/threadContext.ts` | スレッドから文脈を集める（親の成果・再実行の経緯・回答の判定材料） |
@@ -146,6 +147,7 @@ cwd をワークスペースルートにし（AI の Read/Grep/Glob がリポジ
    開く（下記「AI質問（QUESTIONプロトコル）」）
 6. プロジェクト側に候補が無ければ、**分岐ノード**（`src/decision.ts`）→
    **ランのワークアイテム**（下記）の順で1件処理する
+7. どれも何もしなかった周だけ、**振り返り**（`src/retro.ts` の `tickRetro`。下記）を1件進める
 
 ## ラン（ルーティーンページ）の処理
 
@@ -171,6 +173,28 @@ cwd をワークスペースルートにし（AI の Read/Grep/Glob がリポジ
 - **AI質問（QUESTIONプロトコル）の往復**（`tickRunAiQuestions`）: ラン層でも `AI質問待ち`
   アイテムを扱う。カード未発行ならスレッドの `say` payload から質問を復元して開き直し、
   `abort` 回答は `{status:"dropped"}`、それ以外の回答は再実行（下記「AI質問」参照）
+
+## 振り返り（`src/retro.ts`。docs/design.md 3.25）
+
+ランが終わったら（running → done / cancelled）、AI がそのランの記録を読み、手順（各ノードの
+手順書・補足）を直す案をページノードの会話（そのラン）に出す。人が判断カードで「反映する」を
+選ぶとエンジンが書き換える。
+
+- **終わりの拾い方**: `GET /api/runs/summary` を周ごとに見て、前に見たときとの差分で拾う
+  （`detectRunEndings`）。起動直後の1周目は覚えるだけ＝過去に終わったランは振り返らない。
+  前に見たあとに作られてもう終わっているランも拾う（短いランを取りこぼさない）
+- **手動の依頼**: `run.retroRequest`（`POST /api/runs/:id/retro`・UI の「振り返る」・MCP の
+  `run_retro`）。エンジンが始めるときに下ろす。自動より優先。自動は済みの印があれば繰り返さないが、
+  手動はやり直す
+- **1周に AI 1回まで**。他の層が何もしなかった周にだけ回る
+- **印**: ページノードの、そのランの会話に `payload.retro=true`（+ `runId`・`state`）。
+  `state`: `none`（直すところなし）/ `failed` / `proposed`（案＋カード）/ `applied` / `rejected`。
+  最後の印が正（`deriveRetroPhase`）。`proposed` のカードの question には `[振り返り <runId>]`
+- **反映**: 案を作ったときの文面の指紋（`oldHash`）といまの文面を照合し、変わっていたら見送る
+  （`planRetroApply`）。直す欄は1ノード1欄（`editableField`: 文面の手順書=impl.text /
+  それ以外=detail / ロック中=なし。スクリプトのコマンドとファイルの手順書は直さない）
+- **再起動**: 起動して最初の周に、最近（60日）のランを持つページの会話を1回だけ読み、
+  返事待ちの案を拾い直す。以後はページの `pendingRequest` がそのカードのままなら会話を読まない
 
 ## AI質問（QUESTIONプロトコル）と autonomy
 

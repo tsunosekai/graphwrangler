@@ -649,6 +649,24 @@ server.registerTool(
   ),
 );
 
+// ---- 15d. run_retro（振り返りを頼む。docs/design.md 3.25） ----
+
+server.registerTool(
+  "run_retro",
+  {
+    description:
+      "終わったラン（done / cancelled）の振り返りを頼む。エンジンが次の手すきの周で AI にそのランの記録を" +
+      "読ませ、手順（各ノードの手順書・補足）を直す案をページノードの会話（そのラン）に出し、" +
+      "「反映する／反映しない」の判断カードを開く。反映は人が選んだあとにエンジンが行う。" +
+      "ランが終わったときは自動で1回だけ振り返るので、これはやり直したいとき・機能を入れる前に終わったランを" +
+      "振り返りたいとき用。走っているランには頼めない（409）。",
+    inputSchema: { runId: z.string().describe("振り返るランid") },
+  },
+  safe(async ({ runId }: { runId: string }) =>
+    apiPost(`/api/runs/${encodeURIComponent(runId)}/retro`, withMeta({ request: true })),
+  ),
+);
+
 // ---- 16. run_trace ----
 
 server.registerTool(

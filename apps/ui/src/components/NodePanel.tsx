@@ -20,6 +20,7 @@ import { confirmDialog, confirmWithAltDialog } from "../lib/dialogs";
 import { HINT_TEXT, TRIAL_CONFIRM_MESSAGE } from "../lib/hints";
 import { EXECUTOR_JA, KIND_JA } from "../lib/labels";
 import { optimisticPatchNode } from "../lib/optimistic";
+import { pushToast } from "../lib/toast";
 import { buildRemoveMessage, computeRemoveImpact, removeImpactWarnings } from "../lib/removal";
 import { useDraftField } from "../hooks/useDraftField";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -234,6 +235,9 @@ export function NodePanel({
   const patch = async (fields: NodePatchInput) => {
     await optimisticPatchNode(node.id, fields);
   };
+
+  // 振り返りを頼んだ直後の表示（次のポーリングで run.retroRequest が届くまでのつなぎ）
+  const [retroAsked, setRetroAsked] = useState(false);
 
   // ---- ラン投影（docs/design.md 3.8）: アクティブなラン（現在ページの status==="running"
   //      最新1本）がこのノードのワークアイテムを持っていれば、その進捗をパネルにも投影する。
@@ -781,6 +785,21 @@ export function NodePanel({
               onEdit={() => setEditing(true)}
               onSelect={onSelect}
               onSetArchived={(archived) => void patch({ status: archived ? "done" : "pending" })}
+              retro={
+                // 振り返り（docs/design.md 3.25）: 終わったランのページを見ているときだけ頼める。
+                // 終わったときに自動で1回振り返るので、これはやり直し・機能を入れる前のラン用
+                runView && activeRun && activeRun.id === runView.id && activeRun.status !== "running"
+                  ? {
+                      requested: retroAsked || activeRun.retroRequest === true,
+                      onRequest: async () => {
+                        await api.requestRetro(activeRun.id);
+                        setRetroAsked(true);
+                        pushToast("振り返りを頼みました。少しすると、この会話に案が出ます", "info");
+                        onMutated();
+                      },
+                    }
+                  : null
+              }
             />
           ) : compact ? (
             <NodeSummary

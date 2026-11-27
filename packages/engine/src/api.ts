@@ -141,6 +141,19 @@ export async function listPageRuns(pageId: string): Promise<Run[]> {
   return res.runs;
 }
 
+/** 全ページのラン一覧を1リクエストで（GET /api/runs/summary。ページid → ラン配列、新しい順）。
+ *  ラン作成時のスナップショットは落とされている。振り返り（retro.ts）がランの終わりを周ごとに
+ *  拾うのに使う（ページ数ぶん listPageRuns を叩くより軽い） */
+export async function listAllRuns(): Promise<Run[]> {
+  const res = (await request("GET", "/api/runs/summary")) as { runs: Record<string, Run[]> };
+  return Object.values(res.runs).flat();
+}
+
+/** 振り返りの依頼を立てる／下ろす（POST /api/runs/:id/retro。3.25）。エンジンは下ろすほうだけ使う */
+export async function setRunRetroRequest(runId: string, requestRetro: boolean): Promise<Run> {
+  return (await request("POST", `/api/runs/${runId}/retro`, { request: requestRetro })) as Run;
+}
+
 /** トリガーノード（kind=trigger）からランを1本作る（POST /api/nodes/:id/run）。そのノードの
  *  group ページで createFromTrigger によりランが1本作られる。opts.via はラン作成の理由の自由文字列
  *  （"manual" / "schedule:<原文>" / "ai" 等。省略時はサーバ側既定の "manual"）で、
