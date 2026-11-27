@@ -1,16 +1,13 @@
 // AIの作業範囲の節（三役共通の --add-dir）
 import { Input } from "../ui/input";
-import { Switch } from "../ui/switch";
 import { desc, field, heading, section } from "./styles";
 
 interface Props {
   aiAddDirs: string;
   setAiAddDirs: (v: string) => void;
-  aiAllowAll: boolean;
-  setAiAllowAll: (v: boolean) => void;
 }
 
-export function WorkDirsSection({ aiAddDirs, setAiAddDirs, aiAllowAll, setAiAllowAll }: Props) {
+export function WorkDirsSection({ aiAddDirs, setAiAddDirs }: Props) {
   return (
     <section className={section}>
       <h3 className={heading}>AIの作業範囲</h3>
@@ -27,13 +24,9 @@ export function WorkDirsSection({ aiAddDirs, setAiAddDirs, aiAllowAll, setAiAllo
         に渡すディレクトリ（空白区切り）。ファイル操作はワークスペースルートに閉じるのが既定なので、
         外のリポジトリ等を触らせたいときにここへ足す
       </p>
-      <label className="flex items-center gap-2 text-sm text-foreground">
-        <Switch checked={aiAllowAll} onCheckedChange={setAiAllowAll} />
-        <span>すべてのツールを確認なしで使わせる</span>
-      </label>
       <p className={desc}>
-        三役共通。ON にすると、許可リストに無いツール（MCP など）も「未許可」で止まらずに使える
-        （claude の --permission-mode bypassPermissions）。「追加許可ツール」に足す手間が要らなくなる
+        ツールは三役ともすべて確認なしで使える（claude の --permission-mode bypassPermissions）。
+        ブラウザ（Claude の拡張を入れたもの）の操作と、ここに足したディレクトリの CLAUDE.md の読み込みも常に有効
       </p>
     </section>
   );

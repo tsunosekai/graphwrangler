@@ -39,8 +39,6 @@ interface Props {
   setChatCliModel: (v: string) => void;
   chatCliEffort: EffortValue;
   setChatCliEffort: (v: EffortValue) => void;
-  chatCliExtraTools: string;
-  setChatCliExtraTools: (v: string) => void;
 }
 
 export function ChatAiSection({
@@ -61,8 +59,6 @@ export function ChatAiSection({
   setChatCliModel,
   chatCliEffort,
   setChatCliEffort,
-  chatCliExtraTools,
-  setChatCliExtraTools,
 }: Props) {
   return (
     <section className={section}>
@@ -139,18 +135,6 @@ export function ChatAiSection({
             <span>思考の深さ</span>
             <EffortSelect value={chatCliEffort} onChange={setChatCliEffort} />
           </label>
-          <label className={field}>
-            <span>追加許可ツール</span>
-            <Input
-              value={chatCliExtraTools}
-              onChange={(e) => setChatCliExtraTools(e.target.value)}
-              placeholder="空欄=既定のフルセット。例: mcp__foo__*"
-            />
-          </label>
-          <p className={desc}>
-            GraphWrangler AI / Task AI の --allowedTools に追記するツール（空白区切り）。
-            Bash 含むフルセットが既定で許可済みなので、MCP ツール等を足す用途
-          </p>
         </>
       )}
     </section>

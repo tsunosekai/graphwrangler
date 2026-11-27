@@ -84,7 +84,7 @@ function toolSummary(part: ChatToolPart): string {
     case "post_message":
       label = `スレッドに投稿: ${input && typeof input.nodeId === "string" ? input.nodeId : "?"}`;
       break;
-    // CLI 方式で許可している読み取り専用ツール（chat_cli.ts の --allowedTools）
+    // CLI 方式でよく呼ばれるファイル・検索系ツール（2026-11-27 から全ツール許可。表示名を付けるのはこれらだけ）
     case "Read":
     case "read_file":
       label = `ファイルを読む: ${fileLabel(input)}`;

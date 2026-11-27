@@ -106,9 +106,6 @@ export interface SettingsView {
     cliModel: string;
     /** CLI モードの --effort（思考の深さ）。null = CLI 既定（2026-08-07） */
     cliEffort: "low" | "medium" | "high" | "xhigh" | "max" | null;
-    /** GraphWrangler AI / Task AI（CLIモード）の --allowedTools に追記するツール。
-     *  既定でフルセット（Bash 等）が許可済みのため、MCP ツール等を足す用途 */
-    cliExtraTools: string[];
   };
   engine: {
     /** cli = ヘッドレスCLI(claude -p 等)を起動する / api = チャット側のAPIキーで直接呼ぶ */
@@ -118,16 +115,12 @@ export interface SettingsView {
     /** --effort（思考の深さ）。null = CLI 既定（2026-08-07） */
     effort: "low" | "medium" | "high" | "xhigh" | "max" | null;
     extraArgs: string[];
-    /** 実行AI（CLIモード）の --allowedTools に追記するツール（既定フルセットに足す形） */
-    cliExtraTools: string[];
     apiModel: string | null;
   };
-  /** AI（三役共通）の作業範囲 */
+  /** AI（三役共通）の作業範囲。ツールは 2026-11-27 から常に全許可なので設定は無い */
   ai: {
     /** claude -p の --add-dir に渡す追加作業ディレクトリ（ワークスペースルート外の開放） */
     addDirs: string[];
-    /** true = 三役とも全ツールを確認なしで使わせる */
-    allowAllTools: boolean;
   };
   /** ワークスペースの自動 commit/push（ワークスペースモードのみ意味を持つ。既定OFF） */
   git: {
@@ -205,7 +198,6 @@ export interface SettingsPatch {
     cliPath?: string;
     cliModel?: string;
     cliEffort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
-    cliExtraTools?: string[];
   };
   engine?: {
     mode?: "cli" | "api";
@@ -213,10 +205,9 @@ export interface SettingsPatch {
     model?: string;
     effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
     extraArgs?: string[];
-    cliExtraTools?: string[];
     apiModel?: string | null;
   };
-  ai?: { addDirs?: string[]; allowAllTools?: boolean };
+  ai?: { addDirs?: string[] };
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
   /** discordWebhookUrl / discordBotToken は apiKey と同じ書き込み専用3値

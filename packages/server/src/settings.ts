@@ -27,10 +27,8 @@ export const ChatSettingsSchema = z.object({
   /** mode="cli" のときの --effort（思考の深さ）。null = CLI 既定に任せる（2026-08-07 本人要望
    *  「モデルとエフォートを切り替えられるように」）。ノード側の aiEffort が優先 */
   cliEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().default(null),
-  /** mode="cli" の GraphWrangler AI / Task AI に**追加で**許可するツール（--allowedTools へ追記）。
-   *  2026-08-03 の権限拡張で既定が Bash 含むフルセット（chat_cli.ts DEFAULT_CLI_TOOLS）に
-   *  なったため、この設定は MCP ツール等（例: "mcp__foo__*"）をさらに足す用途 */
-  cliExtraTools: z.array(z.string()).default([]),
+  // 追加許可ツール（旧 cliExtraTools）は 2026-11-27 に廃止（三役とも常に全ツール許可。chat_cli.ts
+  // PERMISSION_ARGS）。z.object は未知キーを捨てるので、古い settings.json に残っていても読める
 });
 
 export const EngineSettingsSchema = z.object({
@@ -42,9 +40,7 @@ export const EngineSettingsSchema = z.object({
   /** mode="cli" のときの --effort。null = CLI 既定。ノード側の aiEffort が優先（2026-08-07） */
   effort: z.enum(["low", "medium", "high", "xhigh", "max"]).nullable().default(null),
   extraArgs: z.array(z.string()).default([]),
-  /** mode="cli" の実行AIに**追加で**許可するツール（--allowedTools へ追記。既定のフルセットは
-   *  engine/executors/claude.ts の ALLOWED_TOOLS。例: "mcp__foo__*"。2026-08-03 権限拡張で追加） */
-  cliExtraTools: z.array(z.string()).default([]),
+  // 旧 cliExtraTools は 2026-11-27 に廃止（ChatSettingsSchema と同じ。古い値は読み込み時に捨てる）
   /** mode="api" のときのモデル。null = チャット側の既定モデルと同じ */
   apiModel: z.string().nullable().default(null),
 });
@@ -56,11 +52,7 @@ export const AiSettingsSchema = z.object({
    *  cwd=ワークスペースルート配下に閉じるため、外のパスはここに列挙して開放する。
    *  Bash には元々パス制限が無いので、これは檻ではなくファイルツールの作業範囲の話 */
   addDirs: z.array(z.string()).default([]),
-  /** true = 三役とも全ツールを確認なしで使わせる（claude -p に --permission-mode bypassPermissions）。
-   *  既定の許可リスト（DEFAULT_CLI_TOOLS / ALLOWED_TOOLS + cliExtraTools）に無いツールを呼ぶたびに
-   *  「未許可」で止まり、設定に足す手間をなくすため（2026-11-27 本人要望「全部許可にできない？」）。
-   *  歯止めはグラフ側の実行前承認・試走と手順書の決まりで担う。既定OFF */
-  allowAllTools: z.boolean().default(false),
+  // 全ツール許可は設定ではなく常時（2026-11-27 本人指示「許可リストそのものが要らない」）
 });
 
 /** ワークスペースの自動 commit/push（gitsync.ts。ワークスペースモードのみ意味を持つ）。
@@ -245,7 +237,6 @@ export class SettingsStore {
         cliPath: this.cache.chat.cliPath,
         cliModel: this.cache.chat.cliModel,
         cliEffort: this.cache.chat.cliEffort,
-        cliExtraTools: this.cache.chat.cliExtraTools,
       },
       engine: {
         mode: this.cache.engine.mode,
@@ -253,12 +244,10 @@ export class SettingsStore {
         model: this.cache.engine.model,
         effort: this.cache.engine.effort,
         extraArgs: this.cache.engine.extraArgs,
-        cliExtraTools: this.cache.engine.cliExtraTools,
         apiModel: this.cache.engine.apiModel,
       },
       ai: {
         addDirs: this.cache.ai.addDirs,
-        allowAllTools: this.cache.ai.allowAllTools,
       },
       git: {
         autoPush: this.cache.git.autoPush,

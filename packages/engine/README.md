@@ -29,10 +29,10 @@ pnpm --filter @graphwrangler/engine dev
 
 起動時と以後10分ごとに `GET /api/settings` を取得し、`engine.mode`（`"cli"` / `"api"`）と
 claude executor の CLI パス（`cliPath`）・モデル（`model`）・思考の深さ（`effort`）・
-追加引数（`extraArgs`）・追加許可ツール（`cliExtraTools`）・追加作業ディレクトリ
+追加引数（`extraArgs`）・追加作業ディレクトリ
 （`ai.addDirs`。三役共通、`--add-dir` に渡す）に反映する（`src/settings.ts` の
 `refreshEngineConfig`）。取得に失敗した場合は前回値（初回は既定値 `mode="cli"` /
-`cliPath="claude"` / `model="opus"` / `effort=null` / `extraArgs=[]` / `extraTools=[]` /
+`cliPath="claude"` / `model="opus"` / `effort=null` / `extraArgs=[]` /
 `addDirs=[]`）のまま継続する。`ai` セクションは2026-08-04追加のため、旧サーバ相手では
 `addDirs=[]` のまま継続する。
 
@@ -52,9 +52,9 @@ env `GW_ENGINE_CLAUDE_MODEL` > サーバ設定 `engine.model`/`engine.effort` > 
   （null ならチャット既定モデル）。実行結果の actor は `executor:api`
 
 `extraArgs` に `--dangerously-skip-permissions` や `--allowedTools`/`--allowed-tools` 系の
-フラグが含まれていても `executors/claude.ts` の `sanitizeExtraArgs` が取り除く（安全設計を
-設定経由で無効化できないようにするための最終防御）。`cliExtraTools`/`ai.addDirs` は
-`-` 始まりの要素（フラグ混入経路）を `sanitizeExtraTools`/`sanitizeAddDirs` で落とす。
+フラグが含まれていても `executors/claude.ts` の `sanitizeExtraArgs` が取り除く（権限は
+`PERMISSION_ARGS` の1か所で決める。`extraArgs` より後ろに置くので `--permission-mode` も上書きされない）。
+`ai.addDirs` は `sanitizeAddDirs` が値を囲む引用符を外し、空と `-` 始まりの要素（フラグ混入経路）を落とす。
 
 ## ワークスペースモード
 
@@ -245,16 +245,16 @@ tool_result が来ていない SubStep は `status:"error"` として拾う）�
 
 ## 安全設計
 
-- **`--dangerously-skip-permissions` は絶対に使わない**（間接プロンプトインジェクション対策）。
-  `ai` executor に許可するツールは `executors/claude.ts` の `ALLOWED_TOOLS`
-  （`Read Grep Glob Write Edit NotebookEdit Bash Task TodoWrite WebSearch WebFetch`。
-  2026-08-03 に「読み取り+書き込みのみ」の縛りを撤廃し Bash 等を含むフルセットへ変更した。
+- **2026-11-27 から全ツール許可**（本人指示「許可リストそのものが要らない」）。`ai` executor は常に
+  `--permission-mode bypassPermissions`（`executors/claude.ts` の `PERMISSION_ARGS`）で起動し、
+  許可リスト（`--allowedTools`）は渡さない。セッションを絞る `--strict-mcp-config` /
+  `--setting-sources` / `--disallowedTools` / `--tools` も付けない（普段の Claude Code と同じ
+  MCP サーバ・skill・CLAUDE.md が効く）。子の環境変数には `CLAUDE_CODE_ENABLE_CFC=1`（ブラウザの拡張への接続。
+  `--chrome` は拡張の無い Google Chrome が立ち上がるので使わない）と
+  `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` を常に足す（`claudeChildEnv`）。
   危険操作の歯止めはツールの出し渋りではなく、ノード側の実行前承認（`approval`）・
-  自律度（`autonomy` の QUESTIONプロトコル）・試走（`--dry-run`）で担保する方針）。
-  設定 `engine.cliExtraTools` でさらにツールを足せる（例: `mcp__foo__*`）
-- `extraArgs`/`cliExtraTools` は `--dangerously-skip-permissions`・`--allowedTools` 系・
-  `-` 始まりの要素を無条件に取り除く（設定経由でも安全装置を無効化できないための最終防御。
-  上記「エンジンAI設定」参照）
+  自律度（`autonomy` の QUESTIONプロトコル）・試走（`--dry-run`）で担保する
+- `extraArgs` は `--dangerously-skip-permissions`・`--allowedTools` 系を取り除く（上記「エンジンAI設定」参照）
 - **`approval=true`（実行前承認）は無条件に実行しない**。承認カードで人間が `go` を選んだ、その1回の
   実行だけを許可する。再実行時は改めて承認を求め直す（「不可逆は毎回確認する」）。
   トリガーの `approval=true`（ラン前承認）も同型

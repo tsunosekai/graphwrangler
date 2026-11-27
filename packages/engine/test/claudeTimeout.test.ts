@@ -49,7 +49,7 @@ function makeDaemonLeavingCli(body: string): string {
 }
 
 function configFor(cliPath: string): ClaudeExecutorConfig {
-  return { cliPath, model: "test-model", effort: null, extraArgs: [], extraTools: [], addDirs: [] };
+  return { cliPath, model: "test-model", effort: null, extraArgs: [], addDirs: [] };
 }
 
 describe("runClaude", () => {

@@ -58,8 +58,6 @@ export interface EngineSettings {
   /** --effort（思考の深さ）。旧サーバは返さないので optional 扱い（2026-08-07） */
   effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
   extraArgs: string[];
-  /** ALLOWED_TOOLS（executors/claude.ts のフルセット）に追加で許可するツール */
-  cliExtraTools: string[];
   apiModel: string | null;
 }
 
@@ -68,6 +66,4 @@ export interface EngineSettings {
 export interface AiSettings {
   /** claude -p の --add-dir に渡す追加作業ディレクトリ */
   addDirs: string[];
-  /** 全ツールを確認なしで許可する（旧サーバは返さないので optional。2026-11-27） */
-  allowAllTools?: boolean;
 }

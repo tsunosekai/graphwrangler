@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildPlainClaudeArgs,
   buildThreadReplyPrompt,
   shouldTriggerThreadAi,
   threadAiNodeContext,
@@ -221,6 +222,24 @@ test("Task AI のプロンプトにツール権限の案内が入る（許可ダ
     newMessage: "カレンダーに登録して",
   });
   assert.ok(prompt.includes("許可ダイアログは出ません"));
-  assert.ok(prompt.includes("追加許可ツール"));
-  assert.ok(prompt.includes("チャットAI（GraphWrangler AI）"), "足す場所を具体的に案内する");
+  // 2026-11-27 から許可リストは無い（全ツール許可）ので、設定へ足す案内はしない
+  assert.ok(prompt.includes("ツールはすべて確認なしで使えます"));
+  assert.ok(!prompt.includes("追加許可ツール"));
+});
+
+// 2026-11-27 本人指示「許可リストそのものが要らない」: Task AI も常に全ツール許可で起動する
+test("buildPlainClaudeArgs は --permission-mode bypassPermissions を付け、--allowedTools は付けない", () => {
+  const args = buildPlainClaudeArgs("opus", "high", ['"C:\\Users\\user\\デスクトップ"', "--x"], true);
+  const i = args.indexOf("--permission-mode");
+  assert.ok(i > -1);
+  assert.equal(args[i + 1], "bypassPermissions");
+  assert.ok(!args.some((a) => a.toLowerCase().startsWith("--allowed")));
+  for (const f of ["--strict-mcp-config", "--setting-sources", "--disallowedTools", "--tools", "--chrome"]) {
+    assert.ok(!args.includes(f), f);
+  }
+  // 引用符ごと保存された作業場所は引用符を二重にしない・"-" 始まりは落とす
+  assert.deepEqual(
+    args.filter((_, k) => args[k - 1] === "--add-dir"),
+    ['"C:\\Users\\user\\デスクトップ"'],
+  );
 });

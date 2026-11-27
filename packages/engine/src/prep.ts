@@ -6,7 +6,7 @@
 // 無くても動く・前のノードに後続の都合を書かせない、の3点のため。
 //
 // プロンプトの組み立て（純粋関数）と、実行して発言する配線の両方をここに置く。
-import { ACTIONS_LANG, toolPermissionLines } from "@graphwrangler/core";
+import { ACTIONS_LANG, TOOL_PERMISSION_LINES } from "@graphwrangler/core";
 import { getThread, patchNode, postMessage } from "./api.js";
 import { ENGINE_ACTOR, VIA } from "./actor.js";
 import { aiExecutorName, runAiExecutor } from "./executor.js";
@@ -34,7 +34,7 @@ export function buildPrepPrompt(input: PrepPromptInput): string {
     "このあと担当者（人間）が下の作業をします。担当者がこの画面を開いたら**すぐ手を動かせる**よう、" +
       "あなたにできる準備を済ませ、結果を担当者に渡してください。",
     "",
-    ...toolPermissionLines("⚙（設定）→「実行AI（エンジン）」"),
+    ...TOOL_PERMISSION_LINES,
     "",
   ];
   if (goal) {

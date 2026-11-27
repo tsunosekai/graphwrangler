@@ -23,8 +23,6 @@ interface Props {
   setEngineEffort: (v: EffortValue) => void;
   extraArgs: string;
   setExtraArgs: (v: string) => void;
-  engineCliExtraTools: string;
-  setEngineCliExtraTools: (v: string) => void;
   engineApiModel: string;
   setEngineApiModel: (v: string) => void;
 }
@@ -40,8 +38,6 @@ export function EngineSection({
   setEngineEffort,
   extraArgs,
   setExtraArgs,
-  engineCliExtraTools,
-  setEngineCliExtraTools,
   engineApiModel,
   setEngineApiModel,
 }: Props) {
@@ -82,18 +78,6 @@ export function EngineSection({
               placeholder="--flag value"
             />
           </label>
-          <label className={field}>
-            <span>追加許可ツール</span>
-            <Input
-              value={engineCliExtraTools}
-              onChange={(e) => setEngineCliExtraTools(e.target.value)}
-              placeholder="空欄=既定のフルセット。例: mcp__foo__*"
-            />
-          </label>
-          <p className={desc}>
-            実行AIの --allowedTools に追記するツール（空白区切り）。
-            Bash 含むフルセットが既定で許可済みなので、MCP ツール等を足す用途
-          </p>
         </>
       ) : (
         <label className={field}>

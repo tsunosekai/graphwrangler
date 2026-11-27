@@ -133,7 +133,6 @@ function engineSettings(mode: "cli" | "api" = "cli") {
       model: "opus",
       effort: null,
       extraArgs: [],
-      cliExtraTools: [],
       apiModel: null,
     },
     ai: { addDirs: [] },

@@ -1,6 +1,13 @@
 // executor=ai: claude -p を子プロセスで起動する。zinsei desk/engine.py の _run_claude と
 // 同型（shell 経由ではなく argv 配列で渡す。プロンプトはコマンドライン引数として渡すので
-// シェルクォート事故が起きない）。--dangerously-skip-permissions は絶対に使わない。
+// シェルクォート事故が起きない）。
+//
+// 2026-11-27 本人指示「許可リストそのものが要らない」「今 Claude Code で実行しているのと
+// 変わらないように」: 許可リスト（--allowedTools）を廃止し、常に
+// --permission-mode bypassPermissions（全ツールを確認なしで許可）で起動する。ブラウザ接続
+// （CLAUDE_CODE_ENABLE_CFC）と --add-dir 先の CLAUDE.md 読み込みも常に有効にする
+// （claudeChildEnv）。設定を絞る --strict-mcp-config / --setting-sources / --disallowedTools /
+// --tools は付けない（ユーザー設定の MCP サーバや skill がそのまま使える）。
 //
 // 2026-08-09: --output-format stream-json --verbose を追加し、stdout を「実行結果の
 // テキスト」だけでなく「AIが実際に呼んだツール（Bash/Edit/Task…）の列」としても読めるように
@@ -14,7 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { toolPermissionLines } from "@graphwrangler/core";
+import { TOOL_PERMISSION_LINES } from "@graphwrangler/core";
 import { autonomyPromptLines } from "../ask.js";
 import type { Autonomy, Node, SubStep } from "../types.js";
 import { killTree, STDIO_GRACE_MS } from "./script.js";
@@ -23,15 +30,6 @@ import { parseStreamJsonOutput } from "./stream_trace.js";
 // packages/engine/src/executors → repoRoot
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
-
-/** 実行AIに許可する GraphWrangler MCP ツール（2026-08-11）。
- *  **discord_post ただ1つ**に絞る——手順書に「#運営一般 に報告」と書かれたノードで、
- *  AI がその実行として連絡を投げられるようにするため（本人要望「AIが人間とコミュニケーション
- *  する必要のあるタスクは積極的に Discord を使ってほしい」）。
- *  グラフ操作（node_add / node_remove / undo …）は渡さない: 実行AIの仕事は「ノードを実行する」
- *  ことで、グラフを組み替えることではない。人間へ判断を仰ぐ経路は MCP ではなく
- *  QUESTION プロトコル（ask.ts）が既に担っているので、request_open も要らない */
-const ALLOWED_MCP_TOOLS = ["mcp__graphwrangler__discord_post"];
 
 /** claude -p に渡す一時 mcp-config を書く（server 側 chat_cli.ts の writeMcpConfig と同型）。
  *  GraphWrangler の HTTP API の場所は api.ts と同じ env の見方で MCP サーバへ渡す */
@@ -67,30 +65,15 @@ export interface ExecResult {
 // 10分→30分へ（2026-08-03）
 export const CLAUDE_TIMEOUT_MS = 30 * 60 * 1000; // 30分
 
-/** 実行を許可するツールのフルセット。
- *  2026-08-03 本人指示「権限が無さ過ぎて何もできない。Claw（OpenClaw）と同じぐらい色々
- *  できるように」で Bash / Task / TodoWrite / NotebookEdit を追加し、「読み取り+書き込みのみ」
- *  の縛りを撤廃した。危険な操作の歯止めはツールの出し渋りではなく、ノード側の
- *  実行前承認（approval）・自律度（autonomy の QUESTION プロトコル）・試走（--dry-run）で
- *  担保する。--dangerously-skip-permissions を使わない方針は不変（許可は常にこのリストで明示）。
- *  MCP 等をさらに足すときは設定 engine.cliExtraTools（settings.ts）。
- *  server 側 chat_cli.ts の DEFAULT_CLI_TOOLS と同じ内容（変えたら両方直す） */
-export const ALLOWED_TOOLS = [
-  "Read",
-  "Grep",
-  "Glob",
-  "Write",
-  "Edit",
-  "NotebookEdit",
-  "Bash",
-  "Task",
-  "TodoWrite",
-  "WebSearch",
-  "WebFetch",
-];
+/** 三役共通の権限モード（2026-11-27 本人指示「許可リストそのものが要らない」）。
+ *  全ツールを確認なしで許可する。危険な操作の歯止めはツールの出し渋りではなく、ノード側の
+ *  実行前承認（approval）・自律度（autonomy の QUESTION プロトコル）・試走（--dry-run）で担保する。
+ *  server 側 chat_cli.ts の PERMISSION_ARGS と同じ値（変えたら両方直す） */
+export const PERMISSION_ARGS = ["--permission-mode", "bypassPermissions"] as const;
 
-/** 設定(GET /api/settings)経由の extraArgs で安全装置を上書きされないためのブロックリスト。
- *  --dangerously-skip-permissions と --allowedTools 系は設定に含まれていても常に無視する */
+/** 設定(GET /api/settings)経由の extraArgs から落とすフラグ。--dangerously-skip-permissions は
+ *  使わない方針（権限は PERMISSION_ARGS の1か所で決める）。--allowedTools 系は 2026-11-27 に
+ *  許可リストを廃止したので意味を持たず、紛らわしいので引き続き落とす */
 const BLOCKED_EXTRA_ARGS = new Set([
   "--dangerously-skip-permissions",
   "--allowedtools",
@@ -103,15 +86,20 @@ export function sanitizeExtraArgs(extraArgs: string[]): string[] {
   return extraArgs.filter((a) => !BLOCKED_EXTRA_ARGS.has(a.toLowerCase()));
 }
 
-/** 設定 engine.cliExtraTools のサニタイズ。"-" 始まりはツール名でなくフラグとして解釈されて
- *  しまう（--dangerously-skip-permissions の混入経路になる）ので落とす（chat_cli.ts と同じ規則） */
-export function sanitizeExtraTools(tools: string[]): string[] {
-  return tools.filter((t) => !t.startsWith("-"));
-}
-
-/** 設定 ai.addDirs のサニタイズ。"-" 始まり（フラグ混入経路）を落とす */
+/** 設定 ai.addDirs のサニタイズ。前後の空白と、値そのものを囲む引用符（"C:\a b" のように
+ *  引用符ごと保存された値。Windows では起動時にもう一度引用符で包むので二重になって壊れる。
+ *  2026-11-27 実測）を外し、空と "-" 始まり（フラグ混入経路）を落とす。
+ *  server 側 chat_cli.ts の sanitizeAddDirs と同じ規則（変えたら両方直す） */
 export function sanitizeAddDirs(dirs: string[]): string[] {
-  return dirs.filter((d) => !d.startsWith("-"));
+  return dirs
+    .map((d) => {
+      let v = d.trim();
+      while (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+        v = v.slice(1, -1).trim();
+      }
+      return v;
+    })
+    .filter((d) => d !== "" && !d.startsWith("-"));
 }
 
 /** claude executor の実行時設定（cliPath/model は GET /api/settings + env で上書き可能） */
@@ -121,29 +109,25 @@ export interface ClaudeExecutorConfig {
   /** --effort（思考の深さ）。null = CLI 既定。ノード側の aiEffort が優先（2026-08-07） */
   effort: string | null;
   extraArgs: string[];
-  /** ALLOWED_TOOLS に追加で許可するツール（設定 engine.cliExtraTools。例: "mcp__foo__*"） */
-  extraTools: string[];
   /** claude -p の --add-dir に渡す追加作業ディレクトリ（設定 ai.addDirs。三役共通）。
    *  ファイルツールは cwd=workspace root に閉じるため、外のパスはここで開放する
    *  （2026-08-04 本人指示「AI が stremix-document 外も触れるように」） */
   addDirs: string[];
-  /** ブラウザ（Claude in Chrome の拡張）を操作させる（フォルダの設定 aiBrowser。3.24b）。
-   *  true のときだけ、拡張への接続を有効にして mcp__claude-in-chrome のツールを許可する */
-  browser?: boolean;
-  /** 全ツールを確認なしで許可する（設定 ai.allowAllTools。server chat_cli.ts PERMISSION_ALL_ARGS と同じ） */
-  allowAll?: boolean;
 }
 
-/** allowAll のとき claude -p に足す引数 */
-export const PERMISSION_ALL_ARGS = ["--permission-mode", "bypassPermissions"];
-
-/** ブラウザ操作を許可するときに足すツール（Claude in Chrome の MCP サーバ全体） */
-export const BROWSER_TOOLS = ["mcp__claude-in-chrome"];
-
-/** ブラウザ操作を有効にする環境変数。**`--chrome` は使わない**——`--chrome` を付けて起動すると、
- *  拡張の入っていない Google Chrome が毎回立ち上がる（2026-11-26 実測。拡張は Brave にある）。
- *  この環境変数なら Chrome は起動せず、接続済みのブラウザ（Brave）だけが見える（同日実測） */
-export const BROWSER_ENV = { CLAUDE_CODE_ENABLE_CFC: "1" } as const;
+/** 子の claude に足す環境変数（三役共通。sanitizedClaudeEnv で CLAUDE_CODE_* を落とした**後**に重ねる）。
+ *  - CLAUDE_CODE_ENABLE_CFC: ブラウザ（Claude in Chrome の拡張）への接続を有効にする。
+ *    **`--chrome` は使わない**——付けて起動すると拡張の入っていない Google Chrome が毎回
+ *    立ち上がる（2026-11-26 実測。拡張は Brave にある）。この環境変数なら Chrome は起動せず、
+ *    接続済みのブラウザ（Brave）だけが見える（同日実測）。2026-11-27 からフォルダの設定を
+ *    待たず常に有効
+ *  - CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: --add-dir 先の CLAUDE.md / .claude/rules も
+ *    読み込ませる（そのディレクトリで Claude Code を起動したときと同じ指示で動くように）
+ *  server 側 chat_cli.ts の CLAUDE_EXTRA_ENV と同じ値（変えたら両方直す） */
+export const CLAUDE_EXTRA_ENV = {
+  CLAUDE_CODE_ENABLE_CFC: "1",
+  CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+} as const;
 
 export interface AiPromptInput {
   node: Pick<Node, "title" | "detail" | "impl" | "outputs">;
@@ -185,8 +169,8 @@ export function buildAiPrompt(input: AiPromptInput): AiPromptResult {
     "次の作業を行ってください。",
     "",
     // ツール権限（2026-08-12 本人報告「ダイアログが何のことかわからない」）。
-    // 実行AIが未許可ツールで「承認して」と止まると、ランが人間の操作待ちのまま永久に詰まる
-    ...toolPermissionLines("⚙（設定）→「実行AI（エンジン）」"),
+    // 実行AIが「承認して」と止まると、ランが人間の操作待ちのまま永久に詰まる
+    ...TOOL_PERMISSION_LINES,
     "",
   );
   if (goal) {
@@ -271,6 +255,11 @@ export function sanitizedClaudeEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/** 子の claude に渡す環境変数: 掃除したうえで CLAUDE_EXTRA_ENV を重ねる */
+export function claudeChildEnv(): NodeJS.ProcessEnv {
+  return { ...sanitizedClaudeEnv(), ...CLAUDE_EXTRA_ENV };
+}
+
 /** claude CLI のログイン切れを、人間が次にやることまで含む一行に言い換える。実行AIの失敗は
  *  ラン記録にこの文字列がそのまま残るので、生の英語だけだと「なぜ止まったか」が読めない
  *  （2026-08-18）。マッチしなければ元の文字列をそのまま返す。
@@ -292,6 +281,32 @@ export interface RunClaudeOptions {
   cwd?: string;
 }
 
+/** runClaude が claude -p に渡す引数（純粋関数。テスト用に切り出し）。
+ *  isWindows のときは shell:true で起動するので、空白を含むパスが割れないよう引用符で包む */
+export function buildClaudeArgs(
+  config: Pick<ClaudeExecutorConfig, "model" | "effort" | "extraArgs" | "addDirs">,
+  mcpConfigFile: string | null,
+  isWindows: boolean,
+): string[] {
+  const q = (s: string) => (isWindows ? `"${s.replace(/"/g, '\\"')}"` : s);
+  return [
+    "-p",
+    "--model",
+    config.model,
+    ...(config.effort ? ["--effort", config.effort] : []),
+    ...sanitizeExtraArgs(config.extraArgs),
+    // GraphWrangler の MCP を足す（--strict-mcp-config は付けない＝ユーザー設定の MCP もそのまま使える）
+    ...(mcpConfigFile ? ["--mcp-config", q(mcpConfigFile)] : []),
+    ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", q(d)]),
+    // 権限は常に全許可（extraArgs より後ろに置き、設定の追加引数で上書きされないようにする）
+    ...PERMISSION_ARGS,
+    // 内訳（サブステップ）を復元するため、1行1JSONの詳細ログで出させる（stream_trace.ts）
+    "--output-format",
+    "stream-json",
+    "--verbose",
+  ];
+}
+
 export function runClaude(
   prompt: string,
   config: ClaudeExecutorConfig,
@@ -299,7 +314,7 @@ export function runClaude(
 ): Promise<ExecResult> {
   const { timeoutMs = CLAUDE_TIMEOUT_MS, cwd } = opts;
   return new Promise((resolve) => {
-    // MCP 設定（2026-08-11）。これが無いと --allowedTools に mcp__* を並べても接続自体が
+    // MCP 設定（2026-08-11）。これが無いと GraphWrangler の MCP（discord_post 等）への接続自体が
     // 無いので呼べない（実測: 手順書に投稿先を書いても discord_post に手が届かなかった）。
     // 書き出しに失敗しても実行そのものは続ける——MCP は「連絡できる」ぶんの追加機能で、
     // ノードの実行を止める理由にはならない
@@ -309,32 +324,10 @@ export function runClaude(
     } catch (err) {
       console.error(`[claude] MCP設定の書き出しに失敗（MCPなしで続行）: ${String(err)}`);
     }
-    const isWindowsShell = process.platform === "win32";
-    const q = (s: string) => (isWindowsShell ? `"${s.replace(/"/g, '\\"')}"` : s);
-
     // プロンプトは argv ではなく **stdin** で渡す。Windows の shell:true は cmd.exe を経由し、
     // cmd.exe は改行を含む引数を黙って切り捨てる（2026-07-29 に chat_cli 側で実測）。
     // buildAiPrompt は常に複数行なので、argv 渡しだと Windows で先頭行しか届かない。
-    const args = [
-      "-p",
-      "--model",
-      config.model,
-      ...(config.effort ? ["--effort", config.effort] : []),
-      ...sanitizeExtraArgs(config.extraArgs),
-      ...(mcpConfigFile ? ["--mcp-config", q(mcpConfigFile)] : []),
-      "--allowedTools",
-      ...(mcpConfigFile ? ALLOWED_MCP_TOOLS : []),
-      ...ALLOWED_TOOLS,
-      ...sanitizeExtraTools(config.extraTools),
-      ...(config.browser ? BROWSER_TOOLS : []),
-      // Windows は shell:true で起動するので、空白を含むパスが割れないよう引用符で包む
-      ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", q(d)]),
-      ...(config.allowAll ? PERMISSION_ALL_ARGS : []),
-      // 内訳（サブステップ）を復元するため、1行1JSONの詳細ログで出させる（stream_trace.ts）
-      "--output-format",
-      "stream-json",
-      "--verbose",
-    ];
+    const args = buildClaudeArgs(config, mcpConfigFile, process.platform === "win32");
     let stdout = "";
     let stderr = "";
     // close はタイムアウト resolve 後にも遅れて発火しうるため、二重 resolve を防ぐ
@@ -366,7 +359,7 @@ export function runClaude(
       child = spawn(config.cliPath, args, {
         ...(isWindows ? { shell: true } : { detached: true }),
         ...(cwd ? { cwd } : {}),
-        env: config.browser ? { ...sanitizedClaudeEnv(), ...BROWSER_ENV } : sanitizedClaudeEnv(),
+        env: claudeChildEnv(),
         windowsHide: true, // コンソールの無い親（デスクトップ常駐版）の下で黒い窓を出さない
       });
     } catch (err) {

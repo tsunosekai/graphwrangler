@@ -1,18 +1,58 @@
 import { describe, expect, it } from "vitest";
 import {
-  ALLOWED_TOOLS,
   buildAiPrompt,
+  buildClaudeArgs,
+  claudeChildEnv,
   explainClaudeCliFailure,
   sanitizeAddDirs,
   sanitizeExtraArgs,
-  sanitizeExtraTools,
   sanitizedClaudeEnv,
 } from "../src/executors/claude.js";
 
-describe("ALLOWED_TOOLS（2026-08-03 権限拡張）", () => {
-  it("Bash を含むフルセットを既定で許可する", () => {
-    for (const tool of ["Read", "Write", "Edit", "Bash", "Task", "WebSearch", "WebFetch"]) {
-      expect(ALLOWED_TOOLS).toContain(tool);
+// 2026-11-27 本人指示「許可リストそのものが要らない」: 常に全ツール許可で起動し、許可リストは渡さない
+describe("buildClaudeArgs（権限）", () => {
+  const base = { model: "opus", effort: null, extraArgs: [], addDirs: [] };
+
+  it("常に --permission-mode bypassPermissions を付け、--allowedTools は付けない", () => {
+    const args = buildClaudeArgs(base, "/tmp/mcp.json", false);
+    const i = args.indexOf("--permission-mode");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe("bypassPermissions");
+    expect(args.some((a) => a.toLowerCase().startsWith("--allowed"))).toBe(false);
+    expect(args).toContain("--mcp-config");
+  });
+
+  it("セッションを絞るフラグ（--strict-mcp-config 等）と --chrome は付けない", () => {
+    const args = buildClaudeArgs(base, "/tmp/mcp.json", false);
+    for (const f of ["--strict-mcp-config", "--setting-sources", "--disallowedTools", "--tools", "--chrome"]) {
+      expect(args).not.toContain(f);
+    }
+  });
+
+  it("設定の extraArgs の --permission-mode より後ろに置く（後勝ちで全許可が残る）", () => {
+    const args = buildClaudeArgs({ ...base, extraArgs: ["--permission-mode", "default"] }, null, false);
+    expect(args.lastIndexOf("--permission-mode")).toBeGreaterThan(args.indexOf("default"));
+    expect(args[args.lastIndexOf("--permission-mode") + 1]).toBe("bypassPermissions");
+  });
+
+  it("Windows では引用符ごと保存された作業場所も、引用符を二重にせず渡す", () => {
+    const args = buildClaudeArgs({ ...base, addDirs: ['"C:\\Users\\a\\デスクトップ"'] }, null, true);
+    expect(args[args.indexOf("--add-dir") + 1]).toBe('"C:\\Users\\a\\デスクトップ"');
+  });
+});
+
+describe("claudeChildEnv", () => {
+  it("ブラウザ接続と --add-dir 先の CLAUDE.md 読み込みを、掃除の後に必ず足す", () => {
+    const saved = { ...process.env };
+    try {
+      process.env.CLAUDE_CODE_ENABLE_CFC = "0";
+      process.env.CLAUDE_CODE_SOMETHING = "x";
+      const env = claudeChildEnv();
+      expect(env.CLAUDE_CODE_ENABLE_CFC).toBe("1");
+      expect(env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD).toBe("1");
+      expect(env.CLAUDE_CODE_SOMETHING).toBeUndefined();
+    } finally {
+      process.env = saved;
     }
   });
 });
@@ -32,18 +72,16 @@ describe("sanitizeExtraArgs", () => {
 });
 
 describe("sanitizeAddDirs", () => {
+  it("値そのものを囲む引用符と前後の空白を外す（2026-11-27 実測の設定値）", () => {
+    expect(
+      sanitizeAddDirs(['"C:\\Users\\user\\OneDrive\\デスクトップ"', " 'D:/a b' ", '""', '"-x"']),
+    ).toEqual(["C:\\Users\\user\\OneDrive\\デスクトップ", "D:/a b"]);
+  });
+
   it('"-" 始まり（フラグ混入経路）を落とし、パスだけ通す', () => {
     expect(
       sanitizeAddDirs(["/home/ubuntu", "--dangerously-skip-permissions", "D:\\VSCodeProject"]),
     ).toEqual(["/home/ubuntu", "D:\\VSCodeProject"]);
-  });
-});
-
-describe("sanitizeExtraTools", () => {
-  it('"-" 始まり（フラグ混入経路）を落とし、ツール名だけ通す', () => {
-    expect(
-      sanitizeExtraTools(["mcp__foo__*", "-p", "--dangerously-skip-permissions", "Bash(ssh:*)"]),
-    ).toEqual(["mcp__foo__*", "Bash(ssh:*)"]);
   });
 });
 

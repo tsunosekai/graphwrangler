@@ -82,9 +82,6 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
   const [title, setTitle] = useState(folder.title);
   const [ownDirs, setOwnDirs] = useState(Array.isArray(folder.aiDirs));
   const [dirsText, setDirsText] = useState((folder.aiDirs ?? []).join("\n"));
-  const [ownTools, setOwnTools] = useState(Array.isArray(folder.aiTools));
-  const [toolsText, setToolsText] = useState((folder.aiTools ?? []).join("\n"));
-  const [browser, setBrowser] = useState(folder.aiBrowser === true);
   const [model, setModel] = useState(folder.aiModel ?? INHERIT);
   const [effort, setEffort] = useState<string>(folder.aiEffort ?? INHERIT);
   const [muted, setMuted] = useState(folder.muted === true);
@@ -98,8 +95,6 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
   ).get(folder.id);
 
   const globalDirs = global?.ai.addDirs ?? [];
-  // ツールは実行AIと会話の AI で全体の設定が別なので、両方を見せる
-  const globalTools = global ? [...new Set([...global.engine.cliExtraTools, ...global.chat.cliExtraTools])] : [];
 
   const save = async () => {
     setSaving(true);
@@ -108,9 +103,6 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
         // 名前を空にして保存したときは、名前だけ今のままにする
         ...(title.trim() && title.trim() !== folder.title ? { title: title.trim() } : {}),
         aiDirs: ownDirs ? toList(dirsText) : null,
-        aiTools: ownTools ? toList(toolsText) : null,
-        // 変えていなければ送らない（未設定のまま＝外側のフォルダの設定に従う、を保つ）
-        ...(browser !== (folder.aiBrowser === true) ? { aiBrowser: browser } : {}),
         aiModel: model === INHERIT ? null : model,
         aiEffort: effort === INHERIT ? null : (effort as Node["aiEffort"]),
         muted,
@@ -181,48 +173,6 @@ function FolderSettingsForm({ folder, allNodes, onDone }: { folder: Node; allNod
               </span>
             </p>
           )}
-        </div>
-
-        <div className={section}>
-          <div className="flex items-center justify-between gap-2">
-            <span className={heading}>AI に追加で許可するツール</span>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              このフォルダ専用にする
-              <Switch checked={ownTools} onCheckedChange={setOwnTools} aria-label="ツールをこのフォルダ専用にする" />
-            </label>
-          </div>
-          <p className={note}>
-            標準のツール（ファイル操作・シェル・Web など）に足して許可するもの。MCP のツールを使わせたいときに書きます。
-          </p>
-          {ownTools ? (
-            <Textarea
-              rows={2}
-              className="max-h-32 overflow-y-auto font-mono text-xs"
-              placeholder={"1行に1つ。例:\nmcp__linear__*"}
-              value={toolsText}
-              onChange={(e) => setToolsText(e.target.value)}
-              aria-label="追加で許可するツール（1行に1つ）"
-            />
-          ) : (
-            <p className="text-xs">
-              全体の設定に従います:{" "}
-              <span className="font-mono text-muted-foreground">
-                {global ? (globalTools.length > 0 ? globalTools.join(" / ") : "（追加なし）") : "…"}
-              </span>
-            </p>
-          )}
-        </div>
-
-        <div className={section}>
-          <div className="flex items-center justify-between gap-2">
-            <span className={heading}>AI にブラウザを操作させる</span>
-            <Switch checked={browser} onCheckedChange={setBrowser} aria-label="AI にブラウザを操作させる" />
-          </div>
-          <p className={note}>
-            ON にすると、このフォルダの中の AI のノードが、Claude の拡張を入れたブラウザ（いま開いているもの）でページを開いて
-            読んだり操作したりできます。ログイン済みのサイトにも届くので、必要なフォルダだけ ON にしてください。
-            効くのは実行AIだけです（ノードの会話・全体チャットには効きません）。
-          </p>
         </div>
 
         <div className={section}>

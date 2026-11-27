@@ -16,19 +16,19 @@ import {
   QUESTION_PROTOCOL_LINES,
   type ThreadStore,
   parseAiQuestion,
-  toolPermissionLines,
+  TOOL_PERMISSION_LINES,
 } from "@graphwrangler/core";
 import { type ChildProcess, spawn } from "node:child_process";
 import os from "node:os";
 import { chatKeyMissing, completeText } from "./chat.js";
 import {
+  addDirArgs,
   CLI_TIMEOUT_MS,
-  DEFAULT_CLI_TOOLS,
+  claudeChildEnv,
   explainClaudeCliFailure,
   killTree,
-  PERMISSION_ALL_ARGS,
+  PERMISSION_ARGS,
   sanitizeModelOverride,
-  sanitizedClaudeEnv,
 } from "./chat_cli.js";
 import type { SettingsStore } from "./settings.js";
 
@@ -118,8 +118,8 @@ export function buildThreadReplyPrompt(input: BuildThreadReplyPromptInput): stri
     "メッセージ中の「[添付ファイル: <パス>]」はユーザーが添付したファイル。確認を求めず Read で読んで内容を踏まえること。",
     "",
     // ツール権限（2026-08-12 本人報告「ダイアログが何のことかわからない」）。
-    // Task AI は GraphWrangler AI と同じ chat.cliExtraTools を使う
-    ...toolPermissionLines("⚙（設定）→「チャットAI（GraphWrangler AI）」"),
+    // 2026-11-27 から許可リストは無く、全ツールを確認なしで使える
+    ...TOOL_PERMISSION_LINES,
     "",
   ];
   if (rally) {
@@ -182,52 +182,52 @@ export interface PlainCliResult {
   cancelled?: boolean;
 }
 
-/** claude -p をプレーンに起動する（--output-format 指定なし＝素のテキスト出力、MCP接続なし）。
+/** Task AI（runPlainClaude）が claude -p に渡す引数（純粋関数。テスト用に切り出し）。
+ *  権限は chat_cli.ts と同じく常に全許可（2026-11-27 本人指示「許可リストそのものが要らない」）。
+ *  --add-dir は chat_cli.ts の addDirArgs（引用符の剥がし・"-" 始まりの除外・Windows の引用）を通す */
+export function buildPlainClaudeArgs(
+  cliModel: string,
+  effort: string | null,
+  addDirs: string[],
+  isWindows: boolean,
+): string[] {
+  return [
+    "-p",
+    "--model",
+    cliModel,
+    ...(effort ? ["--effort", effort] : []),
+    // 設定 ai.addDirs: ワークスペースルート外もファイルツールで触れるようにする（chat_cli.ts と同じ）
+    ...addDirArgs(addDirs, isWindows),
+    ...PERMISSION_ARGS,
+  ];
+}
+
+/** claude -p をプレーンに起動する（--output-format 指定なし＝素のテキスト出力、GraphWrangler の MCP は渡さない）。
  *  プロンプトは stdin 渡し（Windows の cmd.exe が改行入り argv を切り捨てる問題を避けるため。
- *  packages/engine/src/executors/claude.ts runClaude と同型）。sanitizedClaudeEnv・
+ *  packages/engine/src/executors/claude.ts runClaude と同型）。claudeChildEnv・
  *  Windows の shell:true 判定・タイムアウト値は chat_cli.ts と共通化している */
 export function runPlainClaude(
   cliPath: string,
   cliModel: string,
   prompt: string,
   cwd: string,
-  extraTools: string[] = [],
   addDirs: string[] = [],
   /** 中断シグナル（UI の「停止」。2026-08-05）。落ちたら claude を木ごと殺して
    *  cancelled:true で返す */
   signal?: AbortSignal,
   /** --effort（思考の深さ）。null = CLI 既定（2026-08-07 モデル/エフォート切替） */
   effort: string | null = null,
-  /** 設定 ai.allowAllTools。true なら全ツールを確認なしで許可する（2026-11-27） */
-  allowAll = false,
 ): Promise<PlainCliResult> {
   return new Promise((resolve) => {
-    // chat_cli.ts と同じフルセットを許可（2026-08-03 権限拡張。それまでは読み取り専用だった）。
-    // extraTools = 設定 chat.cliExtraTools（例: "mcp__foo__*"）。"-" 始まりはフラグ解釈される
-    // ので落とす（chat_cli.ts と同じサニタイズ）
-    const args = [
-      "-p",
-      "--model",
-      cliModel,
-      ...(effort ? ["--effort", effort] : []),
-      "--allowedTools",
-      ...DEFAULT_CLI_TOOLS,
-      ...extraTools.filter((t) => !t.startsWith("-")),
-      // 設定 ai.addDirs: ワークスペースルート外もファイルツールで触れるようにする（chat_cli.ts と同じ）
-      ...addDirs
-        .filter((d) => !d.startsWith("-"))
-        // Windows は shell:true で起動するので、空白を含むパスが割れないよう引用符で包む（chat_cli.ts と同じ）
-        .flatMap((d) => ["--add-dir", process.platform === "win32" ? `"${d.replace(/"/g, '\\"')}"` : d]),
-      ...(allowAll ? PERMISSION_ALL_ARGS : []),
-    ];
     const isWindows = process.platform === "win32";
+    const args = buildPlainClaudeArgs(cliModel, effort, addDirs, isWindows);
     let child: ChildProcess;
     try {
       // cwd 明示: サーバの cwd のまま起動すると claude が graphwrangler リポジトリを
       // 自分のプロジェクトと誤認する（chat_cli.ts と同じ対策。2026-07-31 実測）
       child = spawn(cliPath, args, {
         ...(isWindows ? { shell: true } : {}),
-        env: sanitizedClaudeEnv(),
+        env: claudeChildEnv(),
         cwd,
         windowsHide: true,
       });
@@ -405,7 +405,7 @@ async function respondInThread(
     // aiModel はスキーマ上自由な文字列（MCP/HTTP の patch で入る）で、Windows は shell:true
     // 起動＝空白で argv が割れてフラグを注入できるため、chat_cli.ts のモデル上書きと同じ
     // サニタイズを通し、不正なら設定の既定へ（aiEffort はスキーマの enum で閉じている）
-    // フォルダごとの AI 設定（3.24）: モデルと深さは ノード > フォルダ > 全体。作業場所とツールは、
+    // フォルダごとの AI 設定（3.24）: モデルと深さは ノード > フォルダ > 全体。作業場所は、
     // フォルダに設定があれば全体の設定の代わりに使う
     const scope = aiScopeFor(graph, node.id);
     const model = sanitizeModelOverride(node.aiModel) ?? scope.model ?? chat.cliModel;
@@ -424,11 +424,9 @@ async function respondInThread(
       model,
       prompt,
       graph.workspaceInfo().root ?? os.tmpdir(),
-      scope.tools ?? chat.cliExtraTools,
       addDirs,
       signal,
       effort,
-      settings.get().ai.allowAllTools,
     );
     if (result.cancelled) return; // 人間が止めた（失敗ではないのでスレッドには書かない）
     if (!result.success) {

@@ -27,13 +27,6 @@ const mcpEntry = path.join(repoRoot, "packages", "mcp", "src", "index.ts");
 export const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_HISTORY_MESSAGES = 20; // 「最大10往復」= user+assistant で20件
 
-/** GraphWrangler AI / Task AI に既定で許可するツールのフルセット。
- *  2026-08-03 本人指示「権限が無さ過ぎて何もできない。Claw（OpenClaw）と同じぐらい色々
- *  できるように」で、それまでの「読み取り+Write/Edit のみ・Bash はあえて許可しない」の
- *  縛りを撤廃した。危険な操作の歯止めはツールの出し渋りではなく、グラフ側の
- *  実行前承認（approval）・試走（--dry-run）・人間との会話で担保する。
- *  --dangerously-skip-permissions を使わない方針は不変（許可は常にこのリストで明示）。
- *  engine/src/executors/claude.ts の ALLOWED_TOOLS と同じ内容（変えたら両方直す） */
 /** --effort に渡せる値（claude CLI の思考の深さ。2026-08-07 モデル/エフォート切替） */
 export const CLI_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 
@@ -49,22 +42,54 @@ export function sanitizeEffortOverride(v: unknown): string | null {
   return typeof v === "string" && (CLI_EFFORT_LEVELS as readonly string[]).includes(v) ? v : null;
 }
 
-/** 設定 ai.allowAllTools のとき claude -p に足す引数（三役共通。engine/executors/claude.ts と同じ値） */
-export const PERMISSION_ALL_ARGS = ["--permission-mode", "bypassPermissions"];
+/** GraphWrangler AI / Task AI の権限モード（三役共通。engine/executors/claude.ts の
+ *  PERMISSION_ARGS と同じ値。変えたら両方直す）。
+ *  2026-08-03 本人指示「権限が無さ過ぎて何もできない。Claw（OpenClaw）と同じぐらい色々
+ *  できるように」で Bash 等を許可リストに足し、2026-11-27 本人指示「許可リストそのものが
+ *  要らない」で許可リスト（--allowedTools）自体を廃止して、常に全ツールを確認なしで許可する。
+ *  危険な操作の歯止めはツールの出し渋りではなく、グラフ側の実行前承認（approval）・
+ *  試走（--dry-run）・人間との会話で担保する。
+ *  あわせて「今 Claude Code で実行しているのと変わらないように」（同日）、セッションを絞る
+ *  --strict-mcp-config / --setting-sources / --disallowedTools / --tools は付けない
+ *  （ユーザー設定の MCP サーバや skill がそのまま使える） */
+export const PERMISSION_ARGS = ["--permission-mode", "bypassPermissions"] as const;
 
-export const DEFAULT_CLI_TOOLS = [
-  "Read",
-  "Grep",
-  "Glob",
-  "Write",
-  "Edit",
-  "NotebookEdit",
-  "Bash",
-  "Task",
-  "TodoWrite",
-  "WebSearch",
-  "WebFetch",
-];
+/** 子の claude に足す環境変数（三役共通。sanitizedClaudeEnv で CLAUDE_CODE_* を落とした**後**に重ねる）。
+ *  - CLAUDE_CODE_ENABLE_CFC: ブラウザ（Claude in Chrome の拡張）への接続を有効にする。
+ *    `--chrome` は使わない（付けると拡張の無い Google Chrome が毎回立ち上がる。拡張は Brave にある）
+ *  - CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: --add-dir 先の CLAUDE.md / .claude/rules も
+ *    読み込ませる（そのディレクトリで Claude Code を起動したときと同じ指示で動くように）
+ *  engine/executors/claude.ts の CLAUDE_EXTRA_ENV と同じ値（変えたら両方直す） */
+export const CLAUDE_EXTRA_ENV = {
+  CLAUDE_CODE_ENABLE_CFC: "1",
+  CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+} as const;
+
+/** 設定 ai.addDirs（とフォルダの aiDirs・添付置き場）のサニタイズ。前後の空白と、値そのものを
+ *  囲む引用符（引用符ごと保存された値。Windows では起動時にもう一度引用符で包むので二重に
+ *  なって壊れる。2026-11-27 実測）を外し、空と "-" 始まり（フラグ混入経路）を落とす。
+ *  engine/executors/claude.ts の sanitizeAddDirs と同じ規則（変えたら両方直す） */
+export function sanitizeAddDirs(dirs: string[]): string[] {
+  return dirs
+    .map((d) => {
+      let v = d.trim();
+      while (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+        v = v.slice(1, -1).trim();
+      }
+      return v;
+    })
+    .filter((d) => d !== "" && !d.startsWith("-"));
+}
+
+/** Windows の shell:true 起動用の引用（空白で argv が割れないよう "..." で包む）。POSIX はそのまま */
+export function quoteArg(s: string, isWindows: boolean): string {
+  return isWindows ? `"${s.replace(/"/g, '\\"')}"` : s;
+}
+
+/** --add-dir の引数列（サニタイズ → 引用）。三役で同じ形にする */
+export function addDirArgs(dirs: string[], isWindows: boolean): string[] {
+  return sanitizeAddDirs(dirs).flatMap((d) => ["--add-dir", quoteArg(d, isWindows)]);
+}
 
 /**
  * 子の claude に渡す環境変数の掃除。CLI方式はログイン済み資格情報（サブスクリプション）
@@ -89,6 +114,11 @@ export function sanitizedClaudeEnv(): NodeJS.ProcessEnv {
     if (keep.test(k) || !drop.test(k)) env[k] = v;
   }
   return env;
+}
+
+/** 子の claude に渡す環境変数: 掃除したうえで CLAUDE_EXTRA_ENV を重ねる（thread_ai.ts も使う） */
+export function claudeChildEnv(): NodeJS.ProcessEnv {
+  return { ...sanitizedClaudeEnv(), ...CLAUDE_EXTRA_ENV };
 }
 
 /** claude CLI のログイン切れを、人間が次にやることまで含む一行に言い換える。
@@ -401,6 +431,40 @@ export function killTree(child: { pid?: number; kill: (signal?: NodeJS.Signals) 
  *  controller に流す。呼び出し完了・失敗にかかわらず必ず [DONE] を送って close する。
  *  signal が中断されたら claude を木ごと殺す——UI の「停止」で fetch を切っても、
  *  以前は CLI が裏で走り続けて MCP 経由でグラフを書き換えていた（2026-08-05 修正） */
+/** GraphWrangler AI（runCli）が claude -p に渡す引数（純粋関数。テスト用に切り出し）。
+ *  Windows の shell:true は引数を自前でクォートしないと**空白で分解される**ため、空白を
+ *  含みうる引数（system・パス）は quoteArg で囲む（2026-07-31 実測: システムプロンプトが
+ *  最初の空白でちぎれて文脈が届いていなかった） */
+export function buildChatCliArgs(
+  cliModel: string,
+  effort: string | null,
+  mcpConfigFile: string,
+  addDirs: string[],
+  system: string,
+  isWindows: boolean,
+): string[] {
+  return [
+    "-p",
+    "--model",
+    cliModel,
+    // エフォート（思考の深さ）。null なら CLI の既定に任せる（2026-08-07 切替機能）
+    ...(effort ? ["--effort", effort] : []),
+    // GraphWrangler の MCP を足す（--strict-mcp-config は付けない＝ユーザー設定の MCP もそのまま使える）
+    "--mcp-config",
+    quoteArg(mcpConfigFile, isWindows),
+    // 設定 ai.addDirs: ワークスペースルート外もファイルツールで触れるようにする（2026-08-04 本人指示）
+    ...addDirArgs(addDirs, isWindows),
+    "--append-system-prompt",
+    quoteArg(cliSafeArg(system), isWindows),
+    "--output-format",
+    "stream-json",
+    "--include-partial-messages",
+    "--verbose",
+    // 権限は常に全許可（2026-11-27。許可リストは無い）
+    ...PERMISSION_ARGS,
+  ];
+}
+
 function runCli(
   cliPath: string,
   cliModel: string,
@@ -410,13 +474,10 @@ function runCli(
   mcpConfigFile: string,
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
-  extraTools: string[] = [],
   addDirs: string[] = [],
   signal?: AbortSignal,
   /** --effort（思考の深さ）。null = 指定しない（CLI 既定。2026-08-07） */
   effort: string | null = null,
-  /** 設定 ai.allowAllTools。true なら全ツールを確認なしで許可する */
-  allowAll = false,
 ): Promise<void> {
   return new Promise((resolve) => {
     // 切断済み controller への enqueue はサーバを落とすので必ず握りつぶす（emitStreamJsonLine と同じ理由）
@@ -458,36 +519,7 @@ function runCli(
     // **空白で分解される**ため、空白を含みうる引数（system）は winQuote で囲む
     // （2026-07-31 実測: システムプロンプトが最初の空白でちぎれて文脈が届いていなかった）
     const isWindows = process.platform === "win32";
-    const q = (s: string) => (isWindows ? `"${s.replace(/"/g, '\\"')}"` : s);
-    const args = [
-      "-p",
-      "--model",
-      cliModel,
-      // エフォート（思考の深さ）。null なら CLI の既定に任せる（2026-08-07 切替機能）
-      ...(effort ? ["--effort", effort] : []),
-      "--mcp-config",
-      q(mcpConfigFile),
-      "--allowedTools",
-      "mcp__graphwrangler__*",
-      // 既定でフルセットを許可する（DEFAULT_CLI_TOOLS。2026-08-03 本人指示「権限が無さ過ぎて
-      // 何もできない。Claw と同じぐらい色々できるように」で Bash 等を追加）。
-      // 取り返しのつかない操作の歯止めはグラフ側の実行前承認・試走と人間との会話で担保する
-      ...DEFAULT_CLI_TOOLS,
-      // 設定 chat.cliExtraTools（例: "mcp__foo__*"）。"-" 始まりはツール名でなく
-      // フラグとして解釈されてしまう（--dangerously-skip-permissions の混入経路になる）ので落とす
-      ...extraTools.filter((t) => !t.startsWith("-")),
-      // 設定 ai.addDirs: ワークスペースルート外もファイルツールで触れるようにする
-      // （2026-08-04 本人指示。"-" 始まりの除外は extraTools と同じフラグ混入対策）
-      ...addDirs.filter((d) => !d.startsWith("-")).flatMap((d) => ["--add-dir", q(d)]),
-      "--append-system-prompt",
-      q(cliSafeArg(system)),
-      "--output-format",
-      "stream-json",
-      "--include-partial-messages",
-      "--verbose",
-      // 既定は --allowedTools の列挙だけ。設定 ai.allowAllTools を入れたときだけ全ツールを許可する
-      ...(allowAll ? PERMISSION_ALL_ARGS : []),
-    ];
+    const args = buildChatCliArgs(cliModel, effort, mcpConfigFile, addDirs, system, isWindows);
 
     // Windows では claude が .cmd シム（cmd.exe 経由でないと直接起動できない）のため、
     // その場合だけ shell:true にする（packages/engine/src/executors/claude.ts と同型）
@@ -499,7 +531,7 @@ function runCli(
       // workspace root、それ以外は中立な tmp
       child = spawn(cliPath, args, {
         ...(isWindows ? { shell: true } : {}),
-        env: sanitizedClaudeEnv(),
+        env: claudeChildEnv(),
         cwd,
         windowsHide: true,
       });
@@ -586,8 +618,8 @@ export function handleChatCli(
   attachmentsDir?: string,
 ): Response {
   const pageId = body.pageId ?? null;
-  const { cliPath, cliModel, cliEffort, cliExtraTools } = settings.get().chat;
-  const { addDirs: settingsAddDirs, allowAllTools } = settings.get().ai;
+  const { cliPath, cliModel, cliEffort } = settings.get().chat;
+  const { addDirs: settingsAddDirs } = settings.get().ai;
   // フォルダごとの AI 設定（3.24）: 表示中のページが入っているフォルダの設定を当てる。
   // ページを開いていない全体チャットは全体の設定のまま
   const scope = aiScopeFor(graph, pageId);
@@ -635,11 +667,9 @@ export function handleChatCli(
         mcpConfigFile,
         controller,
         encoder,
-        scope.tools ?? cliExtraTools,
         addDirs,
         stopper.signal,
         effort,
-        allowAllTools,
       ).catch((err) => {
         try {
           controller.enqueue(

@@ -9,9 +9,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildChatCliArgs,
+  claudeChildEnv,
   createStreamJsonState,
   emitStreamJsonLine,
   explainClaudeCliFailure,
+  sanitizeAddDirs,
   sanitizedClaudeEnv,
 } from "../src/chat_cli.js";
 
@@ -149,6 +152,44 @@ test("sanitizedClaudeEnv は CLAUDE_CODE_* を落とすが OAuth トークンだ
     assert.equal(env.CLAUDE_CODE_ENTRYPOINT, undefined);
     assert.equal(env.CLAUDECODE, undefined);
     assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  } finally {
+    process.env = saved;
+  }
+});
+
+// 2026-11-27 本人指示「許可リストそのものが要らない」「今 Claude Code で実行しているのと変わらないように」
+test("buildChatCliArgs は常に --permission-mode bypassPermissions を付け、許可リストもセッションを絞るフラグも付けない", () => {
+  const args = buildChatCliArgs("opus", null, "/tmp/mcp.json", ["/work"], "system", false);
+  const i = args.indexOf("--permission-mode");
+  assert.ok(i > -1);
+  assert.equal(args[i + 1], "bypassPermissions");
+  assert.ok(!args.some((a) => a.toLowerCase().startsWith("--allowed")));
+  for (const f of ["--strict-mcp-config", "--setting-sources", "--disallowedTools", "--tools", "--chrome"]) {
+    assert.ok(!args.includes(f), f);
+  }
+  assert.ok(args.includes("--mcp-config"));
+  assert.deepEqual(args.slice(args.indexOf("--add-dir"), args.indexOf("--add-dir") + 2), ["--add-dir", "/work"]);
+});
+
+test("sanitizeAddDirs は値を囲む引用符と空白を外し、空と \"-\" 始まりを落とす", () => {
+  assert.deepEqual(
+    sanitizeAddDirs(['"C:\\Users\\user\\OneDrive\\デスクトップ"', " 'D:/a b' ", '""', "--x", '"-y"']),
+    ["C:\\Users\\user\\OneDrive\\デスクトップ", "D:/a b"],
+  );
+  // Windows では引用符を二重にせず1回だけ包む
+  const args = buildChatCliArgs("opus", null, "C:\\tmp\\m.json", ['"C:\\a b"'], "s", true);
+  assert.equal(args[args.indexOf("--add-dir") + 1], '"C:\\a b"');
+});
+
+test("claudeChildEnv はブラウザ接続と --add-dir 先の CLAUDE.md 読み込みを、掃除の後に必ず足す", () => {
+  const saved = { ...process.env };
+  try {
+    process.env.CLAUDE_CODE_ENABLE_CFC = "0";
+    process.env.CLAUDE_CODE_ENTRYPOINT = "cli";
+    const env = claudeChildEnv();
+    assert.equal(env.CLAUDE_CODE_ENABLE_CFC, "1");
+    assert.equal(env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD, "1");
+    assert.equal(env.CLAUDE_CODE_ENTRYPOINT, undefined);
   } finally {
     process.env = saved;
   }

@@ -2,15 +2,14 @@ import { describe, expect, it } from "vitest";
 import { configFor, engineConfig, setScopeNodes } from "./settings.js";
 
 describe("configFor（フォルダごとの AI 設定。3.24）", () => {
-  it("フォルダの設定があれば作業場所とツールを置き換え、モデルは ノード > フォルダ > 全体", () => {
+  it("フォルダの設定があれば作業場所を置き換え、モデルは ノード > フォルダ > 全体", () => {
     setScopeNodes([
-      { id: "shelf", aiDirs: ["D:/work"], aiTools: ["mcp__x__*"], aiModel: "sonnet", aiEffort: "high" },
+      { id: "shelf", aiDirs: ["D:/work"], aiModel: "sonnet", aiEffort: "high" },
       { id: "page", folder: "shelf" },
       { id: "free", folder: null },
     ]);
     const inShelf = configFor({ id: "t1", group: "page", aiModel: null, aiEffort: null });
     expect(inShelf.addDirs).toEqual(["D:/work"]);
-    expect(inShelf.extraTools).toEqual(["mcp__x__*"]);
     expect(inShelf.model).toBe("sonnet");
     expect(inShelf.effort).toBe("high");
 
@@ -21,19 +20,6 @@ describe("configFor（フォルダごとの AI 設定。3.24）", () => {
     const outside = configFor({ id: "t3", group: "free", aiModel: null, aiEffort: null });
     expect(outside.addDirs).toEqual(engineConfig.addDirs);
     expect(outside.model).toBe(engineConfig.model);
-    expect(inShelf.browser).toBe(false);
-    expect(outside.browser).toBe(false);
-    setScopeNodes([]);
-  });
-
-  it("ブラウザの操作は、フォルダで ON にしたところだけ", () => {
-    setScopeNodes([
-      { id: "shelf", aiBrowser: true },
-      { id: "page", folder: "shelf" },
-      { id: "free", folder: null },
-    ]);
-    expect(configFor({ id: "t1", group: "page", aiModel: null, aiEffort: null }).browser).toBe(true);
-    expect(configFor({ id: "t2", group: "free", aiModel: null, aiEffort: null }).browser).toBe(false);
     setScopeNodes([]);
   });
 });

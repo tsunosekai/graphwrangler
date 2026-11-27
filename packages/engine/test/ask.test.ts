@@ -288,12 +288,13 @@ describe("buildThreadContextLines: ラリーを含む往復", () => {
 });
 
 // 実行AIのプロンプトにもツール権限の案内が載る（2026-08-12）。
-// これが無いと、未許可ツールで「承認ダイアログを押して」と止まり、ランが永久に待ちになる
+// これが無いと「承認ダイアログを押して」と止まり、ランが永久に待ちになる。
+// 2026-11-27 から許可リストは無い（全ツール許可）ので、設定へ足す案内はしない
 describe("buildAiPrompt: ツール権限の案内", () => {
-  it("許可ダイアログが無いことと、設定の在り処を伝える", () => {
+  it("許可ダイアログが無いことと全ツールが使えることを伝え、許可リストの話はしない", () => {
     const { prompt } = buildAiPrompt({ node: node({ title: "t" }), goal: null, parentSayMessages: [] });
     expect(prompt).toContain("許可ダイアログは出ません");
-    expect(prompt).toContain("実行AI（エンジン）");
-    expect(prompt).toContain("追加許可ツール");
+    expect(prompt).toContain("ツールはすべて確認なしで使えます");
+    expect(prompt).not.toContain("追加許可ツール");
   });
 });

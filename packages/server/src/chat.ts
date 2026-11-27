@@ -23,7 +23,7 @@ import {
   StatusSchema,
   type Actor,
   type Node,
-  toolPermissionLines,
+  TOOL_PERMISSION_LINES,
 } from "@graphwrangler/core";
 
 const VIA = "chat";
@@ -170,8 +170,8 @@ export function systemPrompt(
       "全ノード取得ツール get_state / state_get）を見て答えること。全体を見るのに確認は要らない。",
     "作業ディレクトリのソースコードやリポジトリの話はしない。",
     // ツール権限（2026-08-12 本人報告「ダイアログが何のことかわからない」）。
-    // GraphWrangler AI も Task AI と同じ chat.cliExtraTools のリストで動く
-    ...toolPermissionLines("⚙（設定）→「チャットAI（GraphWrangler AI）」"),
+    // 2026-11-27 から許可リストは無く、全ツールを確認なしで使える（chat_cli.ts PERMISSION_ARGS）
+    ...TOOL_PERMISSION_LINES,
     ...(overviewLines.length > 0
       ? ["全プロジェクト一覧（横断ビュー。中身は必要なら get_state / state_get で取得）:", ...overviewLines]
       : []),

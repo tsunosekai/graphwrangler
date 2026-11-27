@@ -15,24 +15,20 @@ const DEFAULT_ENGINE_CONFIG: ClaudeExecutorConfig = {
   model: process.env.GW_ENGINE_CLAUDE_MODEL ?? "opus",
   effort: null,
   extraArgs: [],
-  extraTools: [],
   addDirs: [],
 };
 
 /** ノード側の aiModel/aiEffort（2026-08-07 切替機能）を設定の既定へ重ねた実行時設定。
  *  null（未指定）のフィールドだけ engineConfig に従う */
 export function configFor(node: Pick<Node, "id" | "group" | "aiModel" | "aiEffort">): ClaudeExecutorConfig {
-  // フォルダごとの AI 設定（3.24）: 作業場所とツールは、フォルダに設定があれば全体の設定の代わりに使う。
+  // フォルダごとの AI 設定（3.24）: 作業場所は、フォルダに設定があれば全体の設定の代わりに使う。
   // モデルと深さは ノード > フォルダ > 全体 の順
   const scope = folderAiScope(node, (id) => scopeNodes.get(id));
   return {
     ...engineConfig,
     model: node.aiModel ?? scope.model ?? engineConfig.model,
     effort: node.aiEffort ?? scope.effort ?? engineConfig.effort,
-    extraTools: scope.tools ?? engineConfig.extraTools,
     addDirs: scope.dirs ?? engineConfig.addDirs,
-    // ブラウザの操作はフォルダで ON にしたところだけ（全体の設定は無い。3.24b）
-    browser: scope.browser === true,
   };
 }
 
@@ -67,12 +63,10 @@ export async function refreshEngineConfig(force = false): Promise<void> {
       model: modelFromEnv ?? settings.engine.model ?? DEFAULT_ENGINE_CONFIG.model,
       effort: settings.engine.effort ?? null,
       extraArgs: Array.isArray(settings.engine.extraArgs) ? settings.engine.extraArgs : [],
-      extraTools: Array.isArray(settings.engine.cliExtraTools) ? settings.engine.cliExtraTools : [],
       addDirs: Array.isArray(settings.ai?.addDirs) ? settings.ai.addDirs : [],
-      allowAll: settings.ai?.allowAllTools === true,
     };
     log(
-      `エンジン設定を反映: mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)} extraTools=${JSON.stringify(engineConfig.extraTools)} addDirs=${JSON.stringify(engineConfig.addDirs)} allowAll=${engineConfig.allowAll === true}`,
+      `エンジン設定を反映: mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)} addDirs=${JSON.stringify(engineConfig.addDirs)}`,
     );
   } catch (err) {
     log(`設定取得に失敗（前回値のまま継続、次tickで再試行）: ${String(err)}`);

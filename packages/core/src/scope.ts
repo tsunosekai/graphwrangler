@@ -8,9 +8,10 @@
 //   - aiDirs  … AI がファイルを読み書きできる追加の場所（ワークスペースの外）。**設定したら
 //                全体の設定の代わりにこれだけを使う**（足し算ではない——足し算だと絞れない）。
 //                空の配列は「ワークスペースの中だけ」
-//   - aiTools … 追加で許可するツール（MCP など）。これも設定したら全体の設定の代わり
 //   - aiModel / aiEffort … 中のノードの既定のモデル・思考の深さ（ノード自身の指定が優先）
-//   - aiBrowser … 実行AIにブラウザ（Claude in Chrome の拡張）を操作させる（3.24b）。true のときだけ
+//
+// （aiTools＝追加許可ツール と aiBrowser＝ブラウザ操作 は 2026-11-27 に廃止。三役とも常に
+//  全ツール許可・ブラウザ接続ありで起動する）
 //
 // 入れ子のフォルダは、項目ごとに「いちばん近い、設定のあるフォルダ」の値を使う。
 // 実行AI（engine）・ノードの会話の AI・全体チャットの3つが同じこの関数で決める。
@@ -20,24 +21,18 @@ export interface ScopeNode {
   group?: string | null;
   folder?: string | null;
   aiDirs?: string[] | null;
-  aiTools?: string[] | null;
   aiModel?: string | null;
   aiEffort?: string | null;
-  aiBrowser?: boolean | null;
 }
 
 export interface FolderAiScope {
   /** 追加の作業場所。null = フォルダの設定なし（全体の設定に従う） */
   dirs: string[] | null;
-  /** 追加で許可するツール。null = フォルダの設定なし */
-  tools: string[] | null;
   model: string | null;
   effort: string | null;
-  /** ブラウザを操作させる。いちばん近い「設定のあるフォルダ」が true のときだけ付く（無ければ渡さない） */
-  browser?: true;
 }
 
-export const NO_FOLDER_SCOPE: FolderAiScope = { dirs: null, tools: null, model: null, effort: null };
+export const NO_FOLDER_SCOPE: FolderAiScope = { dirs: null, model: null, effort: null };
 
 // モデル名はコマンドの引数になる。空白や記号が入ると別の引数として解釈されうるので形を絞る
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._\-[\]]{0,80}$/;
@@ -62,18 +57,12 @@ export function folderAiScope(
   for (let i = 0; i < 20 && page?.group; i++) page = byId(page.group);
   if (!page) return NO_FOLDER_SCOPE;
 
-  const out: FolderAiScope = { dirs: null, tools: null, model: null, effort: null };
-  let browserDecided = false;
+  const out: FolderAiScope = { dirs: null, model: null, effort: null };
   let shelf = page.folder ? byId(page.folder) : undefined;
   for (let i = 0; i < 20 && shelf; i++) {
     if (out.dirs === null) out.dirs = cleanList(shelf.aiDirs);
-    if (out.tools === null) out.tools = cleanList(shelf.aiTools);
     if (out.model === null && typeof shelf.aiModel === "string" && MODEL_RE.test(shelf.aiModel)) out.model = shelf.aiModel;
     if (out.effort === null && typeof shelf.aiEffort === "string" && EFFORTS.has(shelf.aiEffort)) out.effort = shelf.aiEffort;
-    if (!browserDecided && typeof shelf.aiBrowser === "boolean") {
-      browserDecided = true;
-      if (shelf.aiBrowser) out.browser = true;
-    }
     shelf = shelf.folder ? byId(shelf.folder) : undefined;
   }
   return out;

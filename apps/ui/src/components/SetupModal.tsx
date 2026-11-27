@@ -48,18 +48,13 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
   const [chatCliPath, setChatCliPath] = useState(settings.chat.cliPath);
   const [chatCliModel, setChatCliModel] = useState(settings.chat.cliModel);
   const [chatCliEffort, setChatCliEffort] = useState<EffortValue>(settings.chat.cliEffort ?? null);
-  const [chatCliExtraTools, setChatCliExtraTools] = useState(settings.chat.cliExtraTools.join(" "));
 
   const [engineMode, setEngineMode] = useState<EngineMode>(settings.engine.mode);
   const [cliPath, setCliPath] = useState(settings.engine.cliPath);
   const [engineModel, setEngineModel] = useState(settings.engine.model);
   const [engineEffort, setEngineEffort] = useState<EffortValue>(settings.engine.effort ?? null);
   const [extraArgs, setExtraArgs] = useState(settings.engine.extraArgs.join(" "));
-  const [engineCliExtraTools, setEngineCliExtraTools] = useState(
-    settings.engine.cliExtraTools.join(" "),
-  );
   const [aiAddDirs, setAiAddDirs] = useState(settings.ai.addDirs.join(" "));
-  const [aiAllowAll, setAiAllowAll] = useState(settings.ai.allowAllTools === true);
   const [engineApiModel, setEngineApiModel] = useState(settings.engine.apiModel ?? "");
 
   const [gitAutoPush, setGitAutoPush] = useState(settings.git.autoPush);
@@ -237,7 +232,6 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           cliPath: chatCliPath.trim() || "claude",
           cliModel: chatCliModel.trim() || "opus",
           cliEffort: chatCliEffort,
-          cliExtraTools: chatCliExtraTools.trim() ? chatCliExtraTools.trim().split(/\s+/) : [],
         },
         engine: {
           mode: engineMode,
@@ -245,12 +239,10 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           model: engineModel.trim() || "opus",
           effort: engineEffort,
           extraArgs: extraArgs.trim() ? extraArgs.trim().split(/\s+/) : [],
-          cliExtraTools: engineCliExtraTools.trim() ? engineCliExtraTools.trim().split(/\s+/) : [],
           apiModel: engineApiModel.trim() || null,
         },
         ai: {
           addDirs: aiAddDirs.trim() ? aiAddDirs.trim().split(/\s+/) : [],
-          allowAllTools: aiAllowAll,
         },
         git: {
           autoPush: gitAutoPush,
@@ -360,8 +352,6 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           setChatCliModel={setChatCliModel}
           chatCliEffort={chatCliEffort}
           setChatCliEffort={setChatCliEffort}
-          chatCliExtraTools={chatCliExtraTools}
-          setChatCliExtraTools={setChatCliExtraTools}
         />
 
         <EngineSection
@@ -375,18 +365,11 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           setEngineEffort={setEngineEffort}
           extraArgs={extraArgs}
           setExtraArgs={setExtraArgs}
-          engineCliExtraTools={engineCliExtraTools}
-          setEngineCliExtraTools={setEngineCliExtraTools}
           engineApiModel={engineApiModel}
           setEngineApiModel={setEngineApiModel}
         />
 
-        <WorkDirsSection
-          aiAddDirs={aiAddDirs}
-          setAiAddDirs={setAiAddDirs}
-          aiAllowAll={aiAllowAll}
-          setAiAllowAll={setAiAllowAll}
-        />
+        <WorkDirsSection aiAddDirs={aiAddDirs} setAiAddDirs={setAiAddDirs} />
 
         <GitSection
           gitAutoPush={gitAutoPush}

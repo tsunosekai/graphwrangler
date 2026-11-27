@@ -125,10 +125,6 @@ export interface Node {
   color?: string | null;
   /** 棚用: 中の AI の追加の作業場所（3.24）。未設定なら全体の設定に従う。空配列＝ワークスペースの中だけ */
   aiDirs?: string[] | null;
-  /** 棚用: 中の AI に追加で許可するツール（3.24）。未設定なら全体の設定に従う */
-  aiTools?: string[] | null;
-  /** 棚用: 中の実行AIにブラウザ（Claude in Chrome の拡張）を操作させる（3.24b）。true のときだけ */
-  aiBrowser?: boolean | null;
   /** kind=wait 用の待ち方（"after 8d 09:00" / "until monthly day 9 09:00" 等。3.17）。
    *  古いサーバは返さないので省略可 */
   wait?: string | null;
