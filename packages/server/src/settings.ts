@@ -56,6 +56,11 @@ export const AiSettingsSchema = z.object({
    *  cwd=ワークスペースルート配下に閉じるため、外のパスはここに列挙して開放する。
    *  Bash には元々パス制限が無いので、これは檻ではなくファイルツールの作業範囲の話 */
   addDirs: z.array(z.string()).default([]),
+  /** true = 三役とも全ツールを確認なしで使わせる（claude -p に --permission-mode bypassPermissions）。
+   *  既定の許可リスト（DEFAULT_CLI_TOOLS / ALLOWED_TOOLS + cliExtraTools）に無いツールを呼ぶたびに
+   *  「未許可」で止まり、設定に足す手間をなくすため（2026-11-27 本人要望「全部許可にできない？」）。
+   *  歯止めはグラフ側の実行前承認・試走と手順書の決まりで担う。既定OFF */
+  allowAllTools: z.boolean().default(false),
 });
 
 /** ワークスペースの自動 commit/push（gitsync.ts。ワークスペースモードのみ意味を持つ）。
@@ -253,6 +258,7 @@ export class SettingsStore {
       },
       ai: {
         addDirs: this.cache.ai.addDirs,
+        allowAllTools: this.cache.ai.allowAllTools,
       },
       git: {
         autoPush: this.cache.git.autoPush,

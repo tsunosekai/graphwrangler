@@ -26,6 +26,7 @@ import {
   DEFAULT_CLI_TOOLS,
   explainClaudeCliFailure,
   killTree,
+  PERMISSION_ALL_ARGS,
   sanitizeModelOverride,
   sanitizedClaudeEnv,
 } from "./chat_cli.js";
@@ -197,6 +198,8 @@ export function runPlainClaude(
   signal?: AbortSignal,
   /** --effort（思考の深さ）。null = CLI 既定（2026-08-07 モデル/エフォート切替） */
   effort: string | null = null,
+  /** 設定 ai.allowAllTools。true なら全ツールを確認なしで許可する（2026-11-27） */
+  allowAll = false,
 ): Promise<PlainCliResult> {
   return new Promise((resolve) => {
     // chat_cli.ts と同じフルセットを許可（2026-08-03 権限拡張。それまでは読み取り専用だった）。
@@ -215,6 +218,7 @@ export function runPlainClaude(
         .filter((d) => !d.startsWith("-"))
         // Windows は shell:true で起動するので、空白を含むパスが割れないよう引用符で包む（chat_cli.ts と同じ）
         .flatMap((d) => ["--add-dir", process.platform === "win32" ? `"${d.replace(/"/g, '\\"')}"` : d]),
+      ...(allowAll ? PERMISSION_ALL_ARGS : []),
     ];
     const isWindows = process.platform === "win32";
     let child: ChildProcess;
@@ -424,6 +428,7 @@ async function respondInThread(
       addDirs,
       signal,
       effort,
+      settings.get().ai.allowAllTools,
     );
     if (result.cancelled) return; // 人間が止めた（失敗ではないのでスレッドには書かない）
     if (!result.success) {

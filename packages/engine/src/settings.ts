@@ -69,9 +69,10 @@ export async function refreshEngineConfig(force = false): Promise<void> {
       extraArgs: Array.isArray(settings.engine.extraArgs) ? settings.engine.extraArgs : [],
       extraTools: Array.isArray(settings.engine.cliExtraTools) ? settings.engine.cliExtraTools : [],
       addDirs: Array.isArray(settings.ai?.addDirs) ? settings.ai.addDirs : [],
+      allowAll: settings.ai?.allowAllTools === true,
     };
     log(
-      `エンジン設定を反映: mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)} extraTools=${JSON.stringify(engineConfig.extraTools)} addDirs=${JSON.stringify(engineConfig.addDirs)}`,
+      `エンジン設定を反映: mode=${engineMode} cliPath=${engineConfig.cliPath} model=${engineConfig.model} extraArgs=${JSON.stringify(engineConfig.extraArgs)} extraTools=${JSON.stringify(engineConfig.extraTools)} addDirs=${JSON.stringify(engineConfig.addDirs)} allowAll=${engineConfig.allowAll === true}`,
     );
   } catch (err) {
     log(`設定取得に失敗（前回値のまま継続、次tickで再試行）: ${String(err)}`);

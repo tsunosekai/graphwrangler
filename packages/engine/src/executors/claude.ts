@@ -130,7 +130,12 @@ export interface ClaudeExecutorConfig {
   /** ブラウザ（Claude in Chrome の拡張）を操作させる（フォルダの設定 aiBrowser。3.24b）。
    *  true のときだけ、拡張への接続を有効にして mcp__claude-in-chrome のツールを許可する */
   browser?: boolean;
+  /** 全ツールを確認なしで許可する（設定 ai.allowAllTools。server chat_cli.ts PERMISSION_ALL_ARGS と同じ） */
+  allowAll?: boolean;
 }
+
+/** allowAll のとき claude -p に足す引数 */
+export const PERMISSION_ALL_ARGS = ["--permission-mode", "bypassPermissions"];
 
 /** ブラウザ操作を許可するときに足すツール（Claude in Chrome の MCP サーバ全体） */
 export const BROWSER_TOOLS = ["mcp__claude-in-chrome"];
@@ -324,6 +329,7 @@ export function runClaude(
       ...(config.browser ? BROWSER_TOOLS : []),
       // Windows は shell:true で起動するので、空白を含むパスが割れないよう引用符で包む
       ...sanitizeAddDirs(config.addDirs).flatMap((d) => ["--add-dir", q(d)]),
+      ...(config.allowAll ? PERMISSION_ALL_ARGS : []),
       // 内訳（サブステップ）を復元するため、1行1JSONの詳細ログで出させる（stream_trace.ts）
       "--output-format",
       "stream-json",

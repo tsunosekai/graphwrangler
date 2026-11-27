@@ -49,6 +49,9 @@ export function sanitizeEffortOverride(v: unknown): string | null {
   return typeof v === "string" && (CLI_EFFORT_LEVELS as readonly string[]).includes(v) ? v : null;
 }
 
+/** 設定 ai.allowAllTools のとき claude -p に足す引数（三役共通。engine/executors/claude.ts と同じ値） */
+export const PERMISSION_ALL_ARGS = ["--permission-mode", "bypassPermissions"];
+
 export const DEFAULT_CLI_TOOLS = [
   "Read",
   "Grep",
@@ -412,6 +415,8 @@ function runCli(
   signal?: AbortSignal,
   /** --effort（思考の深さ）。null = 指定しない（CLI 既定。2026-08-07） */
   effort: string | null = null,
+  /** 設定 ai.allowAllTools。true なら全ツールを確認なしで許可する */
+  allowAll = false,
 ): Promise<void> {
   return new Promise((resolve) => {
     // 切断済み controller への enqueue はサーバを落とすので必ず握りつぶす（emitStreamJsonLine と同じ理由）
@@ -480,7 +485,8 @@ function runCli(
       "stream-json",
       "--include-partial-messages",
       "--verbose",
-      // --dangerously-skip-permissions は使わない（MCPツールは --allowedTools で許可済み）
+      // 既定は --allowedTools の列挙だけ。設定 ai.allowAllTools を入れたときだけ全ツールを許可する
+      ...(allowAll ? PERMISSION_ALL_ARGS : []),
     ];
 
     // Windows では claude が .cmd シム（cmd.exe 経由でないと直接起動できない）のため、
@@ -581,7 +587,7 @@ export function handleChatCli(
 ): Response {
   const pageId = body.pageId ?? null;
   const { cliPath, cliModel, cliEffort, cliExtraTools } = settings.get().chat;
-  const { addDirs: settingsAddDirs } = settings.get().ai;
+  const { addDirs: settingsAddDirs, allowAllTools } = settings.get().ai;
   // フォルダごとの AI 設定（3.24）: 表示中のページが入っているフォルダの設定を当てる。
   // ページを開いていない全体チャットは全体の設定のまま
   const scope = aiScopeFor(graph, pageId);
@@ -633,6 +639,7 @@ export function handleChatCli(
         addDirs,
         stopper.signal,
         effort,
+        allowAllTools,
       ).catch((err) => {
         try {
           controller.enqueue(

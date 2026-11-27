@@ -59,6 +59,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
     settings.engine.cliExtraTools.join(" "),
   );
   const [aiAddDirs, setAiAddDirs] = useState(settings.ai.addDirs.join(" "));
+  const [aiAllowAll, setAiAllowAll] = useState(settings.ai.allowAllTools === true);
   const [engineApiModel, setEngineApiModel] = useState(settings.engine.apiModel ?? "");
 
   const [gitAutoPush, setGitAutoPush] = useState(settings.git.autoPush);
@@ -249,6 +250,7 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
         },
         ai: {
           addDirs: aiAddDirs.trim() ? aiAddDirs.trim().split(/\s+/) : [],
+          allowAllTools: aiAllowAll,
         },
         git: {
           autoPush: gitAutoPush,
@@ -379,7 +381,12 @@ export function SetupModal({ settings, forced, onSaved, onSkip, onClose }: Props
           setEngineApiModel={setEngineApiModel}
         />
 
-        <WorkDirsSection aiAddDirs={aiAddDirs} setAiAddDirs={setAiAddDirs} />
+        <WorkDirsSection
+          aiAddDirs={aiAddDirs}
+          setAiAddDirs={setAiAddDirs}
+          aiAllowAll={aiAllowAll}
+          setAiAllowAll={setAiAllowAll}
+        />
 
         <GitSection
           gitAutoPush={gitAutoPush}

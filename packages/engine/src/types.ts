@@ -68,4 +68,6 @@ export interface EngineSettings {
 export interface AiSettings {
   /** claude -p の --add-dir に渡す追加作業ディレクトリ */
   addDirs: string[];
+  /** 全ツールを確認なしで許可する（旧サーバは返さないので optional。2026-11-27） */
+  allowAllTools?: boolean;
 }

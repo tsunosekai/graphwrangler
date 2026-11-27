@@ -126,6 +126,8 @@ export interface SettingsView {
   ai: {
     /** claude -p の --add-dir に渡す追加作業ディレクトリ（ワークスペースルート外の開放） */
     addDirs: string[];
+    /** true = 三役とも全ツールを確認なしで使わせる */
+    allowAllTools: boolean;
   };
   /** ワークスペースの自動 commit/push（ワークスペースモードのみ意味を持つ。既定OFF） */
   git: {
@@ -214,7 +216,7 @@ export interface SettingsPatch {
     cliExtraTools?: string[];
     apiModel?: string | null;
   };
-  ai?: { addDirs?: string[] };
+  ai?: { addDirs?: string[]; allowAllTools?: boolean };
   git?: { autoPush?: boolean; intervalSec?: number; extraPaths?: string[] };
   update?: { autoCheck?: boolean; autoApply?: boolean; intervalMin?: number };
   /** discordWebhookUrl / discordBotToken は apiKey と同じ書き込み専用3値
