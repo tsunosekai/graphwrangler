@@ -101,7 +101,8 @@ describe("buildPrepPrompt（前準備のプロンプト）", () => {
   it("手順書の書き方の指定を既定の型より優先させ、既定でも短くさせる", () => {
     const p = buildPrepPrompt({ node: human, goal: null, upstream: [], threadContext: [], runContext: {} });
     expect(p).toContain("手順書に前準備の書き方");
-    expect(p).toContain("ここに書いた型より優先する");
+    expect(p).toContain("上に書いた型より優先する");
+    expect(p.lastIndexOf("手順書に前準備の書き方")).toBeGreaterThan(p.indexOf("## 返し方"));
     expect(p).toContain("表は使わない");
   });
 });
