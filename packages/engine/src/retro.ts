@@ -26,6 +26,7 @@ import { createHash } from "node:crypto";
 import { TOOL_PERMISSION_LINES, runIdOf } from "@graphwrangler/core";
 import {
   ApiError,
+  getRun,
   getThread,
   listAllRuns,
   openRequest,
@@ -301,7 +302,7 @@ export interface RetroPromptInput {
   goal: Node;
   /** ページのテンプレートノード（ページ自身は含めない） */
   members: Node[];
-  run: Pick<Run, "id" | "title" | "status" | "items" | "context">;
+  run: Pick<Run, "id" | "title" | "status" | "items" | "context"> & { snapshot?: Run["snapshot"] };
   traceLines: string[];
   omitted: number;
 }
@@ -314,6 +315,26 @@ const ITEM_STATUS_LABEL: Record<string, string> = {
   dropped: "中止",
   skipped: "飛ばした",
 };
+
+type SnapNode = NonNullable<Run["snapshot"]>["nodes"][number];
+
+/** ランの時点の手順と今の手順が違うか（手順に効く項目だけを比べる） */
+export function changedSinceRun(now: Node, then: SnapNode): boolean {
+  const pick = (n: Pick<Node, "kind" | "detail" | "impl" | "parents" | "wait" | "branches" | "parentOptions">) =>
+    JSON.stringify([n.kind, n.detail ?? null, n.impl ?? null, [...n.parents].sort(), n.wait ?? null, n.branches ?? null, n.parentOptions ?? {}]);
+  return pick(now) !== pick(then);
+}
+
+/** 当時の手順の要約（今と違うノードだけに付ける）。長い手順書は頭だけ */
+function thenBlock(then: SnapNode): string[] {
+  const lines = [`- **このランの時点の手順は今と違う**（ランの後に直されている）。ランの時点では: 種類 ${then.kind}`];
+  if (then.detail?.trim()) lines.push(`  - 補足: ${truncate(then.detail.trim(), 800)}`);
+  if (then.impl?.type === "doc" && then.impl.text) lines.push(`  - 手順書: ${truncate(then.impl.text.trim(), 1500)}`);
+  if (then.impl?.type === "script") lines.push(`  - スクリプト: ${then.impl.command}`);
+  if (then.wait) lines.push(`  - 待ち方: ${then.wait}`);
+  if (then.branches) lines.push(`  - 分岐: ${then.branches.map((b) => `${b.id}=${b.label}`).join(" / ")}`);
+  return lines;
+}
 
 function memberBlock(n: Node, run: RetroPromptInput["run"]): string[] {
   const field = editableField(n);
@@ -345,6 +366,13 @@ function memberBlock(n: Node, run: RetroPromptInput["run"]): string[] {
   }
   if (n.schedule) lines.push(`- 起動方式: ${n.schedule}`);
   if (n.wait) lines.push(`- 待ち方: ${n.wait}`);
+  // ランの後に手順が直っていることがある（例: 2026-11-27、分岐を足す前のランを、足した後の手順と
+  // 見比べて「分岐の仕組みが壊れている」と誤って読んだ）。当時の手順を並べて見分けさせる
+  if (run.snapshot) {
+    const then = run.snapshot.nodes.find((s) => s.id === n.id);
+    if (!then) lines.push("- このノードはランの後に足された（ランの時点には無かった）");
+    else if (changedSinceRun(n, then)) lines.push(...thenBlock(then));
+  }
   return lines;
 }
 
@@ -375,6 +403,9 @@ export function buildRetroPrompt(input: RetroPromptInput): string {
     "- 「直せる欄」が「なし」のノードは出さない（必要なら summary に書く）",
     "- 直す欄は、各ノードの「直せる欄」に書いたものを使う（impl.text = 手順書 / detail = 補足）",
     "- 直すところが無ければ changes は空でよい",
+    "- 各ノードに「このランの時点の手順は今と違う」とあれば、ランの後にすでに直されている。" +
+      "記録の問題が今の手順で防げるなら案は出さず、summary に「ランの後に直し済み」と書く。" +
+      "今の手順とランの記録を突き合わせて、起きていないことを起きたと読まない",
     "",
     "## ゴール（このページ）",
     goal.title,
@@ -795,7 +826,14 @@ async function runRetro(run: Run, page: Node, nodes: Node[]): Promise<void> {
     .filter((n) => n.group === page.id)
     .sort((a, b) => a.created.localeCompare(b.created));
   const { lines, omitted } = selectTraceLines(await collectTrace(run, nodes));
-  const prompt = buildRetroPrompt({ goal: page, members, run, traceLines: lines, omitted });
+  // 一覧（summary）のランには作成時点の構成が無いので、1件取り直して当時の手順と比べられるようにする
+  let snapshot: Run["snapshot"];
+  try {
+    snapshot = (await getRun(run.id)).snapshot;
+  } catch (err) {
+    log(`振り返り: ランの控えの取得に失敗（今の手順だけで続行）: run=${run.id} ${String(err)}`);
+  }
+  const prompt = buildRetroPrompt({ goal: page, members, run: { ...run, snapshot }, traceLines: lines, omitted });
   log(`振り返り開始: run=${run.id} page=${page.id} title=${run.title} 記録=${lines.length}件 省略=${omitted}件`);
   const result = await runAiExecutor(prompt, page);
   if (!result.success) {

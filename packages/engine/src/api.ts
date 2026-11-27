@@ -141,6 +141,11 @@ export async function listPageRuns(pageId: string): Promise<Run[]> {
   return res.runs;
 }
 
+/** ラン1件（作成時点のページ構成 snapshot を含む。振り返りが「当時の手順」と比べるのに使う） */
+export async function getRun(runId: string): Promise<Run> {
+  return (await request("GET", `/api/runs/${encodeURIComponent(runId)}`)) as Run;
+}
+
 /** 全ページのラン一覧を1リクエストで（GET /api/runs/summary。ページid → ラン配列、新しい順）。
  *  ラン作成時のスナップショットは落とされている。振り返り（retro.ts）がランの終わりを周ごとに
  *  拾うのに使う（ページ数ぶん listPageRuns を叩くより軽い） */

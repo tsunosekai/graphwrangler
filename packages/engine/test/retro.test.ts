@@ -5,6 +5,7 @@ import {
   buildProposalBody,
   buildRetroPrompt,
   buildRetroRequest,
+  changedSinceRun,
   deriveRetroPhase,
   detectRunEndings,
   editableField,
@@ -324,6 +325,30 @@ describe("buildRetroPrompt", () => {
     expect(prompt).toContain("ほかに 3 件");
     expect(prompt).toContain("書き換えない");
     expect(prompt).toContain("```json");
+  });
+
+  it("ランの後に手順が変わったノードには当時の手順を添え、後から足したノードはそう書く", () => {
+    const goal = node({ id: "page", kind: "goal", group: null, title: "生成" });
+    const start = node({ id: "start", title: "生成を始める", kind: "decision", executor: "script",
+      impl: { type: "script", command: "start.sh" }, branches: [{ id: "started", label: "始めた" }, { id: "none", label: "対象なし" }] });
+    const added = node({ id: "added", title: "新しい確認" });
+    const same = node({ id: "same", title: "変わらない", impl: { type: "doc", text: "そのまま" } });
+    const snapNode = (n: Node, patch: Partial<Node> = {}) => {
+      const { id, title, detail, impl, parents, group, kind, executor, approval, autonomy, aiModel, aiEffort,
+        lifecycle, status, fixed, schedule, catchUp, prep, wait, branches, outputs, parentOptions, assignee } = { ...n, ...patch };
+      return { id, title, detail, impl, parents, group, kind, executor, approval, autonomy, aiModel, aiEffort,
+        lifecycle, status, fixed, schedule, catchUp, prep, wait, branches, outputs, parentOptions, assignee };
+    };
+    const snapshot = { capturedAt: "2026-11-27T05:19:00Z", nodes: [snapNode(start, { kind: "task", branches: null }), snapNode(same)] };
+    expect(changedSinceRun(start, snapshot.nodes[0])).toBe(true);
+    expect(changedSinceRun(same, snapshot.nodes[1])).toBe(false);
+    const prompt = buildRetroPrompt({ goal, members: [start, added, same], run: { ...run(), snapshot }, traceLines: [], omitted: 0 });
+    expect(prompt).toContain("このランの時点の手順は今と違う");
+    expect(prompt).toContain("ランの時点では: 種類 task");
+    expect(prompt).toContain("このノードはランの後に足された");
+    expect(prompt).toContain("ランの後に直し済み");
+    // 決まりの文で1回 + 変わったノード（start）で1回。変わらないノード（same）には付かない
+    expect(prompt.match(/このランの時点の手順は今と違う/g)?.length).toBe(2);
   });
 });
 
