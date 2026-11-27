@@ -23,6 +23,9 @@ export function defaultConfig(home = os.homedir()) {
     remoteAccess: true,
     /** ログイン時に起動する（常駐） */
     openAtLogin: true,
+    /** ログイン時の起動でも窓を開く。false ならトレイに隠れて起動する（2026-11-27 本人指摘
+     *  「PC 起動時に GW が自動起動しない」——実際は起動していたが、窓が出ず起動していないように見えた） */
+    showOnLogin: true,
   };
 }
 
@@ -36,6 +39,7 @@ export function normalizeConfig(raw, home = os.homedir()) {
     port: Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : base.port,
     remoteAccess: typeof raw.remoteAccess === "boolean" ? raw.remoteAccess : base.remoteAccess,
     openAtLogin: typeof raw.openAtLogin === "boolean" ? raw.openAtLogin : base.openAtLogin,
+    showOnLogin: typeof raw.showOnLogin === "boolean" ? raw.showOnLogin : base.showOnLogin,
   };
 }
 

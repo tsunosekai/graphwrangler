@@ -48,6 +48,19 @@ let quitting = false;
 /** name → { child, failures, timer, startedAt } */
 const procs = new Map();
 
+/** 殻（このプロセス）自身の記録。いつ・どう起動したか、子の起動と終了、ログが書けなかったこと
+ *  （2026-11-27: ログイン時の起動で server/engine のログが1行も残らず、エンジンが止まった理由を
+ *  追えなかった）。書けなくても動作は止めない */
+function desktopLog(line) {
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(path.join(logDir, "desktop.log"), `[${new Date().toISOString()}] ${line}
+`);
+  } catch {
+    // 記録できなくても続ける
+  }
+}
+
 function logStream(name) {
   fs.mkdirSync(logDir, { recursive: true });
   const file = path.join(logDir, `${name}.log`);
@@ -57,7 +70,10 @@ function logStream(name) {
   } catch {
     // まだ無い
   }
-  return fs.createWriteStream(file, { flags: "a" });
+  const stream = fs.createWriteStream(file, { flags: "a" });
+  // 開けない・書けないときに 'error' を放置すると殻ごと落ちうる。記録して握る
+  stream.on("error", (err) => desktopLog(`${name}.log に書けません: ${String(err)}`));
+  return stream;
 }
 
 function childSpec(name) {
@@ -87,7 +103,10 @@ function startChild(name) {
   child.stderr.pipe(out, { end: false });
   state.child = child;
   state.startedAt = Date.now();
+  desktopLog(`${name} を起動 pid=${child.pid}`);
+  child.on("error", (err) => desktopLog(`${name} を起動できません: ${String(err)}`));
   child.on("exit", (code) => {
+    desktopLog(`${name} が終了 code=${code}`);
     out.end(`---- ${new Date().toISOString()} ${name} 終了 code=${code} ----\n`);
     if (state.child !== child) return; // 意図した再起動で既に次が上がっている
     state.child = null;
@@ -342,6 +361,12 @@ function refreshTray() {
           applyLoginItem();
         },
       },
+      {
+        label: "ログイン時に窓を開く",
+        type: "checkbox",
+        checked: config.showOnLogin,
+        click: (item) => updateConfig({ showOnLogin: item.checked }),
+      },
       { label: `ワークスペース: ${config.workspace}`, enabled: false },
       { label: "ワークスペースのフォルダを開く", click: () => void shell.openPath(config.workspace) },
       {
@@ -426,6 +451,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
+    desktopLog(`---- 起動 pid=${process.pid} argv=${JSON.stringify(process.argv.slice(1))} ----`);
     saveConfig(configFile, config); // 初回起動で既定値を書き出す（手で直せるように）
     applyLoginItem();
     ensureStartMenuShortcut();
@@ -454,7 +480,9 @@ if (!app.requestSingleInstanceLock()) {
         `サーバが起動しませんでした。ログを確認してください:\n${path.join(logDir, "server.log")}`,
       );
     }
-    createWindow(!startHidden);
+    desktopLog(`起動完了 hidden=${startHidden} showOnLogin=${config.showOnLogin} port=${port} server=${ok ? "ok" : "応答なし"}`);
+    // ログイン時の起動（--hidden）でも、設定が ON なら窓を開く
+    createWindow(!startHidden || config.showOnLogin);
     // Tailscale は後から繋がることがある。メニューの URL 表示を追随させる
     setInterval(refreshTray, 60_000).unref();
   });

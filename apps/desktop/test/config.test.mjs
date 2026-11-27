@@ -16,6 +16,7 @@ test("既定: 空のワークスペース・スマホ公開オン・ログイン
   assert.equal(c.workspace, path.join(HOME, "GraphWrangler"));
   assert.equal(c.remoteAccess, true);
   assert.equal(c.openAtLogin, true);
+  assert.equal(c.showOnLogin, true);
 });
 
 test("壊れた値は既定へ戻し、正しい値は残す", () => {
@@ -24,6 +25,8 @@ test("壊れた値は既定へ戻し、正しい値は残す", () => {
   assert.equal(c.port, 8770);
   assert.equal(c.remoteAccess, true);
   assert.equal(c.openAtLogin, false);
+  assert.equal(c.showOnLogin, true);
+  assert.equal(normalizeConfig({ showOnLogin: false }, HOME).showOnLogin, false);
   assert.deepEqual(normalizeConfig(null, HOME), defaultConfig(HOME));
 });
 
