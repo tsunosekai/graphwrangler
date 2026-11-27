@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrepPrompt, selectProjectPrep, upstreamProducers } from "../src/prep.js";
+import { buildPrepPrompt, hasOwnPrepFormat, selectProjectPrep, upstreamProducers } from "../src/prep.js";
 import type { Node } from "../src/types.js";
 
 let nodeSeq = 0;
@@ -98,12 +98,21 @@ describe("buildPrepPrompt（前準備のプロンプト）", () => {
     expect(p).toContain("質問して止まること");
   });
 
-  it("手順書の書き方の指定を既定の型より優先させ、既定でも短くさせる", () => {
+  it("手順書に「前準備」の節があれば既定の型を渡さず、その節に従わせる", () => {
+    const own = { ...human, impl: { type: "doc" as const, text: "手順\n\n## 前準備\n12 行まで。注意は書かない" } };
+    const p = buildPrepPrompt({ node: own, goal: null, upstream: [], threadContext: [], runContext: {} });
+    expect(p).toContain("手順書の「前準備」の節だけに従う");
+    expect(p).not.toContain("「注意」");
+    expect(p).not.toContain("1. 一行の要約");
+    expect(p).toContain("送信・支払い・提出・公開・削除");
+    expect(hasOwnPrepFormat(own)).toBe(true);
+  });
+
+  it("前準備の節が無ければ既定の型で、短くさせる", () => {
     const p = buildPrepPrompt({ node: human, goal: null, upstream: [], threadContext: [], runContext: {} });
-    expect(p).toContain("手順書に前準備の書き方");
-    expect(p).toContain("上に書いた型より優先する");
-    expect(p.lastIndexOf("手順書に前準備の書き方")).toBeGreaterThan(p.indexOf("## 返し方"));
+    expect(p).toContain("1. 一行の要約");
     expect(p).toContain("表は使わない");
+    expect(hasOwnPrepFormat(human)).toBe(false);
   });
 });
 
